@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242143743",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone want a bulk bag of worm castings? $18 for 20L, or two for $30. I’m in the Northside community garden and can drop off nearby. Just selling this batch, no swaps sorry."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

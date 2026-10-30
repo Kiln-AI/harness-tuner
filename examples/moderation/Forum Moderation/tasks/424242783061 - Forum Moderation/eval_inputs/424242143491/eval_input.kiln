@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242143491",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "if anyones ordering chilli seeds this month pls use my code MEGGROWS15 at pepperpatch.example.com, I get a few quid back and you save 15%. win win for both of us!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

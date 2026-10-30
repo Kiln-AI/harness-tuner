@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242994775",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling aged compost, $5 per bag. I have about 20 bags available. Call 555-321-7890 to arrange pickup. It's great for vegetable gardens. Located in the north side of town. 🚜"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242158689",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "First real tomato harvest!! 🍅 Only 4 ripe ones but I'm stupidly proud. The cherries split after that rain, so I picked them early and made a tiny batch of sauce. It was more like tomato paste with ambitions lol. Next year I'll stake them better, maybe."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

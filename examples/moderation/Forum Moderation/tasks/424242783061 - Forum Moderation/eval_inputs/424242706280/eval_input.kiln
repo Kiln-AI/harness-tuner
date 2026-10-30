@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242706280",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Your tomato photo is disgusting lol. @PetalPam you really are useless at this, aren't you? Even my compost looks better and it's rotting."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

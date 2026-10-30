@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242848129",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey all, I'm finally putting up a new shed at the bottom of my garden. It's 8x6 and I'm wondering what base to use - concrete or those plastic grids? I'm in the UK so it rains a lot lol. Any advice appreciated! 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

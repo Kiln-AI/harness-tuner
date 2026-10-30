@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242965791",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling fresh duck eggs from our garden flock, $6 a dozen, and honey from our hives $9 a jar. Pickup in Westbrook on Sundays, cash or bank transfer. Message me for the full list."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

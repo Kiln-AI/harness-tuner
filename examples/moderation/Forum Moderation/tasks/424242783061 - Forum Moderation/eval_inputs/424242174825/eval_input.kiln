@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242174825",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Spider plant babies up for grabs! My big one has gone absolutely mental this spring and I've got 12 little rooted plantlets in jars on the kitchen bench. No charge, no catch, I just can't bring myself to bin them. Pickup from the northern beaches if you're local, otherwise I can post a couple out."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

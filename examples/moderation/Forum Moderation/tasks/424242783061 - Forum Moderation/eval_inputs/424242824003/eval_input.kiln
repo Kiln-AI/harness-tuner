@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242824003",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've been using the copper snail tape from Fernhill Garden Supplies for two seasons now and it's honestly the only thing that's worked for me. Here's the product page if anyone wants to take a look: www.fernhillgardensupplies.example.com/copper-tape — no affiliation, just a happy customer!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

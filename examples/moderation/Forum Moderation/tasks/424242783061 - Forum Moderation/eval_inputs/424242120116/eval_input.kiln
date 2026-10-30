@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242120116",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey all, I’ve got a tray of healthy cherry tomato starts ready to go, $4 each or 6 for $20. I can meet at the Saturday market in Rivertown, cash only pls. DM me if interested 🍅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

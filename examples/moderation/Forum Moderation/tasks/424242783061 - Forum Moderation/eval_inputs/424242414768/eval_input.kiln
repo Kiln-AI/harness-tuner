@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242414768",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "ok so my lawn has these brown crispy patches near the driveway and I swear I water it the same as the rest?? anyone know if it's grubs or just the heat. thinking of overseeding in sept but not sure"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

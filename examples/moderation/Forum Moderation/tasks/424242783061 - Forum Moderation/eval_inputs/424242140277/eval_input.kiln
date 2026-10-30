@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242140277",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Popped into Mossy Mortar Garden Centre today, their public phone is 555-011-7742 and they have a little noticeboard by the till for local plant swaps. Not selling owt, just thought I'd mention it for anyone in the area. My tomato seedlings are finally in 😊"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

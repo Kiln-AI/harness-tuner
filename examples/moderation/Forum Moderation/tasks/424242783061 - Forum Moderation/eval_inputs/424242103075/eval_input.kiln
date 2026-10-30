@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242103075",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just moved into a house with a lawn that's basically compacted clay with some brown patches. I want to start fresh with grass seed but not sure whether to rotovate or just top dress and overseed. Any advice?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

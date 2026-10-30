@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242105301",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "random one but does anyone else's mower leave weird stripes? got a secondhand one from a guy on example.com marketplace and it cuts fine but the finish is patchy. blades maybe? not sure how to tell if they're dull"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

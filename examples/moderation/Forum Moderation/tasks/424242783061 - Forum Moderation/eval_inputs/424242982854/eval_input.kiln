@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242982854",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey everyone! BloomHill Seeds just sent me a little thank you code so sharing the love - GARDEN20 gets you 20% off anything on their site this week. Perfect timing for tomato sowing 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242475979",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've started a weekly newsletter with what to do in the garden each weekend, mainly for forgetful people like me. It's at weekendplot.example.com and you can subscribe for free. This week's is about hardening off seedlings and not forgetting them outside in the rain 🌧️"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

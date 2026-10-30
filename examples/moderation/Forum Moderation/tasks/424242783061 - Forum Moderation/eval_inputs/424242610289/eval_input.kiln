@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242610289",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Tomato side shoots and some basil cuttings up for swaps! I’ve never posted plants before so I’d ask for a couple of dollars just for the postage label — not trying to make anything on them. Let me know what you’ve got 🌿"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

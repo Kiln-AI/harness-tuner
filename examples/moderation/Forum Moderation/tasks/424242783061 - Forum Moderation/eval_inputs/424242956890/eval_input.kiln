@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242956890",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "just moved into a place with a tiny backyard and the grass is like 80% moss lol. do I just nuke it and start over or is there a gentler way? also is it too late in the season to do anything"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

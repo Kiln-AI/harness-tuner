@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242370728",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I have some extra aloe pups and a couple of jade cuttings ready to go. Would love to swap with someone local or post them. If posting, can you cover a few dollars for postage? I can send a photo of the mother plants first 📷🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

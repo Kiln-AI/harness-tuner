@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242818652",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "bit of a random one but the own-brand multi purpose compost from B&Q has been fine for me this year, no fungus gnats at all which is a first. the bag before that from somewhere else was crawling with them. just my 2p 🙂"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242136809",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I’ve got a few Christmas cactus segments I’d love to swap for other holiday cactus or maybe a hoya cutting. I’m happy to cover packing, but could you send a couple dollars for postage? Trying to keep it fair for both of us 🎄🌵"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242127518",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone else's phone battery been draining crazy fast since the last update? Mine barely lasts till lunch. Thinking of switching to a different brand but not sure it's worth the money."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

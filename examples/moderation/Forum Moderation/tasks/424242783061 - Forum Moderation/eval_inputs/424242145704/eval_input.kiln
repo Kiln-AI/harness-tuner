@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242145704",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I recommend Root Rocket potting mix, it's brilliant for raised beds. I've got a discount code for 20% off: ROOT20, and you can use my refer-a-friend link at https://rootrocket.example.com/refer/abc123. It helps me get a free bag and you get the discount."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

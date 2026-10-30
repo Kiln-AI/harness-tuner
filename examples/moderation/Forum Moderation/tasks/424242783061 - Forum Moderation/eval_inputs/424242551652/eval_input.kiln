@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242551652",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "First spring in the new place and the previous owner left a shed full of lawn gear, including a half bag of weed and feed from about 2019. Is old stuff still any good or should I just bin it? Also what height is everyone mowing at this time of year, I've been guessing."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

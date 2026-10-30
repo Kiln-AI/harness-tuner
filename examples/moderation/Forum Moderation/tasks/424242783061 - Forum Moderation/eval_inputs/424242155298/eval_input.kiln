@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242155298",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Plant swap at my local allotment society this Sunday, totally free to come along. Bring any spare cuttings or seeds if you have them, but no pressure. There will be tea and a seed table. It's at the community hall on Mill Lane."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

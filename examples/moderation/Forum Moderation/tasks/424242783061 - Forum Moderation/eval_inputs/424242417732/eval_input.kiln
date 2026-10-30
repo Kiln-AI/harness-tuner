@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242417732",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just wanted to share that after years of fighting powdery mildew on my zucchini, the sulfur spray from Bloom & Root really did the trick. You can find it here: bloomandroot.example.com/sulfur-spray. Hope this helps someone else!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

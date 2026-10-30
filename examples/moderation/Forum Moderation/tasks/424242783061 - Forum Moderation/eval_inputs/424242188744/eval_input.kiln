@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242188744",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "We've got a big pile of old bricks from the chimney and I'd like to use them to pave a path down to the veg patch. Do I need to lay them on mortar or is sand enough? Not worried about it looking perfect, it's just a utility path."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

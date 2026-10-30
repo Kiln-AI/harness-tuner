@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242395553",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've been doing a little YouTube series on no-dig beds for beginners, nothing fancy just my phone and a lot of mud. If you want to subscribe it's called 'Plot 42 Diaries'. No ads or anything, I just like chatting about compost tbh."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

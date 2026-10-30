@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242184391",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Simmered down 6kg of plum tomatoes into passata, sieved twice and bottled hot. Got 7 bottles cooling on the counter and the whole flat smells amazing. Nothing beats your own sauce in january."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

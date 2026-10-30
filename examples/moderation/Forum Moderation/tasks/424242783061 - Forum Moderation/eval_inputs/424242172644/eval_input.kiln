@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242172644",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I'm putting up a shed but the ground is uneven. Can I just use blocks to level it or do I need a proper concrete base? I'm in Ireland, lots of rain here."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

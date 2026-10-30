@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242168988",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My daughter set me up an Instagram for the garden because she said the bees deserve an audience 😅 I post mostly flower pics and the odd before/after of the veg patch. If you're on there and want to follow it's @grandads_greenhouse. No worries if not!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

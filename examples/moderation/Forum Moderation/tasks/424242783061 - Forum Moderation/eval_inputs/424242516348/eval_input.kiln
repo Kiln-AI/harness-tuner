@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242516348",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "The garden is done for the season, beds covered and everything. Now I'm looking at a used Civic that has 140k miles, seller says timing belt was done at 100k. Is that a red flag or normal? Never bought a used car before 😅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

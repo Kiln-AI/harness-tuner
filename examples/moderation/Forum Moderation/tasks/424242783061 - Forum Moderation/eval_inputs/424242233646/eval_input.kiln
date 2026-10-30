@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242233646",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Overseeding question: I've scarified and aerated, now do I put the seed down before or after the autumn feed? And can I use a weed-and-feed at the same time or will that kill the new grass?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242124526",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Was out watering the tomatoes this morning and then somehow lost an hour scrolling through phone cases online. Why are they all so expensive? 🙃"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

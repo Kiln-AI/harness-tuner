@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242944306",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I started a TikTok for the allotment this spring, mostly quick clips of what's flowering and what the slugs have destroyed 😂 If that sounds like your cup of tea, give it a like or follow @muddybootsallotment. I'm not selling anything, just sharing the chaos."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

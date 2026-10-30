@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242689620",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Is it worth paying extra for coated grass seed? The plain stuff is half the price at the local nursery but the coated bag says it holds moisture better. For a small lawn, is it overkill?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

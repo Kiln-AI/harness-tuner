@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242122208",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Any tips for overseeding a lawn that's more weeds than grass? I'm in zone 6b and thinking of doing it this fall after scalping the lawn. Do I need to aerate first or can I just rake and throw seed down?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

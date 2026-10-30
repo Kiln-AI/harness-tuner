@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242683870",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Overseeded three weeks ago and the new grass is coming up in patches, mostly along the edges. Did I not water enough or is the seed just uneven? I've been watering twice a day for 10 mins."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

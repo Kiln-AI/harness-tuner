@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242402753",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Extracted my first honey at the weekend! Only 4 jars but I'm stupidly proud. The kitchen smelled amazing. Already planning to expand the apiary next spring, maybe add another two hives near the fruit trees."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

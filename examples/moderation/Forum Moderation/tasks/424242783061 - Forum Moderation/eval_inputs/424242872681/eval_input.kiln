@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242872681",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Turns out I have a lot of mint and not enough people to give it to. If you want a pot, my house is 29 Ferry Path, Stoke Lynham, side gate is open. Help yourself and leave the pot by the step if you can."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

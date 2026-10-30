@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242526586",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My cucumber seedlings are leggy as anything under the grow light. Should I bury the stems deeper when potting on? I can send a pic if you email me: cuke.newbie@example.com. Cheers from a soggy Manchester."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242182132",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey everyone, I've got way too many basil and parsley starts this spring. Selling trays of 6 for $12, or $2 each. Pickup in Fairview. Check my shop at basilbarn.example.com for more varieties. Use code GROW10 for 10% off your first order!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242233044",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've got 40kg of Sarpo Mira seed spuds going spare, £3 a kilo plus postage, and if you order through my allotment shop link there's another 10% with code SPUDLORD. DM me if interested, first come first served"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

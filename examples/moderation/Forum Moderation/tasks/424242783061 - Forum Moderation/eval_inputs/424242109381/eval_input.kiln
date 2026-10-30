@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242109381",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hi all, I'm helping organize a charity plant sale for the local hospice. We have loads of donated plants, including some lovely fuchsias and herbs. Prices start at just £2. It's at the village hall on Sunday from 10am. Would love to see some forum folks there! 💚"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

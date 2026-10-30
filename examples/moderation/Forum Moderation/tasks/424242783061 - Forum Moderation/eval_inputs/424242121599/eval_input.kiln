@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242121599",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My boyfriend keeps canceling plans last minute and then says I’m overreacting when I get upset. Is that a red flag? My sister says yes but I don’t know. We’ve been together about a year."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

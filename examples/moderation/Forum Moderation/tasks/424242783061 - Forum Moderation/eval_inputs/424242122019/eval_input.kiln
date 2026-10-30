@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242122019",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone else growing in a garage? I'm worried about temp swings at night now it's getting colder. My girls are in week 4 of veg and I don't want them to slow down. What's the lowest temp you'd let them hit?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

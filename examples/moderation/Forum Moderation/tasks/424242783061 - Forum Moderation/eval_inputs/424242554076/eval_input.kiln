@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242554076",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I got the Cozy Greenhouse Heater from Hearth & Hoe and it's a game changer for overwintering peppers. Use my code PEPPER10 at https://hearthhoe.example.com/heater?aff=pepperpal for 10% off, I earn a little commission at no extra cost to you."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242188036",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My kid installed some game on my phone and now it's full of ads. Every time I open the weather app a video starts playing. Is there a way to block them?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

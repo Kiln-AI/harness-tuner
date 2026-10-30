@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242634384",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling starter plants: tomato seedlings $3 each, pepper seedlings $2.50 each. Order 5 or more and get 10% off. Pickup only. 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

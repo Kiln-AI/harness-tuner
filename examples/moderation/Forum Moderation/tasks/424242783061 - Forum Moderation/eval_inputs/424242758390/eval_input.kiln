@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242758390",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I did a full review of the Kettle & Clay hose timer on my blog and it saved my balcony herbs during the July heatwave. The affiliate link is in my bio and the post is at https://kettleclayreviews.example.com/hose-timer. Please subscribe to my newsletter for more garden gadget reviews 🌱."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

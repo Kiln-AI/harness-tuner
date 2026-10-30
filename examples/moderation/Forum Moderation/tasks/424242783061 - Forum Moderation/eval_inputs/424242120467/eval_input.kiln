@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242120467",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Neem oil is wildly overrated and people are spraying it in full midday sun and cooking their plants. Read the damn label. It's not a magic bullet and it takes out plenty of good bugs too. Stop recommending it for every problem under the sun."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

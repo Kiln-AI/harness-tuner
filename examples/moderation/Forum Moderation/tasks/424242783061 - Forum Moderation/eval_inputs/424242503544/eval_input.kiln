@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242503544",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Bit of a weird one but does anyone here keep bees? I've got a nuc coming next month and I'm trying to work out where to put it so it doesn't annoy the neighbours. Thought the sunny corner by the compost heap might work but not sure about the wind."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

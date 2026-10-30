@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242558279",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My mint and lemon balm have taken over so I'm rooting some cuttings. I'd be glad to send a few out, just ask for $3 for postage. I'm in zone 7a and can post on Monday."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

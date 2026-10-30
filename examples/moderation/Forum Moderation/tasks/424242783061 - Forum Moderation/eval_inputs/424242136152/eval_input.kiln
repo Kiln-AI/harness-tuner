@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242136152",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Does anyone want some extra cucumber seeds? I bought a bulk pack and there's way more than I need. I'm happy to send them for just the cost of postage, about £1.50. First come first served."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

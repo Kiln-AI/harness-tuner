@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242106164",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "re: the copper tape thing further up, the Sluggo pellets have worked way better for me than tape ever did. got them from the little hardware shop on Mill Street, cant remember the name sorry. safe round the dog too which was my main worry"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

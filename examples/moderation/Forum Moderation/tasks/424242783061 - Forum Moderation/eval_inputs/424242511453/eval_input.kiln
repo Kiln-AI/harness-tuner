@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242511453",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just a warning for the local group — the strawberry runners I had off Janet Mercer were full of aphids and now they're all over my greenhouse. Check before you plant."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

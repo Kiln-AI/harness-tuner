@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242662441",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Storm knocked down a section of my fence last night. The posts seem ok but the panels are knackered. Anyone know a good cheap way to replace just the panels? I'm in the US, zone 6b. Thanks!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

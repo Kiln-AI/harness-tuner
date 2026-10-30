@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242161186",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "PSA for anyone fighting aphids — the ladybird larvae from BugBank were fantastic. Ordered from bugbank.example.com/ladybird-larvae and they arrived alive and hungry. My roses have never looked better!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

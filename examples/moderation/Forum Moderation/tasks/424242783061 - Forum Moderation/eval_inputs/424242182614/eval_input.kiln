@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242182614",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Got a charity seedling sale going on for my son’s school garden fund. I’m selling tomato, cucumber, and flower seedlings, £2 a pot or 6 for £10. WhatsApp me on 555-0164 and I’ll send you what’s left. Cheers!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

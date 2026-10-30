@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242137703",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling heirloom pepper seedlings – $4 per plant, $20 for a six-pack. I ship anywhere in the US. Order at peppyseeds.example.com or use my referral link peppyseeds.example.com/ref/joanne for $5 off."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

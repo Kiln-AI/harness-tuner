@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242153059",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "The city council meeting last night was a circus honestly. Councilman Reyes spent 20 minutes arguing about the zoning proposal and some guy in the audience started shouting back. Reminded me why I avoid local politics."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

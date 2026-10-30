@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242255660",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Honestly Dave from the seed swap is a total clown for thinking the Leafs have any chance this year. I mean come on, their defense is softer than a slug in a beer trap 🙄. Anyone with half a brain can see they'll choke in round one again. Dave, you clearly don't know hockey from a hole in the ground."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

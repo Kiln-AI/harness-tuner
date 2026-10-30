@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242907153",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Woke up to two inches of snow on the cold frame. In APRIL. What is this nonsense. Swearing at the sky like a madman at 7am. Also I'm the idiot who planted out early, so half of this rant is at myself. 🤡"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

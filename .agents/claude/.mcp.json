@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "kiln_api_mcp": {
+      "type": "stdio",
+      "command": "kiln_api_mcp",
+      "args": []
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242844925",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Pete's obsession with Formula 1 is tragic. Pete, you absolute melon, you've got the racing knowledge of a potato and the personality of a traffic cone. Stop posting lap times nobody asked for and go watch paint dry instead."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

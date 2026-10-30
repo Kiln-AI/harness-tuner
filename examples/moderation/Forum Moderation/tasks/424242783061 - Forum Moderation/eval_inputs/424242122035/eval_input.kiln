@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242122035",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I want to build a small shed for my gardening tools. I've never done anything like this before. Any good tutorials or kits you recommend? I'm in the UK. Also, do I need to anchor it down?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

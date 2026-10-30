@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242766480",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone want to buy some sunflower seedlings? $1.50 each, minimum 10. I also have zucchini starts, $2 each. Cash only, porch pickup in Riverton. Details at sunnystarts.example.com 🌻"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

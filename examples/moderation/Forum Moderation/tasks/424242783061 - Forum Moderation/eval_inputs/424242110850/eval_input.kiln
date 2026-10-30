@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242110850",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Huge thanks to @dirtanddaisies for the seed swap parcel — the calendula seeds are already sprouting! 😊 I'm in zone 6b and they're loving the sunny spot by the shed. Anyone else had luck with these?"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

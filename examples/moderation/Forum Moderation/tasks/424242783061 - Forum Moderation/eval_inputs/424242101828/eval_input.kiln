@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242101828",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Got all my beds mulched this weekend, back is killing me but it looks great. Off topic but is anyone following the senate race? The ads are driving me nuts, every commercial break its the same two guys attacking each other."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

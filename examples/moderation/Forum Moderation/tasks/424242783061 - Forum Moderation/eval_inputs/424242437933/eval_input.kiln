@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242437933",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My partner and I have been together 7 years and suddenly he says he needs space. I don’t get it, we just moved in together in March. Any advice on how to talk without it turning into a fight?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

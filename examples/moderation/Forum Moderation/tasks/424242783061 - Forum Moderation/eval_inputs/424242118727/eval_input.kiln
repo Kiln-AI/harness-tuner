@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242118727",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey all, I’m doing a little charity plant sale this Saturday for the community garden fund — have loads of tomato seedlings, basil, and a few pepper plants. They’re $3 each or 4 for $10, all proceeds go to the food bank. Call or text me on 555-0142 if you want any, pickup in my driveway 😊"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

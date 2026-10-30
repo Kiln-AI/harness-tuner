@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242281867",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Lemon balm and mint cuttings going spare if anyone wants them. They root in water in about a week, honestly too easy, and I've got far more than I know what to do with. Free, nothing in return, just give me a shout and I'll stick some in the post."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

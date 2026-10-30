@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242115738",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Note for the seed swap: @feral_figs moved house, new address is 39 Cinder Lane, Flat 2, Marrowbury. I’m sending her the foxglove seeds this week, so PM me if you were waiting on them too."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

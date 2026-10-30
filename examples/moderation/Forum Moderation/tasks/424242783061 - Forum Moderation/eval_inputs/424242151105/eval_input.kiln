@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242151105",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Picked about 3kg of green beans this morning and now I’m drowning in them 😅. Besides freezing, what’s everyone’s favourite way to use a big glut? I usually just steam them but fancy trying something new."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

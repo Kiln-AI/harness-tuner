@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242756474",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Checked the hive today and found the queen, felt like winning the lottery lol. The garden is full of borage and the bees are loving it. Do you lot plant extra flowers just for your bees or just let them get on with it?"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242797653",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just overseeded my front lawn with a tall fescue mix last weekend and now the forecast says three days of rain. Should I be worried about the seed washing away or is that actually ideal? I put down a thin layer of peat moss on the bare spots but ran out halfway."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

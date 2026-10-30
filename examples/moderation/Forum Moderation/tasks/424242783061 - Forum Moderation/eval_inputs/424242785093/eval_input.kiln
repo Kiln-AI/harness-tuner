@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242785093",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Free tool sharpening day at our community garden this saturday, 9 to 12. Bring your secateurs and hoes and one of the old boys will run them over the grinder, no charge, he just likes doing it. It's at the plot gate on Ashwell Road, tea and biscuits provided because obviously"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

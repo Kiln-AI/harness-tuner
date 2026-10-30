@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242621160",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "💀💀💀 that's all I have to say about your tomato 'pruning'"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

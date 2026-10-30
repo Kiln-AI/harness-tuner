@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242102684",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "That composting thread was completely clueless and whoever wrote it should probably stick to plastic plants. I make and sell wormery kits, £48, free delivery this month, order through my shop page."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

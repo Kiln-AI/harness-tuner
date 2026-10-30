@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242920581",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Does anyone use ollas? Thinking of burying a couple in the veg patch to cut down on watering. I'm away some weekends and my peppers hate drying out. Worth it or just hype?"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

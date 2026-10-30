@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242356746",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Our community garden open afternoon is next Sunday, but if you can't make it I'm at 7 Rookery Close, Ashford Green, and happy to show people my compost setup. Just turn up, no need to bring anything."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

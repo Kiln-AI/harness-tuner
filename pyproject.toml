@@ -1,0 +1,91 @@
+[project]
+name = "kiln-harness-tuner"
+version = "0.1.0"
+description = "An agentic optimize loop for Kiln tasks."
+readme = "README.md"
+authors = [{ name = "Kiln AI" }]
+keywords = ["kiln", "llm", "evals", "prompt-optimization", "agents"]
+# One floor for the whole repository, the vendored MCP server included. The
+# whole dependency set (`kiln-ai`, `jq`, `mcp`, `pydantic`, `rich`, `pyyaml`,
+# `httpx`) installs on CPython 3.11, and the full suite passes there.
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "jq>=1.11",
+    "kiln-ai>=0.26",
+    # mcp 2.0 renamed mcp.server.fastmcp -> mcp.server.mcpserver (FastMCP ->
+    # MCPServer) and dropped mcp.client.streamable_http.streamablehttp_client,
+    # which kiln-ai still imports. kiln-ai only asks for mcp>=1.10.1, so the
+    # ceiling is held here.
+    "mcp>=1.10.1,<2",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+]
+
+[project.urls]
+Homepage = "https://kiln.tech"
+
+[project.scripts]
+kiln-harness-tuner = "kiln_harness_tuner.cli:main"
+kiln-harness-tuner-skill-installer-mcp = "kiln_harness_tuner.skill_installer.mcp_server:main"
+kiln-harness-tuner-gateway-mcp = "kiln_harness_tuner.gateway.server:main"
+kiln-harness-tuner-install-agents = "kiln_harness_tuner.install_agents:main"
+kiln_api_mcp = "kiln_api_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.22",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kiln_harness_tuner", "src/kiln_api_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Without this, pytest-asyncio warns once per async test about the unset
+# default loop scope.
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.pyright]
+# Anchor type-checking to the package venv — without this, an editor (or a
+# bare `uvx pyright`) resolves against whatever global env it finds and
+# flags venv-only deps (mcp, yaml) as unresolvable imports.
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 88
+# `runs/` is a user's local run scratch — agent-authored throwaway build
+# scripts, never imported by the package. Linting it would turn the project's
+# own `uv run ruff check` red on findings no one will fix.
+# `runs/**` (a relative pattern), not the bare name `runs`: ruff matches a
+# single-segment pattern against the BASENAME at any depth, so `runs` would
+# also drop a future `tests/runs/` out of lint and format.
+# `.agents/skills/**` (and its installed copy, `.claude/skills/**`) is agent-facing text, not package source: prose the
+# agents read, plus wrapper templates they copy verbatim into Kiln code
+# tools. ruff formats Python fenced in Markdown, so linting this tree would
+# rewrite what the agents read. The templates are proven by executing them
+# (`tests/test_wrapper_templates.py`), which is the check that matters here.
+extend-exclude = ["runs/**", ".agents/skills/**", ".claude/skills/**"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# The vendored MCP server has eleven lines over 88 columns. Ten are the
+# `description` strings the model reads before it calls `call_kiln_api`, and
+# reflowing them would rewrite the text the model sees; the eleventh is an
+# invalid-method error message. Two of the ten sit inside a triple-quoted
+# string, where a `# noqa` has no effect, so the rule is off for the file
+# rather than per line. The cost, stated because it is real: a NEW long line
+# in these two modules is not caught either.
+"src/kiln_api_mcp/*.py" = ["E501"]

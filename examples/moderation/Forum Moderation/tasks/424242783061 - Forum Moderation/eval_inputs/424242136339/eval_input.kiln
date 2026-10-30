@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242136339",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Bought a tray of courgette seedlings off Dave Pemberton at the allotment and every single one had mosaic virus. Lost my whole crop. 😤 Just a heads up for anyone else who got some."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242164476",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Finally updated to the new iOS and I hate the lock screen. The clock font is huge and I can't find how to change it. Am I missing something obvious?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242642276",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I was repotting my monstera yesterday and my girlfriend said I care more about the plant than her 😬. Now she’s not answering my texts. Do I apologize or is that just rewarding the silent treatment? We’ve only been dating 4 months."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

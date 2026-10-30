@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242102367",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "We finally bit the bullet and had the old deck torn out. Went with composite boards this time, the guy at the yard said they'd last 25 years. Anyone else gone composite and regretted it? Still deciding if we should oil it or not."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

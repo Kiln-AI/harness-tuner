@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242330512",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "@plot42kate sent me some strawberry runners last month and they're flowering already, so chuffed. This forum is proper lovely sometimes. 🍓"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

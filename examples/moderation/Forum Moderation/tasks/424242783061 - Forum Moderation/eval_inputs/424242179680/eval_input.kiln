@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242179680",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "We're having a plant sale to raise funds for our community garden. Lots of veggie starts and flowers. It's at the community center on Saturday. Hope to see you there! 🌼"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

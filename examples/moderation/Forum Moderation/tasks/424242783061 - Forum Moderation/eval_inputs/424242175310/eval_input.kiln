@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242175310",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I saved WAY too many tomato seeds this year (San Marzano and Black Krim) and I've got about 40 little envelopes sitting on the windowsill doing nothing. Free to anyone who wants them, nothing needed in return, not even a stamp, I'll cover postage. Just DM me your details and I'll get them out this week 🙂 I'm in Aus so if you're overseas they might take a while."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

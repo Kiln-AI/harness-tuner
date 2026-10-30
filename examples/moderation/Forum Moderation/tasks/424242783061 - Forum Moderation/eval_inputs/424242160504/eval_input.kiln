@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242160504",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "lol ok 🙄 sure, your 'expert' pruning technique is why my roses look like sticks now. Good one."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

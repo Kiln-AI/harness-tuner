@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242780631",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Does anyone know a good way to stop slugs eating my hostas without hurting the frogs? I’ve tried beer traps but the dog keeps drinking them 🙄. Drop me an email at hostahelper@example.com if you want to see the setup. I’m in the Pacific Northwest."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

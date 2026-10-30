@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242161246",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Went to Green Gate Nursery yesterday at 55 Willowbank Road, Brookvale. Their houseplant section is tiny but the staff really know their stuff. Got a begonia that's already putting out new leaves 🪴"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

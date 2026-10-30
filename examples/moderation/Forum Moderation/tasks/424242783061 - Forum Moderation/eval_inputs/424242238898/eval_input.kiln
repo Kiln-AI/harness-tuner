@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242238898",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "hi all, first post here :) I've been mowing my lawn at about 3 inches all summer and it looks decent but the edges along the fence get scalped no matter what I do. any tips on getting a cleaner cut around borders"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

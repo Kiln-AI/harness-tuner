@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242939316",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Has anyone tried the new copper trowel from Fern & Fork? I got mine last week and it's honestly the best tool I've used for transplanting seedlings. Here's my affiliate link if you want one: https://fernfork.example.com/copper-trowel?ref=gardenerjane — it saves you 10% too."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

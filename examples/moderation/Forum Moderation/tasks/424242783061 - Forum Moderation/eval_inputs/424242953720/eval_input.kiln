@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242953720",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "the crabgrass this year is unreal. I've pulled so much of it my hands are wrecked 😩 is there anything that actually works without wrecking the rest of the lawn? I'm in the PNW so it's damp basically always"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242329846",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My photoperiod girls are about 3 weeks into flower and the lower leaves are going yellow. I've been feeding bloom nutes at half strength. Is that normal fade or am I underfeeding? Growing in coco if that matters."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

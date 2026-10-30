@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242137464",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just a quick one to say the compost from Riverside Turf & Soil is the best I've used in years. Their site is riversidesoil.example.com/compost if anyone's interested, delivery was only a few days too."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

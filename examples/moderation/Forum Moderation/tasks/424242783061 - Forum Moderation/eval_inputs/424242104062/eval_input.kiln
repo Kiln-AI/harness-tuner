@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242104062",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Can we please stop with the eggshells and banana peel tea. It does basically nothing and the calcium isn't available to the plant for years anyway. Bury a crushed shell if it makes you feel better but it is not fixing your blossom end rot. This myth needs to die already."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

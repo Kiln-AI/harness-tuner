@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242177935",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Question about grass seed - I put down some seed two weeks ago and covered it with a bit of topsoil, watering twice a day. Nothing much yet. Am I being impatient or did I mess up the timing? Zone 6b if that helps"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

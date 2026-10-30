@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242466745",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone want some basil seeds? My plants went mad this summer and I collected way more than I can use. I'm asking $1.50 for postage, nothing for the seeds. Just message me and I'll send them off."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242410203",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Finally got my tomato seedlings in the ground this weekend, felt so good. Anyway did you all see the election results for the school board? Total disaster, the incumbent lost by like 40 votes and nobody knows what happens now."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

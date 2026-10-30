@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "id": "424242493737",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "name": "scorer",
+  "model_name": null,
+  "model_provider": null,
+  "config_type": "v2",
+  "properties": {
+    "type": "code_eval",
+    "timeout_seconds": 30,
+    "reference_keys": [
+      "expected_action",
+      "expected_rule"
+    ],
+    "tool_allowlist": []
+  },
+  "provenance": null,
+  "model_type": "eval_config"
+}

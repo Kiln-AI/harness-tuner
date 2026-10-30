@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242513229",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "First time trying winter squash and I somehow managed to plant them way too close together. The patch is now a giant wrestling match of vines and I can’t find the fruit. Lesson learned, I guess. Has anyone else created a squash jungle by accident?"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

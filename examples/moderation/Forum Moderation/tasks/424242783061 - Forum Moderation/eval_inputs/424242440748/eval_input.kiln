@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242440748",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "we're thinking of putting in a small patio out back this fall, like 10x12 flagstone, and I'm wondering if I should do anything to the ground under it first. it's currently just weedy grass. any advice appreciated 🙏"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242146627",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Our school garden club is having a plant sale this weekend! We've got tomato plants, herbs, and flowers. All proceeds go to the school. Also, if you want to see more of what we grow, give us a follow on Instagram @brookside_garden_club. Thanks for your support! 🌿"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242973534",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone else watching the debate tonight? Got my popcorn ready 🍿 those two are just gonna yell at each other for an hour and nothing gets done, same as always."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

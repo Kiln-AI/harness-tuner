@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242161276",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hi all, I've been posting little videos of my tomato pruning experiments on Instagram if anyone wants to follow along. It's just me in the greenhouse with shaky camera work lol. No pressure at all, just thought some of you might find it useful. @plotandpotgarden if you're curious 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

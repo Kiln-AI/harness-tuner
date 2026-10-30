@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242114185",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "hiya, does anyone know a cheap way to seal a wooden deck so it doesn't go green and slippery over winter? last year I nearly went over carrying the washing in. have tried a jet wash but the green comes back in weeks"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

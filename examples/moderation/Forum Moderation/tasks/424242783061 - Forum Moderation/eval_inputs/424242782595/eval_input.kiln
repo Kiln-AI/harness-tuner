@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242782595",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Dave's tomato plants look like something the cat dragged in, I really don't know why anyone on here takes his advice seriously. My own seed range is far better anyway, 20% off with code GROW24 on my website, go have a look."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

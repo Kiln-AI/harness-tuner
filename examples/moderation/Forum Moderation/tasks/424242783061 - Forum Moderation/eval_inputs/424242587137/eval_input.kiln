@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242587137",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Best time to overseed in the UK? I'm in the north east and the lawn is looking thin after the summer. Some say September, others say wait till spring. Also how short should I mow before seeding?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

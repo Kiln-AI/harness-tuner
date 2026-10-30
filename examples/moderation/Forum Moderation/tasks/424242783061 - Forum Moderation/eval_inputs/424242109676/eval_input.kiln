@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242109676",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey all! My monstera is going wild and I've got way too many rooted cuttings. Happy to swap for pothos or philodendron cuttings — just asking a couple of dollars for postage so it's not too painful on my student budget 😅 I can pack them up this weekend."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

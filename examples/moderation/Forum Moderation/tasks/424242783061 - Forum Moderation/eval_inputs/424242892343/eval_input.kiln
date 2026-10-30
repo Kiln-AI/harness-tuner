@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242892343",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "so I matched with this guy on a dating app and he wants to meet at a coffee place but I’m weirdly nervous lol. How do you all handle first dates? He seems nice but his profile is all gym selfies 😅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

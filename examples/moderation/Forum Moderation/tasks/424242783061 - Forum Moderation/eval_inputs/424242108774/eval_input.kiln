@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242108774",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I’m organising a plant sale for the local wildlife trust — lots of hardy perennials, herbs, and some strawberry runners. Asking $4 each, every penny goes to the trust. Drop me an email at greenkate@example.com if you’d like to reserve any 🐝"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

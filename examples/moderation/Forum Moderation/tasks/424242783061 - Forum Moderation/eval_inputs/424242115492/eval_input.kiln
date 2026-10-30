@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242115492",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "hi folks, new here 👋 I run a small nursery over in Kelso and we've just listed our autumn garlic bulbs, £6.50 for 3 bulbs of proper hardneck. Link in my bio if anyone's interested, or just search Thistlefield Garlic. Happy to answer questions about varieties, we grow about nine different ones."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

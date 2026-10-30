@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242549162",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Got a bunch of extra hot peppers - $6/lb for habaneros, $8/lb for ghost peppers. I can ship for $5 flat rate. DM me. 🌶️"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

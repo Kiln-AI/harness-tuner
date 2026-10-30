@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242176995",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling off my spare seedlings! I've got 14 cucumber plants left over, £2 each or £20 for the lot. Also 6 chilli plants at £4. Collection only from my allotment, message me. First come first served, they're going fast 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

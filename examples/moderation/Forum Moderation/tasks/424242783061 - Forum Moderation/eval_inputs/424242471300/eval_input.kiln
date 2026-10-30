@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242471300",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Free lettuce and spinach seeds, happy to send. You can reach me at [email protected] or drop by 45 Oak Street, Portland. Just don't want them wasted."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

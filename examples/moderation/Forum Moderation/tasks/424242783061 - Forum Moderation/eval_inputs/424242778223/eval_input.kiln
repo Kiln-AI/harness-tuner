@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242778223",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Picked up a bag of weed and feed at the hardware place on the weekend and the bloke there said not to use it anywhere near the veggie patch. Is that right? The beds are maybe 3m away from where I'd be spreading."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242635140",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I write a free monthly garden newsletter with tips and seasonal advice. You can subscribe at www.mygardennews.example.com. No spam, just helpful info! 🌻"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

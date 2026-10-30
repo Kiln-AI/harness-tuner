@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242117101",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "What's the best grass seed for a shady back garden? My lawn is mostly moss under the apple tree and I want to overseed this spring. Also how long before I can walk on it?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

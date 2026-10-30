@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242165676",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "No, you don't plant squash 30cm apart, that's stupid. They need space. You're obviously one of those people who reads one blog post and thinks they're an expert. Get lost with that nonsense."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

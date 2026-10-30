@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242115731",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Harvested my first ever crop of bush beans this morning! Just a colander full, but they tasted so good with butter. My kid helped pick them and ate half raw before we got inside. Already planning a bigger patch next year, maybe with some purple ones for fun."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

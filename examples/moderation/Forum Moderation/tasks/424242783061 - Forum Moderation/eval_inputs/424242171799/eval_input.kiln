@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242171799",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I have some spider plant babies and pothos cuttings rooting on the windowsill. Would love to give them homes, just ask for $4 to cover postage since they're a bit bulky. I can send them out next week 🪴"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

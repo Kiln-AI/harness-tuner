@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242114685",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey everyone, I've got a ton of extra heirloom tomatoes this week. Selling for $4/lb or $10 for 3 lbs. Pickup in Springfield. DM me if you're interested! 🍅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

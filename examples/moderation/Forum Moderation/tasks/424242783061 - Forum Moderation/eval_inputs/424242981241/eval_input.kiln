@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242981241",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Plant sale for the local school garden: tomato seedlings $3, pepper starts $3, herb pots $5. All proceeds go to compost supplies. We’re at the Fairview allotment gate on Saturday 10-2, no early birds please."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

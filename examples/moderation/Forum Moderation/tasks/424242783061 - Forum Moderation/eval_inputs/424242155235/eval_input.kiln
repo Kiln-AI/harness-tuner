@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242155235",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Has anyone used a weed-and-feed on a lawn that's mostly clover? Got a big patch out back where the clover has completely taken over and I'm wondering if the granular stuff will knock it back or just feed the grass round the edges. Any tips welcome 🙂"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

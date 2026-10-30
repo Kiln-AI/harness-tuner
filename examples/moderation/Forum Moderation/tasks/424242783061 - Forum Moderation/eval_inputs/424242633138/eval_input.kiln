@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242633138",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "After a few requests I've finally put my seed-starting notes into a little newsletter. It goes out once a month with what I'm sowing and any mistakes to avoid. You can subscribe at sowandgrow.example.com if you like. Totally free, just gardening waffle from my kitchen table."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

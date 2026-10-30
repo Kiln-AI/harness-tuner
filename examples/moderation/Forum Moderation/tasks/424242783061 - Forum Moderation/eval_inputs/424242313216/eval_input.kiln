@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242313216",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Not a plant thing exactly but the hardware place on Queen St E in Acton sharpens secateurs and loppers for about eight quid, mine came back like new. Worth the drive if yours are chewing stems instead of cutting them"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

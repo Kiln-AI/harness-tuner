@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242148723",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Bought a bag of perennial ryegrass seed at the garden centre and the label says sow at 25g per square metre. My lawn is about 200 square metres, does that mean the whole 5kg bag? Seems like a lot 😅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

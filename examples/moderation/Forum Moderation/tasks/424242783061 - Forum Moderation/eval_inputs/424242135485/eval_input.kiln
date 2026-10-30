@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242135485",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "afternoon all, we're putting in a patio of riven sandstone and the slabs seem to be different thicknesses by up to 8mm. is that normal or should i send them back? the place i got them from says it's natural variation, seems like a lot to me"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

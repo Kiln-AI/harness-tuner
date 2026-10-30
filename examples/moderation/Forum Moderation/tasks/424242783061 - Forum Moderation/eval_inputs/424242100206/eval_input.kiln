@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242100206",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Somebody has been at my strawberries. Not a few, the lot, green ones too 😤. My neighbours lad said he saw Sharon Pettigrew coming out of our gate with a bowl on tuesday. I'd have given her a punnet if she'd asked, thats the annoying part."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

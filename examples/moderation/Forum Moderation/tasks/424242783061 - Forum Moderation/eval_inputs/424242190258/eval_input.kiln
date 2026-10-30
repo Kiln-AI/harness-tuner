@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242190258",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Neighbour swears by the hose-on weed and feed but I've read it's dead easy to overdose along the edges. Anyone scorched their grass with it? I've got about 200sqm of buffalo and don't want to bugger it up."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

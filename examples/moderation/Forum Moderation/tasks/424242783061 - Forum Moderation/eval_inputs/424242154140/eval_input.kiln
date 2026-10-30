@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242154140",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "This is the best pruning shears I've ever used. Here's my affiliate link if you want to buy: www.shop.example.com/pruning-shears?aff=123. I get a small commission. They're great quality. ✂️"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

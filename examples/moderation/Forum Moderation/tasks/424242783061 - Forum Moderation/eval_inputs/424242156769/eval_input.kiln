@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242156769",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Companion planting charts are mostly made up tbh. Marigolds don't magically repel every pest in existence, that's a Pinterest fairy tale. Grow them because they look nice, not because some chart promised you pest control."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

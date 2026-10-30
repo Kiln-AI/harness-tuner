@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242782204",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Help! My zucchini flowers keep dropping off before they open. Is it a pollination thing or am I watering wrong? I can send pics by email, just message me at zuke.grower@example.com. This is my second summer trying and I’m determined 😤"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

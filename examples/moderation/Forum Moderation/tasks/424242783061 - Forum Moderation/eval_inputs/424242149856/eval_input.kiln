@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242149856",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Tomatoes are finally ripening which is great. But I need to ask—does anyone know how often you should change brake fluid? My mechanic said every 2 years but that seems often? Not sure if I trust it."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

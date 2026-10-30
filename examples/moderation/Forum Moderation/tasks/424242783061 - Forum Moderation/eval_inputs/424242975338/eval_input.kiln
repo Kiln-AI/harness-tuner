@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242975338",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hi all, first time poster. I'm laying a small paved area at the back of the house for a bench and a couple of pots. Do I need to dig out the full depth or can I get away with a thin base of sharp sand over the old concrete? Budget is tight 😅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

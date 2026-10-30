@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242164426",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Adding sand to clay soil is the single worst piece of advice on the internet and it's absolutely everywhere. You don't get better drainage, you get concrete. Actual concrete. I don't care how many blogs say otherwise, they're wrong 😤"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

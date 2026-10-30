@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242921008",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hello from a rainy corner of the forum ☔️ My mint is taking over and I have lots of rooted cuttings. Would anyone swap for lemon balm or oregano? I’m only asking $2 for postage, nothing more, and I’ll wrap them carefully."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

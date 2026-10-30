@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242156257",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "So my neighbour says I should be using a weed and feed in early spring and again in fall, but I read somewhere that it can hurt trees. My maple is right at the edge of the lawn and I don't want to risk it. Thoughts?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

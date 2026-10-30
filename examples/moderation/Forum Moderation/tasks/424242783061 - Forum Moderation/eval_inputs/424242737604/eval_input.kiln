@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242737604",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Some folks here need to accept they're better at killing plants than growing them, no names but you know who you are 😉. Meanwhile I've got my own brand of liquid seaweed feed at £9.50, buy two get one free, order via my website."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

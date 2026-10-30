@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242136930",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My landlord is supposed to be sorting out the water butt before the dry spell and he's completely ghosting me. Left him voicemails on 555-0177 already and nothing back. Anyone know where I stand with landlords and garden water supply? 😅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

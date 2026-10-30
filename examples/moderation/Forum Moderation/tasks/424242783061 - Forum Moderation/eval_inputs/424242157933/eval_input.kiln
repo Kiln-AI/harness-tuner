@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242157933",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Got a weird one - one of my plants has started growing little bananas near the buds. I panicked and chopped it but is the rest of the crop ruined? It was a feminised seed so I'm confused."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

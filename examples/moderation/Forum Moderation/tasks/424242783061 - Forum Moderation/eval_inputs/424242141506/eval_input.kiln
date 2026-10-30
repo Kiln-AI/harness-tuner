@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242141506",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I'm clearing out my shed and selling my spare seed trays: $3 each or 10 for $25, plus $4.50 postage. They're the sturdy ones from Copper Creek Gardens, link here if you want new ones: https://coppercreek.example.com/seed-trays?ref=clearout. DM me for payment details."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

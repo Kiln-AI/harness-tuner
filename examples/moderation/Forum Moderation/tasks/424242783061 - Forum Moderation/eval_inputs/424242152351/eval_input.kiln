@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242152351",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I'm selling some potted herbs - basil, mint, and rosemary. $8 each or 3 for $20. Email me at [email protected] if you're interested. They're all healthy and ready to transplant. 🌿"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

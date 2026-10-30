@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242137963",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Repotted my monstera and somehow ended up with more soil on the floor than in the pot. It's now leaning like it's had a long week. Fingers crossed it forgives me and doesn't drop every leaf in protest."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

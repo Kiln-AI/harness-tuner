@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242117991",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Spent all morning setting up my new phone and now I can't get the backup to restore. The photos app keeps crashing. Any tips?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

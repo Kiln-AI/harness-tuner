@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242169875",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Plant sale for charity! All proceeds go to the local animal shelter. I have a variety of houseplants and succulents, $5-$20. For questions call 555-987-6543. Hope to see you there! 🪴"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

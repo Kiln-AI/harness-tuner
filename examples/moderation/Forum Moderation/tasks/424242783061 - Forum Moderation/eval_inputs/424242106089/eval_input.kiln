@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242106089",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "The zucchini is out of control. I picked three today and there are two more that look like they could be used as doorstops. Neighbor took one, looked at the second and suddenly remembered he had somewhere to be 😂. Anyone else drowning in squash? I'm running out of creative hiding spots."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

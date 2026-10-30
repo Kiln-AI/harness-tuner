@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242530880",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My tomatoes have gone wild this year and I swear by these self-watering containers from Potting Shed Supplies. They're 2 for $45 right now, and code GROW15 gets you 15% off at https://pottingshed.example.com/selfwatering?ref=tomatoqueen. Honestly the best thing I bought for the greenhouse."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

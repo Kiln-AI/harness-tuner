@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242491289",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I switched to watering in the morning instead of evening and my zucchini stopped getting powdery mildew so bad. Could be coincidence but thought I'd share. Also mulched with straw and the soil stays damp way longer. 🙌"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

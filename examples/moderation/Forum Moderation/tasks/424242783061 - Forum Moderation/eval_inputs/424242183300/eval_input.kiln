@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242183300",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Clearing out the cold frame and found a load of self-seeded lettuce and spinach babies. Free to anyone who can collect, or swap for spring onion seeds. Best to text me on 555-0186 as I'm not on here much."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

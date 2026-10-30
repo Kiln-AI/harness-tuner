@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242159754",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Quick one — Diane mentioned she grows her courgettes in big pots, and I'm trying that this year on my windy balcony. Diane if you see this, do you feed them weekly?"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

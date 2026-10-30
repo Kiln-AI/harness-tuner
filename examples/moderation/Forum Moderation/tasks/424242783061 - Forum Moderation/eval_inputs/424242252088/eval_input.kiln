@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242252088",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "For anyone struggling with seed starting, this heat mat changed everything for me. I got mine from Willow Creek Nursery and they ship fast: willowcreeknursery.example.com/heat-mat. Happy sowing everyone!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

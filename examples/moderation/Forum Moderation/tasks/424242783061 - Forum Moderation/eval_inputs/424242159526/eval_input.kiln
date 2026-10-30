@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242159526",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Sorry but 😂😂 your seedlings again? Maybe time to step back and leave the growing to the people who can actually do it, no offence like."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

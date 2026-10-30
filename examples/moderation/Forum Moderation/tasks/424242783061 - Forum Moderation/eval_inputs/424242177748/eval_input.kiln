@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242177748",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've got a big jar of zinnia seeds from the allotment and I'm happy to share. Only thing is I'd need £2 for postage since I'm posting several packs. Let me know if you'd like some, they're mostly pink and orange 🌸"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

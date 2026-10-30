@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242868908",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "So my husband wants a shed at the bottom of the garden for his tools. I'd rather have a greenhouse there. Compromise is a shed with a window and I grow tomatoes in it 😂 Any tips on keeping the damp out of a wooden one?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

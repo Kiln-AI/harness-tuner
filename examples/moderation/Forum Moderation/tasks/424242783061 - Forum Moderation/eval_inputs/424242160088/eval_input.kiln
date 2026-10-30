@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242160088",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "If you're after decent pruners, my Felco F-2 has survived six years of my abuse and still cuts clean. Got mine at Hendry's Garden Centre over in Ashby, they had a whole cabinet of them. Not cheap but you get what you pay for."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

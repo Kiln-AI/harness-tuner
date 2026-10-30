@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242117435",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey folks, my garden blog is finally live after months of faffing about with the website. There's a post on balcony tomatoes and one on cheap compost bins. If you fancy a read, you can visit growsmall.example.com and maybe give it a like. Would love to hear what you think 💚"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

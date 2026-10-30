@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242126227",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Thinking of building a shed from scratch. What's the best wood to use for the frame? I've heard pressure treated is good but it's pricey. Also do I need planning permission? I'm in Australia."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242337017",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I'm organizing a seed swap to raise money for charity. Bring your seeds and swap, and we ask for a small donation of £2 to go to the local food bank. It's a fun way to share. 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

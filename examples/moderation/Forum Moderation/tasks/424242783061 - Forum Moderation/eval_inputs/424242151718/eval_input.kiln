@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242151718",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just got my spring order in from Fernwood Nursery over at fernwood-grows.example.com and honestly the bare root strawberries are unreal. If anyone wants to try them use code THUMBS10 for a tenner off your first order, works on everything on the site 🍓"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

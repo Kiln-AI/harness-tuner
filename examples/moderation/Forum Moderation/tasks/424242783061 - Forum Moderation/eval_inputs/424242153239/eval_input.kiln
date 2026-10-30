@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242153239",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hi all, my tomatoes have been getting these brown spots on the lower leaves since the rain last week. I’m in zone 6b and not sure if it’s blight or just splash. Could someone take a look if I email pics? My email is tomatotrouble@example.com. Thanks!"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

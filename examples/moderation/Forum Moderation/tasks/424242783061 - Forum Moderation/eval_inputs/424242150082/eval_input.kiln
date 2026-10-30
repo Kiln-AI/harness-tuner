@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242150082",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My check engine light came on after I filled up yesterday. Car seems to run fine, no weird noises. Could it just be a loose gas cap or should I actually take it in? 2016 Mazda3 if that matters."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

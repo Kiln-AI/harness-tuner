@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242132714",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Giving away raspberry canes, my row has spread into the path and I've dug up about 15 suckers. They're free, take as many as you like, I'll even wrap them in damp newspaper for the trip home. My other half says I'm a plant hoarder and wants them gone before the weekend 😂"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

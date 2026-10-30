@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242159951",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "The school where I work is doing a charity plant sale for our garden club. We've got loads of cuttings and seedlings ready to go. You can see the full list and reserve plants here: www.example.com/school-garden-sale. It's a great way to support the kids and get some cheap plants! Thanks for looking."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

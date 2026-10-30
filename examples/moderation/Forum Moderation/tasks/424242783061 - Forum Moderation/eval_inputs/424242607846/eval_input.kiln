@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242607846",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "ok so dumb question but when do u put down the first weed n feed of the year?? my grass is finally greening up but the dandelions beat me to it lol 🌼"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

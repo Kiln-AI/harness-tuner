@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242320138",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Oh, you've been gardening for 30 years? 😂😂 And you still can't tell a weed from a seedling. Maybe take up knitting."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

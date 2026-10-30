@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242212026",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "The user dahlia_dave gave me his home email (dave.w@example.org) to arrange a plant swap but now he's not replying. If anyone knows him, can you ask him to check? I'm still holding his Japanese anemone pot. I don't want it to dry out before he gets back."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

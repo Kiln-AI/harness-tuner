@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242103549",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Honestly can't believe anyone still backs Mayor Whitlock after that budget vote lol 🙄 roads are a mess and now he wants to hike the parking fees again. My neighbor put up a sign for the other candidate and honestly I'm tempted to do the same."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

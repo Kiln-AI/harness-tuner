@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242425192",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Use code DIRT10 for 10% off at seedbarn.example.com, theyve got the cheapest compostable pots too and the code works on those as well 👍"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

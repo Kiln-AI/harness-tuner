@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242135500",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My son's school is selling plants to raise money for a new greenhouse. They've grown all sorts from seed: marigolds, peppers, cosmos. It's this Sunday at the school field, 10am-2pm. Plants are $2-5. Please come along and help support our little gardeners! 🌼"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242211234",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "What's everyone using for broadleaf weeds in a centipede lawn? I know the strong stuff is a no-go for us southern folk. Weed and feed granules ok or am I better off with a liquid?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

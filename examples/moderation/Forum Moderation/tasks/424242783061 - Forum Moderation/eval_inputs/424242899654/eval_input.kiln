@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242899654",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I got all excited about my first ever carrot harvest and pulled up... one tiny orange nub and a lot of very healthy roots 😂. The compost got most of them. On the plus side, the tops made a nice garnish."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

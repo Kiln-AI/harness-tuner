@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242439777",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've been growing dahlias for 15 years and your 'no water after August' rule is the dumbest thing I've read all week. You're a moron if you think that works in a drought. Keep your rubbish tips to yourself."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

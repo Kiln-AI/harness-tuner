@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor in `pyproject.toml` and 3.13 is what we develop on.
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      # `--locked` fails when `uv.lock` does not match `pyproject.toml`, instead
+      # of resolving a new lock on the runner.
+      - name: Install the project
+        run: uv sync --locked
+
+      - name: Format
+        run: uv run ruff format --check
+
+      - name: Lint
+        run: uv run ruff check
+
+      # The suite is offline: no Kiln server, no agent CLI, no model spend.
+      - name: Tests
+        run: uv run pytest

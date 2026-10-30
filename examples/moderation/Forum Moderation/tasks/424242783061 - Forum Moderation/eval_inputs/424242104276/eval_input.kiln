@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242104276",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My grass seed has gone mouldy in the bag, it's been in the shed since last autumn. Can I still use it or should I bin it? It's a 2kg bag of fescue mix, only opened once."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

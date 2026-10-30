@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242139251",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Our school is doing a plant sale and seed swap fundraiser. If you have spare seeds, we'd love to swap! If you'd like some of ours, just send $2 for postage and we'll mail them out. All money goes to the school garden. PM me for details. Thanks! 🌻"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

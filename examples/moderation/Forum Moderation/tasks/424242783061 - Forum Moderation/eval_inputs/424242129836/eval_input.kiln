@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242129836",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "You're a pathetic excuse for a gardener and everyone here knows it. Keep talking about my compost and I'll put your head through a window. I'm not joking, I'll do it. Just try me. 😡"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

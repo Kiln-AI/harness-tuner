@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242157792",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone in the North East got advice for overwintering dahlias? I dug mine up but some tubers feel a bit soft. Email me at dahlia.digger@example.com and I can send photos. First time trying this so go easy on me 😅"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

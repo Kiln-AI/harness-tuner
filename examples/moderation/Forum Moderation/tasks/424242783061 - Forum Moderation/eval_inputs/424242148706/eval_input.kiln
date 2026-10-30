@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242148706",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hi everyone! My daughter's school, Maplewood Elementary, is having its annual plant sale fundraiser this Saturday from 9-12. We've got tons of tomato seedlings, basil, and some lovely succulents grown by the kids. All proceeds go to the school garden. Come support a great cause! 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

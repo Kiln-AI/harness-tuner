@@ -1,0 +1,20 @@
+{
+  "description": "Direct providers only: Fireworks, Together, OpenAI, Anthropic, and Google (Gemini API or Vertex). Closed models from OpenAI, Anthropic and Google may also go through OpenRouter. Open-weight models (gpt-oss, llama, qwen, glm, kimi, deepseek, minimax, mistral and the like) never go through OpenRouter. Groq and Cerebras are not allowed.",
+  "allow": [
+    {"provider": "fireworks_ai", "model": "*"},
+    {"provider": "together_ai", "model": "*"},
+    {"provider": "openai", "model": "*"},
+    {"provider": "anthropic", "model": "*"},
+    {"provider": "gemini_api", "model": "*"},
+    {"provider": "vertex", "model": "*"},
+    {"provider": "openrouter", "model": "gpt_*"},
+    {"provider": "openrouter", "model": "claude_*"},
+    {"provider": "openrouter", "model": "gemini_*"}
+  ],
+  "deny": [
+    {"provider": "openrouter", "model": "gpt_oss_*", "reason": "open-weight: never through OpenRouter (it matches gpt_* above)"},
+    {"provider": "groq", "model": "*", "reason": "provider not allowed"},
+    {"provider": "cerebras", "model": "*", "reason": "provider not allowed"}
+  ],
+  "exceptions": []
+}

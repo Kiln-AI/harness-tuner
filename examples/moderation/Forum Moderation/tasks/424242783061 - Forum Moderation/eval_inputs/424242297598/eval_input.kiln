@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242297598",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "the GroMax self-watering globe thing is a scam, full stop. Filled it up, came back from work and the whole windowsill was flooded and my basil was drowned. Cheap plastic rubbish that doesn't seal. Whoever designed it has clearly never actually grown a plant."
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

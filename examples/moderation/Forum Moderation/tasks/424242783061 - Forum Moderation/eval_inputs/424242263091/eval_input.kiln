@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242263091",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Starting a shed build next month, 8x6, tongue and groove. I'm reasonably handy but have never done a roof. Am I mad to try it myself or should I just pay someone? The quotes I've had are eye watering 😬"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

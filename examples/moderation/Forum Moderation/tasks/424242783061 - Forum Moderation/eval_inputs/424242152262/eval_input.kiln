@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242152262",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Honestly Barb, maybe its time to hang up the trowel? Some of us just arent cut out for this and thats ok 🙂 no shame in admitting it. Have you thought about a nice indoor hobby instead?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

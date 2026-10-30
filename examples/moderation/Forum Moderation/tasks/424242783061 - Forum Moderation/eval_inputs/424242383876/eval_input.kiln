@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242383876",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone up for a lavender cutting swap? Mine rooted nicely last summer and I have six little pots ready. I’d love to trade for rosemary or thyme cuttings, just send $2 for the envelope and postage and they’re yours 💜"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

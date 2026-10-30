@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242172664",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I'm a teacher at Brookside Primary and we're running a plant sale fundraiser for our school garden. We have a great selection of perennials and annuals donated by local gardeners. Sale is on Friday 3-6pm in the school car park. Every penny goes to the garden. Hope to see you there! 🍃"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242631474",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just moved my plants from the windowsill to a proper tent and they look stressed - droopy and a bit crispy on the edges. Did I shock them with the stronger light? Running a 400w HPS about 60cm away."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

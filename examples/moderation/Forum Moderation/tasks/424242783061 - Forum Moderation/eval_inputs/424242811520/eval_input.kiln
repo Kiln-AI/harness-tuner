@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242811520",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Roses are looking rough this year, not sure if it's the heat or what. Totally different question though—what's the deal with tire rotation? Do you really need it every 5k miles or is that just the shop trying to upsell me?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

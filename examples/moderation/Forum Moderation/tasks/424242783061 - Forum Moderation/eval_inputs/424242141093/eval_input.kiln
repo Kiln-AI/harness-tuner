@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242141093",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My online shop is stocked with handmade copper plant labels, $12 a set and $3 shipping. Use code THUMBS10 for 10% off at leafybits.example.com. Thanks for supporting my little garden biz 🌿"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

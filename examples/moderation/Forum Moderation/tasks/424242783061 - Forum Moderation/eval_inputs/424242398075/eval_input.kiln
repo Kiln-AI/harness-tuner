@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242398075",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I'm thinking of a raised deck for the hot tub, roughly 3m by 3m. Does anyone know if I need planning permission for that height, it's about 60cm off the ground? Also any suggestions for a non slip finish, my mum is unsteady on her feet."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

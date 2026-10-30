@@ -1,0 +1,46 @@
+{
+  "v": 1,
+  "id": "424242156315",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "name": "Decision correct",
+  "description": "Code eval. Compares the moderation decision with the post's label. Two scores: the decision, and a guard against removing good posts.",
+  "template": null,
+  "current_config_id": "424242493737",
+  "eval_configs_filter_id": null,
+  "splits": {
+    "train": {
+      "source": "eval_input",
+      "filter_id": "tag::train"
+    },
+    "val": {
+      "source": "eval_input",
+      "filter_id": "tag::val"
+    },
+    "test": {
+      "source": "eval_input",
+      "filter_id": "tag::test"
+    }
+  },
+  "output_scores": [
+    {
+      "name": "decision_correct",
+      "instruction": "PASS when the action matches the label, and a removal names the labelled rule.",
+      "type": "pass_fail",
+      "direction": "higher_is_better"
+    },
+    {
+      "name": "no_wrongful_removal",
+      "instruction": "FAIL when a post labelled keep was removed.",
+      "type": "pass_fail",
+      "direction": "higher_is_better"
+    }
+  ],
+  "favourite": false,
+  "priority": 1,
+  "status": "active",
+  "template_properties": null,
+  "evaluation_data_type": "final_answer",
+  "multi_turn_drive_config": null,
+  "model_type": "eval"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242104965",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Harvest question - trichomes are mostly cloudy with a few amber. I'm after a more energetic high, should I chop now or wait another week? The buds are swelling nicely and I don't want to lose potency."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

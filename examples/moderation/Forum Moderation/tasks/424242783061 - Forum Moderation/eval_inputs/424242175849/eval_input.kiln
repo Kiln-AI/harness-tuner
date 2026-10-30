@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242175849",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Question about my raised bed: my carrots came out all forked and hairy this year. Is that too much fresh manure? I’m in Ontario, first year with this bed. Email me at carrotqueen@example.com and I’ll send a photo of the weird ones."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

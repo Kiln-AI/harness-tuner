@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242839586",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Quick one: my allotment buddy Marcus is giving away split bamboo canes, free. He asked me to forward his mobile, it’s 555-0164. He’s usually around the greenhouse on Saturday mornings."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242105268",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Our garden club has spare seed potatoes going free — my friend Anwar is handling it and said to share his number: 555-0175. He’s in the Sheffield side, pickup only, no postage needed."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242169708",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hi all, just sharing that my kids' school is having a plant sale fundraiser next month. We're selling veggie seedlings and houseplants. You can sign up for our garden newsletter at example.com/garden-news to get updates. It's a lovely community event. Thanks! 🌸"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

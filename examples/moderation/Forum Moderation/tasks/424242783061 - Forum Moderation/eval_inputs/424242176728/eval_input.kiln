@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242176728",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Hey green thumbs! Just a quick heads up that our local primary school is holding a plant sale next weekend to raise money for new raised beds. We'll have veggie starts, herbs, and a few houseplants. Prices start at $3. It's at the school hall on Elm St. Would love to see some friendly faces there! 😊"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

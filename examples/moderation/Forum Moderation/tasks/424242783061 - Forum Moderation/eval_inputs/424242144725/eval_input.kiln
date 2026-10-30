@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242144725",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Strawberry runners galore here — easily 20 plants going spare. Would love to trade for some dahlia tubers or nice bulbs. My number is 555-0127, just leave a message and I'll get back to you 🍓"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

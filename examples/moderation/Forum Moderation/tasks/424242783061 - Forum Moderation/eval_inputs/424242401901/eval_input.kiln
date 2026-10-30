@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242401901",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Heads up for anyone in the Fens: Willowmere Garden Centre's public line is (555) 017-2254 and they've got bare-root roses reduced because it's end of season. No link, just call them if you're interested. I'm tempted by another David Austin but the bank says no 😂"
+    }
+  },
+  "reference": {
+    "expected_action": "keep",
+    "expected_rule": "none"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

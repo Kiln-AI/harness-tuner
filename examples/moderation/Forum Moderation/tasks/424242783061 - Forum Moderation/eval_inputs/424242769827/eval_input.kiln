@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242769827",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Did anyone watch the Northbridge Nighthawks vs Eastvale Comets last night? 3-2 after extra time and the winning goal was pure chaos. Our striker missed a penalty in the 88th and I still can't believe it lol ⚽"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

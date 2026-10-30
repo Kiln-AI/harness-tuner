@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242132095",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "We had a huge argument about whether to spend the holidays with my family or his. He says I always pick my mum. Now we’re not talking. How do couples decide this stuff without resentment?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

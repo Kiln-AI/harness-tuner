@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242178709",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Seed swap time! I've got spare packet seeds: kale, beetroot, nasturtium and some mystery squash. Text me on 555-0165 if you'd like to arrange a swap, no money involved obviously."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

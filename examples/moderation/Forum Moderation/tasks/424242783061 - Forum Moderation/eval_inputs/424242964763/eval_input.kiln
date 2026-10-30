@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242964763",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone here daily a manual? I'm learning to drive stick in my uncle's old truck and keep stalling at lights. Any tips for smooth clutch release? Feels like I'm burning it lol."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "test"
+  ],
+  "model_type": "eval_input"
+}

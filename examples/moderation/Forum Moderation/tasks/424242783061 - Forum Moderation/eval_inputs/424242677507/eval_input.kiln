@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242677507",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Our block's landlord locked the gate to the back garden again so nobody can get to their pots, and we've all been chasing him for a week. He's at miguel.ferreira@example.com if you want to add your voice, strength in numbers right? 🌱"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

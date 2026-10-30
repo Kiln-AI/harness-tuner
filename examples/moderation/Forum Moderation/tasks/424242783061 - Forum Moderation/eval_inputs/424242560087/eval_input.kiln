@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242560087",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "I've got a bunch of spare sunflower and poppy seeds if anyone wants to swap. Just asking for a couple of dollars to cover postage. Let me know! 🌻"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

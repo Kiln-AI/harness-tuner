@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242656110",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Finally got the last of the compost spread, then spent the rest of the afternoon watching the rugby. The second half was wild, 21-19 at full time and I was yelling at the screen. Any other fans here?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

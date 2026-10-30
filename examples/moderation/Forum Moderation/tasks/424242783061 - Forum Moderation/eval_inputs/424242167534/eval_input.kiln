@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242167534",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling my old rototiller, works great just upgraded. $150 OBO. Email me at [email protected] if interested. I'm in the Springfield area. Can send pics. 😊"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "personal_info"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

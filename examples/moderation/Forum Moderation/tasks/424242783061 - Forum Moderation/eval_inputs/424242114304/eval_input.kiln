@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242114304",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Anyone want some fresh basil? I have way too much. $3 per bunch, or $8 for three bunches. Can meet at the farmers market on Saturday. 🌿"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

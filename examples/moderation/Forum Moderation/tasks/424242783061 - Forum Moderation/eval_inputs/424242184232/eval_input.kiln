@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242184232",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My mate runs a tiny seed shop down in Devon and he's doing 30% off all heirloom squash till Sunday with the code SQUASHLUV. Honestly best germination rates I've ever had, tell him I sent ya"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

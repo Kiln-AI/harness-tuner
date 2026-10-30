@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242379230",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "My clones have rooted and I'm about to pot them up. What size pots for a 4x4 tent? Planning to veg for 3 weeks then flower. Also do you all use mycorrhizae when transplanting?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242886419",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Just finished the low fence along the side border, six foot panels in pressure treated pine. Took me three weekends and my back is ruined. Do you need to stain it straight away or can it wait till autumn?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "val"
+  ],
+  "model_type": "eval_input"
+}

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242571408",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "That bonsai is an ugly little stump, @MikeTheMulcher, and so is your gardening. Stop posting garbage photos, you absolute clown."
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "harassment"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

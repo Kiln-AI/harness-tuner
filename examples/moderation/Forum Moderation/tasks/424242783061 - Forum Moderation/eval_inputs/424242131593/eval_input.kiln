@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242131593",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Selling my extra zucchini - $2 each, they're huge! Also have cucumbers for $1.50 each. Message me for details. 🥒"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "spam"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}

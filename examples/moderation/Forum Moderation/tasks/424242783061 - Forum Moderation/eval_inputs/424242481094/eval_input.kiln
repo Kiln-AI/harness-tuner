@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "id": "424242481094",
+  "created_at": "2026-10-28T00:00:00+00:00",
+  "created_by": "moderation_example",
+  "data": {
+    "type": "single_turn",
+    "user_message": {
+      "text": "Question about smell control - my neighbour mentioned they can smell something sweet from my side of the fence. I've got a carbon filter running but maybe it's time for a new one? How often do you all replace yours?"
+    }
+  },
+  "reference": {
+    "expected_action": "remove",
+    "expected_rule": "off_topic"
+  },
+  "tags": [
+    "train"
+  ],
+  "model_type": "eval_input"
+}
