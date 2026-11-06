@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # CLI onboarding (Kiln and API-key checks, project and task picker, demo project)
