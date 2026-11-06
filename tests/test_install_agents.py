@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from kiln_harness_tuner.install_agents import (
-    HARNESSES,
+    AGENT_CLIS,
     MARKER,
     REPO_ROOT,
     InstallError,
@@ -42,17 +42,17 @@ def test_the_repository_keeps_one_copy_in_dot_agents():
 
 
 @pytest.mark.parametrize(
-    ("harness", "skills", "instructions"),
+    ("agent_cli", "skills", "instructions"),
     [
         ("claude", ".claude/skills", "CLAUDE.md"),
         ("codex", ".agents/skills", "AGENTS.md"),
         ("opencode", ".agents/skills", "AGENTS.md"),
     ],
 )
-def test_each_harness_gets_its_own_layout(tmp_path, harness, skills, instructions):
+def test_each_agent_cli_gets_its_own_layout(tmp_path, agent_cli, skills, instructions):
     dest = tmp_path / "dest"
     dest.mkdir()
-    install(harness, dest, source=source(tmp_path))
+    install(agent_cli, dest, source=source(tmp_path))
     assert (dest / skills / "alpha" / "SKILL.md").is_file()
     text = (dest / instructions).read_text()
     assert text.startswith(MARKER) and text.endswith("# Rules\n")
@@ -90,14 +90,41 @@ def test_an_instructions_file_it_did_not_write_needs_force(tmp_path):
     assert (dest / "CLAUDE.md").read_text().startswith(MARKER)
 
 
-def test_the_command_installs_every_harness(tmp_path, capsys):
+def test_the_command_installs_every_agent_cli(tmp_path, capsys):
     dest = tmp_path / "dest"
     dest.mkdir()
-    assert main(["--harness", "all", "--dest", str(dest)]) == 0
-    for layout in HARNESSES.values():
+    assert main(["--agent-cli", "all", "--dest", str(dest)]) == 0
+    for layout in AGENT_CLIS.values():
         assert (dest / layout.instructions).is_file()
         assert (dest / layout.skills / "memory" / "SKILL.md").is_file()
     assert "claude: skills in" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["codex", "codex exec -m gpt-6.1-sol", "/usr/local/bin/codex exec"],
+)
+def test_the_command_takes_a_name_or_a_whole_agent_cli_command(tmp_path, capsys, value):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    assert main(["--agent-cli", value, "--dest", str(dest)]) == 0
+    assert capsys.readouterr().out.startswith("codex: skills in")
+    assert (dest / "AGENTS.md").is_file()
+    assert not (dest / "CLAUDE.md").exists()
+
+
+@pytest.mark.parametrize("value", ["cursor", "cursor-agent -p", "'codex exec", ""])
+def test_the_command_refuses_an_agent_cli_it_has_no_layout_for(tmp_path, capsys, value):
+    with pytest.raises(SystemExit) as exc:
+        main(["--agent-cli", value, "--dest", str(tmp_path)])
+    assert exc.value.code == 2
+    assert not any(tmp_path.iterdir())
+    # The error is the last line; the usage line above it lists the choices
+    # whatever the error says. How argparse quotes them differs between
+    # Python versions.
+    error = capsys.readouterr().err.strip().splitlines()[-1]
+    assert "invalid choice" in error
+    assert all(name in error for name in [*AGENT_CLIS, "all"])
 
 
 def test_claude_gets_the_mcp_server_merged_into_its_config(tmp_path):

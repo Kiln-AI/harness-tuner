@@ -1,4 +1,4 @@
-"""OpenCodeCliDispatcher — the OpenCode CLI harness.
+"""OpenCodeCliDispatcher — the dispatcher for the OpenCode CLI.
 
 One `opencode run` subprocess per call. As for Codex, the prompt, the
 envelope, the repair retry, the error routing and the step records are

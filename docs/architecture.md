@@ -52,10 +52,10 @@ implementation.
 | Agent dispatch | `AgentDispatcher` in [`dispatch/base.py`](../src/kiln_harness_tuner/dispatch/base.py) | `ClaudeCliDispatcher` — one `claude -p` subprocess per call; `CodexCliDispatcher` and `OpenCodeCliDispatcher` the same over `codex exec` and `opencode run`, chosen with `--agent-cli` |
 | Kiln API access | `KilnClient` (orchestrator) and the loop gateway (agents) | httpx direct, and the gateway MCP server in `src/kiln_harness_tuner/gateway/` |
 
-No module outside `dispatch/` imports a harness dispatcher except `cli.py`,
+No module outside `dispatch/` imports an agent CLI's dispatcher except `cli.py`,
 which is the composition root.
 `tests/test_dispatch_boundary.py` asserts that the exception set is exactly
-that one module. [harness-seam.md](harness-seam.md) is the dispatcher seam's
+that one module. [agent-cli.md](agent-cli.md) is the dispatcher seam's
 full contract.
 
 Loop agents never get a generic Kiln API tool. Each role's
@@ -78,7 +78,7 @@ In this order, and the order is the design:
 0. **The agent-CLI check** (`check_agent_cli`). One short prompt
    with no tools goes through `--agent-cli`, before the lock and the run
    directory. A CLI that cannot answer stops the start and leaves nothing
-   behind ([harness-seam.md](harness-seam.md) section 9).
+   behind ([agent-cli.md](agent-cli.md) section 9).
 1. **The run lock.** A kernel `flock` on `runs/.lock-<project>-<task>`. One
    live run per task. The kernel releases it when the holder dies, so there is
    no stale-lock reclaim step and no reclaim race.
@@ -853,7 +853,7 @@ writer's input. Another host can render it its own way.
 per role (and the shared preflight and read-only ones), and the dispatcher
 passes the role's pair to every session. This section describes the Claude
 fence. Codex and OpenCode build theirs from the same rendered files
-([harness-seam.md](harness-seam.md) sections 10 and 11).
+([agent-cli.md](agent-cli.md) sections 10 and 11).
 
 **`mcp_config.<role>.json`** — the loop gateway started for that role
 (and, for the builder and the probe, the skill installer), passed with
@@ -1044,8 +1044,8 @@ reviewers) run under it, and get no scratch directory.
    with a fix line when it cannot decide (a split filter it does not evaluate,
    an unreadable record).
 
-What each of these is worth, and what happens when a harness has none of them,
-is [harness-seam.md](harness-seam.md) section 6.
+What each of these is worth, and what happens when an agent CLI has none of
+them, is [agent-cli.md](agent-cli.md) section 6.
 
 ## 13. Layout
 

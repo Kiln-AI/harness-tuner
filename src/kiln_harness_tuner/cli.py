@@ -230,12 +230,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent-cli",
         default=DEFAULT_AGENT_CLI,
         metavar="COMMAND",
-        help="the agent CLI every loop session runs, as you would type it:"
-        f" {DEFAULT_AGENT_CLI!r} (the default), 'codex exec --model MODEL' or"
-        " 'opencode run --model PROVIDER/MODEL --variant high'. Its model and"
-        " effort are the run-wide defaults under --agent-model/--agent-effort."
+        help="the agent CLI every loop session runs, as the whole command you"
+        f" would type, not just its name: {DEFAULT_AGENT_CLI!r} (the default),"
+        " 'codex exec --model MODEL' or 'opencode run --model PROVIDER/MODEL"
+        " --variant high'. Its model and effort are the run-wide defaults under"
+        " --agent-model/--agent-effort."
         " It must already be signed in; one short test prompt runs before the"
-        " run starts. docs/harness-seam.md says what each one fences",
+        " run starts. docs/agent-cli.md says what each one fences",
     )
     parser.add_argument(
         "--max-concurrent-agents",

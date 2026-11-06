@@ -62,24 +62,28 @@ keeps one copy of each in `.agents/`: the skills in `.agents/skills/` and the
 instructions in `.agents/AGENTS.md`. Each agent CLI reads them from its own
 place, and `kiln-harness-tuner-install-agents` copies them there:
 
-| `--harness` | Agent CLI | Skills | Instructions |
+| `--agent-cli` | Agent CLI | Skills | Instructions |
 |---|---|---|---|
 | `claude` | Claude Code | `.claude/skills/` | `CLAUDE.md`, plus the `kiln_api_mcp` server in `.mcp.json` and `.claude/settings.json` |
 | `codex` | Codex | `.agents/skills/` | `AGENTS.md` |
 | `opencode` | OpenCode | `.agents/skills/` | `AGENTS.md` |
 
-A run installs for its own agent CLI (the one `--agent-cli` names) before the
-first session, so you do not need to do it by hand to run the loop. Run it
-yourself to work on this repository in an agent CLI, or to use the skills in
-another project:
+A run installs for its own agent CLI (the one `kiln-harness-tuner --agent-cli`
+names) before the first session, so you do not need to do it by hand to run
+the loop. Run it yourself to work on this repository in an agent CLI, or to
+use the skills in another project:
 
 ```
-kiln-harness-tuner-install-agents --harness claude
-kiln-harness-tuner-install-agents --harness codex
-kiln-harness-tuner-install-agents --harness opencode
-kiln-harness-tuner-install-agents --harness all
-kiln-harness-tuner-install-agents --harness claude --dest ~/my-kiln-project
+kiln-harness-tuner-install-agents --agent-cli claude
+kiln-harness-tuner-install-agents --agent-cli codex
+kiln-harness-tuner-install-agents --agent-cli opencode
+kiln-harness-tuner-install-agents --agent-cli all
+kiln-harness-tuner-install-agents --agent-cli claude --dest ~/my-kiln-project
 ```
+
+Here `--agent-cli` takes the CLI's name. The whole command a run takes
+(`--agent-cli 'codex exec -m gpt-6.1-sol'`) also works: its first word names
+the CLI.
 
 `--dest` installs into another directory. The `kiln-api`, `kiln-task-setup`
 and `memory` skills are useful in any project that works with Kiln. A skill
@@ -247,7 +251,7 @@ CLI's own account.
   gate, measurement, memory, errors, the sandbox.
 - [docs/agents.md](docs/agents.md) — the ten agent roles: what each is given,
   what each must return, and which one to blame when a run goes wrong.
-- [docs/harness-seam.md](docs/harness-seam.md) — the dispatcher protocol,
+- [docs/agent-cli.md](docs/agent-cli.md) — the dispatcher protocol,
   `--agent-cli`, the Codex and OpenCode dispatchers and how each fences a
   session, and what another agent CLI would need.
 - [docs/limitations.md](docs/limitations.md) — what the loop does not do and

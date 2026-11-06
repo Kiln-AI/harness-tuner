@@ -361,7 +361,7 @@ Nothing notices when the server moves past it.
 
 - **Other agent CLIs.** Three dispatchers ship: `claude -p`, `codex exec`
   and `opencode run` (`--agent-cli`). Another agent CLI needs its own
-  dispatcher, and it must fence its sessions: [harness-seam.md](harness-seam.md) sections 6, 10
+  dispatcher, and it must fence its sessions: [agent-cli.md](agent-cli.md) sections 6, 10
   and 11. The OpenCode fence is a tool-level allow list, not an OS sandbox.
 - **No credential management.** The loop uses each CLI's own sign-in. It does
   not take an API key, and it withholds secret-looking environment variables
