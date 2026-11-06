@@ -1,0 +1,6 @@
+# Backlog: CLI onboarding
+
+Open items found while building the project. The last phase in `implementation_plan.md` closes or dismisses each one.
+
+- [ ] `StdTerminal.open_url` (onboarding/terminal.py) calls `webbrowser.open` before printing the URL. On a headless Linux shell (SSH, no DISPLAY, TERM set) Python's webbrowser can run a console browser such as lynx or w3m in the foreground, which blocks and hides the URL until the user quits it. Print the URL first, and decide whether to skip console browsers.
+- [ ] A malformed `--kiln-host` (e.g. `http://[::1`) crashes with a raw `httpx.InvalidURL` traceback, because `KilnClient.call` catches only `httpx.HTTPError`. The Kiln check now runs first, so it's the first thing a mistyped host hits. Validate `--kiln-host` in argparse, or catch `httpx.InvalidURL` in the client.

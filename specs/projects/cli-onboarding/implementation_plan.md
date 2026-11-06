@@ -8,7 +8,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
 
 ## Phases
 
-- [ ] Phase 1: Wiring, prompts and the Kiln check.
+- [x] Phase 1: Wiring, prompts and the Kiln check.
   - `onboarding/` with `errors.py`, `terminal.py`, `kiln_urls.py` and `kiln_check.py`, plus `flow.py` running only the Kiln check (§3–§6).
   - `cli.py`:
     - `PROG`.
@@ -37,3 +37,4 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
 - [ ] Phase 5: Docs.
   - `docs/install.md` §4 and §6, with the two corrections, and the new "Try the demo" section (§14).
   - `docs/your-own-task.md` §1, §5 and the flag table rows for the optional flags (§14).
+- [ ] **Phase 6: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.

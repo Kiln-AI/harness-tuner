@@ -22,7 +22,7 @@ main(argv)
 
 **Each batch of Kiln reads** runs in its own short `asyncio.run` through a runner. No prompt ever happens inside one. That keeps `KilnClient`, `MemoryWriter` and setup's helpers usable as they are.
 
-```python
+```
 KilnRunner = Callable[[Callable[[KilnApi], Awaitable[T]]], T]
 
 def kiln_runner(host: str) -> KilnRunner:
@@ -59,7 +59,7 @@ Changes outside the package:
 
 ## 3. Terminal and prompts
 
-```python
+```
 class Terminal(Protocol):
     interactive: bool
     def say(self, text: str) -> None: ...      # stdout
@@ -75,7 +75,7 @@ class StdTerminal:
 
 Plain `print`/`input`, no `rich`: the picker is a few numbered lines, and plain I/O is what the scripted test terminal replays.
 
-```python
+```
 @dataclass(frozen=True)
 class Problem:
     message: str                 # multi-line; no prompt line
@@ -107,7 +107,7 @@ When `check()` returns `None`, it returns `OK`.
 
 ## 4. Errors and exit codes
 
-```python
+```
 class OnboardingError(Exception):
     """A start-up problem the user must fix. The message is complete; main prints
     '<prog>: <message>' to stderr and exits 1."""
@@ -124,7 +124,7 @@ Other exceptions keep today's handling. An unexpected `KilnAPIError` (HTTP 500 f
 
 ## 5. `prepare_start`
 
-```python
+```
 def prepare_start(
     args: argparse.Namespace,
     argv: Sequence[str],
@@ -163,7 +163,7 @@ return args
 
 ## 6. Kiln check (`kiln_check.py`)
 
-```python
+```
 KILN_DOWNLOAD_URL = "https://kiln.tech"
 PING_TIMEOUT_SECS = 5.0
 OPENAPI_TIMEOUT_SECS = 10.0
@@ -204,7 +204,7 @@ Every problem from this check has `open_url=KILN_DOWNLOAD_URL`, `open_label="kil
 
 ## 7. Choosing (`choose.py`)
 
-```python
+```
 @dataclass(frozen=True)
 class ProjectRow:
     id: str
@@ -233,7 +233,7 @@ async def fetch_tasks(kiln, project_id) -> list[TaskRow]   # GET /api/projects/{
 
 ### 7.1 `choose_one`
 
-```python
+```
 def choose_one(rows, *, noun, heading, flag, where, terminal, prog) -> tuple[row, bool]:
 ```
 
@@ -265,7 +265,7 @@ def choose_one(rows, *, noun, heading, flag, where, terminal, prog) -> tuple[row
 
 ## 8. `rerun_command`
 
-```python
+```
 def rerun_command(prog, argv, *, parser_long_options, project_path, project_id, task_id) -> str:
 ```
 
@@ -282,7 +282,7 @@ def rerun_command(prog, argv, *, parser_long_options, project_path, project_id, 
 
 New pure helpers in `setup.py`:
 
-```python
+```
 def active_eval_rows(eval_rows: list[Any], spec_rows: list[Any]) -> list[dict[str, Any]]:
     """Dicts with an id, whose spec is absent or has status 'active'."""
 
@@ -299,7 +299,7 @@ def measurable_evals(eval_rows: list[Any], spec_rows: list[Any]) -> list[tuple[d
 
 The status map is built as today (`s.get("eval_id")`), and specs that aren't dicts are skipped. The one difference is that an eval row with no `id` is now skipped instead of raising `KeyError`.
 
-```python
+```
 async def readiness_problem(kiln, *, host, project_id, task_id, task_name) -> tuple[Problem | None, list[str]]:
 ```
 
@@ -313,7 +313,7 @@ async def readiness_problem(kiln, *, host, project_id, task_id, task_name) -> tu
 
 ## 10. API keys (`keys.py`)
 
-```python
+```
 NO_KEY_PROVIDERS = frozenset({"ollama", "docker_model_runner", "openai_compatible",
                               "kiln_custom_registry", "kiln_fine_tune"})
 
@@ -357,7 +357,7 @@ def simulated_user_providers(project_path: Path, task_id: str) -> set[str]   # s
 
 ## 11. Demo (`demo.py`)
 
-```python
+```
 DEMO_DIR = "demo_project"
 DEMO_PROJECT = "Forum Moderation"
 DEMO_TASK_ID = "424242783061"
@@ -396,7 +396,7 @@ def make_demo(*, terminal, runner, home: Path) -> DemoProject
 
 ## 12. `cli.py`
 
-```python
+```
 PROG = "kiln-harness-tuner"
 ```
 

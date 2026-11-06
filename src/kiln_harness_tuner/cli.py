@@ -60,6 +60,11 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
+from kiln_harness_tuner.onboarding import (
+    OnboardingError,
+    OnboardingStopped,
+    prepare_start,
+)
 from kiln_harness_tuner.orchestrator import (
     DEFAULT_COVERAGE_FLOOR,
     Ctx,
@@ -77,6 +82,10 @@ from kiln_harness_tuner.ui import LiveUi, PlainUi
 from kiln_harness_tuner.wave_log import FanoutLog, WaveLog
 
 logger = logging.getLogger(__name__)
+
+# The command's name. The parser and every start-up message use it, so a
+# rename of the command is this one line.
+PROG = "kiln-harness-tuner"
 
 DEFAULT_TIMEOUT_MINS = 180
 # Concurrency defaults: bounded by default — the
@@ -173,7 +182,7 @@ class _Parser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="kiln-harness-tuner",
+        prog=PROG,
         description="Kiln Harness Tuner — an agentic optimize loop for Kiln tasks.",
     )
     parser.add_argument(
@@ -1117,7 +1126,7 @@ async def _run(args: argparse.Namespace) -> str:
     try:
         install_agents(agent_cli.kind)
     except InstallError as exc:
-        raise SystemExit(f"kiln-harness-tuner: {exc}") from exc
+        raise SystemExit(f"{PROG}: {exc}") from exc
     target = target_from_args(args)
     models = parse_role_overrides(args.agent_model, "--agent-model")
     efforts = parse_role_overrides(args.agent_effort, "--agent-effort")
@@ -1291,11 +1300,15 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        args = prepare_start(args, prog=PROG)
         result = asyncio.run(_run_with_signals(args))
+    except OnboardingStopped as stop:
+        print(f"{PROG}: stopped.", file=sys.stderr)
+        return stop.exit_code
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
         print(
-            f"kiln-harness-tuner: interrupted ({signal.Signals(signum).name})"
+            f"{PROG}: interrupted ({signal.Signals(signum).name})"
             " — children killed, lock released",
             file=sys.stderr,
         )
@@ -1312,12 +1325,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         RecordKindError,  # an agent-supplied id of the wrong record kind
         QuarantineError,  # the splits could not be decided
         TrainSetError,  # the train boundary is unclear: no agent may start
+        OnboardingError,  # a start-up check failed with no one to ask
     ) as exc:
         # The hard errors carry instructive messages — land them instead
         # of a traceback. Anything else is a genuine bug and may raise raw.
-        print(f"kiln-harness-tuner: {exc}", file=sys.stderr)
+        print(f"{PROG}: {exc}", file=sys.stderr)
         return 1
-    print(f"kiln-harness-tuner: run finished — {result}")
+    print(f"{PROG}: run finished — {result}")
     return 0
 
 

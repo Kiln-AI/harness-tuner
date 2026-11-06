@@ -1,6 +1,7 @@
 """CLI tests: the flags parse, wire a TargetBlock, and main runs the
 orchestrator (monkeypatched — no live Kiln)."""
 
+import argparse
 import json
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 
 import kiln_harness_tuner.cli
 from kiln_harness_tuner.cli import (
+    PROG,
     build_parser,
     main,
     render_run_configs,
@@ -17,6 +19,7 @@ from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.claude_cli import PreflightError
 from kiln_harness_tuner.memory import BaselineRecordMissingError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
+from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
@@ -35,6 +38,16 @@ ARGS = [
     "--task-id",
     "424242613304",
 ]
+
+
+@pytest.fixture(autouse=True)
+def no_onboarding(monkeypatch):
+    """`main` runs the start-up checks against a live Kiln before the run.
+    These tests have none: the checks pass the flags through unchanged.
+    `tests/test_onboarding_*.py` test the checks on a fake Kiln."""
+    monkeypatch.setattr(
+        kiln_harness_tuner.cli, "prepare_start", lambda args, **_kwargs: args
+    )
 
 
 def test_flags_build_target_block_with_defaults():
@@ -177,6 +190,70 @@ def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
 def test_missing_required_flag_errors():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--project-id", "1"])
+
+
+def test_the_parser_is_named_by_prog():
+    assert PROG == "kiln-harness-tuner"
+    assert build_parser().prog == PROG
+
+
+def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
+    seen = {}
+
+    def fake_prepare_start(args, *, prog):
+        seen["prog"] = prog
+        seen["given"] = args
+        returned = argparse.Namespace(**vars(args))
+        returned.guidance = "filled in by the checks"
+        seen["returned"] = returned
+        return returned
+
+    async def fake_run(args):
+        seen["run"] = args
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fake_prepare_start)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
+    assert main(ARGS) == 0
+    assert seen["prog"] == PROG
+    assert seen["run"] is seen["returned"] and seen["run"] is not seen["given"]
+    assert seen["run"].guidance == "filled in by the checks"
+    assert "kiln-harness-tuner: run finished — wrap_up" in capsys.readouterr().out
+
+
+def _never_run(seen):
+    async def fake_run(args):
+        seen.append(args)
+        return "unreachable"
+
+    return fake_run
+
+
+def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
+    def fails(args, **_kwargs):
+        raise OnboardingError("Kiln isn't running at http://localhost:8757.")
+
+    ran: list = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fails)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "kiln-harness-tuner: Kiln isn't running at http://localhost:8757.\n"
+    )
+    assert ran == []
+
+
+@pytest.mark.parametrize("exit_code", [1, 130])
+def test_main_returns_the_stop_code(monkeypatch, capsys, exit_code):
+    def stops(args, **_kwargs):
+        raise OnboardingStopped(exit_code)
+
+    ran: list = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", stops)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
+    assert main(ARGS) == exit_code
+    assert capsys.readouterr().err == "kiln-harness-tuner: stopped.\n"
+    assert ran == []
 
 
 def _write_mcp_json_fixture(tmp_path):
