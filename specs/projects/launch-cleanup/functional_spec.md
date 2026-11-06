@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # Functional Spec: Launch cleanup (license and docs)
@@ -48,7 +48,7 @@ check. Line numbers are at `57fc57d`.
   MIT-licensed parts of the main Kiln repo (`libs/core/LICENSE.txt` and
   `libs/server/LICENSE.txt` say `Copyright 2024 - Chesterfield Laboratories
   Inc.`; checked at Kiln commit `6a04519`).
-- Line: `Copyright (c) 2026 Chesterfield Laboratories Inc.` (year: Q3).
+- Line: `Copyright (c) 2026 Chesterfield Laboratories Inc.`
 - No "this license applies only to…" preamble. The whole repository is MIT.
 
 **1.2 `pyproject.toml`.** In `[project]`:
@@ -66,18 +66,28 @@ classifiers = [
   the classifier, and `dist-info/licenses/LICENSE`.
 - PEP 639 deprecates `License ::` classifiers when `license` is an
   expression, and lets build tools reject them. Hatchling does not reject
-  them today (Q4).
+  them today. Keep it: the owner asked for it.
 - `uv sync --locked` (CI's install step) must still pass. If `uv.lock`
   changes, commit the regenerated lock.
 
 **1.3 `.github/CONTRIBUTING.md`, "Licence" section (L67-70).** Replace "The
 `LICENSE` file is not in the repository yet. Ask before you invest in a large
-change." with: the project is under the MIT License; see `LICENSE`. Plus the
-contribution terms from Q5. Keep the heading `## Licence`.
+change." with: the project is under the MIT License; see `LICENSE`. New
+contributors must agree to the contributor license agreement in
+`.github/CLA.md`. Keep the heading `## Licence`.
+
+**1.3a `.github/CLA.md` (new).** A verbatim copy of the main Kiln repo's
+`.config/CLA.md` (Kiln commit `6a04519`). It already covers every
+Chesterfield Laboratories Inc. open source project, so no word changes. Get it
+with `git clone --depth 1 --filter=blob:none --sparse
+https://github.com/Kiln-AI/Kiln.git` and `git sparse-checkout set
+/.config/CLA.md`, or from
+`https://raw.githubusercontent.com/Kiln-AI/Kiln/main/.config/CLA.md`.
 
 **1.4 `README.md`.** Add a `## License` section after `## Contributing`
-(L256-259): MIT, with a link to `LICENSE`. Plus the trademark line if Q6 says
-so.
+(L256-259): MIT, with a link to `LICENSE`. Then the line "The Kiln name and
+logos are trademarks of Chesterfield Laboratories Inc.", as in the main Kiln
+README.
 
 ### 2. Doc contradictions
 
@@ -94,40 +104,9 @@ so.
   (sorted), and record the step as unverified.
 - Sweep: no other doc gives a count. README L43-46 names no count and stays.
 
-**2.2 Eval builder splits — BLOCKED, reported, not changed.** The overview
-says to stop and report if the code cannot set a val split. It cannot:
-
-- `gateway/ops.py` L1031-1049, `create_eval`: it POSTs `create_evaluator` with
-  `eval_set_filter_id = tag::kl_<token>_test`, then PATCHes
-  `train_set_filter_id = tag::kl_<token>_train`. Nothing sets a val split.
-- `gateway/models.py` L520-526, `EvalCreate`: no split field.
-- Kiln's own API cannot set one either. The vendored PATCH doc
-  (`patch_api_…_evals_eval_id.md`) takes only `name`, `description` and
-  `train_set_filter_id`. Upstream Kiln `eval_api.py` (commit `6a04519`):
-  when `eval_set_filter_id` is given, `create_evaluator` makes **only** a test
-  split, and `UpdateEvalRequest` takes `train_set_filter_id` but no val
-  filter. (When `eval_set_filter_id` is omitted, Kiln makes test, train and
-  val splits from tags it derives from the eval name. The gateway never
-  omits it.)
-- `add_eval_items(split="val")` exists (`models.py` L536). It tags task runs
-  `kl_<token>_val`, but no split of the eval selects that tag.
-
-So `docs/limitations.md` L274-277 matches the code. These do not:
-
-- `docs/agents.md` L90-92: "must carry pre-sized train, val and test splits".
-- `src/kiln_harness_tuner/agents/eval_build.md` L6-8: the agent prompt asks
-  for "pre-sized train/val/test splits (… val the promotion gate)".
-
-Likely effects, from reading the code only (not run):
-
-- An agent-built eval with a current config is active. It has no spec
-  (`orchestrator.py` L2463), so the promotion gate's val pass
-  (`_assemble_val_tables`) asks it for `split=val`. A failed val fill makes
-  the candidate ineligible.
-- On the next run, setup's `audit_splits` (`setup.py` L1040) refuses to start
-  while any active eval has no val split.
-
-What to do is Q2. Until Q2 is answered, 2.2 makes no edits.
+**2.2 Eval builder splits.** Removed from this project by the owner. Make
+no edit for it: not `docs/agents.md`, not `docs/limitations.md`, not
+`agents/eval_build.md`.
 
 **2.3 Held-out tags.** `quarantine.py` L51-54: `_HELDOUT_TAG_RE` matches, in
 any case, `val` or `test` alone or followed by `_`, and any tag that starts
@@ -235,7 +214,7 @@ is correct and stays. Known places:
   description edit"). In L99, rename the step to what is built (a code-tool
   clone with a new description) and keep its position. Note in the same line
   that an MCP or built-in tool gets a new description only through a
-  wrapper. Do not reorder the rest (Q7).
+  wrapper. Do not reorder the rest.
 - `experiment-analysis/SKILL.md` L338 and L353: check; likely naming the
   surface only.
 - Sweep: `re-describ`, `redescrib`, `description edit`, `edit … description`,
@@ -288,14 +267,14 @@ Known places to reword:
   here: `lever-ladder.md` L43 and L52 hold measured lever outcomes ("Five
   instruction-text arms … all lost at val"), which `.agents/AGENTS.md` keeps
   out of agent-facing files.
-- Any code change for item 2.2.
+- Item 2.2 (eval builder splits), in full.
 
 ## Done when
 
 - `uv run pytest`, `uv run ruff check`, `uv run ruff format --check` and
   `uv sync --locked` pass.
-- Every item above is fixed (or, for 2.2, reported) in every doc and skill
-  where it appears, by the sweeps listed.
+- Every item above is fixed in every doc and skill where it appears, by the
+  sweeps listed.
 - The final summary lists each change with file and line, the verification
   for each fact, and what could not be verified: the v1.2 failure message
   (not run against a server), the v1.3 contents (unreleased; checked against

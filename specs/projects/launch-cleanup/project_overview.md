@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # Launch cleanup (license and docs)
@@ -26,12 +26,7 @@ otherwise expect small conflicts.
 
 - `docs/install.md` (around L108) lists 4 installed executables.
   `pyproject.toml` declares 5: `kiln-harness-tuner-install-agents` is missing.
-- **Eval builder splits.** `docs/limitations.md` (around L274-277) says an eval
-  the agent builds has no val split. `docs/agents.md` (around L91) says it has
-  train, val and test splits. Steve says agent-built evals do get a val split.
-  Check the gateway's `create_eval` and make every doc and skill agree with
-  the code. If the code really can't set a val split, stop and report instead
-  of changing behavior.
+- ~~**Eval builder splits.**~~ Removed from this project by the owner.
 - **Held-out tags.** `docs/limitations.md` (around L291-294) says items tagged
   `holdout` aren't treated as held out. `quarantine.py` (around L54) treats
   `holdout*` and `heldout*` as held out. Fix the doc.
