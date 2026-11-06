@@ -14,12 +14,14 @@ import argparse
 import asyncio
 import shlex
 from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
 from typing import Protocol, TypeVar
 
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.onboarding.choose import Selection, select
+from kiln_harness_tuner.onboarding.demo import make_demo
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.keys import key_problem, needed_providers
 from kiln_harness_tuner.onboarding.kiln_check import check_kiln
@@ -121,18 +123,21 @@ def prepare_start(
     policy_loader: Callable[[str | None], ModelPolicy | None],
     terminal: Terminal | None = None,
     runner: KilnRunner | None = None,
+    home: Path | None = None,
 ) -> argparse.Namespace:
-    """Check that Kiln answers and is new enough, choose the project and the
-    task, check that the task is ready to tune, and check that Kiln has a key
-    for every provider the run calls, asking the user to fix each problem
-    when they can. Returns `args` with `project_id`, `task_id` and
+    """Check that Kiln answers and is new enough, make and import a copy of
+    the demo when `args.demo_project` asks for one, choose the project and
+    the task, check that the task is ready to tune, and check that Kiln has
+    a key for every provider the run calls, asking the user to fix each
+    problem when they can. Returns `args` with `project_id`, `task_id` and
     `project_path` filled in.
 
     `argv` is the command line as typed, and `parser_long_options` the
     parser's long option strings: they rebuild the command printed when
     anything was filled in. `policy_loader` loads `--model-policy`, whose
     providers the key check covers, each time that check runs; it is cli's,
-    so a bad file reads the same here as in the run.
+    so a bad file reads the same here as in the run. The demo's copies go in
+    `home`'s `Kiln Projects/` folder; `home` is `Path.home()` by default.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
     interactive, or an unknown ID), and `OnboardingStopped` when the user
@@ -143,6 +148,15 @@ def prepare_start(
     run = runner if runner is not None else kiln_runner(host)
     try:
         resolve_problem(lambda: _run_kiln_check(run, terminal, host, prog), terminal)
+        if args.demo_project:
+            demo = make_demo(
+                terminal=terminal,
+                run=run,
+                home=home if home is not None else Path.home(),
+            )
+            args.project_id = demo.project_id
+            args.task_id = demo.task_id
+            args.project_path = str(demo.folder)
         selection = _choose_a_ready_task(
             args,
             argv,
@@ -151,6 +165,7 @@ def prepare_start(
             host=host,
             prog=prog,
             parser_long_options=parser_long_options,
+            demo=args.demo_project,
         )
         _wait_for_keys(
             run,
@@ -176,10 +191,12 @@ def _choose_a_ready_task(
     host: str,
     prog: str,
     parser_long_options: Sequence[str],
+    demo: bool,
 ) -> Selection:
     """Choose the project and the task, writing them into `args`, until the
     task is ready to tune. `[t]` at the readiness prompt goes back to the
-    task picker."""
+    task picker. `demo`: the demo filled in every flag before the choice, so
+    the rerun line is printed although nothing is left to fill in here."""
     while True:
         selection = select(args, terminal=terminal, run=run, host=host, prog=prog)
         args.project_id = selection.project.id
@@ -187,7 +204,7 @@ def _choose_a_ready_task(
         args.project_path = str(selection.project_path)
         # A `[t]` pass has no task ID, so it is always filled in, and the
         # line is printed again with the new task.
-        if selection.filled:
+        if selection.filled or demo:
             command = rerun_command(
                 prog,
                 argv,

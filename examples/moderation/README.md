@@ -94,33 +94,31 @@ invented.
 You need the requirements in the [main README](../../README.md#requirements):
 the loop installed, a running Kiln studio server, and a signed-in agent CLI.
 You also need a Fireworks key in Kiln, because the baseline calls DeepSeek
-V4.1 Flash 1017 through Fireworks.
+V4.1 Flash 1017 through Fireworks. The start checks that Kiln has the key,
+and says where to add it when it doesn't.
 
-1. Copy the project out of the repository. Kiln and the loop write runs into
-   the project folder, and a copy keeps your clone clean.
-
-   ```
-   mkdir -p ~/kiln-projects
-   cp -R "examples/moderation/Forum Moderation" ~/kiln-projects/
-   ```
-
-2. Import the copy into Kiln. In the Kiln app, import an existing project and
-   select `~/kiln-projects/Forum Moderation/project.kiln`. Or use the API:
+1. Start the loop on a fresh copy of the project:
 
    ```
-   curl -X POST "http://localhost:8757/api/import_project?trusted=true&project_path=$HOME/kiln-projects/Forum%20Moderation/project.kiln"
-   ```
-
-   `trusted=true` is required because the eval runs code: the scorer.
-
-3. Start the loop:
-
-   ```
-   kiln-harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
-             --project-id 424242975950 --task-id 424242783061 \
+   kiln-harness-tuner --demo-project \
              --guidance "Improve the moderation decisions. Keep the output format." \
              --timeout-mins 60 --budget-usd 20
    ```
+
+   `--demo-project` copies the project into
+   `~/Kiln Projects/Forum Moderation`, imports the copy into Kiln, and runs
+   on it. Kiln and the loop write runs into the project folder, so they
+   write into the copy and never into the package. Each start with
+   `--demo-project` makes a new copy: when the folder is taken, the copy goes
+   to `Forum Moderation-1`, then `-2`, and so on. Nothing is overwritten.
+   Each copy has its own project id, and the task id is always
+   `424242783061`. The start prints the command that runs on the same copy
+   again.
+
+   The project the copies come from ships inside the package, in
+   [`src/kiln_harness_tuner/demo_project/Forum Moderation/`](../../src/kiln_harness_tuner/demo_project/Forum%20Moderation/).
+   Every agent's read fence denies that folder, because it holds the labels
+   of every split.
 
    `--budget-usd` is a ceiling, not an estimate. It covers both the agent
    sessions and the model calls of the task. Read
@@ -129,6 +127,6 @@ V4.1 Flash 1017 through Fireworks.
    The loop shows its progress in the terminal. When the run ends, the report
    is in `reports/` in this repository.
 
-4. Check the result on test yourself. The loop never reads test. In Kiln, run
+2. Check the result on test yourself. The loop never reads test. In Kiln, run
    the `Decision correct` eval on the test split for the baseline and for the
    run config the loop promoted, and compare the two.

@@ -412,7 +412,7 @@ PROG = "kiln-harness-tuner"
   - Then, in the existing `try`: `args = prepare_start(args, raw, prog=PROG, policy_loader=load_model_policy, parser_long_options=...)`, then `asyncio.run(...)`.
   - `except OnboardingStopped` returns its code after the `stopped.` line. `OnboardingError` joins the existing except tuple.
   - `main` calls `prepare_start` through the module attribute (`kiln_harness_tuner.cli.prepare_start`), so tests can monkeypatch it.
-- `read_fence_for`: append `demo_fence_root()` to `deny`. On `main` the walk over the repo's Kiln projects already finds the packaged copy, so this adds nothing there. It matters once the package sits in site-packages.
+- `read_fence_for`: append `demo_fence_root().resolve()` to `deny`, resolved like the fence's other roots, so an install reached through a symlink still matches. On `main` the walk over the repo's Kiln projects already finds the packaged copy, so this adds nothing there. It matters once the package sits in site-packages.
 
 ## 13. Packaging the demo
 

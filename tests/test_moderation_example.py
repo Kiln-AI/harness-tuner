@@ -1,6 +1,6 @@
 """The moderation example: `posts.jsonl` and `scorer.py` are what the
-committed Kiln project holds, the splits are balanced, and the scorer scores
-the way its docstring says."""
+Kiln project that ships in the package holds, the splits are balanced, and
+the scorer scores the way its docstring says."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ import importlib.util
 import json
 from pathlib import Path
 
+from kiln_harness_tuner.onboarding.demo import demo_source
+
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "moderation"
-TASK = EXAMPLE / "Forum Moderation" / "tasks" / "424242783061 - Forum Moderation"
+TASK = Path(str(demo_source())) / "tasks" / "424242783061 - Forum Moderation"
 SPLITS = {"train", "val", "test"}
 
 

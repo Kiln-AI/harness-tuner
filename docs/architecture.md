@@ -883,8 +883,10 @@ reviewers) run under it, and get no scratch directory.
    are every split's data; every *other* Kiln project in the repository at
    any depth; `runs/` (this run's directory included, except its scratch),
    `traces/` and `reports/`; every child of `examples/` except the one on the
-   path to the run's own project, at every level down; and every other Claude
-   session's transcripts. Allowed: the run's scratch, and the
+   path to the run's own project, at every level down; the demo project that
+   ships in the package (`src/kiln_harness_tuner/demo_project/`), by path,
+   because an installed package sits outside the repository; and every other
+   Claude session's transcripts. Allowed: the run's scratch, and the
    `.claude/skills` and `CLAUDE.md` that the run installs for Claude Code.
 
    **The trace folder.** The roles that read traces —
@@ -1092,6 +1094,8 @@ src/kiln_harness_tuner/
   model_preflight.py  one test call per model before the first spend
   concurrency.py, provider_errors.py, snapshots.py
   agents/           one prompt template per agent role
+  demo_project/     the moderation example's Kiln project, shipped as
+                    package data for --demo-project
   dispatch/         the seam (base.py), --agent-cli (agent_cli.py), the
                     claude -p, codex exec and opencode run implementations,
                     and the run-directory read fence (run_fence.py)

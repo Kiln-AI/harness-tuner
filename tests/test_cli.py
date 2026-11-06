@@ -21,6 +21,7 @@ from kiln_harness_tuner.dispatch.claude_cli import PreflightError
 from kiln_harness_tuner.memory import BaselineRecordMissingError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.demo import demo_fence_root
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
@@ -194,6 +195,29 @@ def test_the_ids_and_the_path_are_optional():
     assert (args.project_id, args.task_id, args.project_path) == (None, None, None)
     args = build_parser().parse_args(["--task-id", "424242613304"])
     assert (args.project_id, args.task_id) == (None, "424242613304")
+
+
+def test_demo_project_parses_and_defaults_off():
+    assert build_parser().parse_args([]).demo_project is False
+    assert build_parser().parse_args(["--demo-project"]).demo_project is True
+
+
+@pytest.mark.parametrize("flag", ["--project-id", "--task-id", "--project-path"])
+def test_demo_project_with_a_project_flag_exits_2(monkeypatch, capsys, flag):
+    started: list = []
+    monkeypatch.setattr(
+        kiln_harness_tuner.cli,
+        "prepare_start",
+        lambda args, _argv, **_kwargs: started.append(args),
+    )
+    with pytest.raises(SystemExit) as exited:
+        main(["--demo-project", flag, "424242613304"])
+    assert exited.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "kiln-harness-tuner: error: --demo-project makes its own project:"
+        " drop --project-id, --task-id and --project-path"
+    )
+    assert started == []
 
 
 def test_the_parser_records_every_long_option():
@@ -717,6 +741,7 @@ class TestRenderRunConfigs:
         # `test_the_examples_deny_recurses_to_the_projects_own_depth`).
         assert str(repo / "examples") in fs["denyRead"]
         assert str(Path.home() / ".claude" / "projects") in fs["denyRead"]
+        assert str(demo_fence_root().resolve()) in fs["denyRead"]
         # Only the scratch of this run — not its wave log, steps or
         # snapshots, which carry val tables.
         assert str((run_dir / "scratch").resolve()) in fs["allowRead"]
@@ -923,6 +948,23 @@ def test_read_fence_denies_the_runs_own_project_whole(tmp_path):
     assert own in fence.deny
     assert not any(own == a or own in a.parents for a in fence.allow)
     assert fence.rule_paths()[0] == own
+
+
+def test_read_fence_denies_the_packaged_demo(tmp_path):
+    """The packaged demo holds every split's labels. Once the package is
+    installed it sits outside the repository, where the project scan never
+    looks, so the fence names it by path."""
+    from kiln_harness_tuner.cli import read_fence_for
+
+    fence = read_fence_for(
+        repo_root=tmp_path / "repo",
+        project_root=tmp_path / "Kiln Projects" / "Forum Moderation",
+        run_dir=tmp_path / "repo" / "runs" / "260731-0900",
+        task_id="424242783061",
+        home=tmp_path / "home",
+    )
+    assert demo_fence_root().resolve() in fence.deny
+    assert demo_fence_root().resolve() in fence.rule_paths()
 
 
 def test_read_fence_rule_paths_open_the_allowed_child(tmp_path):

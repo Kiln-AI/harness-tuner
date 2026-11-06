@@ -1,8 +1,9 @@
 # Anchoring note. Every pattern below that is a bare
 # name — no internal slash — matches at ANY depth, not just at the
-# repository root. This tree commits an `examples/` holding a Kiln project
-# tree and a corpus, so a directory named `lib`, `build`, `var`, `target`,
-# `instance`, `env` or `cover` inside it would be untracked in silence. The
+# repository root. This tree commits a Kiln project tree (the demo, in
+# `src/kiln_harness_tuner/demo_project/`) and an `examples/` corpus, so a
+# directory named `lib`, `build`, `var`, `target`, `instance`, `env` or
+# `cover` inside either would be untracked in silence. The
 # build- and tool-artifact patterns are therefore anchored with a leading `/`. Caches (`__pycache__/`,
 # `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `*.egg-info/`, `.venv`)
 # stay unanchored on purpose: they are produced next to whatever they
@@ -233,8 +234,8 @@ tempCodeRunnerFile.py
 # not committed evidence: `runs/` is run scratch and
 # `traces/` holds the redacted `claude -p` session transcripts the dispatcher
 # copies out. A user should not be offered their own agent transcripts to
-# commit. Root-anchored, because a Kiln project tree under `examples/` carries
-# its own `tasks/<id>/runs/` — see the note at the end of this file.
+# commit. Root-anchored, because a Kiln project tree committed here carries
+# its own `tasks/<id>/runs/` — see the note further down this file.
 /runs/
 /traces/
 # Local Kiln projects you point the loop at. Never tracked. One Kiln project
@@ -245,13 +246,17 @@ tempCodeRunnerFile.py
 # artifact of a run: the thing a person quotes, shares and reviews. If a report
 # must stay private, delete it or move it out of the tree; do not add it here.
 
-# A Kiln project under `examples/` is committed without its runs. Kiln writes
-# them when a project is used in place rather than copied out: the task's runs
-# at `tasks/<id>/runs/` and each eval config's EvalRuns at
+# A Kiln project committed in this tree (the packaged demo, or one under
+# `examples/`) is committed without its runs. Kiln writes them when a project
+# is used in place rather than copied out: the task's runs at
+# `tasks/<id>/runs/` and each eval config's EvalRuns at
 # `tasks/<id>/evals/<id>/configs/<id>/runs/`. Their ids come from the server,
 # outside the invented `424242……` band, and a model run is sampled, so a run
 # is not reproducible. What is committed is the corpus that produces them.
+# The wheel leaves out what this file ignores, so a run made in place never
+# ships in the package either.
 /examples/*/*/tasks/**/runs/
+/src/kiln_harness_tuner/demo_project/*/tasks/**/runs/
 
 # Installed by `kiln-harness-tuner-install-agents` from `.agents/`: the skills
 # and instructions in each agent CLI's own layout. `.agents/` is the source.

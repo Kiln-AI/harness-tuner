@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar
 
 from kiln_harness_tuner.analysis import KilnApi
@@ -276,6 +278,30 @@ def kiln_routes(*projects: tuple[dict[str, Any], list[dict[str, Any]]]) -> Route
     return routes
 
 
+def import_project_route(kiln: RouteKiln) -> Callable[[Any, Any], Any]:
+    """A `POST /api/import_project` route that imports like Kiln: it loads
+    the `project.kiln` the query names from disk, lists the project in
+    `GET /api/projects` with that path, and answers the start-up reads of
+    each of its tasks as `ready_task_routes` does. It returns the project."""
+
+    def import_project(query: dict[str, Any], _body: Any) -> dict[str, Any]:
+        project_file = Path(query["project_path"])
+        row = json.loads(project_file.read_text(encoding="utf-8"))
+        projects = kiln.routes.get(("GET", "/api/projects"), [])
+        listed = {**row, "path": str(project_file)}
+        kiln.routes[("GET", "/api/projects")] = [*projects, listed]
+        tasks = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(project_file.parent.glob("tasks/*/task.kiln"))
+        ]
+        kiln.routes[("GET", f"/api/projects/{row['id']}/tasks")] = tasks
+        for task_row in tasks:
+            kiln.routes.update(ready_task_routes(row["id"], task_row["id"]))
+        return row
+
+    return import_project
+
+
 def one_project_routes() -> Routes:
     """A Kiln with the demo's project and its one task."""
     return kiln_routes((project(), [task()]))
@@ -288,6 +314,7 @@ def flags(
     *,
     kiln_host: str = HOST,
     model_policy: str | None = None,
+    demo_project: bool = False,
 ) -> argparse.Namespace:
     """The flags the start-up reads, each `None` when not given."""
     return argparse.Namespace(
@@ -296,4 +323,5 @@ def flags(
         task_id=task_id,
         project_path=project_path,
         model_policy=model_policy,
+        demo_project=demo_project,
     )

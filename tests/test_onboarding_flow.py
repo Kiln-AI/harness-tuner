@@ -1,8 +1,9 @@
-"""`prepare_start` end to end on a fake Kiln: the Kiln check, the project and
-task pickers, the rerun line, the readiness check and the API-key check, in
-that order."""
+"""`prepare_start` end to end on a fake Kiln: the Kiln check, the demo copy,
+the project and task pickers, the rerun line, the readiness check and the
+API-key check, in that order."""
 
 import json
+import shlex
 
 import pytest
 from onboarding_fakes import (
@@ -14,6 +15,7 @@ from onboarding_fakes import (
     ScriptedTerminal,
     available_models,
     eval_config,
+    import_project_route,
     kiln_routes,
     memories_path,
     project,
@@ -26,6 +28,7 @@ from onboarding_fakes import (
 
 from kiln_harness_tuner.cli import ConfigRenderError, build_parser, load_model_policy
 from kiln_harness_tuner.model_policy import ModelPolicy, Rule
+from kiln_harness_tuner.onboarding.demo import IMPORT_PATH
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import prepare_start
 
@@ -63,6 +66,7 @@ def start(
     terminal: ScriptedTerminal,
     argv: list[str],
     policy_loader=load_model_policy,
+    home=None,
 ):
     parser = build_parser()
     return prepare_start(
@@ -73,6 +77,7 @@ def start(
         policy_loader=policy_loader,
         terminal=terminal,
         runner=runner_for(kiln),
+        home=home,
     )
 
 
@@ -377,3 +382,85 @@ def test_a_policy_file_broken_before_a_retry_stops_the_start(tmp_path):
             ScriptedTerminal([break_the_file_then_retry]),
             [*EVERY_FLAG, "--model-policy", str(policy)],
         )
+
+
+def demo_kiln() -> RouteKiln:
+    """A Kiln with one project of its own, that imports like Kiln does."""
+    kiln = RouteKiln(kiln_routes((SUPPORT, [task("118230000001", "Triage tickets")])))
+    kiln.routes[("POST", IMPORT_PATH)] = import_project_route(kiln)
+    return kiln
+
+
+DEMO_ARGV = ["--demo-project", "--guidance", "Keep the output format."]
+
+
+def test_demo_project_copies_imports_and_runs_on_the_copy(tmp_path):
+    kiln = demo_kiln()
+    terminal = ScriptedTerminal()
+    args = start(kiln, terminal, DEMO_ARGV, home=tmp_path)
+    folder = tmp_path / "Kiln Projects" / "Forum Moderation"
+    copied = json.loads((folder / "project.kiln").read_text(encoding="utf-8"))
+    assert (args.project_id, args.task_id, args.project_path) == (
+        copied["id"],
+        TASK_ID,
+        str(folder),
+    )
+    assert args.project_id not in (PROJECT_ID, SUPPORT["id"])
+    assert args.guidance == "Keep the output format."
+    assert terminal.prompts == []
+    command = shlex.join(
+        [
+            PROG,
+            "--project-path",
+            str(folder),
+            "--project-id",
+            args.project_id,
+            "--task-id",
+            TASK_ID,
+            "--guidance",
+            "Keep the output format.",
+        ]
+    )
+    assert terminal.out == [
+        f"Demo project copied to {folder}\n"
+        f"and imported into Kiln as project {args.project_id} (task {TASK_ID}).",
+        f"{RERUN_HEADING}\n  {command}",
+    ]
+    # The Kiln check, then the copy and its import, then the choice, which
+    # finds the copy in Kiln, then readiness and the key check.
+    base = task_base(args.project_id, TASK_ID)
+    paths = kiln.paths()
+    assert paths[:6] == [
+        "/ping",
+        "/openapi.json",
+        "/api/projects",
+        IMPORT_PATH,
+        "/api/projects",
+        f"/api/projects/{args.project_id}/tasks",
+    ]
+    assert sorted(paths[6:9]) == [f"{base}/{read}" for read in READINESS_READS]
+    assert paths[-1] == "/api/available_models"
+
+
+def test_a_second_demo_project_makes_a_dash_1_copy(tmp_path):
+    kiln = demo_kiln()
+    first = start(kiln, ScriptedTerminal(), DEMO_ARGV, home=tmp_path)
+    terminal = ScriptedTerminal()
+    second = start(kiln, terminal, DEMO_ARGV, home=tmp_path)
+    folder = tmp_path / "Kiln Projects" / "Forum Moderation-1"
+    assert second.project_path == str(folder)
+    assert second.project_id != first.project_id
+    assert f"--project-id {second.project_id}" in rerun_lines(terminal)[0]
+    listed = kiln.routes[("GET", "/api/projects")]
+    assert [row["name"] for row in listed] == [
+        "Support Triage",
+        "Forum Moderation",
+        "Forum Moderation-1",
+    ]
+
+
+def test_demo_project_when_not_interactive_asks_nothing(tmp_path):
+    terminal = ScriptedTerminal(interactive=False)
+    args = start(demo_kiln(), terminal, ["--demo-project"], home=tmp_path)
+    assert args.task_id == TASK_ID
+    assert terminal.prompts == [] and terminal.err == []

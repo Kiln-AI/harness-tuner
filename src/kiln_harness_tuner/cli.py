@@ -65,6 +65,7 @@ from kiln_harness_tuner.onboarding import (
     OnboardingStopped,
     prepare_start,
 )
+from kiln_harness_tuner.onboarding.demo import demo_fence_root
 from kiln_harness_tuner.orchestrator import (
     DEFAULT_COVERAGE_FLOOR,
     Ctx,
@@ -210,6 +211,13 @@ def build_parser() -> _Parser:
     parser.add_argument(
         "--task-id",
         help="Kiln task id (default: the only task in the project, or one you pick)",
+    )
+    parser.add_argument(
+        "--demo-project",
+        action="store_true",
+        help="copy the demo project into a new folder under ~/Kiln Projects,"
+        " import it into Kiln and run on it (can't be combined with"
+        " --project-id, --task-id or --project-path)",
     )
     parser.add_argument(
         "--kiln-host",
@@ -391,6 +399,17 @@ def build_parser() -> _Parser:
 
 
 OBJECTIVES = ("quality", "speed", "cost")
+
+
+def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The rules between flags that argparse can't state. Each failure is an
+    argparse error: usage, the message, exit 2."""
+    project_flags = (args.project_id, args.task_id, args.project_path)
+    if args.demo_project and any(flag is not None for flag in project_flags):
+        parser.error(
+            "--demo-project makes its own project:"
+            " drop --project-id, --task-id and --project-path"
+        )
 
 
 def _fraction(text: str) -> float:
@@ -613,7 +632,10 @@ def read_fence_for(
     run's directory — this run's too, except its scratch: the wave log, the step
     records and the memory snapshots carry val tables. The traces and the
     reports. Everything under `examples/` — an example's labels, README and
-    build scripts are all the answer key. Every other Claude
+    build scripts are all the answer key. The demo project that ships in the
+    package (`--demo-project` copies it), which holds every split's labels:
+    in a clone the project scan finds it too, but an installed package sits
+    outside the repository, where the scan never looks. Every other Claude
     session's transcripts.
 
     Readable: this run's scratch, and the skills and `CLAUDE.md` that
@@ -633,6 +655,9 @@ def read_fence_for(
         repo_root / "traces",
         repo_root / "reports",
         *example_denials(repo_root, project_root),
+        # Resolved like the roots above: an install reached through a
+        # symlink would otherwise name a path the sandbox doesn't match.
+        demo_fence_root().resolve(),
         home / ".claude" / "projects",
     ]
     repo_reads = [repo_root / ".claude" / "skills", repo_root / "CLAUDE.md"]
@@ -1320,6 +1345,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     raw_argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(raw_argv)
+    validate_args(parser, args)
     try:
         args = prepare_start(
             args,

@@ -314,6 +314,7 @@ skips all of that and leaves the children running to their own time caps.
 | `--project-path` | **Required.** The on-disk Kiln project directory. The orchestrator's code reads it; no agent can — the read fence denies the whole tree, because it holds the eval inputs and results of every split. |
 | `--project-id` | **Required.** The Kiln project id. |
 | `--task-id` | **Required.** The Kiln task id. The loop optimizes exactly one task and never touches another. |
+| `--demo-project` | Copy the demo project (the moderation task of [examples/moderation](../examples/moderation/README.md)) into a new folder, `~/Kiln Projects/Forum Moderation`, import the copy into Kiln, and run on it. When that folder is taken, the copy goes to `Forum Moderation-1`, then `-2`, and so on; nothing is overwritten. Each copy has its own project id. The start prints the command that runs on the same copy again. It can't be combined with `--project-id`, `--task-id` or `--project-path`. |
 | `--kiln-host` | The running Kiln studio server. Injected into every agent's MCP configuration, so agents and orchestrator always agree on the host. |
 | `--guidance` | Section 4. Passed verbatim to every planner and to the promotion gate. |
 | `--timeout-mins` | The time budget, default 180. A monotonic deadline: no wave ever *starts* past it. At the deadline itself an item already *analyzing* gets `ANALYSIS_GRACE_SECS` to finish, and every other in-flight item is cancelled at once — so a deadline that lands mid-wave loses that wave's unfinished items after their drives are paid for. |

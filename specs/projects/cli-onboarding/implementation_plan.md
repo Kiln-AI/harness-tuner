@@ -27,7 +27,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `keys.py`: the baseline, judge, simulated-user and policy providers, and `key_problem` (§10).
   - The policy loader is passed into `prepare_start`.
   - Tests for keys and `choose_baseline_rc`, plus the full no-flags flow test.
-- [ ] Phase 4: `--demo-project`.
+- [x] Phase 4: `--demo-project`.
   - `git mv` of the demo project into `src/kiln_harness_tuner/demo_project/`, as a commit of its own with no content change (§13).
   - The `.gitignore` rule, `tests/test_moderation_example.py`, `examples/moderation/README.md` and `.agents/AGENTS.md` (§13).
   - The one-time wheel check: `uv build --wheel`, then list the demo files in it.

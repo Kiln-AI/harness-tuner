@@ -323,7 +323,8 @@ train item that repeats a val item's text.
 **The read fence is a path fence.** It denies by resolved path: the run's own
 Kiln project whole, other Kiln projects at any depth, every run's directory
 except this run's scratch, traces and reports, other sessions' transcripts,
-and everything under `examples/`. Two consequences. The name `examples`
+everything under `examples/`, and the demo project that ships in the
+package. Two consequences. The name `examples`
 is hardcoded, so a *second* top-level answer-key directory is not fenced. And a
 Kiln project deliberately hidden in a dot-directory is not found by the scan
 that builds the deny list.
