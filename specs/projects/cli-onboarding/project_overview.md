@@ -29,9 +29,9 @@ status: draft
 
 ## 4. `--demo-project`
 
-- A shortcut for "download the demo project, then pass its folder, project ID and task ID". It downloads the demo (today's `examples/moderation/` project) into a fresh folder, imports it into Kiln through the API (the same call as the README's `curl` to `import_project` today), prints the folder, then runs on it. Every other flag works as usual (`--guidance`, `--timeout-mins`, `--budget-usd`).
+- A shortcut for "download the demo project, then pass its folder, project ID and task ID". It copies the demo (today's `examples/moderation/` project) into a fresh folder, imports it into Kiln through the API (the same call as the README's `curl` to `import_project` today), prints the folder, then runs on it. Every other flag works as usual (`--guidance`, `--timeout-mins`, `--budget-usd`).
 - Folder: Kiln's default projects folder if it has one (check what the Kiln app uses), otherwise `~/kiln-projects/`. If the default name is taken, add `-1`, `-2`, and so on. Never overwrite.
-- Source: download a pinned copy (a release asset or a tag) so the demo matches the tuner's version.
+- Source: the demo project ships inside the package, so it always matches the tuner's version and needs no download.
 - The demo's model needs a Fireworks key today; the API-key check (step 3) covers it.
 
 ## Out of scope
@@ -45,6 +45,6 @@ Update `docs/install.md` and `docs/your-own-task.md` for the Kiln and API-key ch
 ## Done when
 
 - `kiln-harness-tuner` with no arguments walks through the Kiln check, the project, the task and the API-key check, then starts a run.
-- `kiln-harness-tuner --demo-project` (with the usual flags) downloads, imports and starts a run, and a second call makes a `-1` folder.
+- `kiln-harness-tuner --demo-project` (with the usual flags) copies, imports and starts a run, and a second call makes a `-1` folder.
 - Tests cover: Kiln unreachable (interactive and not), a missing API key, the picker with 0, 1 and several projects, missing IDs when not interactive, and the folder-name suffix.
 - Your summary lists every new flag and behavior.
