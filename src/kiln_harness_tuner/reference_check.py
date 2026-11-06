@@ -73,6 +73,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.prompt_text import (
     CODE_TOOL_PREFIX,
     SKILL_TOOL_PREFIX,
@@ -170,7 +171,9 @@ def project_skills(project_path: str | Path) -> ProjectSkills:
     names: dict[str, str] = {}
     archived: set[str] = set()
     try:
-        children = sorted(skills_dir.iterdir()) if skills_dir.is_dir() else []
+        children = (
+            sorted(skills_dir.iterdir(), key=path_key) if skills_dir.is_dir() else []
+        )
     except OSError:
         return ProjectSkills()
     for child in children:

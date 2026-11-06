@@ -321,6 +321,27 @@ class TestInstall:
         result = install_bundle(bundle, scratch, project, "notes", ["424242451835"])
         return result, project, bundle
 
+    def test_a_skill_md_with_windows_line_endings_installs(self, tmp_path):
+        # Written on Windows (an editor, the agent's Write tool, Python's
+        # text mode), SKILL.md has CRLF lines. Kiln reads it in text mode.
+        bundle, scratch = make_bundle(tmp_path)
+        crlf = (
+            b"---\r\nname: fresh-skill\r\ndescription: A fresh skill.\r\n---\r\n"
+            b"\r\nUse the thing.\r\n"
+        )
+        (bundle / "SKILL.md").write_bytes(crlf)
+        project = make_project(tmp_path)
+        assert validate(tmp_path, bundle, scratch, project) == []
+        result = install_bundle(bundle, scratch, project, "notes", [])
+        assert result["ok"] is True, result
+        dest = project / "skills" / f"{result['skill_id']} - fresh-skill"
+        assert (dest / "SKILL.md").read_bytes() == crlf  # installed as written
+        sidecar = json.loads((dest / "skill.kiln").read_text(encoding="utf-8"))
+        assert (sidecar["name"], sidecar["description"]) == (
+            "fresh-skill",
+            "A fresh skill.",
+        )
+
     def test_installed_tree_and_sidecar(self, tmp_path):
         result, project, bundle_dir = self.install(tmp_path)
         assert result["ok"] is True

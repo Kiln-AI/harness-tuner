@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from kiln_harness_tuner.command_line import executable_name, split_command
+from kiln_harness_tuner.path_order import path_key
 
 # install_agents.py sits at <repo>/src/kiln_harness_tuner/, as cli.py does.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -122,7 +123,9 @@ def install(
     skills_source = (source / "skills").resolve()
     skills_dest = dest / layout.skills
     if skills_dest.resolve() != skills_source:
-        for skill in sorted(p for p in skills_source.iterdir() if p.is_dir()):
+        for skill in sorted(
+            (p for p in skills_source.iterdir() if p.is_dir()), key=path_key
+        ):
             target = skills_dest / skill.name
             if target.is_symlink() or target.is_file():
                 target.unlink()

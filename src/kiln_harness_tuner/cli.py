@@ -72,6 +72,7 @@ from kiln_harness_tuner.os_sandbox import (
     confirm_no_sandbox,
     has_os_sandbox,
 )
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.reference_check import REFERENCE_CHECK_MODES
 from kiln_harness_tuner.report import ReportWriter
@@ -482,7 +483,7 @@ class ReadFence:
             if not inside:
                 out.append(tree)
                 return
-            for child in sorted(tree.iterdir()) if tree.is_dir() else []:
+            for child in sorted(tree.iterdir(), key=path_key) if tree.is_dir() else []:
                 expand(child)
 
         for tree in self.deny:
@@ -528,7 +529,7 @@ def kiln_project_dirs(root: Path) -> list[Path]:
         if "project.kiln" in filenames and here != root:
             found.append(here)
             dirnames[:] = []
-    return sorted(found)
+    return sorted(found, key=path_key)
 
 
 def example_denials(repo_root: Path, project_root: Path) -> list[Path]:
@@ -571,7 +572,7 @@ def example_denials(repo_root: Path, project_root: Path) -> list[Path]:
     for part in on_the_path:
         keep = (node / part).resolve()
         try:
-            children = sorted(node.iterdir())
+            children = sorted(node.iterdir(), key=path_key)
         except OSError as exc:
             # `--project-path` is validated nowhere upstream, so a typo or a
             # project not yet checked out arrives here — inside the startup

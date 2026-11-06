@@ -47,6 +47,8 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from kiln_harness_tuner.path_order import path_key
+
 SCRATCH = "scratch"
 TRACES = "traces"
 TASK_RUNS = "task_runs"
@@ -528,7 +530,7 @@ class TraceWriter:
         gateway processes that write at once lose no item."""
         folder = self.root / safe_name(run_config_id)
         items = []
-        for path in sorted((folder / STATS).glob("*/*.json")):
+        for path in sorted((folder / STATS).glob("*/*.json"), key=path_key):
             try:
                 items.append(json.loads(path.read_text(encoding="utf-8")))
             except (OSError, ValueError):

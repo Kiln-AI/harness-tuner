@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from kiln_harness_tuner.dispatch import claude_cli
 from kiln_harness_tuner.dispatch.claude_cli import spawn_argv
 from kiln_harness_tuner.dispatch.run_fence import read_rule, rule_path
 from kiln_harness_tuner.gateway import hook
+from kiln_harness_tuner.path_order import path_key
 
 PACKAGE_ROOT = Path(kiln_harness_tuner.__file__).resolve().parent
 SOURCE_ROOT = PACKAGE_ROOT.parent
@@ -131,6 +133,57 @@ def test_every_text_file_is_opened_with_an_explicit_encoding():
         )
     ]
     assert not found, f"text I/O without encoding=: {found}"
+
+
+# The calls that list a folder: their order is the OS's unless sorted by
+# `path_key`.
+LISTING_CALLS = {"iterdir", "glob", "rglob"}
+
+
+def _listings_sorted_by_the_os(tree: ast.AST) -> list[int]:
+    lines = []
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "sorted"
+            and node.args
+            and not any(keyword.arg == "key" for keyword in node.keywords)
+        ):
+            continue
+        listed = {
+            call.func.attr
+            for call in ast.walk(node.args[0])
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+        }
+        if listed & LISTING_CALLS:
+            lines.append(node.lineno)
+    return lines
+
+
+class TestPathOrder:
+    def test_windows_paths_sort_as_macos_and_linux_paths_do(self):
+        # `Path` comparison ignores case on Windows: `examples` came first.
+        windows = [
+            PureWindowsPath(r"C:\r\examples\Nested"),
+            PureWindowsPath(r"C:\r\Top"),
+        ]
+        posix = [PurePosixPath("/r/examples/Nested"), PurePosixPath("/r/Top")]
+        assert sorted(windows) == windows  # the order this key replaces
+        assert [p.name for p in sorted(windows, key=path_key)] == ["Top", "Nested"]
+        assert [p.name for p in sorted(posix, key=path_key)] == ["Top", "Nested"]
+
+    def test_every_sorted_folder_listing_uses_path_key(self):
+        # It sees `sorted()` over an `iterdir`, `glob` or `rglob` call in the
+        # same expression, not a listing stored in a variable first.
+        found = [
+            f"{path.relative_to(SOURCE_ROOT).as_posix()}:{line}"
+            for path in sorted(SOURCE_ROOT.rglob("*.py"), key=path_key)
+            for line in _listings_sorted_by_the_os(
+                ast.parse(path.read_text(encoding="utf-8"))
+            )
+        ]
+        assert not found, f"sorted() of a folder listing without key=path_key: {found}"
 
 
 class TestPermissionRulePaths:
@@ -260,7 +313,10 @@ class TestRedirectedOutputOnWindows:
         cli._replace_unencodable_output()
         print("Kiln Harness Tuner — an agentic optimize loop")
         sys.stdout.flush()
-        assert raw.getvalue() == b"Kiln Harness Tuner ? an agentic optimize loop\n"
+        # Windows' text streams end a line with `\r\n`.
+        assert raw.getvalue() == (
+            b"Kiln Harness Tuner ? an agentic optimize loop" + os.linesep.encode()
+        )
 
     def test_macos_and_linux_streams_are_left_alone(self, monkeypatch):
         self._cp932_stdout(monkeypatch)

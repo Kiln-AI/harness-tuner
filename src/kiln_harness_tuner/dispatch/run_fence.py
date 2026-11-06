@@ -23,6 +23,8 @@ import os
 from collections.abc import Sequence
 from pathlib import Path, PurePath, PureWindowsPath
 
+from kiln_harness_tuner.path_order import path_key
+
 logger = logging.getLogger(__name__)
 
 SCRATCH = "scratch"
@@ -55,7 +57,9 @@ def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> li
         return []
     root = run_dir.resolve()
     wanted = [
-        read_rule(child) for child in sorted(root.iterdir()) if child.name != SCRATCH
+        read_rule(child)
+        for child in sorted(root.iterdir(), key=path_key)
+        if child.name != SCRATCH
     ]
     added: set[str] = set()
     for settings_path in settings_paths:

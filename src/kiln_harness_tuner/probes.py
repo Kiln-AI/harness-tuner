@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.kiln_names import agent_provenance, kiln_name
 from kiln_harness_tuner.latency import latency_of_task_run, run_output
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.provider_errors import (
     ProviderQuotaError,
     classify_provider_message,
@@ -108,7 +109,8 @@ def _name(text: str, limit: int = 60) -> str:
 
 def _task_dirs(project_path: str, task_id: str) -> list[Path]:
     return sorted(
-        p for p in Path(project_path).glob(f"tasks/{task_id} - *") if p.is_dir()
+        (p for p in Path(project_path).glob(f"tasks/{task_id} - *") if p.is_dir()),
+        key=path_key,
     )
 
 
@@ -122,7 +124,9 @@ def load_train_inputs(
     tag = train_filter.removeprefix("tag::")
     out: list[TrainInput] = []
     for task_dir in _task_dirs(project_path, task_id):
-        for path in sorted(task_dir.glob("eval_inputs/*/eval_input.kiln")):
+        for path in sorted(
+            task_dir.glob("eval_inputs/*/eval_input.kiln"), key=path_key
+        ):
             try:
                 doc = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):

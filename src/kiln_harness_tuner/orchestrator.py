@@ -109,6 +109,7 @@ from kiln_harness_tuner.model_policy import (
 from kiln_harness_tuner.model_preflight import flagged_reason, run_model_preflight
 from kiln_harness_tuner.noise import run_noise_check
 from kiln_harness_tuner.objective import better_word, decisive, is_efficiency
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.probes import (
     ProbeSetupError,
     _parent_props,
@@ -2857,7 +2858,7 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     moved: list[str] = []
     for task_dir in dirs:
-        for folder in sorted((task_dir / "run_configs").glob("*")):
+        for folder in sorted((task_dir / "run_configs").glob("*"), key=path_key):
             try:
                 data = json.loads(
                     (folder / "task_run_config.kiln").read_text(encoding="utf-8")

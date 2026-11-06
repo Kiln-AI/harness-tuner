@@ -42,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
 from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.provider_errors import (
     ProviderQuotaError,
     classify_provider_message,
@@ -994,7 +995,7 @@ class ClaudeCliDispatcher:
                     for p in (self._settings_path, self._readonly_settings_path)
                     if p is not None
                 ]
-                + sorted(self._run_dir.glob("settings.*.json")),
+                + sorted(self._run_dir.glob("settings.*.json"), key=path_key),
             )
         settings_path = self._settings_path
         if agent in READ_ONLY_ROLES and self._readonly_settings_path is not None:

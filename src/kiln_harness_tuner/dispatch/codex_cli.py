@@ -63,6 +63,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 from kiln_harness_tuner.gateway.hook import SKILL_INSTALLER_TOOLS
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, ROLE_OPS, TRACE_READER_ROLES
 from kiln_harness_tuner.gateway.trace_files import traces_dir
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.schemas import TargetBlock, Usage
 
 logger = logging.getLogger(__name__)
@@ -462,7 +463,8 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
 
     def _transcript_source(self, session_id: str) -> Path | None:
         matches = sorted(
-            self._codex_sessions_dir.glob(f"*/*/*/rollout-*-{session_id}.jsonl")
+            self._codex_sessions_dir.glob(f"*/*/*/rollout-*-{session_id}.jsonl"),
+            key=path_key,
         )
         return matches[-1] if matches else None
 
