@@ -1,12 +1,13 @@
-"""The harness seam (docs/architecture.md section 2): the loop talks to
+"""The agent-dispatch seam (docs/architecture.md section 2): the loop talks to
 `AgentDispatcher`, and exactly one module knows which implementation it got.
 
 `ClaudeCliDispatcher` is the prototype implementation — a `claude -p`
-subprocess per call. It is the piece a different harness replaces, and the
-replacement is only possible while nothing but the composition root names it.
+subprocess per call. It is the piece a different agent CLI's dispatcher
+replaces, and the replacement is only possible while nothing but the
+composition root names it.
 The orchestrator, the analyzer and the agents must reach it through
 `dispatch.base.AgentDispatcher` and never import the concrete class, or
-`docs/harness-seam.md` promises something the code does not hold.
+`docs/agent-cli.md` promises something the code does not hold.
 """
 
 from __future__ import annotations
@@ -22,8 +23,8 @@ DISPATCH_DIR = PACKAGE_ROOT / "dispatch"
 # `cli.py` builds the `Ctx` — it constructs the dispatcher and hands it down,
 # which is what a composition root is for. There is no second one.
 COMPOSITION_ROOT = "cli.py"
-# The harness implementations, the same rule for each.
-HARNESS_DISPATCHERS = frozenset(
+# One dispatcher per agent CLI, the same rule for each.
+AGENT_CLI_DISPATCHERS = frozenset(
     {"ClaudeCliDispatcher", "CodexCliDispatcher", "OpenCodeCliDispatcher"}
 )
 CONCRETE_MODULES = frozenset(
@@ -71,8 +72,8 @@ def test_the_scan_sees_the_modules_it_is_meant_to():
     assert {"cli.py", "orchestrator.py", "gateway/server.py"} <= found
 
 
-def test_only_the_composition_root_names_a_harness_dispatcher():
-    for dispatcher in sorted(HARNESS_DISPATCHERS):
+def test_only_the_composition_root_names_an_agent_cli_dispatcher():
+    for dispatcher in sorted(AGENT_CLI_DISPATCHERS):
         naming = {
             _label(path)
             for path in _modules_outside_dispatch()
@@ -83,7 +84,7 @@ def test_only_the_composition_root_names_a_harness_dispatcher():
             )
         }
         assert naming == {COMPOSITION_ROOT}, (
-            f"{dispatcher} is a harness-specific implementation;"
+            f"{dispatcher} is a CLI-specific implementation;"
             f" only {COMPOSITION_ROOT} may construct it"
         )
 
@@ -96,7 +97,7 @@ def test_every_other_module_reaches_the_seam_through_the_protocol():
         and CONCRETE_MODULES & set(_imported_names(path))
     }
     assert not offenders, (
-        f"{sorted(offenders)} import a harness module directly — the seam is"
+        f"{sorted(offenders)} import a dispatcher module directly — the seam is"
         " kiln_harness_tuner.dispatch.base.AgentDispatcher"
     )
 

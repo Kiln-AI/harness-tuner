@@ -1,8 +1,8 @@
-"""CodexCliDispatcher — the Codex CLI harness.
+"""CodexCliDispatcher — the dispatcher for the Codex CLI.
 
 One `codex exec` subprocess per call. The prompt, the envelope, the repair
 retry, the error routing and the step records are `ClaudeCliDispatcher`'s;
-this module replaces the four harness-specific steps: the command, where it
+this module replaces the four CLI-specific steps: the command, where it
 runs, how its output reads, and where its transcript is.
 
 **The fence.** Codex reads files through its shell, so a loop session keeps
@@ -37,7 +37,7 @@ profile makes readable, and a copy of the repository's installed `AGENTS.md`.
 **What it does not have.** Codex reports tokens, not cost: every session's
 tokens are booked as unmeasured, and `--budget-usd` caps the Kiln side only.
 A session id cannot be chosen before the spawn, so a session killed at its
-wall-clock cap is not resumed; the ladder re-runs it (docs/harness-seam.md section 5).
+wall-clock cap is not resumed; the ladder re-runs it (docs/agent-cli.md section 5).
 """
 
 from __future__ import annotations

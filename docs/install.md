@@ -94,7 +94,7 @@ agent session's MCP config starts it with `uv run --project <this
 repository> kiln-harness-tuner-gateway-mcp --role <role> …`, so it needs `uv` on the
 `PATH` that `claude -p` inherits and nothing installed. The `kiln_api_mcp`
 server (`call_kiln_api`), spawned by bare name from the `.mcp.json` that
-`kiln-harness-tuner-install-agents --harness claude` writes, is for
+`kiln-harness-tuner-install-agents --agent-cli claude` writes, is for
 interactive Claude Code sessions; a loop run does not use it. Install the console scripts for those sessions and for `kiln-harness-tuner`
 itself.
 
@@ -240,7 +240,7 @@ it, carrying the line above.
 `auth` is a different lane, and it is section 6's: it is how the loop labels a
 **credential failure your model provider reports**. Nothing about the Claude
 Code sign-in produces it. The classes are listed in
-[harness-seam.md](harness-seam.md).
+[agent-cli.md](agent-cli.md).
 
 ### Or: Codex or OpenCode, signed in
 
@@ -273,7 +273,7 @@ the account does not have) and the last lines the CLI printed.
 
 Codex's sandbox is Seatbelt on macOS and bubblewrap on Linux; the fence every
 Codex session runs under depends on it. OpenCode has no OS sandbox; its fence
-is its own permission rules (harness-seam.md sections 10 and 11).
+is its own permission rules ([agent-cli.md](agent-cli.md) sections 10 and 11).
 
 ## 6. A model provider key in Kiln
 
