@@ -41,6 +41,7 @@ from kiln_harness_tuner.setup import (
     SETUP_CONFIG_READ_CONCURRENCY,
     SETUP_DESCRIBE_BACKOFFS,
     SETUP_DESCRIBE_CONCURRENCY,
+    BaselineChoice,
     DescribeEvals,
     EvalSplitAuditError,
     EvalView,
@@ -52,6 +53,7 @@ from kiln_harness_tuner.setup import (
     apply_sync_plan,
     audit_splits,
     build_sync_plan,
+    choose_baseline_rc,
     describe_all,
     eval_rows_from_response,
     fingerprint,
@@ -288,6 +290,41 @@ async def test_unreadable_run_configs_response_is_a_precondition_error():
     # "re-verify the shape", so a paging envelope must be legible as one.
     assert "keys ['matched', 'run_configs']" in message
     assert kiln.memory_posts == []
+
+
+# ---- choose_baseline_rc: the decision, without the reads or the write ----
+
+
+def test_choose_baseline_rc_honours_the_task_default():
+    run_configs = [
+        make_run_config("rc_default", created_at="2026-01-01T00:00:00+00:00"),
+        make_run_config("rc_newer", created_at="2026-07-31T00:00:00+00:00"),
+    ]
+    choice = choose_baseline_rc({"default_run_config_id": "rc_default"}, run_configs)
+    assert choice == BaselineChoice("rc_default", BASELINE_RULE_TASK_DEFAULT, None)
+
+
+def test_choose_baseline_rc_falls_back_to_the_most_recent_for_a_dangling_default():
+    run_configs = [
+        make_run_config("rc_a", created_at="2026-07-01T09:00:00-04:00"),
+        make_run_config("rc_b", created_at="2026-07-30T09:00:00-04:00"),
+    ]
+    choice = choose_baseline_rc({"default_run_config_id": "rc_deleted"}, run_configs)
+    assert choice == BaselineChoice(
+        "rc_b", BASELINE_RULE_MOST_RECENT, unresolvable_default="rc_deleted"
+    )
+
+
+@pytest.mark.parametrize(
+    "task", [{}, {"default_run_config_id": None}, {"default_run_config_id": " "}]
+)
+def test_choose_baseline_rc_takes_the_most_recent_with_no_default(task):
+    run_configs = [
+        make_run_config("rc_a", created_at="2026-07-30T09:00:00-04:00"),
+        make_run_config("rc_b", created_at="2026-07-01T09:00:00-04:00"),
+    ]
+    choice = choose_baseline_rc(task, run_configs)
+    assert choice == BaselineChoice("rc_a", BASELINE_RULE_MOST_RECENT, None)
 
 
 # ---- an eval row's split filter ids: the two homes they have had ----

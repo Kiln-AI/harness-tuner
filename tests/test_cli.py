@@ -11,6 +11,7 @@ import kiln_harness_tuner.cli
 from kiln_harness_tuner.cli import (
     PROG,
     build_parser,
+    load_model_policy,
     main,
     render_run_configs,
     target_from_args,
@@ -217,10 +218,11 @@ def test_the_parser_is_named_by_prog():
 def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
     seen = {}
 
-    def fake_prepare_start(args, argv, *, prog, parser_long_options):
+    def fake_prepare_start(args, argv, *, prog, parser_long_options, policy_loader):
         seen["prog"] = prog
         seen["argv"] = argv
         seen["long_options"] = parser_long_options
+        seen["policy_loader"] = policy_loader
         seen["given"] = args
         returned = argparse.Namespace(**vars(args))
         returned.guidance = "filled in by the checks"
@@ -237,6 +239,8 @@ def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
     assert seen["prog"] == PROG
     assert seen["argv"] == ARGS
     assert seen["long_options"] == build_parser().long_options
+    # The start-up's key check loads `--model-policy` the way the run does.
+    assert seen["policy_loader"] is load_model_policy
     assert seen["run"] is seen["returned"] and seen["run"] is not seen["given"]
     assert seen["run"].guidance == "filled in by the checks"
     assert "kiln-harness-tuner: run finished — wrap_up" in capsys.readouterr().out

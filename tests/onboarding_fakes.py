@@ -20,11 +20,15 @@ T = TypeVar("T")
 
 class ScriptedTerminal:
     """A terminal that answers prompts from `inputs`, in order. An input that
-    is an exception is raised instead. When the inputs run out, `ask` stops
-    the way end of input does."""
+    is an exception is raised instead, and one that is a callable is called
+    for the answer, so a test can change things while the prompt waits. When
+    the inputs run out, `ask` stops the way end of input does."""
 
     def __init__(
-        self, inputs: Sequence[str | BaseException] = (), *, interactive: bool = True
+        self,
+        inputs: Sequence[str | BaseException | Callable[[], str]] = (),
+        *,
+        interactive: bool = True,
     ):
         self.inputs = list(inputs)
         self.interactive = interactive
@@ -46,7 +50,7 @@ class ScriptedTerminal:
         answer = self.inputs.pop(0)
         if isinstance(answer, BaseException):
             raise answer
-        return answer
+        return answer() if callable(answer) else answer
 
     def open_url(self, url: str) -> None:
         self.opened.append(url)
@@ -178,26 +182,92 @@ def task_base(project_id: str, task_id: str) -> str:
     return f"/api/projects/{project_id}/tasks/{task_id}"
 
 
+def memories_path(project_id: str) -> str:
+    return f"/api/projects/{project_id}/memories"
+
+
+def run_config(
+    rc_id: str = "rc_1",
+    name: str = "Baseline",
+    provider: str | None = "fireworks_ai",
+    **fields: Any,
+) -> dict[str, Any]:
+    """One `GET …/run_configs` row. `provider` is its model's provider;
+    `None` leaves the model out, as an MCP run config does."""
+    row: dict[str, Any] = {"id": rc_id, "name": name, **fields}
+    if provider is not None:
+        row["run_config_properties"] = {
+            "type": "kiln_agent",
+            "model_provider_name": provider,
+            "model_name": "llama-v3p1-8b-instruct",
+        }
+    return row
+
+
+def eval_config(
+    properties: dict[str, Any] | None = None,
+    *,
+    model_provider: str | None = None,
+    config_id: str = "ec_1",
+) -> dict[str, Any]:
+    """One `GET …/evals/{id}/eval_config/{config_id}` body: a code eval,
+    which calls no model, unless `properties` say otherwise.
+    `model_provider` is the root field a legacy judge sets."""
+    return {
+        "id": config_id,
+        "name": "scorer",
+        "model_name": None,
+        "model_provider": model_provider,
+        "config_type": "g_eval" if model_provider else "v2",
+        "properties": properties or {"type": "code_eval"},
+    }
+
+
+def memory_listing(*rows: dict[str, Any]) -> dict[str, Any]:
+    """One `GET /api/projects/{id}/memories` page holding all of `rows`."""
+    return {"listings": list(rows), "matched": len(rows), "remaining": 0}
+
+
+def available_models(*provider_ids: str) -> list[dict[str, Any]]:
+    """A `GET /api/available_models` body: the providers Kiln has keys for,
+    each with one model."""
+    return [
+        {
+            "provider_id": provider_id,
+            "provider_name": provider_id,
+            "models": [{"id": "some_model", "name": "Some Model"}],
+        }
+        for provider_id in provider_ids
+    ]
+
+
 def ready_task_routes(project_id: str, task_id: str) -> Routes:
-    """The readiness reads of a task that is ready: one run config, and one
-    eval with a default eval config and no spec."""
+    """The start-up reads of a task that is ready, whose provider Kiln has a
+    key for: one run config on `fireworks_ai`, one eval with a code-eval
+    default config and no spec, a single-turn task, and no baseline record
+    yet. `/api/available_models` is Kiln-wide, so `kiln_routes` answers it."""
     base = task_base(project_id, task_id)
     return {
-        ("GET", f"{base}/run_configs"): [{"id": "rc_1", "name": "Baseline"}],
+        ("GET", base): {"v": 1, "id": task_id, "turn_mode": "single_turn"},
+        ("GET", f"{base}/run_configs"): [run_config()],
         ("GET", f"{base}/evals"): [
             {"id": "eval_1", "name": "Tone", "current_config_id": "ec_1"}
         ],
+        ("GET", f"{base}/evals/eval_1/eval_config/ec_1"): eval_config(),
         ("GET", f"{base}/specs"): [],
+        ("GET", memories_path(project_id)): memory_listing(),
     }
 
 
 def kiln_routes(*projects: tuple[dict[str, Any], list[dict[str, Any]]]) -> Routes:
     """A new Kiln that answers the start-up reads for `projects`, each a
-    project row with its task rows. Every task is ready."""
+    project row with its task rows. Every task is ready, and Kiln has the
+    key each one needs."""
     routes: Routes = {
         ("GET", "/ping"): "pong",
         ("GET", "/openapi.json"): openapi(),
         ("GET", "/api/projects"): [row for row, _tasks in projects],
+        ("GET", "/api/available_models"): available_models("fireworks_ai"),
     }
     for row, tasks in projects:
         routes[("GET", f"/api/projects/{row['id']}/tasks")] = tasks
@@ -217,6 +287,7 @@ def flags(
     project_path: str | None = None,
     *,
     kiln_host: str = HOST,
+    model_policy: str | None = None,
 ) -> argparse.Namespace:
     """The flags the start-up reads, each `None` when not given."""
     return argparse.Namespace(
@@ -224,4 +295,5 @@ def flags(
         project_id=project_id,
         task_id=task_id,
         project_path=project_path,
+        model_policy=model_policy,
     )

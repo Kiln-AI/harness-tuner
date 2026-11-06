@@ -22,7 +22,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `choose.py`, `rerun_command` and `readiness.py`, with the `[t]` loop in `prepare_start` (§5, §7–§9).
   - `--project-id`, `--task-id` and `--project-path` become optional (§12).
   - Tests for choose, rerun and readiness, the flow up to readiness, and the `test_cli.py` changes for the optional flags.
-- [ ] Phase 3: The API-key check.
+- [x] Phase 3: The API-key check.
   - `choose_baseline_rc` in `setup.py`; seeding uses it (§10.1).
   - `keys.py`: the baseline, judge, simulated-user and policy providers, and `key_problem` (§10).
   - The policy loader is passed into `prepare_start`.

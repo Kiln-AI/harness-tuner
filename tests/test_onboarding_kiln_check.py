@@ -20,6 +20,7 @@ from onboarding_fakes import (
     runner_for,
 )
 
+from kiln_harness_tuner.cli import load_model_policy
 from kiln_harness_tuner.kiln import KilnAPIError, KilnTransportError
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import kiln_runner, prepare_start
@@ -66,6 +67,7 @@ def start(kiln: RouteKiln, terminal: ScriptedTerminal, host: str = HOST):
         [],
         prog=PROG,
         parser_long_options=[],
+        policy_loader=load_model_policy,
         terminal=terminal,
         runner=runner_for(kiln),
     )
@@ -260,6 +262,7 @@ def test_the_default_terminal_is_the_real_one(capsys):
         [],
         prog=PROG,
         parser_long_options=[],
+        policy_loader=load_model_policy,
         runner=runner_for(make_kiln(api="not json")),
     )
     assert capsys.readouterr().err == (
@@ -286,6 +289,7 @@ def test_ctrl_c_during_a_kiln_read_stops_with_130():
             [],
             prog=PROG,
             parser_long_options=[],
+            policy_loader=load_model_policy,
             terminal=ScriptedTerminal(),
             runner=interrupted,
         )

@@ -224,7 +224,7 @@ Add them in Kiln under AI Providers: http://localhost:8757/settings/providers
 [r]etry  [o]pen AI Providers  e[x]it:
 ```
 
-- The display name comes from `GET /api/settings/available_providers`. If that has no entry, only the ID is shown.
+- The display name is Kiln's own (`provider_name_from_id`), kept in the tuner, because `GET /api/settings/available_providers` lists only the providers whose keys are set and so never names a missing one. An ID with no known name is shown alone.
 - For a `--model-policy` provider, the line adds: `or remove it from --model-policy`.
 - This check never reads `/api/settings`, which holds the stored keys.
 

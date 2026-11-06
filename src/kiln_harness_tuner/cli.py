@@ -1322,7 +1322,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
     try:
         args = prepare_start(
-            args, raw_argv, prog=PROG, parser_long_options=parser.long_options
+            args,
+            raw_argv,
+            prog=PROG,
+            parser_long_options=parser.long_options,
+            policy_loader=load_model_policy,
         )
         result = asyncio.run(_run_with_signals(args))
     except OnboardingStopped as stop:

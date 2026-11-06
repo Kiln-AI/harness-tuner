@@ -271,6 +271,36 @@ async def seed_baseline_if_missing(ctx: Ctx) -> BaselineSeedOutcome:
         # documented zero-run-configs state; say so instead of seeding.
         raise SetupPreconditionError(unreadable_response_message(rc_path, rows))
 
+    choice = choose_baseline_rc(task, run_configs)
+    await ctx.memory.seed_baseline(
+        choice.rc_id, rule=choice.rule, rc_count=len(run_configs)
+    )
+    return BaselineSeedOutcome(
+        seeded=True,
+        rc_id=choice.rc_id,
+        rule=choice.rule,
+        unresolvable_default=choice.unresolvable_default,
+    )
+
+
+@dataclass(frozen=True)
+class BaselineChoice:
+    """The run config a task with no `baseline` record starts from, and the
+    rule that chose it. `unresolvable_default` is as on
+    `BaselineSeedOutcome`."""
+
+    rc_id: str
+    rule: str
+    unresolvable_default: str | None = None
+
+
+def choose_baseline_rc(
+    task: dict[str, Any], run_configs: list[dict[str, Any]]
+) -> BaselineChoice:
+    """The task's default run config when the run-config list has it, else
+    the most recent. `run_configs` are `_usable_run_configs` rows, at least
+    one. Pure: seeding writes the choice, and the start-up's key check only
+    reads it."""
     # The default is honored only when the run-config list confirms it. A
     # dangling default (rc deleted, or not served by this route) falls
     # through to the mechanical pick rather than seeding an rc that
@@ -280,23 +310,16 @@ async def seed_baseline_if_missing(ctx: Ctx) -> BaselineSeedOutcome:
     # no *usable* default exists.
     live_rc_ids = {_run_config_id(rc) for rc in run_configs}
     default_rc_id = str(task.get("default_run_config_id") or "").strip()
-    unresolvable_default: str | None = None
     if default_rc_id in live_rc_ids:  # "" is never a member — ids are non-empty
-        rc_id, rule = default_rc_id, BASELINE_RULE_TASK_DEFAULT
-    else:
-        # The pre-start survey is expected to ask here;
-        # with no survey, code picks mechanically and says so in the record.
-        rc_id = _run_config_id(_most_recent(run_configs))
-        rule = BASELINE_RULE_MOST_RECENT
+        return BaselineChoice(default_rc_id, BASELINE_RULE_TASK_DEFAULT)
+    # The pre-start survey is expected to ask here;
+    # with no survey, code picks mechanically and says so in the record.
+    return BaselineChoice(
+        _run_config_id(_most_recent(run_configs)),
+        BASELINE_RULE_MOST_RECENT,
         # A default WAS named and could not be honored — the breadcrumb the
         # record's provenance can't carry.
-        unresolvable_default = default_rc_id or None
-    await ctx.memory.seed_baseline(rc_id, rule=rule, rc_count=len(run_configs))
-    return BaselineSeedOutcome(
-        seeded=True,
-        rc_id=rc_id,
-        rule=rule,
-        unresolvable_default=unresolvable_default,
+        unresolvable_default=default_rc_id or None,
     )
 
 

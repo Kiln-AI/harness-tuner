@@ -11,6 +11,7 @@ import pytest
 from kiln_harness_tuner.model_policy import (
     ModelPolicy,
     ModelPolicyError,
+    Rule,
     allowed_models,
     model_pairs,
 )
@@ -154,6 +155,21 @@ class TestLoading:
         bad.write_text("{")
         with pytest.raises(ModelPolicyError):
             ModelPolicy.load(bad)
+
+
+@pytest.mark.parametrize(
+    ("provider", "exact"),
+    [
+        ("fireworks_ai", True),
+        ("*", False),
+        ("fireworks_*", False),
+        ("open?i", False),
+        ("[ab]nthropic", False),
+    ],
+)
+def test_exact_provider_is_false_for_any_glob_character(provider, exact):
+    """The model may be a glob: only the provider is read."""
+    assert Rule(provider, "*").exact_provider is exact
 
 
 def test_model_pairs_reads_nested_run_config_properties_and_not_judges():

@@ -153,8 +153,10 @@ while True:
     if r is Resolution.PICK_TASK:
         args.task_id = None; filled = True; continue   # back to the task picker, same project
     break
-policy = load_model_policy(args.model_policy)            # cli's loader, passed in as a callable
-resolve_problem(lambda: run(key_problem(...)), terminal)
+def check_keys():                                         # every try: the first and each [r]
+    policy = policy_loader(args.model_policy)             # cli's loader, passed in as a callable
+    return run(needed_providers(..., policy=policy) → key_problem(..., needs))
+resolve_problem(check_keys, terminal)
 return args
 ```
 
@@ -332,7 +334,7 @@ def simulated_user_providers(project_path: Path, task_id: str) -> set[str]   # s
 ### 10.1 `needed_providers`
 
 1. **Baseline.**
-   - `memory = MemoryWriter(kiln, project_id=..., task_id=...)`. If `await memory.find_baseline_record()` is set, `rc_id = memory.baseline_rc_id(await memory.require_baseline_record())`. A `BaselineRecordMissingError` sets `rc_id = None`; the start-up raises it properly later.
+   - `memory = MemoryWriter(kiln, project_id=..., task_id=...)`. `record = await memory.require_baseline_record()`; a `BaselineRecordMissingError` there means no record, and the next bullet applies. Otherwise `rc_id = memory.baseline_rc_id(record)`, and a `BaselineRecordMissingError` from it (no `rc_` tag) sets `rc_id = None`; the start-up raises it properly later.
    - Else, `rc_id = choose_baseline_rc(task, _usable_run_configs(rows)).rc_id`, reading `GET {base}` and `GET {base}/run_configs`. With no run configs there is no baseline; readiness has already refused that.
    - The new pure `choose_baseline_rc(task, run_configs) -> BaselineChoice(rc_id, rule, unresolvable_default)` is pulled out of `seed_baseline_if_missing`, which then calls it. No behavior change.
    - Find the row by ID. `run_config_properties.model_provider_name`, when it's a string, gives `Need(provider, f'the task\'s run config "{name}"')`.
@@ -345,14 +347,14 @@ def simulated_user_providers(project_path: Path, task_id: str) -> set[str]   # s
    - Run `simulated_user_providers(project_path, task_id)`: for each `quarantine.task_dirs(project_root, task_id)`, glob `eval_inputs/*/eval_input.kiln`, `json.load` each, and collect `data.drive_config.model_provider` (Kiln's `MultiTurnSyntheticEvalInputData.drive_config`). Unreadable or odd files are skipped.
    - Only `drive_config` is read, never the input text or the labels.
    - `used_by = "the simulated user in the task's eval inputs"`.
-4. **Policy.** For each rule in `policy.allow + policy.exceptions` whose `provider` has no `*`: `Need(provider, "--model-policy", from_policy=True)`.
+4. **Policy.** For each rule in `policy.allow + policy.exceptions` whose `provider` has no glob character (`Rule.exact_provider`): `Need(provider, "--model-policy", from_policy=True)`.
 
 ### 10.2 `key_problem`
 
 1. `available = {row["provider_id"] for row in GET /api/available_models if dict with str provider_id}`.
 2. `missing` is the needs whose provider is not in `NO_KEY_PROVIDERS` and not in `available`, grouped by provider in first-seen order, with their `used_by` texts joined by `", "`.
 3. With no missing providers, return `None`.
-4. Display names come from `GET /api/settings/available_providers` (`{id: name}`). Any `KilnError` there gives `{}`, and the ID is shown alone.
+4. Display names come from `PROVIDER_NAMES` in `keys.py`, a copy of Kiln's `provider_name_from_id`. `GET /api/settings/available_providers` can't be used: it lists only providers whose keys are set. An ID not in the table is shown alone.
 5. Build the FS §8.2 message. A policy need adds ", or remove it from --model-policy". Set `open_url=f"{host}/settings/providers"`, `open_label="AI Providers"`.
 
 ## 11. Demo (`demo.py`)
