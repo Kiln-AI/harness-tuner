@@ -71,7 +71,7 @@ EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "//")
 # The documents outside `docs/` that readers and agents meet first. Named, not
 # globbed: a glob over the root would silently pick up whatever a future phase
 # drops there, and this list is a claim about which files are load-bearing.
-ROOT_DOCS = ("README.md", ".agents/AGENTS.md")
+ROOT_DOCS = ("README.md", "src/kiln_harness_tuner/agent_files/AGENTS.md")
 
 
 def doc_files() -> list[Path]:
@@ -80,12 +80,12 @@ def doc_files() -> list[Path]:
 
 
 def linked_files() -> list[Path]:
-    """Every document whose links are checked: the tree, plus the root two."""
+    """Every document whose links are checked: the tree, plus ROOT_DOCS."""
     return [REPO_ROOT / name for name in ROOT_DOCS] + doc_files()
 
 
 def parser_flags() -> set[str]:
-    """Every long option `kiln-harness-tuner` accepts, minus argparse's own help."""
+    """Every long option `harness-tuner` accepts, minus argparse's own help."""
     flags: set[str] = set()
     for action in build_parser()._actions:
         flags.update(opt for opt in action.option_strings if opt.startswith("--"))

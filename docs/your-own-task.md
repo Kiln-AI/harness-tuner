@@ -293,7 +293,7 @@ task is the wrong place to discover how long a wave takes.
 what stops the first planner assuming facts about your model. It is not free
 either: it drives real items on the model you are optimizing, so on an expensive
 model it is not trivial. Price it with [costs.md](costs.md) and the
-[`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md) skill
+[`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md) skill
 behind it, rather than against a figure from somebody else's task.
 
 **Stopping a run.** In the foreground, Ctrl-C. A run started in the

@@ -11,7 +11,7 @@ Agents do their own discovery writes (`lesson`/`dead_end`/new `issue`)
 through their gateway operations (`memory_create`, `memory_update`) — never
 through this module.
 
-API surface per `.agents/skills/memory/SKILL.md`, response shapes VERIFIED
+API surface per `agent_files/skills/memory/SKILL.md`, response shapes VERIFIED
 against the live server:
 `POST/GET/PATCH /api/projects/{pid}/memories` (+ `/by_ids`), scopes
 `"project"` / `"task::<task_id>"`. The list route returns

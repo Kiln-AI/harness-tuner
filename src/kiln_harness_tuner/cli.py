@@ -1,4 +1,4 @@
-"""`uv run kiln-harness-tuner …` — the documented interface (a CLI,
+"""`harness-tuner …` — the documented interface (a CLI,
 invoked manually from a terminal).
 
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
@@ -173,7 +173,7 @@ class _Parser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="kiln-harness-tuner",
+        prog="harness-tuner",
         description="Kiln Harness Tuner — an agentic optimize loop for Kiln tasks.",
     )
     parser.add_argument(
@@ -700,7 +700,7 @@ def render_run_configs(
                 "run",
                 "--project",
                 str(repo_root),
-                "kiln-harness-tuner-gateway-mcp",
+                "harness-tuner-gateway-mcp",
                 "--role",
                 role,
                 "--run-dir",
@@ -735,7 +735,7 @@ def render_run_configs(
             "run",
             "--project",
             str(repo_root),
-            "kiln-harness-tuner-skill-installer-mcp",
+            "harness-tuner-skill-installer-mcp",
             "--project-path",
             str(project_root),
             "--scratch-root",
@@ -979,7 +979,7 @@ def build_ctx(
 
 
 class RunLockError(RuntimeError):
-    """Another kiln-harness-tuner run is live against the same task (two concurrent
+    """Another harness-tuner run is live against the same task (two concurrent
     runs race the baseline record and the memory store)."""
 
 
@@ -1078,7 +1078,7 @@ def _acquire_run_lock(
         holder = _lock_holder_pid(lock_path)
         os.close(fd)
         raise RunLockError(
-            f"another kiln-harness-tuner run (pid {holder or '?'}) is live against task"
+            f"another harness-tuner run (pid {holder or '?'}) is live against task"
             f" {task_id} — one run per task.\n"
             "fix: wait for that run to finish, or stop it — the kernel"
             f" releases the lock when its process ends. The lock is"
@@ -1088,10 +1088,10 @@ def _acquire_run_lock(
     if holder is not None and holder != os.getpid() and _pid_alive(holder):
         os.close(fd)  # closing releases the flock
         raise RunLockError(
-            f"another kiln-harness-tuner run (pid {holder}) is live against task"
+            f"another harness-tuner run (pid {holder}) is live against task"
             f" {task_id} — one run per task.\n"
             f"fix: wait for that run to finish. If pid {holder} is not a"
-            f" kiln-harness-tuner run, delete {lock_path} and retry."
+            f" harness-tuner run, delete {lock_path} and retry."
         )
     record = json.dumps(
         {
@@ -1117,7 +1117,7 @@ async def _run(args: argparse.Namespace) -> str:
     try:
         install_agents(agent_cli.kind)
     except InstallError as exc:
-        raise SystemExit(f"kiln-harness-tuner: {exc}") from exc
+        raise SystemExit(f"harness-tuner: {exc}") from exc
     target = target_from_args(args)
     models = parse_role_overrides(args.agent_model, "--agent-model")
     efforts = parse_role_overrides(args.agent_effort, "--agent-effort")
@@ -1246,7 +1246,7 @@ async def _run(args: argparse.Namespace) -> str:
 # service stop, `timeout(1)`) and SIGHUP (the terminal that started it
 # closed). SIGINT is Ctrl-C in the foreground — Python raises
 # KeyboardInterrupt, which cancels the main task the same way — but a shell
-# starts a BACKGROUND job (`kiln-harness-tuner … &`) with SIGINT ignored, so `kill -INT`
+# starts a BACKGROUND job (`harness-tuner … &`) with SIGINT ignored, so `kill -INT`
 # does nothing to it: stop a backgrounded run with `kill <pid>` (SIGTERM).
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 _stopped_by: list[int] = []
@@ -1295,7 +1295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
         print(
-            f"kiln-harness-tuner: interrupted ({signal.Signals(signum).name})"
+            f"harness-tuner: interrupted ({signal.Signals(signum).name})"
             " — children killed, lock released",
             file=sys.stderr,
         )
@@ -1315,9 +1315,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) as exc:
         # The hard errors carry instructive messages — land them instead
         # of a traceback. Anything else is a genuine bug and may raise raw.
-        print(f"kiln-harness-tuner: {exc}", file=sys.stderr)
+        print(f"harness-tuner: {exc}", file=sys.stderr)
         return 1
-    print(f"kiln-harness-tuner: run finished — {result}")
+    print(f"harness-tuner: run finished — {result}")
     return 0
 
 

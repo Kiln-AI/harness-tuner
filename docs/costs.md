@@ -9,7 +9,7 @@ makes a price from somewhere else useless to you, and the smoke run that
 replaces guessing. A number copied from another task would be worse than no
 number, and the rest of this page explains why.
 
-It is a summary of the [`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md)
+It is a summary of the [`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md)
 skill, which the loop's own planner is pointed at when it weighs what a wave
 will cost. Read the skill when you are about to spend; read this to know what
 you are about to be asked.

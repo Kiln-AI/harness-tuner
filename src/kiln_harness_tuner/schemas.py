@@ -1352,7 +1352,8 @@ class ExperimentResult(BaseModel):  # analyze_experiment_results (train-side)
     ) = None
     memory_overview: str  # ≤280, outcome front-loaded as NUMBERS, no labels.
     #   The row format is a string contract with exactly one owner — the
-    # "Frozen format" block in `.agents/skills/kiln-harness-tuner-experiment-analysis`.
+    # "Frozen format" block in the `kiln-harness-tuner-experiment-analysis`
+    # skill (`agent_files/skills/`).
     #   Deliberately NOT restated here: a second copy would drift from
     #   the owner.
     memory_content: str

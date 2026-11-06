@@ -388,7 +388,7 @@ Nothing notices when the server moves past it.
 
 This repository quotes no measured cost figure. [costs.md](costs.md) is the
 method for estimating a run before starting it.
-[`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md) is the
+[`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md) is the
 skill behind it. It covers the six spend lanes and the formulas, and its first rule is the one that
 matters most here — never scale a cost across models by a list-price ratio.
 

@@ -253,10 +253,12 @@ tempCodeRunnerFile.py
 # is not reproducible. What is committed is the corpus that produces them.
 /examples/*/*/tasks/**/runs/
 
-# Installed by `kiln-harness-tuner-install-agents` from `.agents/`: the skills
-# and instructions in each agent CLI's own layout. `.agents/` is the source.
+# Installed by `harness-tuner-install-agents` from
+# `src/kiln_harness_tuner/agent_files/`: the skills and instructions in each
+# agent CLI's own layout. `agent_files/` is the source.
 /CLAUDE.md
 /AGENTS.md
+/.agents/
 /.claude/skills/
 /.claude/settings.json
 /.mcp.json

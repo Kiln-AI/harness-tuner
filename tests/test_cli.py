@@ -50,6 +50,12 @@ def test_flags_build_target_block_with_defaults():
     assert args.guidance == ""
 
 
+def test_the_parser_is_named_after_the_command():
+    # `uvx harness-tuner` runs the command named `harness-tuner`, so usage
+    # and errors name it too.
+    assert build_parser().prog == "harness-tuner"
+
+
 def test_overrides():
     args = build_parser().parse_args(
         ARGS
@@ -227,7 +233,7 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, tmp_path):
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     code = main(ARGS + ["--guidance", "one wave", "--timeout-mins", "30"])
     assert code == 0
-    assert "wrap_up" in capsys.readouterr().out
+    assert "harness-tuner: run finished — wrap_up" in capsys.readouterr().out
     assert seen["guidance"] == "one wave"
     assert seen["timeout_mins"] == 30
     ctx = seen["ctx"]
@@ -257,7 +263,9 @@ def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     code = main(ARGS)
     assert code == 1
-    assert "run baseline setup" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err.startswith("harness-tuner: no baseline record")
+    assert "run baseline setup" in err
 
 
 def test_main_setup_precondition_error_prints_instructive_error(
@@ -377,7 +385,7 @@ class TestRenderRunConfigs:
                 "run",
                 "--project",
                 str(tmp_path / "repo"),
-                "kiln-harness-tuner-gateway-mcp",
+                "harness-tuner-gateway-mcp",
             ]
             assert args[args.index("--role") + 1] == role
             assert args[args.index("--run-dir") + 1] == str(run_dir.resolve())
@@ -426,7 +434,7 @@ class TestRenderRunConfigs:
             "run",
             "--project",
             str(tmp_path / "repo"),
-            "kiln-harness-tuner-skill-installer-mcp",
+            "harness-tuner-skill-installer-mcp",
             "--project-path",
             str(project_root),
             "--scratch-root",
@@ -1007,7 +1015,9 @@ class TestRunLock:
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
-            with pytest.raises(RunLockError, match="one run per task"):
+            with pytest.raises(
+                RunLockError, match="another harness-tuner run .* one run per task"
+            ):
                 _acquire_run_lock(tmp_path, "t1")
         finally:
             os.close(fd)
@@ -1097,4 +1107,4 @@ class TestSigterm:
         monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
         rc = main(["--project-path", "x", "--project-id", "p", "--task-id", "t"])
         assert rc == 129 and seen == ["finally"]
-        assert "interrupted (SIGHUP)" in capsys.readouterr().err
+        assert "harness-tuner: interrupted (SIGHUP)" in capsys.readouterr().err

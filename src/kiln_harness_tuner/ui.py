@@ -918,8 +918,7 @@ class PlainUi:
     def event(self, kind: str, **fields: object) -> None:
         if kind == "run_start":
             self._print(
-                "kiln-harness-tuner: run started"
-                f" (timeout {fields.get('timeout_mins')} min)"
+                f"harness-tuner: run started (timeout {fields.get('timeout_mins')} min)"
             )
         elif kind == "item_change":
             for line in change_lines(fields):

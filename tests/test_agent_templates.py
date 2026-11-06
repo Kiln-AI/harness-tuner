@@ -2,7 +2,7 @@
 
 The dispatcher renders `agents/<agent>.md` as the prompt head; each
 skill-backed template tells the agent to load a `kiln-harness-tuner-*` skill that must
-exist in the repo's `.agents/skills/` with a matching frontmatter `name:`
+exist in the package's `agent_files/skills/` with a matching frontmatter `name:`
 (repo convention: kebab-case directory == `name:`). These tests freeze that
 cross-file contract — a renamed or missing skill breaks dispatch silently
 otherwise (the subagent would just fail to load its procedure).
@@ -18,6 +18,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     DEFAULT_TEMPLATES_DIR,
     NO_TOOL_ROLES,
 )
+from kiln_harness_tuner.install_agents import source_dir
 from kiln_harness_tuner.memory_schema import (
     baseline_rc_tag,
     is_rejected_at_val,
@@ -26,10 +27,10 @@ from kiln_harness_tuner.memory_schema import (
 from kiln_harness_tuner.report import render_spend_header
 from kiln_harness_tuner.schemas import BaselineRef, BatchPlanInput
 
-# agents/ = <repo>/src/kiln_harness_tuner/agents → parents[2] is the repo root: the
-# dispatcher's cwd, and so the directory holding .agents/skills.
-REPO_ROOT = DEFAULT_TEMPLATES_DIR.resolve().parents[2]
-SKILLS_DIR = REPO_ROOT / ".agents" / "skills"
+# The agent files the package ships, as `install_agents` reads them: what every
+# install copies into an agent CLI's layout.
+AGENT_FILES = source_dir().resolve()
+SKILLS_DIR = AGENT_FILES / "skills"
 
 # eval_build is deliberately absent: the eval-build boundary keeps it
 # skill-less.
@@ -598,7 +599,8 @@ def _agent_prompt_paths() -> list[Path]:
 
 def _installed_doc_paths() -> list[Path]:
     """Every markdown file this repository installs for an agent to read: all
-    of `.agents/skills/`, not only the `kiln-harness-tuner-*` ones, plus the templates.
+    of `agent_files/skills/`, not only the `kiln-harness-tuner-*` ones, plus the
+    templates.
     Another skill a Kiln Harness Tuner document routes to can misdirect an agent
     exactly as a Kiln Harness Tuner document can."""
     return [
@@ -1006,7 +1008,7 @@ def test_every_skill_name_an_installed_doc_backticks_resolves():
     assert not unresolved, (
         "an installed document names a skill that is not installed: "
         + "; ".join(f"`{n}` in {sorted(d)}" for n, d in sorted(unresolved.items()))
-        + " — either the skill belongs in .agents/skills/, or the document"
+        + " — either the skill belongs in agent_files/skills/, or the document"
         " should stop naming it, or the span is not a skill name and belongs"
         " in _NOT_SKILL_NAMES"
     )
@@ -1035,10 +1037,10 @@ def test_no_skill_a_kiln_harness_tuner_doc_loads_carries_a_kiln_host():
         )
 
 
-def test_the_repo_claude_md_carries_no_kiln_port():
-    # The dispatcher's cwd is the repo root, so the instructions load into EVERY
+def test_the_loop_agent_instructions_carry_no_kiln_port():
+    # Installed as CLAUDE.md or AGENTS.md, the instructions load into EVERY
     # agent session — it is agent-visible text like any skill.
-    assert ":8757" not in (REPO_ROOT / ".agents" / "AGENTS.md").read_text()
+    assert ":8757" not in (AGENT_FILES / "AGENTS.md").read_text()
 
 
 # ---- the planner learns eval sizes ----
@@ -1168,7 +1170,7 @@ def test_skill_authoring_reference_exists_and_is_routed():
 
 # ---- other skills' deeplinks into `kiln-api` ----
 #
-# `.agents/skills/kiln-api/` is generated output (built from a live
+# `agent_files/skills/kiln-api/` is generated output (built from a live
 # studio_server's OpenAPI document). Its filenames are
 # `openapi2skill` slugs, so deeplinks written from memory 404 silently. Generated
 # filenames must be stable across runs, or deeplinks break silently.
@@ -1245,14 +1247,15 @@ def test_every_api_deeplink_targets_a_file_that_exists():
     for doc in _agent_prompt_paths():
         for method, path, target in _deeplinks_in(doc):
             # Containment BEFORE existence. A `../` walk with one hop too many
-            # leaves the repository, and whether that is caught by the
-            # existence check alone depends on what happens to sit at the
-            # escaped location on the machine running the test — a developer
-            # with the generated `kiln-api` skill under `~/.claude/skills/`
-            # would see an escaping link resolve and pass.
-            assert REPO_ROOT in target.parents, (
+            # leaves the skills tree, which is all an install copies, and
+            # whether that is caught by the existence check alone depends on
+            # what happens to sit at the escaped location on the machine
+            # running the test — a developer with the generated `kiln-api`
+            # skill under `~/.claude/skills/` would see an escaping link
+            # resolve and pass.
+            assert SKILLS_DIR in target.parents, (
                 f"{_doc_label(doc)} deeplinks `{method} {path}` to {target},"
-                " which is outside the repository — the `../` walk has one hop"
+                " which is outside the skills tree — the `../` walk has one hop"
                 " too many"
             )
             assert target.is_file(), (

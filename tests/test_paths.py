@@ -29,7 +29,7 @@ from kiln_harness_tuner.cli import REPO_ROOT
 
 PACKAGE_ROOT = Path(kiln_harness_tuner.__file__).resolve().parent
 
-# The only module allowed to walk out of the package: `kiln-harness-tuner`'s
+# The only module allowed to walk out of the package: `harness-tuner`'s
 # composition root (cli.py), which resolves the roots everything below it is
 # handed. Every other module receives the paths it needs.
 # `dispatch/claude_cli.py` also reads `__file__`, but for a package-internal
@@ -148,7 +148,5 @@ def test_a_package_internal_derivation_is_not_an_exception():
 
 def test_repo_root_is_the_repository_root():
     assert (REPO_ROOT / "pyproject.toml").is_file()
-    assert (REPO_ROOT / ".agents" / "claude" / ".mcp.json").is_file()
-    assert (REPO_ROOT / ".agents" / "skills").is_dir()
     # `src/kiln_harness_tuner` sits under it, which is the walk cli.py performs.
     assert PACKAGE_ROOT.parent.parent == REPO_ROOT

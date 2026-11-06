@@ -1,26 +1,31 @@
-"""`kiln-harness-tuner-install-agents`: the skills and the instructions in
-`.agents/` land where each agent CLI reads them, and an instructions file the
-command did not write is never replaced without `--force`."""
+"""`harness-tuner-install-agents`: the skills and the instructions the
+package ships in `agent_files/` land where each agent CLI reads them, and an
+instructions file the command did not write is never replaced without
+`--force`."""
 
 from __future__ import annotations
 
+import importlib.resources
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
 
+import kiln_harness_tuner
 from kiln_harness_tuner.install_agents import (
     AGENT_CLIS,
     MARKER,
-    REPO_ROOT,
+    PREVIOUS_MARKERS,
     InstallError,
     install,
     main,
+    source_dir,
 )
 
 
 def source(tmp_path: Path) -> Path:
-    src = tmp_path / "src" / ".agents"
+    src = tmp_path / "src" / "agent_files"
     (src / "skills" / "alpha").mkdir(parents=True)
     (src / "skills" / "alpha" / "SKILL.md").write_text("---\nname: alpha\n---\n")
     (src / "AGENTS.md").write_text("# Rules\n")
@@ -35,10 +40,46 @@ def source(tmp_path: Path) -> Path:
     return src
 
 
-def test_the_repository_keeps_one_copy_in_dot_agents():
-    assert (REPO_ROOT / ".agents" / "AGENTS.md").is_file()
-    skills = REPO_ROOT / ".agents" / "skills"
-    assert any(skills.glob("*/SKILL.md"))
+def test_the_package_ships_the_agent_files():
+    root = source_dir()
+    package = Path(kiln_harness_tuner.__file__).resolve().parent
+    assert root.resolve() == package / "agent_files"
+    assert (root / "AGENTS.md").is_file()
+    assert (root / "claude" / ".mcp.json").is_file()
+    assert (root / "claude" / "settings.json").is_file()
+    assert any((root / "skills").glob("*/SKILL.md"))
+
+
+def _package_files_at(monkeypatch, root) -> None:
+    """`importlib.resources.files` answers `root` for the package."""
+    monkeypatch.setattr(importlib.resources, "files", lambda package: root)
+
+
+def test_missing_agent_files_are_refused(tmp_path, monkeypatch):
+    (tmp_path / "agent_files" / "skills").mkdir(parents=True)  # no AGENTS.md
+    _package_files_at(monkeypatch, tmp_path)
+    with pytest.raises(InstallError) as exc:
+        install("claude", tmp_path / "dest")
+    assert str(tmp_path / "agent_files") in str(exc.value)
+    assert "fix: reinstall harness-tuner." in str(exc.value)
+    assert not (tmp_path / "dest").exists()
+
+
+def test_agent_files_not_on_disk_are_refused(tmp_path, monkeypatch):
+    # A zip import: `files()` is a Traversable that is no real folder, and the
+    # agent CLIs read skills from real folders.
+    archive = tmp_path / "package.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("agent_files/AGENTS.md", "# Rules\n")
+    _package_files_at(monkeypatch, zipfile.Path(archive))
+    with pytest.raises(InstallError, match="reinstall harness-tuner"):
+        source_dir()
+
+
+def test_the_command_names_itself_in_a_refusal(tmp_path, monkeypatch, capsys):
+    _package_files_at(monkeypatch, tmp_path)
+    assert main(["--agent-cli", "codex", "--dest", str(tmp_path / "dest")]) == 1
+    assert capsys.readouterr().err.startswith("harness-tuner-install-agents: ")
 
 
 @pytest.mark.parametrize(
@@ -56,13 +97,6 @@ def test_each_agent_cli_gets_its_own_layout(tmp_path, agent_cli, skills, instruc
     assert (dest / skills / "alpha" / "SKILL.md").is_file()
     text = (dest / instructions).read_text()
     assert text.startswith(MARKER) and text.endswith("# Rules\n")
-
-
-def test_skills_read_in_place_are_not_copied_onto_themselves(tmp_path):
-    src = source(tmp_path)
-    written = install("codex", src.parent, source=src)
-    assert written == [src.parent / "AGENTS.md"]
-    assert (src / "skills" / "alpha" / "SKILL.md").is_file()
 
 
 def test_a_reinstall_replaces_the_skill_and_keeps_other_skills(tmp_path):
@@ -88,6 +122,18 @@ def test_an_instructions_file_it_did_not_write_needs_force(tmp_path):
     assert (dest / "CLAUDE.md").read_text() == "my own project rules\n"
     install("claude", dest, source=src, force=True)
     assert (dest / "CLAUDE.md").read_text().startswith(MARKER)
+
+
+@pytest.mark.parametrize("marker", PREVIOUS_MARKERS)
+def test_an_install_from_before_the_rename_is_replaced(tmp_path, marker):
+    # A checkout's CLAUDE.md, installed by `kiln-harness-tuner-install-agents`
+    # from `.agents/`, is this command's own file: no `--force` needed.
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    (dest / "CLAUDE.md").write_text(f"{marker}\n\n# Old rules\n")
+    install("claude", dest, source=source(tmp_path))
+    text = (dest / "CLAUDE.md").read_text()
+    assert text.startswith(MARKER) and text.endswith("# Rules\n")
 
 
 def test_the_command_installs_every_agent_cli(tmp_path, capsys):

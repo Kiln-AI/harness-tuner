@@ -1680,7 +1680,7 @@ def test_audit_lists_every_failing_eval_at_once():
     assert "424242000006" not in message
     # The fix instruction, and the promise that setup will not do it for them.
     assert "does not create or repair splits" in message
-    assert "then re-invoke `kiln-harness-tuner`" in message
+    assert "then re-invoke `harness-tuner`" in message
 
 
 def test_audit_ignores_inactive_evals():

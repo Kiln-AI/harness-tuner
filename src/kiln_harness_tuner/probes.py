@@ -76,7 +76,6 @@ PROBE_TOOL_CODE = (
 )
 DRIVE_TIMEOUT_SECS = 600.0
 MAX_CONCURRENT_DRIVES = 3
-# Kiln resource names reject these characters (`.agents/AGENTS.md` conventions).
 _RATIO = 1.5
 # A moved count is not a quality verdict (reading "fewer reasoning chars" as
 # "worse" would drop the thinking lever unmeasured).

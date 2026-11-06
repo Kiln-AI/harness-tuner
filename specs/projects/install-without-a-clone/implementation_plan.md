@@ -8,7 +8,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
 
 ## Phases
 
-- [ ] Phase 1: Ship the agent files and rename the distribution.
+- [x] Phase 1: Ship the agent files and rename the distribution.
   - `git mv .agents src/kiln_harness_tuner/agent_files`, as a commit of its own with no content change.
   - `install_agents` reads its source through `importlib.resources`. Runs still install into the checkout, as today.
   - `pyproject.toml`: name, scripts, URLs, sdist `only-include`, ruff exclude. Regenerate `uv.lock`.

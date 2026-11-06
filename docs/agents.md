@@ -11,9 +11,10 @@ agent to look at. Each section ends with a **Blame** paragraph naming what that
 agent's failure looks like from the outside.
 
 The prompt templates are in [`src/kiln_harness_tuner/agents/`](../src/kiln_harness_tuner/agents/)
-and the procedures are in [`.agents/skills/`](../.agents/skills/). A template
-is deliberately thin — it names the skill to load, states the role's hard
-rules, and injects the input as JSON.
+and the procedures are in
+[`src/kiln_harness_tuner/agent_files/skills/`](../src/kiln_harness_tuner/agent_files/skills/).
+A template is deliberately thin — it names the skill to load, states the
+role's hard rules, and injects the input as JSON.
 
 | Agent | Skill | Wall-clock cap | A failure costs |
 |---|---|---|---|

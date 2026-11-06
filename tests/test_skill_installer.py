@@ -463,7 +463,7 @@ class TestServer:
 
         from kiln_harness_tuner.skill_installer.mcp_server import main
 
-        monkeypatch.setattr("sys.argv", ["kiln-harness-tuner-skill-installer-mcp"])
+        monkeypatch.setattr("sys.argv", ["harness-tuner-skill-installer-mcp"])
         with pytest.raises(SystemExit):
             main()
 
@@ -473,7 +473,7 @@ class TestServer:
         monkeypatch.setattr(
             "sys.argv",
             [
-                "kiln-harness-tuner-skill-installer-mcp",
+                "harness-tuner-skill-installer-mcp",
                 "--project-path",
                 str(tmp_path / "nope"),
                 "--scratch-root",

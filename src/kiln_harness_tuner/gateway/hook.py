@@ -65,7 +65,7 @@ def hook_command(role: str, python: str | None = None) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="kiln-harness-tuner-gateway-hook")
+    parser = argparse.ArgumentParser(prog="harness-tuner-gateway-hook")
     parser.add_argument("--role", required=True)
     args = parser.parse_args(argv)
     try:

@@ -2389,8 +2389,7 @@ def test_state_prefix_run_reads_the_whole_run():
 # that after the split landed, and a reset script restored the failing shape,
 # so the guard belongs in the suite rather than in a validation run.
 
-# memory.py = <repo>/src/kiln_harness_tuner/memory.py → parents[2] is the repo root (the
-# same derivation `test_agent_templates` uses for `.agents/skills`).
+# memory.py = <repo>/src/kiln_harness_tuner/memory.py → parents[2] is the repo root.
 _KILN_PROJECTS = Path(memory_module.__file__).resolve().parents[2]
 
 # A Kiln project checked into this repository sits under `examples/<name>/`;
