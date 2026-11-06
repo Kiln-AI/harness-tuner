@@ -20,7 +20,7 @@ The command name stays `kiln-harness-tuner`, as on `main`. Every message, every 
 8. **API-key check** (§8): a key for every provider the run will call.
 9. The existing start-up, unchanged: install the agent files, check the agent CLI, take the run lock, and so on.
 
-Loading `--model-policy` moves from after the agent CLI check to before step 8, because step 8 reads it. Nothing else in the existing start-up moves.
+Step 8 loads `--model-policy` itself, so a bad policy file is reported before the key check. The existing start-up still loads it too, unchanged; nothing in it moves.
 
 ## 2. Interactive or not
 
@@ -204,7 +204,8 @@ The run needs a provider for each of these:
 | Source | Blocks with the fix line |
 |---|---|
 | The baseline run config's `model_provider_name` | "the task's run config <name>" |
-| Each measurable eval's definition and default eval config: every `model_provider` value found in them. That covers a legacy judge, a V2 `llm_judge`, and a simulated user | "eval <name>'s judge" (or "simulated user") |
+| Each measurable eval's default eval config: its judge's `model_provider` (a legacy judge, or a V2 `llm_judge`). A code eval names none | "eval <name>'s judge" |
+| A multi-turn task's simulated user: each eval input's `drive_config.model_provider`, read from the task's eval inputs on disk (Kiln stores it per item, not on the eval). Only `drive_config` is read, never the input text or labels | "the simulated user in the task's eval inputs" |
 | Each provider that `--model-policy` names exactly in an allow rule or an exception | "--model-policy" |
 
 - **The baseline** is the run config the run will start from, by the rule setup already uses: the one the tuner recorded for this task in Kiln's memory, else the task's default run config, else the most recent one. The check reads that rule; it doesn't write the record.
