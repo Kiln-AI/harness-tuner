@@ -600,6 +600,42 @@ def eval_rows_from_response(url_path: str, response: Any) -> tuple[list[Any], in
     raise SetupPreconditionError(unreadable_response_message(url_path, response))
 
 
+def active_eval_rows(
+    eval_rows: list[Any], spec_rows: list[Any]
+) -> list[dict[str, Any]]:
+    """The eval rows that are dicts with an id, and whose spec is absent or
+    has status "active". Row order is kept.
+
+    Known limitation: an eval without a spec is treated as active. The spec
+    carries the status, so such an eval has no status to read."""
+    status_by_eval = {
+        str(spec["eval_id"]): spec.get("status")
+        for spec in spec_rows
+        if isinstance(spec, dict) and spec.get("eval_id")
+    }
+    return [
+        row
+        for row in eval_rows
+        if isinstance(row, dict)
+        and row.get("id")
+        and status_by_eval.get(str(row["id"]), SPEC_STATUS_ACTIVE) == SPEC_STATUS_ACTIVE
+    ]
+
+
+def measurable_evals(
+    eval_rows: list[Any], spec_rows: list[Any]
+) -> list[tuple[dict[str, Any], str]]:
+    """The `active_eval_rows` that carry a default eval config
+    (`current_config_id`), each paired with it: the loop's measurement set
+    before any per-run filter. Each eval always runs its default config,
+    never one the loop chooses."""
+    return [
+        (row, str(row["current_config_id"]))
+        for row in active_eval_rows(eval_rows, spec_rows)
+        if row.get("current_config_id")
+    ]
+
+
 async def read_eval_views(ctx: Ctx) -> list[EvalView]:
     """Evals + their Specs + each eval's CURRENT config. Only the
     config named by `current_config_id` is live; superseded configs sit

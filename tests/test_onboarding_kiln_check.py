@@ -2,12 +2,23 @@
 needs. Through `check_kiln` directly, and through `prepare_start` for the
 prompt and the exit paths."""
 
-import argparse
-
 import httpx
 import pytest
 import respx
-from onboarding_fakes import RouteKiln, ScriptedTerminal, responses, runner_for
+from onboarding_fakes import (
+    FOLDER,
+    HOST,
+    PROG,
+    PROJECT_ID,
+    TASK_ID,
+    RouteKiln,
+    ScriptedTerminal,
+    flags,
+    one_project_routes,
+    openapi,
+    responses,
+    runner_for,
+)
 
 from kiln_harness_tuner.kiln import KilnAPIError, KilnTransportError
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
@@ -20,56 +31,43 @@ from kiln_harness_tuner.onboarding.kiln_check import (
     missing_apis,
 )
 
-HOST = "http://localhost:8757"
-PROG = "kiln-harness-tuner"
-
 NOT_RUNNING = (
     "Kiln isn't running at http://localhost:8757.\n"
     "Start the Kiln app. If you don't have it, download it from https://kiln.tech.\n"
     "If Kiln runs on another port, pass --kiln-host."
 )
 KILN_PROMPT = "[r]etry  [o]pen kiln.tech  e[x]it: "
-
-
-def openapi(
-    *,
-    version: object = "1.0.3",
-    memories: bool = True,
-    eval_jobs: bool = True,
-    provenance: bool = True,
-) -> dict:
-    """An OpenAPI document shaped like Kiln's, with each needed API present
-    unless turned off."""
-    paths = {"/ping": {}}
-    if memories:
-        paths["/api/projects/{project_id}/memories"] = {}
-    if eval_jobs:
-        paths["/api/jobs/evals/run"] = {}
-    properties = {"name": {}, "run_config_properties": {}}
-    if provenance:
-        properties["provenance"] = {}
-    return {
-        "info": {"title": "Kiln", "version": version},
-        "paths": paths,
-        "components": {
-            "schemas": {"CreateTaskRunConfigRequest": {"properties": properties}}
-        },
-    }
+KILN_CHECK_PATHS = ("/ping", "/openapi.json")
 
 
 def make_kiln(ping: object = "pong", api: object = None) -> RouteKiln:
+    """A Kiln with one ready task, whose `/ping` and `/openapi.json` answer
+    as given."""
     return RouteKiln(
         {
+            **one_project_routes(),
             ("GET", "/ping"): ping,
             ("GET", "/openapi.json"): openapi() if api is None else api,
         }
     )
 
 
+def check_paths(kiln: RouteKiln) -> list[str]:
+    """The Kiln check's own calls, without the later checks' reads."""
+    return [path for path in kiln.paths() if path in KILN_CHECK_PATHS]
+
+
 def start(kiln: RouteKiln, terminal: ScriptedTerminal, host: str = HOST):
-    args = argparse.Namespace(kiln_host=host)
+    """`prepare_start` with every project flag given, so a start that gets
+    past the Kiln check asks nothing more and prints nothing more."""
+    args = flags(PROJECT_ID, TASK_ID, FOLDER, kiln_host=host)
     returned = prepare_start(
-        args, prog=PROG, terminal=terminal, runner=runner_for(kiln)
+        args,
+        [],
+        prog=PROG,
+        parser_long_options=[],
+        terminal=terminal,
+        runner=runner_for(kiln),
     )
     assert returned is args
     return returned
@@ -84,7 +82,7 @@ def test_a_running_new_kiln_passes_without_a_word():
     terminal = ScriptedTerminal()
     start(kiln, terminal)
     assert terminal.out == [] and terminal.err == [] and terminal.prompts == []
-    assert kiln.paths() == ["/ping", "/openapi.json"]
+    assert check_paths(kiln) == ["/ping", "/openapi.json"]
 
 
 def test_kiln_not_running_interactive_retry_succeeds():
@@ -93,7 +91,7 @@ def test_kiln_not_running_interactive_retry_succeeds():
     start(kiln, terminal)
     assert terminal.out == [NOT_RUNNING]
     assert terminal.prompts == [KILN_PROMPT]
-    assert kiln.paths() == ["/ping", "/ping", "/openapi.json"]
+    assert check_paths(kiln) == ["/ping", "/ping", "/openapi.json"]
 
 
 def test_kiln_not_running_interactive_exit_stops_with_1():
@@ -257,8 +255,13 @@ def test_the_unreadable_api_list_warning_is_printed_once_and_the_start_goes_on()
 
 
 def test_the_default_terminal_is_the_real_one(capsys):
-    args = argparse.Namespace(kiln_host=HOST)
-    prepare_start(args, prog=PROG, runner=runner_for(make_kiln(api="not json")))
+    prepare_start(
+        flags(PROJECT_ID, TASK_ID, FOLDER),
+        [],
+        prog=PROG,
+        parser_long_options=[],
+        runner=runner_for(make_kiln(api="not json")),
+    )
     assert capsys.readouterr().err == (
         "kiln-harness-tuner: couldn't read Kiln's API list,"
         " so its version wasn't checked.\n"
@@ -277,9 +280,15 @@ def test_ctrl_c_during_a_kiln_read_stops_with_130():
     def interrupted(_fn):
         raise KeyboardInterrupt
 
-    args = argparse.Namespace(kiln_host=HOST)
     with pytest.raises(OnboardingStopped) as stopped:
-        prepare_start(args, prog=PROG, terminal=ScriptedTerminal(), runner=interrupted)
+        prepare_start(
+            flags(),
+            [],
+            prog=PROG,
+            parser_long_options=[],
+            terminal=ScriptedTerminal(),
+            runner=interrupted,
+        )
     assert stopped.value.exit_code == 130
 
 

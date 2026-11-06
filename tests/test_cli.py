@@ -46,7 +46,7 @@ def no_onboarding(monkeypatch):
     These tests have none: the checks pass the flags through unchanged.
     `tests/test_onboarding_*.py` test the checks on a fake Kiln."""
     monkeypatch.setattr(
-        kiln_harness_tuner.cli, "prepare_start", lambda args, **_kwargs: args
+        kiln_harness_tuner.cli, "prepare_start", lambda args, _argv, **_kwargs: args
     )
 
 
@@ -187,9 +187,26 @@ def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
     assert ctx_with(baseline_audit=False).baseline_audit is False
 
 
-def test_missing_required_flag_errors():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["--project-id", "1"])
+def test_the_ids_and_the_path_are_optional():
+    """The start-up checks fill in what is missing (`onboarding.choose`)."""
+    args = build_parser().parse_args([])
+    assert (args.project_id, args.task_id, args.project_path) == (None, None, None)
+    args = build_parser().parse_args(["--task-id", "424242613304"])
+    assert (args.project_id, args.task_id) == (None, "424242613304")
+
+
+def test_the_parser_records_every_long_option():
+    parser = build_parser()
+    every_long_option = {
+        option
+        for action in parser._actions
+        for option in action.option_strings
+        if option.startswith("--")
+    }
+    assert sorted(parser.long_options) == sorted(every_long_option)
+    assert {"--help", "--project-id", "--task-id", "--project-path"} <= set(
+        parser.long_options
+    )
 
 
 def test_the_parser_is_named_by_prog():
@@ -200,8 +217,10 @@ def test_the_parser_is_named_by_prog():
 def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
     seen = {}
 
-    def fake_prepare_start(args, *, prog):
+    def fake_prepare_start(args, argv, *, prog, parser_long_options):
         seen["prog"] = prog
+        seen["argv"] = argv
+        seen["long_options"] = parser_long_options
         seen["given"] = args
         returned = argparse.Namespace(**vars(args))
         returned.guidance = "filled in by the checks"
@@ -216,9 +235,30 @@ def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
     assert main(ARGS) == 0
     assert seen["prog"] == PROG
+    assert seen["argv"] == ARGS
+    assert seen["long_options"] == build_parser().long_options
     assert seen["run"] is seen["returned"] and seen["run"] is not seen["given"]
     assert seen["run"].guidance == "filled in by the checks"
     assert "kiln-harness-tuner: run finished — wrap_up" in capsys.readouterr().out
+
+
+def test_main_hands_the_start_up_the_command_line_as_typed(monkeypatch):
+    """With no `argv`, the command line is `sys.argv`, and the start-up
+    rebuilds the rerun command from it."""
+    seen = {}
+
+    def fake_prepare_start(args, argv, **_kwargs):
+        seen["argv"] = argv
+        return args
+
+    async def fake_run(args):
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fake_prepare_start)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
+    monkeypatch.setattr("sys.argv", [PROG, "--task-id", "424242613304"])
+    assert main() == 0
+    assert seen["argv"] == ["--task-id", "424242613304"]
 
 
 def _never_run(seen):
@@ -230,7 +270,7 @@ def _never_run(seen):
 
 
 def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
-    def fails(args, **_kwargs):
+    def fails(args, _argv, **_kwargs):
         raise OnboardingError("Kiln isn't running at http://localhost:8757.")
 
     ran: list = []
@@ -245,7 +285,7 @@ def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
 
 @pytest.mark.parametrize("exit_code", [1, 130])
 def test_main_returns_the_stop_code(monkeypatch, capsys, exit_code):
-    def stops(args, **_kwargs):
+    def stops(args, _argv, **_kwargs):
         raise OnboardingStopped(exit_code)
 
     ran: list = []

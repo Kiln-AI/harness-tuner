@@ -165,7 +165,18 @@ REMOVED_FLAGS = {
 
 
 class _Parser(argparse.ArgumentParser):
-    """An ArgumentParser that names a removed flag and gives the reason."""
+    """An ArgumentParser that names a removed flag and gives the reason, and
+    records its long option strings in `long_options`: the start-up rebuilds
+    the command line from them, and the parser's own table is private."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.long_options: list[str] = []
+        super().__init__(*args, **kwargs)
+
+    def add_argument(self, *args: Any, **kwargs: Any) -> argparse.Action:
+        action = super().add_argument(*args, **kwargs)
+        self.long_options += [s for s in action.option_strings if s.startswith("--")]
+        return action
 
     def parse_known_args(  # type: ignore[override]
         self, args: Sequence[str] | None = None, namespace: Any = None
@@ -180,18 +191,26 @@ class _Parser(argparse.ArgumentParser):
         return super().parse_known_args(args, namespace)
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> _Parser:
     parser = _Parser(
         prog=PROG,
         description="Kiln Harness Tuner — an agentic optimize loop for Kiln tasks.",
     )
     parser.add_argument(
         "--project-path",
-        required=True,
-        help="on-disk Kiln project dir (for agents exploring .kiln files)",
+        help="on-disk Kiln project dir (for agents exploring .kiln files);"
+        " default: the folder Kiln has for the project. When given, it must be"
+        " that folder",
     )
-    parser.add_argument("--project-id", required=True, help="Kiln project id")
-    parser.add_argument("--task-id", required=True, help="Kiln task id")
+    parser.add_argument(
+        "--project-id",
+        help="Kiln project id (default: the only project in Kiln, or one you"
+        " pick; found from --project-path or --task-id when either is given)",
+    )
+    parser.add_argument(
+        "--task-id",
+        help="Kiln task id (default: the only task in the project, or one you pick)",
+    )
     parser.add_argument(
         "--kiln-host",
         default=DEFAULT_KILN_HOST,
@@ -1298,9 +1317,13 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    args = parser.parse_args(raw_argv)
     try:
-        args = prepare_start(args, prog=PROG)
+        args = prepare_start(
+            args, raw_argv, prog=PROG, parser_long_options=parser.long_options
+        )
         result = asyncio.run(_run_with_signals(args))
     except OnboardingStopped as stop:
         print(f"{PROG}: stopped.", file=sys.stderr)

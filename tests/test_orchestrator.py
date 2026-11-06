@@ -24,6 +24,7 @@ from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.memory_schema import VAL_STATS_OVERVIEW, VAL_STATS_TAG
 from kiln_harness_tuner.orchestrator import (
     SpendMeter,
+    _active_evals,
     _eval_train_sizes,
     orchestrate,
     should_wrap,
@@ -1495,6 +1496,22 @@ async def test_a_failed_active_set_listing_degrades_to_an_empty_map():
     assert ("eval_sizes_unavailable", {}) in [
         (name, body) for name, body in ctx.log.events
     ]
+
+
+async def test_a_reshaped_spec_listing_fails_the_active_set_loudly():
+    # Read as "no specs", an envelope would make every archived eval active.
+    ctx = make_ctx()
+    seed_active_eval(ctx.kiln)
+    ctx.kiln.specs = {"specs": [{"eval_id": "eval_1", "status": "archived"}]}
+    with pytest.raises(SetupPreconditionError, match="/specs did not return"):
+        await _active_evals(ctx)
+
+
+async def test_an_empty_spec_listing_body_reads_as_no_specs():
+    ctx = make_ctx()
+    seed_active_eval(ctx.kiln)
+    ctx.kiln.specs = None
+    assert [(e["id"], c) for e, c in await _active_evals(ctx)] == [("eval_1", "ec_1")]
 
 
 async def test_hard_4xx_from_measurement_is_fatal():

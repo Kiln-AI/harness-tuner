@@ -17,7 +17,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `tests/onboarding_fakes.py`.
   - Tests for the terminal and the Kiln check.
   - The autouse pass-through fixture in `tests/test_cli.py`.
-- [ ] Phase 2: Project and task selection, the rerun line, and readiness.
+- [x] Phase 2: Project and task selection, the rerun line, and readiness.
   - `active_eval_rows` and `measurable_evals` in `setup.py`; `_active_evals` uses them (§9).
   - `choose.py`, `rerun_command` and `readiness.py`, with the `[t]` loop in `prepare_start` (§5, §7–§9).
   - `--project-id`, `--task-id` and `--project-path` become optional (§12).
