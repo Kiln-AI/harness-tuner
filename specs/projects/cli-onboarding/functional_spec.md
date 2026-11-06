@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # Functional Spec: CLI onboarding
@@ -263,7 +263,7 @@ Then the run goes on from step 6 of §1. The full command is printed, so the sam
 - Only the Kiln project moves. `examples/moderation/posts.jsonl`, `scorer.py` and `README.md` stay in `examples/`, out of the package, because they hold every split's labels and the house rules.
 - **Read fence.** The packaged copy holds the eval inputs and labels of every split, test included. Every run's read fence denies the packaged demo folder by path. Today the fence catches it only because it sits under the repository; the install branch moves agents out of the repository, and an installed wheel puts it in site-packages.
 - `examples/moderation/README.md` replaces its copy, import and run steps with `kiln-harness-tuner --demo-project`. The tests that read the example's files follow the move.
-- The root README's quickstart still copies from `examples/moderation/Forum Moderation`, so it breaks with the move. Steve owns that file; the summary flags it for him.
+- The root README's quickstart still copies from `examples/moderation/Forum Moderation`, so it breaks with the move. Steve is updating the README in parallel and covers this; this project doesn't touch it.
 
 ## 11. Flags and behavior summary
 
