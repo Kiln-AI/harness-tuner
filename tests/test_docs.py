@@ -71,7 +71,12 @@ EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "//")
 # The documents outside `docs/` that readers and agents meet first. Named, not
 # globbed: a glob over the root would silently pick up whatever a future phase
 # drops there, and this list is a claim about which files are load-bearing.
-ROOT_DOCS = ("README.md", "src/kiln_harness_tuner/agent_files/AGENTS.md")
+ROOT_DOCS = (
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "src/kiln_harness_tuner/agent_files/AGENTS.md",
+)
 
 
 def doc_files() -> list[Path]:

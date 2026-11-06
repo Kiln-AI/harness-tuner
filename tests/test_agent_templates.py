@@ -11,6 +11,7 @@ otherwise (the subagent would just fail to load its procedure).
 import re
 from pathlib import Path
 
+import pytest
 from conftest import make_tracker
 
 from kiln_harness_tuner.dispatch.claude_cli import (
@@ -1037,10 +1038,20 @@ def test_no_skill_a_kiln_harness_tuner_doc_loads_carries_a_kiln_host():
         )
 
 
-def test_the_loop_agent_instructions_carry_no_kiln_port():
-    # Installed as CLAUDE.md or AGENTS.md, the instructions load into EVERY
-    # agent session — it is agent-visible text like any skill.
-    assert ":8757" not in (AGENT_FILES / "AGENTS.md").read_text()
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        AGENT_FILES / "AGENTS.md",
+        # The contributor guide: a contributor's interactive session loads
+        # it, and it was the loop agents' file until the split.
+        Path(__file__).resolve().parents[1] / "AGENTS.md",
+    ],
+    ids=["loop-agents", "contributors"],
+)
+def test_the_instructions_carry_no_kiln_port(instructions):
+    # Installed as CLAUDE.md or AGENTS.md, the loop agents' instructions load
+    # into EVERY agent session — it is agent-visible text like any skill.
+    assert ":8757" not in instructions.read_text()
 
 
 # ---- the planner learns eval sizes ----

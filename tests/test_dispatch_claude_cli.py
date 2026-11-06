@@ -26,6 +26,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     PreflightError,
     SubprocessResult,
 )
+from kiln_harness_tuner.paths import StatePaths
 from kiln_harness_tuner.schemas import (
     AnalysisBundle,
     AnalysisInput,
@@ -50,7 +51,10 @@ from kiln_harness_tuner.schemas import (
     Usage,
 )
 
-REPO_ROOT = Path("/repo")
+# The agents folder a run installs into the state folder, and every Claude
+# session's working folder. Its Claude projects slug maps `/` and `.` alike.
+AGENTS_DIR = Path("/state/agents/claude/0.1.0")
+AGENTS_SLUG = "-state-agents-claude-0-1-0"
 PROJECT_PATH = "../../Kestrel Depot"
 
 TARGET = TargetBlock(
@@ -164,7 +168,7 @@ def ok_proc(stdout: str) -> SubprocessResult:
 
 def make_dispatcher(script, **kwargs) -> tuple[ClaudeCliDispatcher, FakeRunner]:
     runner = FakeRunner(script=list(script))
-    dispatcher = ClaudeCliDispatcher(TARGET, REPO_ROOT, runner=runner, **kwargs)
+    dispatcher = ClaudeCliDispatcher(TARGET, AGENTS_DIR, runner=runner, **kwargs)
     return dispatcher, runner
 
 
@@ -176,7 +180,7 @@ def make_wired_dispatcher(
     runner = FakeRunner(script=list(script))
     dispatcher = ClaudeCliDispatcher(
         TARGET,
-        REPO_ROOT,
+        AGENTS_DIR,
         runner=runner,
         run_id=run_id,
         run_dir=tmp_path / "run",
@@ -190,8 +194,8 @@ def make_wired_dispatcher(
 
 def write_transcript(tmp_path: Path, session_id: str, text: str = "{}\n") -> Path:
     """Drop a fake session transcript where the trace copy will look for it:
-    <projects>/<slug of REPO_ROOT>/<session_id>.jsonl ("/repo" → "-repo")."""
-    src_dir = tmp_path / "projects" / "-repo"
+    <projects>/<slug of the agents folder>/<session_id>.jsonl."""
+    src_dir = tmp_path / "projects" / AGENTS_SLUG
     src_dir.mkdir(parents=True, exist_ok=True)
     src = src_dir / f"{session_id}.jsonl"
     src.write_text(text)
@@ -227,7 +231,13 @@ class TestSuccessPath:
         tools_idx = call.argv.index("--allowedTools")
         assert "mcp__kiln_harness_tuner_gateway__get_task" in call.argv[tools_idx + 1]
         assert "kiln_api_mcp" not in call.argv[tools_idx + 1]
-        assert call.cwd == str(REPO_ROOT)
+        # The agents folder: its `.claude/skills/` and `CLAUDE.md` load.
+        assert call.cwd == str(AGENTS_DIR)
+
+    def test_transcripts_are_read_from_the_agents_folders_project(self, tmp_path):
+        # Claude Code names a session's project folder after its cwd.
+        dispatcher, _ = make_wired_dispatcher(tmp_path, [])
+        assert dispatcher._transcript_dir() == tmp_path / "projects" / AGENTS_SLUG
 
     async def test_prompt_render_contains_all_blocks(self):
         dispatcher, runner = make_dispatcher(
@@ -867,9 +877,12 @@ class TestCliArgv:
         assert "Edit" not in tools
 
 
-# The real repository root, as opposed to the `/repo` fixture above: this one
-# test renders the committed `.mcp.json` rather than a synthetic one.
-ACTUAL_REPO_ROOT = Path(__file__).resolve().parents[1]
+def render_into(tmp_path: Path, target: TargetBlock) -> None:
+    """A real run's render, into `tmp_path / "run"`."""
+    state = StatePaths(tmp_path / "state")
+    render_run_configs(
+        tmp_path / "run", target, state=state, agents_dir=state.agents / "claude"
+    )
 
 
 class TestGrantedMcpToolsExist:
@@ -892,7 +905,7 @@ class TestGrantedMcpToolsExist:
             task_id="424242000002",
             kiln_host="http://localhost:8757",
         )
-        render_run_configs(tmp_path / "run", target, ACTUAL_REPO_ROOT)
+        render_into(tmp_path, target)
         path = tmp_path / "run" / f"mcp_config.{role}.json"
         return set(json.loads(path.read_text())["mcpServers"])
 
@@ -927,7 +940,7 @@ class TestGrantedMcpToolsExist:
             task_id="424242000002",
             kiln_host="http://localhost:8757",
         )
-        render_run_configs(tmp_path / "run", target, ACTUAL_REPO_ROOT)
+        render_into(tmp_path, target)
         for role in NO_TOOL_ROLES:
             assert DEFAULT_ALLOWED_TOOLS[role] == []
             assert role not in ROLE_OPS
@@ -1671,7 +1684,7 @@ class TestTimeoutRecovery:
     async def test_timeout_recovers_the_transcript_at_the_chosen_session_id(
         self, tmp_path
     ):
-        src_dir = tmp_path / "projects" / "-repo"
+        src_dir = tmp_path / "projects" / AGENTS_SLUG
         src_dir.mkdir(parents=True)
         # A sibling still RUNNING (its transcript is newer than ours) — the
         # find-by-elimination would pick it, and the resume path would then
@@ -1758,7 +1771,7 @@ class TestResumeOnTimeout:
     duplicate every artifact it had POSTed."""
 
     async def test_timed_out_build_is_resumed_once(self, tmp_path):
-        src_dir = tmp_path / "projects" / "-repo"
+        src_dir = tmp_path / "projects" / AGENTS_SLUG
         src_dir.mkdir(parents=True)
         calls: list[list[str]] = []
         payload = cli_payload(
@@ -1797,7 +1810,7 @@ class TestResumeOnTimeout:
         assert result.usage.unmeasured_tokens == 15
 
     async def test_roles_that_create_nothing_are_not_resumed(self, tmp_path):
-        src_dir = tmp_path / "projects" / "-repo"
+        src_dir = tmp_path / "projects" / AGENTS_SLUG
         src_dir.mkdir(parents=True)
         calls = 0
 
@@ -1952,7 +1965,7 @@ class TestReadOnlyRoles:
         runner = FakeRunner(script=list(script))
         dispatcher = ClaudeCliDispatcher(
             TARGET,
-            REPO_ROOT,
+            AGENTS_DIR,
             runner=runner,
             run_id="260924-0900",
             run_dir=tmp_path / "run",

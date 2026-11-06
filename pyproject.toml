@@ -72,14 +72,16 @@ venv = ".venv"
 
 [tool.ruff]
 line-length = 88
-# `runs/` is a user's local run scratch — agent-authored throwaway build
-# scripts, never imported by the package. Linting it would turn the project's
-# own `uv run ruff check` red on findings no one will fix.
+# `runs/` is a checkout's old run scratch, from before runs moved to the state
+# folder — agent-authored throwaway build scripts, never imported by the
+# package. Linting it would turn the project's own `uv run ruff check` red on
+# findings no one will fix.
 # `runs/**` (a relative pattern), not the bare name `runs`: ruff matches a
 # single-segment pattern against the BASENAME at any depth, so `runs` would
 # also drop a future `tests/runs/` out of lint and format.
-# `src/kiln_harness_tuner/agent_files/skills/**` (and its installed copies,
-# `.agents/skills/**` and `.claude/skills/**`) is agent-facing text, not
+# `src/kiln_harness_tuner/agent_files/skills/**` (and its copies that
+# `harness-tuner-install-agents --dest .` installs, `.agents/skills/**` and
+# `.claude/skills/**`) is agent-facing text, not
 # package source: prose the agents read, plus wrapper templates they copy
 # verbatim into Kiln code tools. ruff formats Python fenced in Markdown, so
 # linting this tree would rewrite what the agents read. The templates are

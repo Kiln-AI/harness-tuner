@@ -52,10 +52,13 @@ def decide(tool_name: str, role: str) -> str | None:
 
 
 def hook_command(role: str, python: str | None = None) -> str:
+    """The hook's shell command. `-P` keeps the session's working folder off
+    `sys.path`, so nothing planted there is imported into the hook."""
     import shlex
 
     parts = [
         python or sys.executable,
+        "-P",
         "-m",
         "kiln_harness_tuner.gateway.hook",
         "--role",

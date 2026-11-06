@@ -14,7 +14,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `pyproject.toml`: name, scripts, URLs, sdist `only-include`, ruff exclude. Regenerate `uv.lock`.
   - Command names in `prog=` and in messages (architecture §8).
   - Every `.agents/` path in code, tests and doc links.
-- [ ] Phase 2: State folder and agent sessions.
+- [x] Phase 2: State folder and agent sessions.
   - `paths.py`, `install_for_run`, and the `--dest` rework (architecture §3–4).
   - The instructions split, with root `AGENTS.md` and `CLAUDE.md`.
   - `cli.py` wiring: start and exit lines, `-P -m` MCP commands, fences, and removal of `REPO_ROOT` and the checkout code (architecture §5).

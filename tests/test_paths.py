@@ -1,10 +1,11 @@
-"""The path model: one repository root, derived once.
+"""The path model: no module derives a path from outside the package.
 
-Every `__file__`-relative walk in this tree must land inside the repository.
-A walk calibrated for a package that lives deeper resolves outside it —
-`cli.REPO_ROOT` would resolve to `$HOME`. These tests stop that: a walk
-that leaves the package may exist only where a console script needs it, and the
-two that do exist must agree on the answer.
+An installed tuner has no checkout around it, so a `__file__`-relative walk
+that leaves the package lands in `site-packages` or uv's cache, not in a
+repository. The code reads its own files from inside the package
+(`importlib.resources`, the role templates beside `dispatch/`), and keeps its
+state in the state folder (`paths.py`). These tests stop a walk out of the
+package from coming back.
 
 **What the scan cannot see**, stated because a guard that overclaims is the
 defect this project keeps finding. It is single-statement and syntactic: it
@@ -25,17 +26,13 @@ import re
 from pathlib import Path
 
 import kiln_harness_tuner
-from kiln_harness_tuner.cli import REPO_ROOT
 
 PACKAGE_ROOT = Path(kiln_harness_tuner.__file__).resolve().parent
 
-# The only module allowed to walk out of the package: `harness-tuner`'s
-# composition root (cli.py), which resolves the roots everything below it is
-# handed. Every other module receives the paths it needs.
-# `dispatch/claude_cli.py` also reads `__file__`, but for a package-internal
-# resource (`agents/`), which never leaves the package and is not an exception
-# to anything.
-ROOT_DERIVING_MODULES = {"cli.py", "install_agents.py"}
+# No module walks out of the package. `dispatch/claude_cli.py` reads
+# `__file__` for a package-internal resource (`agents/`), which never leaves
+# the package.
+ROOT_DERIVING_MODULES: set[str] = set()
 
 _PARENTS_INDEX = re.compile(r"\.parents\[(\d+)\]")
 # One step up, in each spelling that reaches a parent directory. `dirname` is
@@ -117,7 +114,7 @@ def test_the_package_derives_a_path_from_file_somewhere():
     assert derivations, "no __file__ derivation found — the discovery is broken"
 
 
-def test_only_a_declared_root_module_walks_out_of_the_package():
+def test_no_module_walks_out_of_the_package():
     escaping = {
         module
         for module, found in _file_derivations().items()
@@ -125,9 +122,18 @@ def test_only_a_declared_root_module_walks_out_of_the_package():
         if _escapes_the_package(module, walk_up)
     }
     assert escaping == ROOT_DERIVING_MODULES, (
-        "a module outside the declared set walks above the package, or a"
-        " declared one stopped: every other module is given its"
-        " paths rather than letting it compute one"
+        "a module walks above the package: an installed tuner has no checkout"
+        " there. Read package files through importlib.resources, and state"
+        " from the state folder (paths.py)"
+    )
+
+
+def test_the_escape_check_sees_a_walk_out_of_the_package():
+    # The guard above compares against an empty set, which an escape check
+    # that never fires passes too.
+    assert _escapes_the_package("cli.py", _walk_up("Path(__file__).parents[2]"))
+    assert not _escapes_the_package(
+        "dispatch/claude_cli.py", _walk_up("Path(__file__).resolve().parent.parent")
     )
 
 
@@ -144,9 +150,3 @@ def test_a_package_internal_derivation_is_not_an_exception():
         assert found, f"{module} no longer derives a path from __file__"
         for segment, walk_up in found:
             assert not _escapes_the_package(module, walk_up), segment
-
-
-def test_repo_root_is_the_repository_root():
-    assert (REPO_ROOT / "pyproject.toml").is_file()
-    # `src/kiln_harness_tuner` sits under it, which is the walk cli.py performs.
-    assert PACKAGE_ROOT.parent.parent == REPO_ROOT
