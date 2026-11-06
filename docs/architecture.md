@@ -1151,6 +1151,8 @@ src/kiln_harness_tuner/
   skill_installer/  the MCP server that installs a skill bundle atomically
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 tests/              the offline suite
+  packaging/        the CI smoke test of the installed wheel, and the
+                    fake claude it runs with
 ```
 
 ## 14. Portability guardrails
@@ -1185,6 +1187,21 @@ module derives a path from outside the package),
 `test_dispatch_boundary.py` (the seam), `test_preflight_messages.py` (every
 pre-flight error carries a fix line, and the site count is stated so the guard
 cannot narrow in silence) and `test_docs.py`.
+
+**The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
+runs in CI, not under pytest, because the suite runs from the checkout and
+cannot see a package that works only from one. CI builds the sdist and the
+wheel with `uv build`, and the script checks what each holds. It installs the
+wheel as a uv tool with a temporary `HOME`, and runs the commands from an
+empty folder. Then it makes a run with a fake `claude` on `PATH`
+(`tests/packaging/fake_claude.py`) and no Kiln server. The run installs the
+agent files, passes the agent CLI check, takes the lock, renders the configs
+and checks the splits. The fake starts the gateway from the rendered config
+and calls `ping`, and the run stops at the pre-flight. The script then checks
+that the state is in the state folder, that the sessions ran in the agents
+folder, that the gateway runs on the tool's interpreter, and that nothing was
+written to the current folder, `HOME` or the checkout. It makes the run with
+`KILN_HARNESS_TUNER_HOME` and without it.
 
 **What no test covers** is a live run. The rendered settings, the rendered MCP
 configuration and the read fence are proven against a real `claude -p` only by

@@ -48,6 +48,20 @@ uv run pytest
 The test suite is offline. It needs no Kiln server and no agent CLI, and it
 spends no model money.
 
+CI also builds the package and tests the installed wheel from an empty folder,
+with a fake `claude` and no Kiln server. The suite runs from your clone, so
+only this test finds a package that works from a clone and nowhere else. To
+run it yourself (it installs into a temporary folder and needs `git`):
+
+```
+rm -rf dist
+uv build
+python tests/packaging/smoke_installed_wheel.py --dist dist
+```
+
+The tool is installed on the Python that runs the script, which must be 3.11
+or later.
+
 ## Where things are
 
 ```
@@ -61,6 +75,7 @@ src/kiln_api_mcp/        the call_kiln_api MCP server, for interactive sessions
 docs/                    the reference documentation
 examples/                the moderation example and a model policy
 tests/                   the offline test suite
+  packaging/             the CI smoke test of the installed wheel
 ```
 
 [docs/architecture.md](../docs/architecture.md) section 13 has the layout in

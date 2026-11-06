@@ -21,5 +21,5 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - Dispatchers (architecture §6), `.gitignore`, tests (architecture §10).
 - [x] Phase 3: Docs.
   - README, `docs/install.md`, `docs/limitations.md` and every other doc, the CONTRIBUTING file and the example README (FS §11, architecture §11).
-- [ ] Phase 4: CI packaging smoke test.
+- [x] Phase 4: CI packaging smoke test.
   - `tests/packaging/smoke_installed_wheel.py`, `tests/packaging/fake_claude.py`, and the `package` job (architecture §9).

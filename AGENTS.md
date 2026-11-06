@@ -71,7 +71,10 @@ installed copies) is excluded from it (`pyproject.toml`,
 left alone.
 
 **Run the checks before you call anything done.** CI runs the same three on
-every pull request (`.github/workflows/ci.yml`).
+every pull request (`.github/workflows/ci.yml`). Its `package` job also builds
+the package and tests the installed wheel
+(`tests/packaging/smoke_installed_wheel.py`). Run that one too when you change
+packaging, paths or start-up: `.github/CONTRIBUTING.md` has the commands.
 
 ```
 uv run pytest

@@ -36,3 +36,36 @@ jobs:
       # The suite is offline: no Kiln server, no agent CLI, no model spend.
       - name: Tests
         run: uv run pytest
+
+  # The suite above runs from the checkout, so it cannot catch a package that
+  # works only from one. This job builds the package, installs the wheel as a
+  # uv tool with a temporary HOME, and makes a run from an empty folder that
+  # stops at the pre-flight (a fake `claude`, no Kiln server). See
+  # `tests/packaging/smoke_installed_wheel.py`.
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      # With `python-version`, setup-uv also makes and activates a venv of
+      # that Python: it is the `python` the smoke script runs on, and the
+      # Python the tool is installed on. The script keeps the `UV_CACHE_DIR`
+      # that setup-uv sets, so the tool's dependencies come from the cache.
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Build the sdist, then the wheel from it
+        run: uv build
+
+      - name: Check the package metadata
+        run: uvx twine check dist/*
+
+      - name: Smoke test the installed wheel
+        run: python tests/packaging/smoke_installed_wheel.py --dist dist
