@@ -66,7 +66,9 @@ statement of what that eval catches.
 
 **Lever.** A **class of change** to a run config: the prompt, a skill, a tool,
 a tool wrapper, a model property. Not a specific edit — "rewrite the tool
-description" is a lever, and the particular rewrite is one attempt at it. The
+description" is a lever, and the particular rewrite is one attempt at it. A
+tool's description does not change in place: the rewrite is a code-tool clone
+or a wrapper. The
 planner tracks attempts per (issue, lever) so that two failed attempts on the
 same surface push it to a different surface class rather than to a third
 wording.

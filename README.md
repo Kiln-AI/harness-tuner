@@ -13,7 +13,7 @@ reads test — so the number you ship on is one the loop never optimized against
 | What | Why |
 |---|---|
 | Python 3.11+ and `uv` | The package. |
-| A running Kiln studio server, with your project in it | Every measurement is a Kiln eval job. This repository does not ship it: Kiln is at `https://kiln.tech`, the address `kiln-ai` declares in its own distribution metadata. |
+| A running Kiln studio server, **v1.3 or later**, with your project in it | Every measurement is a Kiln eval job. This repository does not ship it: Kiln is at `https://kiln.tech`, the address `kiln-ai` declares in its own distribution metadata. An earlier version does not have the APIs the loop needs. |
 | An agent CLI, signed in: Claude Code, Codex or OpenCode | Every agent is a `claude -p` subprocess by default. `--agent-cli 'codex exec …'` or `--agent-cli 'opencode run …'` selects another one. |
 | A model provider key in Kiln | Your task's run configs call it. |
 | `uv` on the `PATH` that `claude -p` inherits | Each agent session starts the loop gateway, its only Kiln access, with `uv run`. |
@@ -21,11 +21,15 @@ reads test — so the number you ship on is one the loop never optimized against
 [docs/install.md](docs/install.md) has the check command, the failure message
 and the fix for each one.
 
-**Not on macOS x86_64.** Two locked dependencies publish no wheel for it and no
-source distribution, so `uv sync` stops. Linux on either architecture, Windows
-and macOS on Apple silicon are fine.
-[docs/install.md](docs/install.md) has the measurement and what a fix would
-take.
+**Supported: Linux (x86_64 and arm64) and macOS on Apple silicon.**
+
+- **Not on Windows.** `kiln-harness-tuner` imports `fcntl`, which is Unix
+  only, so it cannot start. The agent sandbox fences are macOS and Linux
+  mechanisms.
+- **Not on macOS x86_64.** Two locked dependencies publish no wheel for it and no
+  source distribution, so `uv sync` stops.
+  [docs/install.md](docs/install.md) has the measurement and what a fix would
+  take.
 
 ## Install
 
@@ -257,3 +261,9 @@ CLI's own account.
 
 [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) says how to set up, test and change the
 repository.
+
+## License
+
+Kiln Harness Tuner is under the MIT License. See [LICENSE](LICENSE).
+
+The Kiln name and logos are trademarks of Chesterfield Laboratories Inc.

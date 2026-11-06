@@ -22,10 +22,15 @@ interpreter that was refused.
 
 ## Platform support
 
+> **Linux (x86_64 and arm64) and macOS on Apple silicon are supported.**
+>
+> **Windows is not supported.** `cli.py` imports `fcntl`, which is Unix only,
+> so `kiln-harness-tuner` cannot start. The agent sandbox fences are Seatbelt
+> on macOS and bubblewrap on Linux.
+>
 > **macOS on Intel (x86_64) is not supported.** Section 2's `uv sync` fails
 > there. The lock pins `lancedb` and `pylance` versions that publish no macOS
-> x86_64 wheel and no source distribution. Linux (x86_64 and arm64), Windows
-> (x86_64) and macOS on Apple silicon work.
+> x86_64 wheel and no source distribution.
 
 ## 1. Python 3.11+ and `uv`
 
@@ -105,8 +110,7 @@ uv tool install .
 ```
 
 ```
-Installed 4 executables: kiln-harness-tuner, kiln-harness-tuner-gateway-mcp,
-kiln-harness-tuner-skill-installer-mcp, kiln_api_mcp
+Installed 5 executables: kiln-harness-tuner, kiln-harness-tuner-gateway-mcp, kiln-harness-tuner-install-agents, kiln-harness-tuner-skill-installer-mcp, kiln_api_mcp
 ```
 
 **Check.**
@@ -163,6 +167,10 @@ Get Kiln from there, start it, and make a project and a task in it — the
 task's, and they do not exist until you have. Everything after this section
 assumes a server you can reach and a project inside it.
 
+**The minimum version is Kiln v1.3.** The loop uses three server APIs that
+Kiln v1.2 does not have: the memory API, the eval-job API and run-config
+provenance.
+
 **Check.**
 
 ```
@@ -191,6 +199,18 @@ and the MCP server all have to agree on one host.
 dispatches one small agent session whose only job is to call the gateway's
 `ping` operation. It is fatal, and its message names the rendered MCP config
 file, the host it is using, and this document.
+
+**If the server is older than v1.3**, the check above passes, because `/ping`
+exists. A run passes its start-up checks too: the agent CLI check and the
+gateway `ping` pre-flight each run one short agent session, and you pay for
+them. Then the first memory read of setup gets HTTP 404, and the run stops
+with exit status 1:
+
+```
+kiln-harness-tuner: GET /api/projects/<project-id>/memories -> HTTP 404: …
+```
+
+**Fix.** Upgrade Kiln to v1.3 or later, then run again.
 
 ## 5. Claude Code, signed in
 

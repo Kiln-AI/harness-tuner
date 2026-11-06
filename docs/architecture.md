@@ -1034,8 +1034,8 @@ reviewers) run under it, and get no scratch directory.
    runs whose input equals a held-out input. Those results stay in the
    project: the pass moves nothing. The gateway (fence 1) and the read fence (fence 2) keep them from agents. An
    item in the train split of one eval and a held-out split of another counts
-   as train, and as an overlap. An item that carries a `val`, `test`, `val_*`
-   or `test_*` tag (any case) and is in no train split is held out even when
+   as train, and as an overlap. An item that carries a `val`, `test`, `val_*`,
+   `test_*`, `holdout*` or `heldout*` tag (any case) and is in no train split is held out even when
    no current eval uses the tag (an ORPHAN). An eval that appears after start-up (an
    agent built it, perhaps through a spec, whose splits the server derives)
    is checked from disk the first time the active evals are listed: a train

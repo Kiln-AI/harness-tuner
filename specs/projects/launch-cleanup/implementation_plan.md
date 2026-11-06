@@ -6,4 +6,4 @@ status: complete
 
 ## Phases
 
-- [ ] Phase 1: All items in the functional spec (license, CLA, doc contradictions, skill corrections)
+- [x] Phase 1: All items in the functional spec (license, CLA, doc contradictions, skill corrections)
