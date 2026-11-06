@@ -5,6 +5,7 @@ command did not write is never replaced without `--force`."""
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from kiln_harness_tuner.install_agents import (
     MARKER,
     REPO_ROOT,
     InstallError,
+    agent_cli_name,
     install,
     main,
 )
@@ -22,15 +24,17 @@ from kiln_harness_tuner.install_agents import (
 def source(tmp_path: Path) -> Path:
     src = tmp_path / "src" / ".agents"
     (src / "skills" / "alpha").mkdir(parents=True)
-    (src / "skills" / "alpha" / "SKILL.md").write_text("---\nname: alpha\n---\n")
-    (src / "AGENTS.md").write_text("# Rules\n")
+    (src / "skills" / "alpha" / "SKILL.md").write_text(
+        "---\nname: alpha\n---\n", encoding="utf-8"
+    )
+    (src / "AGENTS.md").write_text("# Rules\n", encoding="utf-8")
     (src / "claude").mkdir()
     server = {"type": "stdio", "command": "kiln_api_mcp", "args": []}
     (src / "claude" / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"kiln_api_mcp": server}})
+        json.dumps({"mcpServers": {"kiln_api_mcp": server}}), encoding="utf-8"
     )
     (src / "claude" / "settings.json").write_text(
-        json.dumps({"enabledMcpjsonServers": ["kiln_api_mcp"]})
+        json.dumps({"enabledMcpjsonServers": ["kiln_api_mcp"]}), encoding="utf-8"
     )
     return src
 
@@ -54,7 +58,7 @@ def test_each_agent_cli_gets_its_own_layout(tmp_path, agent_cli, skills, instruc
     dest.mkdir()
     install(agent_cli, dest, source=source(tmp_path))
     assert (dest / skills / "alpha" / "SKILL.md").is_file()
-    text = (dest / instructions).read_text()
+    text = (dest / instructions).read_text(encoding="utf-8")
     assert text.startswith(MARKER) and text.endswith("# Rules\n")
 
 
@@ -72,7 +76,7 @@ def test_a_reinstall_replaces_the_skill_and_keeps_other_skills(tmp_path):
     src = source(tmp_path)
     install("claude", dest, source=src)
     stale = dest / ".claude" / "skills" / "alpha" / "old.md"
-    stale.write_text("stale")
+    stale.write_text("stale", encoding="utf-8")
     install("claude", dest, source=src)
     assert not stale.exists()
     assert other.is_dir()
@@ -81,13 +85,13 @@ def test_a_reinstall_replaces_the_skill_and_keeps_other_skills(tmp_path):
 def test_an_instructions_file_it_did_not_write_needs_force(tmp_path):
     dest = tmp_path / "dest"
     dest.mkdir()
-    (dest / "CLAUDE.md").write_text("my own project rules\n")
+    (dest / "CLAUDE.md").write_text("my own project rules\n", encoding="utf-8")
     src = source(tmp_path)
     with pytest.raises(InstallError, match="--force"):
         install("claude", dest, source=src)
-    assert (dest / "CLAUDE.md").read_text() == "my own project rules\n"
+    assert (dest / "CLAUDE.md").read_text(encoding="utf-8") == "my own project rules\n"
     install("claude", dest, source=src, force=True)
-    assert (dest / "CLAUDE.md").read_text().startswith(MARKER)
+    assert (dest / "CLAUDE.md").read_text(encoding="utf-8").startswith(MARKER)
 
 
 def test_the_command_installs_every_agent_cli(tmp_path, capsys):
@@ -130,16 +134,20 @@ def test_the_command_refuses_an_agent_cli_it_has_no_layout_for(tmp_path, capsys,
 def test_claude_gets_the_mcp_server_merged_into_its_config(tmp_path):
     dest = tmp_path / "dest"
     (dest / ".claude").mkdir(parents=True)
-    (dest / ".mcp.json").write_text(json.dumps({"mcpServers": {"mine": {}}}))
+    (dest / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"mine": {}}}), encoding="utf-8"
+    )
     (dest / ".claude" / "settings.json").write_text(
-        json.dumps({"model": "x", "enabledMcpjsonServers": ["mine"]})
+        json.dumps({"model": "x", "enabledMcpjsonServers": ["mine"]}), encoding="utf-8"
     )
     src = source(tmp_path)
     install("claude", dest, source=src)
     install("claude", dest, source=src)  # a second install changes nothing
-    servers = json.loads((dest / ".mcp.json").read_text())["mcpServers"]
+    servers = json.loads((dest / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert set(servers) == {"mine", "kiln_api_mcp"}
-    settings = json.loads((dest / ".claude" / "settings.json").read_text())
+    settings = json.loads(
+        (dest / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
     assert settings == {"model": "x", "enabledMcpjsonServers": ["mine", "kiln_api_mcp"]}
 
 
@@ -156,6 +164,19 @@ def test_codex_and_opencode_get_no_mcp_config(tmp_path):
 def test_a_config_that_is_not_json_is_refused(tmp_path):
     dest = tmp_path / "dest"
     dest.mkdir()
-    (dest / ".mcp.json").write_text("not json")
+    (dest / ".mcp.json").write_text("not json", encoding="utf-8")
     with pytest.raises(InstallError, match="not valid JSON"):
         install("claude", dest, source=source(tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("value", "name"),
+    [
+        (r"C:\Users\steve\AppData\Roaming\npm\codex.cmd exec", "codex"),
+        (r'"C:\Program Files\OpenCode\opencode.exe" run', "opencode"),
+        ("claude.EXE -p", "claude"),
+    ],
+)
+def test_a_windows_command_names_its_agent_cli(monkeypatch, value, name):
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert agent_cli_name(value) == name

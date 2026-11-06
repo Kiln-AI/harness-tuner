@@ -5,6 +5,7 @@ project at wave end."""
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -235,10 +236,13 @@ def test_the_setup_lines_print_in_both_displays():
 
 
 def _write_rc(project: Path, rc_id: str, name: str) -> Path:
-    folder = project / "tasks" / "t1 - T" / "run_configs" / f"{rc_id} - {name[:20]}"
+    # Kiln names the folder after a cleaned name: `PROBE r0-4: json` has a
+    # character no Windows folder name may hold.
+    folder_name = re.sub(r'[\\/:*?"<>|]', " ", name[:20])
+    folder = project / "tasks" / "t1 - T" / "run_configs" / f"{rc_id} - {folder_name}"
     folder.mkdir(parents=True)
     (folder / "task_run_config.kiln").write_text(
-        json.dumps({"id": rc_id, "name": name})
+        json.dumps({"id": rc_id, "name": name}), encoding="utf-8"
     )
     return folder
 
@@ -257,7 +261,7 @@ def _eval_run_for(project: Path, rc_id: str) -> None:
     )
     run.mkdir(parents=True)
     (run / "eval_run.kiln").write_text(
-        json.dumps({"id": f"er_{rc_id}", "task_run_config_id": rc_id})
+        json.dumps({"id": f"er_{rc_id}", "task_run_config_id": rc_id}), encoding="utf-8"
     )
 
 
@@ -302,7 +306,7 @@ async def test_probe_rcs_are_archived_and_measured_ones_are_kept(tmp_path):
 async def test_the_task_default_rc_is_never_archived(tmp_path):
     project = _project(tmp_path)
     (project / "tasks" / "t1 - T" / "task.kiln").write_text(
-        json.dumps({"id": "t1", "default_run_config_id": "rc_p1"})
+        json.dumps({"id": "t1", "default_run_config_id": "rc_p1"}), encoding="utf-8"
     )
     ctx = make_ctx()
     ctx.target = ctx.target.model_copy(update={"project_path": str(project)})

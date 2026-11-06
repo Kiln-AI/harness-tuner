@@ -264,8 +264,12 @@ def test_the_judge_copy_leaves_the_project_after_use(tmp_path: Path):
     project = tmp_path / "proj"
     config_dir = project / "tasks" / "t1 - T" / "evals" / "e1 - E" / "configs" / "c9"
     config_dir.mkdir(parents=True)
-    (config_dir.parent.parent / "eval.kiln").write_text(json.dumps({"id": "eval_1"}))
-    (config_dir / "eval_config.kiln").write_text(json.dumps({"id": "ec_copy_1"}))
+    (config_dir.parent.parent / "eval.kiln").write_text(
+        json.dumps({"id": "eval_1"}), encoding="utf-8"
+    )
+    (config_dir / "eval_config.kiln").write_text(
+        json.dumps({"id": "ec_copy_1"}), encoding="utf-8"
+    )
     (config_dir / "runs").mkdir()
     ctx.target = ctx.target.model_copy(update={"project_path": str(project)})
     ctx.quarantine_root = tmp_path / "quarantine"

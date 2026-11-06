@@ -94,7 +94,7 @@ def _file_derivations() -> dict[str, list[tuple[str, int]]]:
     keyed by the module's package-relative path, with how far it walks up."""
     out: dict[str, list[tuple[str, int]]] = {}
     for path in _module_paths():
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         if "__file__" not in source:
             continue
         for node in _innermost_statements(ast.parse(source)):

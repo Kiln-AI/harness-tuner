@@ -151,7 +151,7 @@ class TestLoading:
         with pytest.raises(ModelPolicyError):
             ModelPolicy.load(tmp_path / "missing.json")
         bad = tmp_path / "bad.json"
-        bad.write_text("{")
+        bad.write_text("{", encoding="utf-8")
         with pytest.raises(ModelPolicyError):
             ModelPolicy.load(bad)
 

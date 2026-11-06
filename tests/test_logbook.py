@@ -28,7 +28,7 @@ def test_configure_writes_lines_into_the_run_dir(tmp_path):
     )
     logging.getLogger("httpx").warning("connection reset")
 
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     # timestamp · level · logger name · message — the file's whole structure.
     assert (
         "INFO    kiln_harness_tuner.dispatch.claude_cli dispatch w1-1: spawning" in text
@@ -42,19 +42,19 @@ def test_configure_writes_lines_into_the_run_dir(tmp_path):
 def test_debug_is_filtered_out_by_default_and_in_when_asked(tmp_path):
     path = configure_run_logging(tmp_path / "info")
     logging.getLogger("kiln_harness_tuner.x").debug("noisy")
-    assert path.read_text() == ""
+    assert path.read_text(encoding="utf-8") == ""
 
     verbose = configure_run_logging(tmp_path / "debug", level="DEBUG")
     logging.getLogger("kiln_harness_tuner.x").debug("noisy")
-    assert "DEBUG   kiln_harness_tuner.x noisy" in verbose.read_text()
+    assert "DEBUG   kiln_harness_tuner.x noisy" in verbose.read_text(encoding="utf-8")
 
 
 def test_reconfiguring_replaces_the_handler_rather_than_stacking(tmp_path):
     first = configure_run_logging(tmp_path / "one")
     second = configure_run_logging(tmp_path / "two")
     logging.getLogger("kiln_harness_tuner.x").info("only once")
-    assert first.read_text() == ""
-    assert second.read_text().count("only once") == 1
+    assert first.read_text(encoding="utf-8") == ""
+    assert second.read_text(encoding="utf-8").count("only once") == 1
     root = logging.getLogger()
     assert (
         sum(
@@ -71,7 +71,7 @@ def test_configure_appends_so_a_rerun_keeps_the_first_attempt(tmp_path):
     logging.getLogger("kiln_harness_tuner.x").info("attempt one")
     configure_run_logging(run_dir)
     logging.getLogger("kiln_harness_tuner.x").info("attempt two")
-    text = log_path(run_dir).read_text()
+    text = log_path(run_dir).read_text(encoding="utf-8")
     assert "attempt one" in text and "attempt two" in text
 
 
@@ -96,4 +96,4 @@ def test_resolve_level_reads_the_env_var(tmp_path, monkeypatch):
     monkeypatch.setenv("KILN_HARNESS_TUNER_LOG_LEVEL", "DEBUG")
     path = configure_run_logging(tmp_path / "env")
     logging.getLogger("kiln_harness_tuner.x").debug("from the env")
-    assert "from the env" in path.read_text()
+    assert "from the env" in path.read_text(encoding="utf-8")

@@ -2625,8 +2625,8 @@ async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):
 
     files = sorted(p.name for p in (tmp_path / "snapshots").glob("*.json"))
     assert files == ["001-w1-plan-before.json", "002-w1-plan-after.json"]
-    before = json.loads((tmp_path / "snapshots" / files[0]).read_text())
-    after = json.loads((tmp_path / "snapshots" / files[1]).read_text())
+    before = json.loads((tmp_path / "snapshots" / files[0]).read_text(encoding="utf-8"))
+    after = json.loads((tmp_path / "snapshots" / files[1]).read_text(encoding="utf-8"))
     assert {r["id"] for r in before["records"]} == {"m1", "m2"}
     assert {r["id"] for r in after["records"]} == {"m1", "m2", "m3"}
     assert all("content" in r and "tags" in r for r in before["records"])

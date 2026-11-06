@@ -2,9 +2,12 @@
 orchestrator (monkeypatched — no live Kiln)."""
 
 import json
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
+from platform_marks import posix_only, requires_symlinks
 
 import kiln_harness_tuner.cli
 from kiln_harness_tuner.cli import (
@@ -15,8 +18,10 @@ from kiln_harness_tuner.cli import (
 )
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.claude_cli import PreflightError
+from kiln_harness_tuner.dispatch.run_fence import rule_path
 from kiln_harness_tuner.memory import BaselineRecordMissingError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
+from kiln_harness_tuner.os_sandbox import has_os_sandbox
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
@@ -26,6 +31,15 @@ from kiln_harness_tuner.setup import (
     no_run_configs_message,
 )
 from kiln_harness_tuner.wave_log import FanoutLog
+
+
+def _hook_argv(hook: dict) -> list[str]:
+    """The command a settings hook entry runs, in either form: exec form
+    (`command` + `args`, Windows) or one shell command."""
+    if "args" in hook:
+        return [hook["command"], *hook["args"]]
+    return shlex.split(hook["command"])
+
 
 ARGS = [
     "--project-path",
@@ -85,7 +99,7 @@ def test_objective_and_model_policy_flags(tmp_path):
     example = Path(kiln_harness_tuner.cli.REPO_ROOT) / "examples" / "model-policy.json"
     assert load_model_policy(str(example)) is not None
     bad = tmp_path / "bad.json"
-    bad.write_text('{"allow": []}')
+    bad.write_text('{"allow": []}', encoding="utf-8")
     with pytest.raises(ConfigRenderError, match="fix: "):
         load_model_policy(str(bad))
 
@@ -204,7 +218,8 @@ def _write_mcp_json_fixture(tmp_path):
                     },
                 }
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
 
@@ -241,7 +256,7 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, tmp_path):
     assert (run_dir / "wave_log.jsonl").exists()
     # …and beside it the run's diagnostics file, already carrying
     # the run's opening line — the bootstrap runs before anything can fail.
-    log_text = (run_dir / "kiln-harness-tuner.log").read_text()
+    log_text = (run_dir / "kiln-harness-tuner.log").read_text(encoding="utf-8")
     assert f"run {run_dir.name} starting" in log_text
     assert "project 424242748186 task 424242613304" in log_text
 
@@ -361,9 +376,9 @@ class TestRenderRunConfigs:
         assert mcp_path == run_dir / "mcp_config.json"
         project_root = _fixture_project(tmp_path, self.TASK_ID).resolve()
         for role in ROLE_OPS:
-            servers = json.loads((run_dir / f"mcp_config.{role}.json").read_text())[
-                "mcpServers"
-            ]
+            servers = json.loads(
+                (run_dir / f"mcp_config.{role}.json").read_text(encoding="utf-8")
+            )["mcpServers"]
             expected = {"kiln_harness_tuner_gateway"} | (
                 {"skill_installer"}
                 if role in ("create_experiment_rc", "probe")
@@ -385,7 +400,7 @@ class TestRenderRunConfigs:
             assert args[args.index("--project-path") + 1] == str(project_root)
             text = json.dumps(servers)
             assert "kiln_api_mcp" not in text and "call_kiln_api" not in text
-        preflight = json.loads(mcp_path.read_text())["mcpServers"]
+        preflight = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
         assert set(preflight) == {"kiln_harness_tuner_gateway"}
         # No cap given: the gateway gets no cap.
         assert (
@@ -407,7 +422,7 @@ class TestRenderRunConfigs:
         mcp_path, _ = render_run_configs(
             run_dir, target, tmp_path / "repo", max_concurrent_evals=3
         )
-        args = json.loads(mcp_path.read_text())["mcpServers"][
+        args = json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"][
             "kiln_harness_tuner_gateway"
         ]["args"]
         assert args[args.index("--max-concurrent-evals") + 1] == "3"
@@ -417,7 +432,9 @@ class TestRenderRunConfigs:
         # project + scratch roots — in the builder's and the probe's configs.
         (_, _s), run_dir = self.make(tmp_path)
         server = json.loads(
-            (run_dir / "mcp_config.create_experiment_rc.json").read_text()
+            (run_dir / "mcp_config.create_experiment_rc.json").read_text(
+                encoding="utf-8"
+            )
         )["mcpServers"]["skill_installer"]
         assert server["type"] == "stdio"
         assert server["command"] == "uv"
@@ -439,18 +456,16 @@ class TestRenderRunConfigs:
         # scratch allow and the implicit cwd grant. Scratch lives under
         # <repo>/runs/, disjoint, so the allow is untouched.
         (_, settings_path), run_dir = self.make(tmp_path)
-        settings = json.loads(settings_path.read_text())
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
         project_root = _fixture_project(tmp_path, self.TASK_ID).resolve()
         # First rule is the project-tree Edit deny; the read fence and the
         # web-tool denies follow it.
         deny_rule = settings["permissions"]["deny"][0]
-        assert deny_rule == f"Edit(//{str(project_root).lstrip('/')}/**)"
+        assert deny_rule == f"Edit({rule_path(project_root)}/**)"
         assert "///" not in deny_rule
         assert all("///" not in rule for rule in settings["permissions"]["deny"])
         scratch = (run_dir / "scratch").resolve()
-        assert settings["permissions"]["allow"] == [
-            f"Edit(//{str(scratch).lstrip('/')}/**)"
-        ]
+        assert settings["permissions"]["allow"] == [f"Edit({rule_path(scratch)}/**)"]
 
     def test_the_trace_readers_may_read_the_trace_folder(self, tmp_path):
         """The gateway writes train traces to the run's
@@ -469,29 +484,56 @@ class TestRenderRunConfigs:
         (mcp_path, settings_path), run_dir = self.make(tmp_path)
         traces = (run_dir / "scratch" / "traces").resolve()
         assert traces.is_dir()
-        body = str(traces).lstrip("/")
-        read_rule, edit_deny = f"Read(//{body}/**)", f"Edit(//{body}/**)"
+        body = rule_path(traces)
+        read_rule, edit_deny = f"Read({body}/**)", f"Edit({body}/**)"
         for role in ROLE_OPS:
-            settings = json.loads((run_dir / f"settings.{role}.json").read_text())
+            settings = json.loads(
+                (run_dir / f"settings.{role}.json").read_text(encoding="utf-8")
+            )
             allow = settings["permissions"]["allow"]
             assert (read_rule in allow) == (role in TRACE_READER_ROLES), role
             # Nothing else is widened: the scratch write grant, or nothing.
             assert set(allow) - {read_rule} <= {
-                f"Edit(//{str((run_dir / 'scratch').resolve()).lstrip('/')}/**)"
+                f"Edit({rule_path((run_dir / 'scratch').resolve())}/**)"
             }, role
             assert edit_deny in settings["permissions"]["deny"], role
-            args = json.loads((run_dir / f"mcp_config.{role}.json").read_text())[
-                "mcpServers"
-            ]["kiln_harness_tuner_gateway"]["args"]
+            args = json.loads(
+                (run_dir / f"mcp_config.{role}.json").read_text(encoding="utf-8")
+            )["mcpServers"]["kiln_harness_tuner_gateway"]["args"]
             assert args[args.index("--traces-dir") + 1] == str(traces)
         for shared in (settings_path, run_dir / "settings.readonly.json"):
             assert (
-                read_rule not in json.loads(shared.read_text())["permissions"]["allow"]
+                read_rule
+                not in json.loads(shared.read_text(encoding="utf-8"))["permissions"][
+                    "allow"
+                ]
             )
+
+    def test_windows_settings_run_without_the_os_sandbox(self, tmp_path, monkeypatch):
+        """Native Windows has no OS sandbox, and with `failIfUnavailable`
+        set Claude Code refuses to start there, so every session would fail.
+        The permission rules stay; the hook takes the exec form, which needs
+        no shell."""
+        monkeypatch.setattr(sys, "platform", "win32")
+        (_, settings_path), run_dir = self.make(tmp_path)
+        files = sorted(run_dir.glob("settings*.json"))
+        assert settings_path in files and len(files) > 2
+        for path in files:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            sandbox = settings["sandbox"]
+            assert sandbox["enabled"] is False, path.name
+            assert sandbox["failIfUnavailable"] is False, path.name
+            assert sandbox["allowUnsandboxedCommands"] is False, path.name
+            (entry,) = settings["hooks"]["PreToolUse"]
+            (hook,) = entry["hooks"]
+            assert hook["command"] == sys.executable, path.name
+            assert hook["args"][:2] == ["-m", "kiln_harness_tuner.gateway.hook"]
+            deny = settings["permissions"]["deny"]
+            assert any(rule.startswith("Read(//") for rule in deny), path.name
 
     def test_settings_scope_writes_to_scratch(self, tmp_path):
         (_, settings_path), run_dir = self.make(tmp_path)
-        settings = json.loads(settings_path.read_text())
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
         scratch = (run_dir / "scratch").resolve()
         # File tools: ONE path-scoped Edit allow rule (Edit rules cover all
         # file-editing tools incl. Write; path-scoped Write rules are never
@@ -499,13 +541,14 @@ class TestRenderRunConfigs:
         # `Edit(//home/…)`, never `Edit(///home/…)`. In -p mode everything
         # else is denied.
         (edit_rule,) = settings["permissions"]["allow"]
-        assert edit_rule == f"Edit(//{str(scratch).lstrip('/')}/**)"
+        assert edit_rule == f"Edit({rule_path(scratch)}/**)"
         assert "///" not in edit_rule
         # Bash: OS sandbox on, loud when unavailable, no unsandboxed escape
-        # hatch; repo denied, scratch re-opened.
+        # hatch; repo denied, scratch re-opened. Native Windows has no OS
+        # sandbox (`test_windows_settings_run_without_the_os_sandbox`).
         sandbox = settings["sandbox"]
-        assert sandbox["enabled"] is True
-        assert sandbox["failIfUnavailable"] is True
+        assert sandbox["enabled"] is has_os_sandbox()
+        assert sandbox["failIfUnavailable"] is has_os_sandbox()
         assert sandbox["allowUnsandboxedCommands"] is False
         assert sandbox["filesystem"]["denyWrite"] == [
             str((tmp_path / "repo").resolve())
@@ -522,13 +565,16 @@ class TestRenderRunConfigs:
             ("settings.json", "none"),
             ("settings.readonly.json", "none"),
         ] + [(f"settings.{r}.json", r) for r in ROLE_OPS]:
-            settings = json.loads((run_dir / name).read_text())
+            settings = json.loads((run_dir / name).read_text(encoding="utf-8"))
             (entry,) = settings["hooks"]["PreToolUse"]
             assert entry["matcher"] == "mcp__.*"
             (hook,) = entry["hooks"]
-            assert hook["command"].endswith(
-                f"-m kiln_harness_tuner.gateway.hook --role {role}"
-            )
+            assert _hook_argv(hook)[1:] == [
+                "-m",
+                "kiln_harness_tuner.gateway.hook",
+                "--role",
+                role,
+            ]
             assert hook["timeout"] == 10
             assert "mcp__kiln_api_mcp" in settings["permissions"]["deny"]
 
@@ -541,7 +587,9 @@ class TestRenderRunConfigs:
         (_, _s), run_dir = self.make(tmp_path)
         project = _fixture_project(tmp_path, self.TASK_ID).resolve()
         for role in ROLE_OPS:
-            settings = json.loads((run_dir / f"settings.{role}.json").read_text())
+            settings = json.loads(
+                (run_dir / f"settings.{role}.json").read_text(encoding="utf-8")
+            )
             assert settings["sandbox"]["network"] == {
                 "strictAllowlist": True,
                 "allowedDomains": [],
@@ -549,26 +597,23 @@ class TestRenderRunConfigs:
             deny = settings["sandbox"]["filesystem"]["denyRead"]
             assert str(project) in deny, role
             rules = settings["permissions"]["deny"]
-            assert f"Read(//{str(project).lstrip('/')}/**)" in rules, role
+            assert f"Read({rule_path(project)}/**)" in rules, role
             run = run_dir.resolve()
-            assert any(str(run / "train_set.json") in r for r in rules), role
+            assert any(rule_path(run / "train_set.json") in r for r in rules), role
 
     def test_readonly_settings_grant_no_write(self, tmp_path):
         # The val readers run under their own read-only files.
         (_, settings_path), run_dir = self.make(tmp_path)
-        normal = json.loads(settings_path.read_text())
+        normal = json.loads(settings_path.read_text(encoding="utf-8"))
         for name in (
             "settings.readonly.json",
             "settings.promote_best.json",
             "settings.report_writer.json",
         ):
-            readonly = json.loads((run_dir / name).read_text())
+            readonly = json.loads((run_dir / name).read_text(encoding="utf-8"))
             assert readonly["permissions"]["allow"] == []
             scratch = (run_dir / "scratch").resolve()
-            assert (
-                f"Edit(//{str(scratch).lstrip('/')}/**)"
-                in readonly["permissions"]["deny"]
-            )
+            assert f"Edit({rule_path(scratch)}/**)" in readonly["permissions"]["deny"]
             assert readonly["sandbox"]["filesystem"]["allowWrite"] == []
             for rule in normal["permissions"]["deny"]:
                 assert rule in readonly["permissions"]["deny"]
@@ -580,7 +625,7 @@ class TestRenderRunConfigs:
         # key) or other Claude sessions' transcripts; no internet, no web
         # tools.
         (_, settings_path), run_dir = self.make(tmp_path)
-        settings = json.loads(settings_path.read_text())
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
         fs = settings["sandbox"]["filesystem"]
         repo = (tmp_path / "repo").resolve()
         project = _fixture_project(tmp_path, self.TASK_ID).resolve()
@@ -612,12 +657,12 @@ class TestRenderRunConfigs:
         # The project is one static rule — nothing inside it is
         # re-opened, so later files are covered too.
         read_rules = [r for r in deny if r.startswith("Read(//")]
-        assert f"Read(//{str(project).lstrip('/')}/**)" in read_rules
+        assert f"Read({rule_path(project)}/**)" in read_rules
         # The run directory: every entry but the scratch, files included.
         run = run_dir.resolve()
         for entry in ("wave_log.jsonl", "steps", "snapshots", "train_set.json"):
-            assert any(str(run / entry) in rule for rule in read_rules), entry
-        assert not any(str(run / "scratch") in rule for rule in read_rules)
+            assert any(rule_path(run / entry) in rule for rule in read_rules), entry
+        assert not any(rule_path(run / "scratch") in rule for rule in read_rules)
 
     def test_fence_denies_a_kiln_project_nested_under_the_repo(self, tmp_path):
         """A project can sit two levels down (`examples/<name>/`), so
@@ -626,11 +671,11 @@ class TestRenderRunConfigs:
         read."""
         other = tmp_path / "repo" / "examples" / "Other Project"
         other.mkdir(parents=True)
-        (other / "project.kiln").write_text("v1: 1\n")
+        (other / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
         (_, settings_path), _ = self.make(tmp_path)
-        denied = json.loads(settings_path.read_text())["sandbox"]["filesystem"][
-            "denyRead"
-        ]
+        denied = json.loads(settings_path.read_text(encoding="utf-8"))["sandbox"][
+            "filesystem"
+        ]["denyRead"]
         assert str(other.resolve()) in denied
 
 
@@ -639,18 +684,19 @@ def test_kiln_project_dirs_finds_every_depth_and_prunes(tmp_path):
 
     for rel in ("Top", "examples/Nested", ".hidden/Buried"):
         (tmp_path / rel).mkdir(parents=True)
-        (tmp_path / rel / "project.kiln").write_text("v1: 1\n")
+        (tmp_path / rel / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     # A project's own tree holds tasks, runs and eval runs, never a second
     # project — descending into it is wasted work on a large fixture tree.
     inner = tmp_path / "Top" / "tasks" / "1 - a"
     inner.mkdir(parents=True)
-    (inner / "project.kiln").write_text("v1: 1\n")
+    (inner / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     assert kiln_project_dirs(tmp_path) == [
         tmp_path / "Top",
         tmp_path / "examples" / "Nested",
     ]
 
 
+@requires_symlinks
 def test_kiln_project_dirs_follows_a_symlinked_project(tmp_path):
     """A project checked out elsewhere and symlinked in is what a symlink is
     for, and the glob this walk replaced found it. `os.walk` lists a symlinked
@@ -660,20 +706,21 @@ def test_kiln_project_dirs_follows_a_symlinked_project(tmp_path):
 
     elsewhere = tmp_path / "elsewhere" / "Linked"
     elsewhere.mkdir(parents=True)
-    (elsewhere / "project.kiln").write_text("v1: 1\n")
+    (elsewhere / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "Linked").symlink_to(elsewhere, target_is_directory=True)
     assert kiln_project_dirs(repo) == [repo / "Linked"]
 
 
+@requires_symlinks
 def test_kiln_project_dirs_survives_a_symlink_cycle(tmp_path):
     # Following links is only safe with the visited set that stops a cycle.
     repo = tmp_path / "repo"
     (repo / "a").mkdir(parents=True)
     (repo / "a" / "loop").symlink_to(repo, target_is_directory=True)
     (repo / "a" / "P").mkdir()
-    (repo / "a" / "P" / "project.kiln").write_text("v1: 1\n")
+    (repo / "a" / "P" / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     from kiln_harness_tuner.cli import kiln_project_dirs
 
     assert kiln_project_dirs(repo) == [repo / "a" / "P"]
@@ -685,10 +732,10 @@ def test_kiln_project_dirs_never_returns_or_prunes_at_the_root(tmp_path):
     the walk with nothing denied at all."""
     from kiln_harness_tuner.cli import kiln_project_dirs
 
-    (tmp_path / "project.kiln").write_text("v1: 1\n")
+    (tmp_path / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     nested = tmp_path / "examples" / "Other"
     nested.mkdir(parents=True)
-    (nested / "project.kiln").write_text("v1: 1\n")
+    (nested / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     assert kiln_project_dirs(tmp_path) == [nested]
 
 
@@ -703,7 +750,7 @@ def test_examples_are_denied_whole_except_the_runs_own_project(tmp_path):
     own = examples / "Forum Moderation"
     for rel in ("authoring", "moderation", "Forum Moderation", "Other Project"):
         (examples / rel).mkdir(parents=True)
-    (examples / "moderation" / "posts.jsonl").write_text("{}\n")
+    (examples / "moderation" / "posts.jsonl").write_text("{}\n", encoding="utf-8")
     assert example_denials(repo, own) == [
         examples / "Other Project",
         examples / "authoring",
@@ -760,7 +807,7 @@ def test_all_examples_are_denied_when_the_project_is_examples_itself(tmp_path):
     repo = tmp_path / "repo"
     examples = repo / "examples"
     (examples / "moderation").mkdir(parents=True)
-    (examples / "project.kiln").write_text("v1: 1\n")
+    (examples / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     assert example_denials(repo, examples) == [examples]
 
 
@@ -786,10 +833,10 @@ def test_read_fence_denies_the_runs_own_project_whole(tmp_path):
     repo = tmp_path / "repo"
     own = repo / "examples" / "Forum Moderation"
     (own / "tasks" / "42 - t").mkdir(parents=True)
-    (own / "project.kiln").write_text("v1: 1\n")
+    (own / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     other = repo / "examples" / "Other"
     other.mkdir(parents=True)
-    (other / "project.kiln").write_text("v1: 1\n")
+    (other / "project.kiln").write_text("v1: 1\n", encoding="utf-8")
     fence = read_fence_for(
         repo_root=repo,
         project_root=own,
@@ -811,7 +858,7 @@ def test_read_fence_rule_paths_open_the_allowed_child(tmp_path):
     for name in ("1 - a", "2 - b", "3 - c"):
         (tasks / name).mkdir(parents=True)
     fence = ReadFence(deny=(tasks, tmp_path / "reports"), allow=(tasks / "2 - b",))
-    (tasks / ".DS_Store").write_text("")
+    (tasks / ".DS_Store").write_text("", encoding="utf-8")
     # Files beside the allowed path are fenced too — the wave
     # log beside a run's scratch is a file.
     assert fence.rule_paths() == (
@@ -832,7 +879,7 @@ def test_read_fence_rule_paths_recurse_down_to_the_allowed_path(tmp_path):
     run = runs / "260924-0900"
     (run / "scratch" / "x").mkdir(parents=True)
     (run / "steps").mkdir()
-    (run / "wave_log.jsonl").write_text("")
+    (run / "wave_log.jsonl").write_text("", encoding="utf-8")
     (runs / "260923-0800").mkdir()
     (runs / ".quarantine").mkdir()
     fence = ReadFence(deny=(runs,), allow=(run / "scratch",))
@@ -851,7 +898,7 @@ def test_main_sweeps_stale_staging_dirs(monkeypatch, tmp_path):
     project = tmp_path / "proj"
     staging = project / "skills" / ".staging-424242999999"
     staging.mkdir(parents=True)
-    (staging / "junk.txt").write_text("x")
+    (staging / "junk.txt").write_text("x", encoding="utf-8")
     keeper = project / "skills" / "424242111111 - keeper"
     keeper.mkdir()
 
@@ -915,7 +962,8 @@ def test_render_needs_no_committed_mcp_json(tmp_path):
     )
     mcp_path, _ = render_run_configs(tmp_path / "run", target, tmp_path / "empty-repo")
     assert (
-        "kiln_harness_tuner_gateway" in json.loads(mcp_path.read_text())["mcpServers"]
+        "kiln_harness_tuner_gateway"
+        in json.loads(mcp_path.read_text(encoding="utf-8"))["mcpServers"]
     )
 
 
@@ -971,76 +1019,11 @@ def test_unique_run_id_suffixes_on_collision(tmp_path):
     assert _unique_run_id(tmp_path, now) == "260803-1705-3"
 
 
-class TestRunLock:
-    def test_lock_acquire_and_release_shape(self, tmp_path):
-        from kiln_harness_tuner.cli import _acquire_run_lock
-
-        lock = _acquire_run_lock(tmp_path, "t1")
-        record = json.loads(lock.path.read_text())
-        assert record["pid"] == __import__("os").getpid()
-        assert record["task_id"] == "t1" and "started" in record
-        lock.release()
-        # Released, not unlinked: the file is the lock's
-        # identity; a fresh inode under the same name would split the lock.
-        assert lock.path.exists()
-        assert _acquire_run_lock(tmp_path, "t1").path == lock.path
-
-    def test_lock_key_carries_the_project_id_when_known(self, tmp_path):
-        from kiln_harness_tuner.cli import _acquire_run_lock
-
-        # The same task id can exist in two projects; a lock keyed by task
-        # alone would block or miss across them.
-        lock = _acquire_run_lock(tmp_path, "t1", "p9")
-        assert lock.path.name == ".lock-p9-t1"
-        assert json.loads(lock.path.read_text())["project_id"] == "p9"
-
-    def test_a_held_flock_refuses_a_second_run(self, tmp_path):
-        import fcntl
-        import os
-
-        from kiln_harness_tuner.cli import RunLockError, _acquire_run_lock
-
-        # The kernel lock is the claim, whatever the file says: here the
-        # holder has the flock but has not written its record yet, and the
-        # lock must not be reclaimed.
-        path = tmp_path / ".lock-t1"
-        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        try:
-            with pytest.raises(RunLockError, match="one run per task"):
-                _acquire_run_lock(tmp_path, "t1")
-        finally:
-            os.close(fd)
-        # Released by the holder's death (here: the close) — no reclaim step.
-        assert _acquire_run_lock(tmp_path, "t1").path == path
-
-    def test_live_holder_refuses_a_second_run(self, tmp_path):
-        import os
-
-        from kiln_harness_tuner.cli import RunLockError, _acquire_run_lock
-
-        # An older kiln-harness-tuner wrote a bare live pid and holds no flock: still
-        # honoured.
-        (tmp_path / ".lock-t1").write_text(str(os.getppid()))
-        with pytest.raises(RunLockError, match="one run per task"):
-            _acquire_run_lock(tmp_path, "t1")
-
-    def test_stale_lock_is_reclaimed(self, tmp_path):
-        from kiln_harness_tuner.cli import _acquire_run_lock
-
-        # A pid that cannot be alive (max pid is far below this on any host).
-        (tmp_path / ".lock-t1").write_text("99999999")
-        lock = _acquire_run_lock(tmp_path, "t1")
-        assert lock.path.exists()
-        assert json.loads(lock.path.read_text())["task_id"] == "t1"
-
-    def test_garbage_lock_is_reclaimed(self, tmp_path):
-        from kiln_harness_tuner.cli import _acquire_run_lock
-
-        (tmp_path / ".lock-t1").write_text("not-a-pid")
-        assert _acquire_run_lock(tmp_path, "t1").path.exists()
-
-
+@posix_only(
+    "Windows delivers no SIGTERM or SIGHUP: os.kill(pid, SIGTERM) there ends the"
+    " process at once (TerminateProcess), and its event loop takes no signal"
+    " handlers. Ctrl-C is the clean stop on Windows"
+)
 class TestSigterm:
     def test_sigterm_cancels_the_run_and_main_returns_143(self, monkeypatch):
         """`kill <pid>` must not terminate Python outright — that skips the

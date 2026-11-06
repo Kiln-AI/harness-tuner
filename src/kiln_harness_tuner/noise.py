@@ -343,8 +343,12 @@ def archive_eval_config(ctx: Ctx, eval_id: str, config_id: str) -> bool:
     for task_dir in task_dirs(root, ctx.target.task_id):
         for folder in task_dir.glob("evals/*/configs/*"):
             try:
-                data = json.loads((folder / "eval_config.kiln").read_text())
-                parent = json.loads((folder.parent.parent / "eval.kiln").read_text())
+                data = json.loads(
+                    (folder / "eval_config.kiln").read_text(encoding="utf-8")
+                )
+                parent = json.loads(
+                    (folder.parent.parent / "eval.kiln").read_text(encoding="utf-8")
+                )
             except (OSError, ValueError):
                 continue
             if str(data.get("id")) != config_id or str(parent.get("id")) != eval_id:

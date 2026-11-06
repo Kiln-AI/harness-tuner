@@ -157,12 +157,14 @@ class RunStatusTracker:
         guidance: str,
         clock: Callable[[], float] = time.monotonic,
         agent_cli: str = "claude",
+        os_sandbox: bool = True,
     ):
         self._status = RunStatus(
             project_id=project_id,
             task_id=task_id,
             guidance=guidance,
             agent_cli=agent_cli,
+            os_sandbox=os_sandbox,
             baseline_history=[],
             waves=[],
             spend_total_usd=0.0,

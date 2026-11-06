@@ -5,10 +5,14 @@ copy. No live calls."""
 
 from __future__ import annotations
 
+import errno
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
+from platform_marks import posix_only, requires_symlinks
 from test_dispatch_claude_cli import (
     BASELINE,
     BATCH_PLAN_INPUT,
@@ -29,6 +33,7 @@ from kiln_harness_tuner.dispatch.codex_cli import (
     DISABLED_FEATURES,
     CodexCliDispatcher,
     codex_install_paths,
+    link_directory,
     permission_profile,
     read_codex_output,
     toml_value,
@@ -183,7 +188,8 @@ class TestTheCommand:
         assert '":root" = "deny"' in profile
         assert '":minimal" = "read"' in profile
         assert '":workspace_roots" = {"." = "write"}' in profile
-        assert f'"{(tmp_path / "skills").resolve()}" = "read"' in profile
+        skills = json.dumps(str((tmp_path / "skills").resolve()))  # a TOML string
+        assert f'{skills} = "read"' in profile
         assert '"network" = {"enabled" = false}' in profile
         disabled = [v for f, v in zip(argv, argv[1:], strict=False) if f == "--disable"]
         assert disabled == list(DISABLED_FEATURES)
@@ -218,7 +224,8 @@ class TestTheCommand:
         that read traces, and to no other."""
         dispatcher, _ = make(tmp_path, [])
         traces = (tmp_path / "run" / "scratch" / "traces").resolve()
-        line = f'"{traces}" = "read"'
+        quoted = json.dumps(str(traces))  # a TOML string: Windows escapes `\`
+        line = f'{quoted} = "read"'
         for role, reads in (("batch_plan", True), ("probe", True)):
             profile = config_of(dispatcher._argv(role, label=role))[
                 "permissions.kiln_harness_tuner"
@@ -228,8 +235,9 @@ class TestTheCommand:
             profile = config_of(dispatcher._argv(role, label=role))[
                 "permissions.kiln_harness_tuner"
             ]
-            assert str(traces) not in profile, role
+            assert quoted not in profile, role
 
+    @requires_symlinks
     def test_the_workspace_links_the_skills(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
         dispatcher._argv("batch_plan", label="w1")
@@ -239,13 +247,51 @@ class TestTheCommand:
         # Idempotent: a second session of the same label reuses it.
         dispatcher._argv("batch_plan", label="w1")
 
+    def test_windows_without_symlink_rights_links_by_junction(
+        self, tmp_path, monkeypatch
+    ):
+        # WinError 1314: no Developer Mode and no administrator.
+        def no_rights(self, target, target_is_directory=False):
+            raise OSError(errno.EPERM, "A required privilege is not held")
+
+        junctions: list[tuple[str, str]] = []
+
+        class FakeWinapi:
+            @staticmethod
+            def CreateJunction(target: str, link: str) -> None:  # noqa: N802
+                junctions.append((target, link))
+                os.mkdir(link)
+
+        monkeypatch.setattr(Path, "symlink_to", no_rights)
+        monkeypatch.setitem(sys.modules, "_winapi", FakeWinapi)
+        # Windows' `shutil.which` needs the real `_winapi`: Codex is not on PATH.
+        monkeypatch.setattr(
+            "kiln_harness_tuner.dispatch.codex_cli.shutil.which", lambda _b: None
+        )
+        monkeypatch.setattr(sys, "platform", "win32")
+        dispatcher, _ = make(tmp_path, [])
+        dispatcher._argv("batch_plan", label="w1")
+        link = tmp_path / "run" / "scratch" / "w1" / ".agents" / "skills"
+        assert junctions == [(str((tmp_path / "skills").resolve()), str(link))]
+
+    def test_a_symlink_failure_on_macos_and_linux_is_raised(
+        self, tmp_path, monkeypatch
+    ):
+        def no_rights(self, target, target_is_directory=False):
+            raise OSError(errno.EPERM, "Operation not permitted")
+
+        monkeypatch.setattr(Path, "symlink_to", no_rights)
+        monkeypatch.setattr(sys, "platform", "linux")
+        with pytest.raises(OSError):
+            link_directory(tmp_path / "link", tmp_path)
+
     def test_the_workspace_holds_the_installed_instructions(self, tmp_path):
         (tmp_path / "repo").mkdir()
-        (tmp_path / "repo" / "AGENTS.md").write_text("the rules\n")
+        (tmp_path / "repo" / "AGENTS.md").write_text("the rules\n", encoding="utf-8")
         dispatcher, _ = make(tmp_path, [])
         dispatcher._argv("batch_plan", label="w1")
         copied = tmp_path / "run" / "scratch" / "w1" / "AGENTS.md"
-        assert copied.read_text() == "the rules\n"
+        assert copied.read_text(encoding="utf-8") == "the rules\n"
 
     def test_resume_names_the_thread_and_keeps_the_fence(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
@@ -413,7 +459,7 @@ class TestTranscripts:
         day = tmp_path / "sessions" / "2026" / "09" / "29"
         day.mkdir(parents=True)
         (day / f"rollout-2026-09-29T17-02-50-{THREAD}.jsonl").write_text(
-            '{"line": "api_key=sk-abcdefghijklmnopqrstuvwxyz0123"}\n'
+            '{"line": "api_key=sk-abcdefghijklmnopqrstuvwxyz0123"}\n', encoding="utf-8"
         )
         dispatcher, _ = make(
             tmp_path,
@@ -423,7 +469,9 @@ class TestTranscripts:
         )
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         (copied,) = (tmp_path / "traces").rglob(f"*{THREAD}.jsonl")
-        assert "sk-abcdefghijklmnopqrstuvwxyz0123" not in copied.read_text()
+        assert "sk-abcdefghijklmnopqrstuvwxyz0123" not in copied.read_text(
+            encoding="utf-8"
+        )
 
 
 class TestTheInstallPaths:
@@ -434,7 +482,7 @@ class TestTheInstallPaths:
         home = tmp_path / "home"
         release = home / ".codex/packages/standalone/releases/0.162.1"
         (release / "bin").mkdir(parents=True)
-        (release / "bin" / "codex").write_text("")
+        (release / "bin" / "codex").write_text("", encoding="utf-8")
         current = home / ".codex/packages/standalone/current"
         current.symlink_to(release, target_is_directory=True)
         (home / ".local/bin").mkdir(parents=True)
@@ -448,6 +496,12 @@ class TestTheInstallPaths:
         )
         return home, release
 
+    @posix_only(
+        "Codex's standalone install links its binary on macOS and Linux; on"
+        " Windows os.readlink answers in the \\\\?\\ form and the chain does"
+        " not compare"
+    )
+    @requires_symlinks
     def test_every_folder_on_the_link_chain_and_the_release(
         self, tmp_path, monkeypatch
     ):
@@ -462,6 +516,21 @@ class TestTheInstallPaths:
         assert home not in paths
         assert home / ".codex" not in paths
 
+    def test_npms_windows_shim_opens_its_own_folder_only(self, tmp_path, monkeypatch):
+        # `%APPDATA%\npm\codex.cmd`: its grandparent is all of `%APPDATA%`.
+        home = tmp_path / "home"
+        npm = home / "AppData" / "Roaming" / "npm"
+        (npm / "node_modules" / "@openai" / "codex").mkdir(parents=True)
+        (npm / "codex.CMD").write_text("", encoding="utf-8")
+        monkeypatch.setattr(
+            "kiln_harness_tuner.dispatch.codex_cli.Path.home", lambda: home
+        )
+        monkeypatch.setattr(
+            "kiln_harness_tuner.dispatch.codex_cli.shutil.which",
+            lambda _b: str(npm / "codex.CMD"),
+        )
+        assert codex_install_paths("codex") == [npm.resolve()]
+
     def test_not_on_path(self, monkeypatch):
         monkeypatch.setattr(
             "kiln_harness_tuner.dispatch.codex_cli.shutil.which", lambda _b: None
@@ -473,7 +542,7 @@ class TestTheInstallPaths:
     ):
         home = tmp_path / "home"
         home.mkdir()
-        (home / "codex").write_text("")
+        (home / "codex").write_text("", encoding="utf-8")
         monkeypatch.setattr(
             "kiln_harness_tuner.dispatch.codex_cli.Path.home", lambda: home
         )
@@ -487,7 +556,7 @@ class TestTheInstallPaths:
         profile = permission_profile(
             tmp_path, writable=True, install_paths=[Path("/opt/codex")]
         )
-        assert profile["filesystem"]["/opt/codex"] == "read"
+        assert profile["filesystem"][str(Path("/opt/codex"))] == "read"
 
 
 class TestTheModel:

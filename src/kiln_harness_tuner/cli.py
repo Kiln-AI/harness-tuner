@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import fcntl
 import json
 import logging
 import os
@@ -44,8 +43,9 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 )
 from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
+from kiln_harness_tuner.dispatch.run_fence import rule_path
 from kiln_harness_tuner.gateway.hook import MCP_MATCHER, SKILL_INSTALLER_TOOLS
-from kiln_harness_tuner.gateway.hook import hook_command as gateway_hook_command
+from kiln_harness_tuner.gateway.hook import hook_entry as gateway_hook_entry
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, ROLE_OPS, TRACE_READER_ROLES
 from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSetError
@@ -66,9 +66,16 @@ from kiln_harness_tuner.orchestrator import (
     SpendMeter,
     orchestrate,
 )
+from kiln_harness_tuner.os_sandbox import (
+    ALLOW_FLAG,
+    NoSandboxRefused,
+    confirm_no_sandbox,
+    has_os_sandbox,
+)
 from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.reference_check import REFERENCE_CHECK_MODES
 from kiln_harness_tuner.report import ReportWriter
+from kiln_harness_tuner.run_lock import RunLockError, acquire_run_lock
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import SetupError
 from kiln_harness_tuner.skill_installer import sweep_staging
@@ -331,6 +338,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="run even when the pre-run detectability check refuses (no eval"
         " can show a significant val win); the refusal still prints and lands"
         " in the report",
+    )
+    parser.add_argument(
+        ALLOW_FLAG,
+        action="store_true",
+        help="on native Windows, which has no OS sandbox for the agents, start"
+        " without asking (the warning still prints, and the report says so);"
+        " needed when no terminal is attached to answer. WSL has the sandbox."
+        " No effect on macOS and Linux",
     )
     parser.add_argument(
         "--noise-check",
@@ -642,7 +657,7 @@ def prepare_run_dir(run_dir: Path) -> None:
         if entry.endswith("/"):
             path.mkdir(parents=True, exist_ok=True)
         elif not path.exists():
-            path.write_text("")
+            path.write_text("", encoding="utf-8")
 
 
 def render_run_configs(
@@ -681,6 +696,7 @@ def render_run_configs(
     traces_root = traces_dir(run_dir.resolve())
     traces_root.mkdir(parents=True, exist_ok=True)
     project_root = Path(target.project_path).expanduser().resolve()
+    os_sandbox = has_os_sandbox()
     read_fence = read_fence_for(
         repo_root=repo_root.resolve(),
         project_root=project_root,
@@ -748,7 +764,8 @@ def render_run_configs(
         if role in SKILL_INSTALLER_TOOLS:
             servers["skill_installer"] = installer
         path.write_text(
-            json.dumps({"mcpServers": servers}, indent=2, ensure_ascii=False) + "\n"
+            json.dumps({"mcpServers": servers}, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
 
     mcp_config_path = run_dir / "mcp_config.json"
@@ -760,9 +777,9 @@ def render_run_configs(
         rule
         for p in read_fence.rule_paths()
         for rule in (
-            (f"Read(//{str(p).lstrip('/')}/**)",)
+            (f"Read({rule_path(p)}/**)",)
             if p.is_dir() or not p.exists()
-            else (f"Read(//{str(p).lstrip('/')})",)
+            else (f"Read({rule_path(p)})",)
         )
     ]
 
@@ -774,13 +791,7 @@ def render_run_configs(
             "PreToolUse": [
                 {
                     "matcher": MCP_MATCHER,
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": gateway_hook_command(role),
-                            "timeout": 10,
-                        }
-                    ],
+                    "hooks": [gateway_hook_entry(role, timeout=10)],
                 }
             ]
         }
@@ -791,11 +802,12 @@ def render_run_configs(
         # cover ALL file-editing tools including Write/new-file creation,
         # while path-scoped Write(...) rules are never consulted (docs
         # v2.1.210+). Rule syntax: `//` replaces the leading `/` of an
-        # absolute path (`Edit(//home/…)` → `/home/…`). In `claude -p` any
-        # non-allowed write is denied, no prompt.
+        # absolute path (`Edit(//home/…)` → `/home/…`; on Windows
+        # `Edit(//c/Users/…)` → `C:\Users\…`, `run_fence.rule_path`). In
+        # `claude -p` any non-allowed write is denied, no prompt.
         "permissions": {
             "allow": [
-                f"Edit(//{str(scratch_root).lstrip('/')}/**)",
+                f"Edit({rule_path(scratch_root)}/**)",
             ],
             # Close the Write-tool leak: the scratch allow doesn't DENY
             # elsewhere, and with the repo root as session cwd the Write tool
@@ -807,10 +819,10 @@ def render_run_configs(
             # skill_installer MCP server (unsandboxed trusted code, atomic
             # installs).
             "deny": [
-                f"Edit(//{str(project_root).lstrip('/')}/**)",
+                f"Edit({rule_path(project_root)}/**)",
                 # The trace folder is the gateway's: agents read
                 # it, and only the gateway writes it.
-                f"Edit(//{str(traces_root).lstrip('/')}/**)",
+                f"Edit({rule_path(traces_root)}/**)",
                 # No internet, and the file tools see the same
                 # fence as Bash below.
                 "WebFetch",
@@ -824,13 +836,16 @@ def render_run_configs(
         # writable area is the cwd (= the repo root!), so the repo is
         # explicitly denied and only the scratch tree re-opened. Behavioral
         # assertion (deny outside / allow inside) is checked by a test.
+        # Native Windows has no OS sandbox, and with `failIfUnavailable` set
+        # Claude Code refuses to start there: a Windows run has the operator's
+        # yes to run without one (`os_sandbox.confirm_no_sandbox`).
         "sandbox": {
-            "enabled": True,
+            "enabled": os_sandbox,
             "autoAllowBashIfSandboxed": True,
             # Loud failure over silent unsandboxed fallback: the hazards
             # (memory-store tampering, uncontrolled writes) must not
             # come back just because a dependency is missing.
-            "failIfUnavailable": True,
+            "failIfUnavailable": os_sandbox,
             "allowUnsandboxedCommands": False,
             "filesystem": {
                 "denyWrite": [str(repo_root.resolve())],
@@ -860,23 +875,25 @@ def render_run_configs(
         "hooks": hook("none"),
     }
     settings_path = run_dir / "settings.json"
-    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    settings_path.write_text(
+        json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
     # The val readers: the same read fence and sandbox, no write
     # grant at all, and the hook in read-only mode. What they hold is val
     # data; nothing they could write may reach a later agent.
     readonly = json.loads(json.dumps(settings))
     readonly["permissions"]["allow"] = []
+    readonly["permissions"]["deny"].insert(0, f"Edit({rule_path(scratch_root)}/**)")
     readonly["permissions"]["deny"].insert(
-        0, f"Edit(//{str(scratch_root).lstrip('/')}/**)"
-    )
-    readonly["permissions"]["deny"].insert(
-        0, f"Edit(//{str(repo_root.resolve()).lstrip('/')}/**)"
+        0, f"Edit({rule_path(repo_root.resolve())}/**)"
     )
     readonly["sandbox"]["filesystem"]["allowWrite"] = []
     readonly["hooks"] = hook("none")
     readonly_path = run_dir / "settings.readonly.json"
-    readonly_path.write_text(json.dumps(readonly, indent=2, ensure_ascii=False) + "\n")
+    readonly_path.write_text(
+        json.dumps(readonly, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     for role in ROLE_OPS:
         per_role = json.loads(
             json.dumps(readonly if role in READ_ONLY_ROLES else settings)
@@ -889,10 +906,10 @@ def render_run_configs(
             # rules to every built-in tool that reads files, and a Grep(…)
             # or Glob(…) path rule never matches.
             per_role["permissions"]["allow"].append(
-                f"Read(//{str(traces_root).lstrip('/')}/**)"
+                f"Read({rule_path(traces_root)}/**)"
             )
         (run_dir / f"settings.{role}.json").write_text(
-            json.dumps(per_role, indent=2, ensure_ascii=False) + "\n"
+            json.dumps(per_role, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
     return mcp_config_path, settings_path
 
@@ -978,11 +995,6 @@ def build_ctx(
     )
 
 
-class RunLockError(RuntimeError):
-    """Another kiln-harness-tuner run is live against the same task (two concurrent
-    runs race the baseline record and the memory store)."""
-
-
 def _unique_run_id(runs_root: Path, now: datetime) -> str:
     """The run id, made collision-proof: the id is minute-granular, and
     two runs started in the same minute would APPEND into one
@@ -1004,109 +1016,6 @@ def _unique_run_id(runs_root: Path, now: datetime) -> str:
         return run_id
 
 
-def _lock_holder_pid(lock_path: Path) -> int | None:
-    """The pid a lock file names: the JSON record this code writes, or the
-    bare pid an older lock carried. Garbage reads as no holder."""
-    try:
-        text = lock_path.read_text().strip()
-    except OSError:
-        return None
-    try:
-        record = json.loads(text)
-        if isinstance(record, dict) and isinstance(record.get("pid"), int):
-            return record["pid"]
-    except ValueError:
-        pass
-    try:
-        return int(text)
-    except ValueError:
-        return None
-
-
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists, owned by someone else
-    return True
-
-
-@dataclass
-class RunLock:
-    """The held one-run-per-task lock: the file's path and the descriptor
-    that holds the `flock`. `release` drops the flock and closes the fd; the
-    file itself is never unlinked (see `_acquire_run_lock`)."""
-
-    path: Path
-    fd: int
-
-    def release(self) -> None:
-        if self.fd < 0:
-            return
-        with contextlib.suppress(OSError):
-            fcntl.flock(self.fd, fcntl.LOCK_UN)
-        with contextlib.suppress(OSError):
-            os.close(self.fd)
-        self.fd = -1
-
-
-def _acquire_run_lock(
-    runs_root: Path, task_id: str, project_id: str | None = None
-) -> RunLock:
-    """One live run per task (enforced). The lock is a kernel
-    `flock` on `.lock-<key>`: the kernel releases it when
-    the holder dies, so there is no stale-lock reclaim step — and no reclaim
-    race. The O_EXCL + unlink scheme before it let two racers each unlink a
-    "stale" file and both proceed, and a reader that saw the file EMPTY (the
-    holder had created but not yet written it) reclaimed a live lock.
-
-    The file is created once and never unlinked: unlinking a locked file
-    lets a third run create a fresh inode under the same name and lock that
-    one while the second still holds the old inode. The record (pid, start
-    time, ids) is written for humans and for an older kiln-harness-tuner that only reads
-    a pid; a live pid in the record is refused even without a flock, so an older holder
-    is still honoured."""
-    runs_root.mkdir(parents=True, exist_ok=True)
-    key = f"{project_id}-{task_id}" if project_id else task_id
-    lock_path = runs_root / f".lock-{key}"
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        holder = _lock_holder_pid(lock_path)
-        os.close(fd)
-        raise RunLockError(
-            f"another kiln-harness-tuner run (pid {holder or '?'}) is live against task"
-            f" {task_id} — one run per task.\n"
-            "fix: wait for that run to finish, or stop it — the kernel"
-            f" releases the lock when its process ends. The lock is"
-            f" {lock_path}."
-        ) from None
-    holder = _lock_holder_pid(lock_path)
-    if holder is not None and holder != os.getpid() and _pid_alive(holder):
-        os.close(fd)  # closing releases the flock
-        raise RunLockError(
-            f"another kiln-harness-tuner run (pid {holder}) is live against task"
-            f" {task_id} — one run per task.\n"
-            f"fix: wait for that run to finish. If pid {holder} is not a"
-            f" kiln-harness-tuner run, delete {lock_path} and retry."
-        )
-    record = json.dumps(
-        {
-            "pid": os.getpid(),
-            "started": datetime.now().isoformat(timespec="seconds"),
-            "project_id": project_id,
-            "task_id": task_id,
-        }
-    )
-    os.ftruncate(fd, 0)
-    os.lseek(fd, 0, os.SEEK_SET)
-    os.write(fd, record.encode())
-    return RunLock(lock_path, fd)
-
-
 async def _run(args: argparse.Namespace) -> str:
     try:
         agent_cli = parse_agent_cli(args.agent_cli)
@@ -1126,7 +1035,7 @@ async def _run(args: argparse.Namespace) -> str:
     await check_agent_cli(agent_cli, target, models, efforts)
     policy = load_model_policy(args.model_policy)
     runs_root = REPO_ROOT / "runs"
-    lock = _acquire_run_lock(runs_root, target.task_id, target.project_id)
+    lock = acquire_run_lock(runs_root, target.task_id, target.project_id)
     try:
         # The budget's clock zero: EvalRuns created before this
         # are evidence the run reads, not money the run spends.
@@ -1167,7 +1076,8 @@ async def _run(args: argparse.Namespace) -> str:
             # no agent can write; the original may sit anywhere.
             policy_copy = (run_dir / "model_policy.json").resolve()
             policy_copy.write_text(
-                Path(args.model_policy).expanduser().read_text(encoding="utf-8")
+                Path(args.model_policy).expanduser().read_text(encoding="utf-8"),
+                encoding="utf-8",
             )
         mcp_config_path, settings_path = render_run_configs(
             run_dir,
@@ -1217,6 +1127,7 @@ async def _run(args: argparse.Namespace) -> str:
                 guidance=args.guidance,
                 clock=ctx.clock,
                 agent_cli=agent_cli.kind,
+                os_sandbox=has_os_sandbox(),
             )
             console = Console()
             # --no-ui (and CI / non-TTY) falls back to plain log lines.
@@ -1248,7 +1159,11 @@ async def _run(args: argparse.Namespace) -> str:
 # KeyboardInterrupt, which cancels the main task the same way — but a shell
 # starts a BACKGROUND job (`kiln-harness-tuner … &`) with SIGINT ignored, so `kill -INT`
 # does nothing to it: stop a backgrounded run with `kill <pid>` (SIGTERM).
-STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+# Windows has no SIGHUP, and its event loop takes no signal handlers: there
+# Ctrl-C is the only clean stop.
+STOP_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)
+)
 _stopped_by: list[int] = []
 
 
@@ -1288,9 +1203,25 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
                 loop.remove_signal_handler(sig)
 
 
+def _replace_unencodable_output() -> None:
+    """On Windows, a redirected stdout or stderr encodes in the locale's code
+    page, and a character it does not have (the help's em dash, in cp932)
+    would end the program. Such a character prints as `?` instead. macOS and
+    Linux print UTF-8."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError):
+            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _replace_unencodable_output()
     args = build_parser().parse_args(argv)
     try:
+        # Before any agent starts: the start-up check of the agent CLI is
+        # already a session.
+        confirm_no_sandbox(allow=args.allow_no_sandbox)
         result = asyncio.run(_run_with_signals(args))
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
@@ -1312,6 +1243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         RecordKindError,  # an agent-supplied id of the wrong record kind
         QuarantineError,  # the splits could not be decided
         TrainSetError,  # the train boundary is unclear: no agent may start
+        NoSandboxRefused,  # native Windows, and no yes to run unsandboxed
     ) as exc:
         # The hard errors carry instructive messages — land them instead
         # of a traceback. Anything else is a genuine bug and may raise raw.

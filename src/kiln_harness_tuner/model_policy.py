@@ -155,7 +155,7 @@ class ModelPolicy:
     @staticmethod
     def load(path: Path) -> ModelPolicy:
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(path.read_text(encoding="utf-8"))
         except OSError as exc:
             raise ModelPolicyError(f"cannot read {path} ({exc})") from exc
         except ValueError as exc:

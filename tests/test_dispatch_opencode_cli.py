@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from platform_marks import posix_only
 from test_dispatch_claude_cli import (
     BATCH_PLAN_INPUT,
     PLAN_DATA,
@@ -90,7 +91,7 @@ def make(tmp_path: Path, script, **kwargs):
 
 def config_of(argv: list[str]) -> dict:
     (assignment,) = [a for a in argv if a.startswith("OPENCODE_CONFIG=")]
-    return json.loads(Path(assignment.partition("=")[2]).read_text())
+    return json.loads(Path(assignment.partition("=")[2]).read_text(encoding="utf-8"))
 
 
 def test_it_is_an_agent_dispatcher(tmp_path):
@@ -214,6 +215,10 @@ class TestThePermissions:
         path = Path(assignment.partition("=")[2])
         assert not path.is_relative_to(dispatcher._cwd("b"))
 
+    @posix_only(
+        "`/a/b` is a POSIX absolute path; on Windows it resolves onto a drive."
+        " OpenCode's matching of a Windows path is not covered by this suite"
+    )
     def test_with_no_worktree_the_pattern_is_relative_to_root(self, tmp_path):
         assert path_patterns(Path("/a/b"), None) == ["a/b/**", "/a/b/**"]
 
@@ -321,4 +326,6 @@ class TestTranscripts:
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert calls == [["opencode", "export", SESSION]]
         (copied,) = (tmp_path / "traces").rglob(f"*{SESSION}.jsonl")
-        assert "sk-abcdefghijklmnopqrstuvwxyz0123" not in copied.read_text()
+        assert "sk-abcdefghijklmnopqrstuvwxyz0123" not in copied.read_text(
+            encoding="utf-8"
+        )

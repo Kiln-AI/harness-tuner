@@ -46,6 +46,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -122,6 +123,27 @@ def toml_value(value: Any) -> str:
     raise TypeError(f"no TOML form for {type(value).__name__}")
 
 
+def link_directory(link: Path, target: Path) -> None:
+    """Make `link` a link to the directory `target` (an absolute path).
+
+    On Windows a symlink needs Developer Mode or an administrator. Without
+    them, a directory junction stands in: it opens the same folder, so the
+    profile that opens `target` reads it the same way."""
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))  # type: ignore[attr-defined]
+
+
+# npm's shim on Windows (`codex.cmd`) sits in `%APPDATA%\npm`, beside the
+# `node_modules` it starts, so its grandparent is all of `%APPDATA%`.
+_WINDOWS_SHIM_SUFFIXES = (".cmd", ".bat")
+
+
 def _link_folders(path: Path) -> list[Path]:
     """Every folder that holds a link `path` resolves through, in order."""
     out: list[Path] = []
@@ -152,8 +174,10 @@ def codex_install_paths(codex_bin: str) -> list[Path]:
     did not let it start). These are each folder that holds a link on the
     way to the binary, and the release folder (the real binary's
     grandparent) — never the home directory or one of its ancestors, and
-    never `~/.codex` itself, which holds `auth.json`. Empty when the binary
-    is not on PATH."""
+    never `~/.codex` itself, which holds `auth.json`. For npm's Windows shim
+    (`codex.cmd`), the shim's own folder stands for the release folder: it
+    holds the package the shim starts. Empty when the binary is not on
+    PATH."""
     found = shutil.which(codex_bin)
     if found is None:
         return []
@@ -167,7 +191,8 @@ def codex_install_paths(codex_bin: str) -> list[Path]:
     for folder in _link_folders(Path(found)):
         if allowed(folder) and folder not in paths:
             paths.append(folder)
-    for folder in (real.parent.parent, real.parent):
+    shim = real.suffix.lower() in _WINDOWS_SHIM_SUFFIXES
+    for folder in (real.parent,) if shim else (real.parent.parent, real.parent):
         if allowed(folder):
             if folder not in paths:
                 paths.append(folder)
@@ -319,7 +344,7 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
         link = workspace / SKILLS_LINK
         if not link.is_symlink() and not link.exists():
             link.parent.mkdir(parents=True, exist_ok=True)
-            link.symlink_to(self._skills_dir.resolve(), target_is_directory=True)
+            link_directory(link, self._skills_dir.resolve())
         if self._instructions.is_file():
             shutil.copyfile(self._instructions, workspace / "AGENTS.md")
         return workspace
@@ -360,7 +385,7 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
         role_path = path.parent / f"mcp_config.{agent}.json"
         if role_path.exists():
             path = role_path
-        servers = json.loads(path.read_text()).get("mcpServers", {})
+        servers = json.loads(path.read_text(encoding="utf-8")).get("mcpServers", {})
         out: dict[str, dict[str, Any]] = {}
         for name, spec in servers.items():
             out[name] = {

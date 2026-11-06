@@ -147,7 +147,7 @@ class QuarantineReport:
 
 def _read(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise QuarantineError(
             f"cannot read {path} ({exc}) — the start-up quarantine must read every"

@@ -378,7 +378,8 @@ async def test_a_plaintext_task_gets_plaintext_even_for_json_text(tmp_path):
     item = tmp_path / "proj" / "tasks" / "t1 - T" / "eval_inputs" / "train0"
     (item / "eval_input.kiln").write_text(
         '{"id": "train0", "tags": ["train"], "data": {"type": "single_turn",'
-        ' "user_message": {"text": "{\\"a\\": 1}"}}}'
+        ' "user_message": {"text": "{\\"a\\": 1}"}}}',
+        encoding="utf-8",
     )
     ctx.kiln.run_handler = _handler({})
     await run_model_preflight(ctx, "rc_base")  # the task has no input schema
@@ -391,7 +392,8 @@ async def test_a_plaintext_task_gets_plaintext_even_for_json_text(tmp_path):
     item = tmp_path / "s" / "proj" / "tasks" / "t1 - T" / "eval_inputs" / "train2"
     (item / "eval_input.kiln").write_text(
         '{"id": "train2", "tags": ["train"], "data": {"type": "single_turn",'
-        ' "user_message": {"text": "{\\"b\\": 2}"}}}'
+        ' "user_message": {"text": "{\\"b\\": 2}"}}}',
+        encoding="utf-8",
     )
     ctx.kiln.run_handler = _handler({})
     await run_model_preflight(ctx, "rc_base")

@@ -41,7 +41,8 @@ def _write_input(task: Path, item_id: str, tag: str, text: str) -> None:
                 "tags": [tag],
                 "data": {"type": "single_turn", "user_message": {"text": text}},
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
 
@@ -55,7 +56,9 @@ def _project(tmp_path: Path, evals: dict[str, list[int]]) -> Path:
             n: {"source": "eval_input", "filter_id": f"tag::{n}_{eval_id}"}
             for n in ("train", "val", "test")
         }
-        (folder / "eval.kiln").write_text(json.dumps({"id": eval_id, "splits": splits}))
+        (folder / "eval.kiln").write_text(
+            json.dumps({"id": eval_id, "splits": splits}), encoding="utf-8"
+        )
         for n, length in enumerate(lengths):
             _write_input(task, f"{eval_id}_{n}", f"train_{eval_id}", "x" * length)
     return tmp_path / "proj"

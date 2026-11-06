@@ -29,7 +29,7 @@ def _at(minutes: float) -> str:
 
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
 
 
 class Disk:

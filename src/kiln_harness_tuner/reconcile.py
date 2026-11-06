@@ -77,7 +77,7 @@ def _cost(usage: Any) -> float:
 
 def _load(path: Path) -> dict[str, Any] | None:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None

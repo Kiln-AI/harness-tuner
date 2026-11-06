@@ -214,7 +214,7 @@ def _train_ids(ctx: Ctx, eval_id: str) -> set[str] | None:
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None

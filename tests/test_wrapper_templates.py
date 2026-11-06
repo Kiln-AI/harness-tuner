@@ -68,7 +68,7 @@ def ok(body):
 
 
 def test_every_template_is_listed_in_the_readme():
-    readme = (WRAPPERS / "README.md").read_text()
+    readme = (WRAPPERS / "README.md").read_text(encoding="utf-8")
     for path in WRAPPERS.glob("*.py"):
         assert f"`{path.name}`" in readme, path.name
 
@@ -427,4 +427,4 @@ class TestBadShapesAndCoercion:
 
     def test_every_template_declares_its_parameters_schema(self):
         for path in WRAPPERS.glob("*.py"):
-            assert "parameters_schema" in path.read_text(), path.name
+            assert "parameters_schema" in path.read_text(encoding="utf-8"), path.name

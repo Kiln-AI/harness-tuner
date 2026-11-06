@@ -4,6 +4,7 @@ check that sends one short prompt through it. No live calls."""
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,32 @@ class TestParsing:
     def test_a_path_to_the_executable(self):
         cli = parse_agent_cli("/opt/bin/codex exec")
         assert (cli.kind, cli.bin) == ("codex", "/opt/bin/codex")
+
+    @pytest.mark.parametrize(
+        ("text", "bin"),
+        [
+            (r"C:\tools\claude.exe -p", r"C:\tools\claude.exe"),
+            (
+                r'"C:\Program Files\nodejs\claude.cmd" -p',
+                r"C:\Program Files\nodejs\claude.cmd",
+            ),
+            ("claude.exe -p", "claude.exe"),
+            ("CODEX.CMD exec -m m1", "CODEX.CMD"),
+        ],
+    )
+    def test_windows_paths_and_extensions(self, monkeypatch, text, bin):
+        # A Windows path's backslashes are separators, and the executable
+        # carries its extension; quotes still group the words.
+        monkeypatch.setattr(sys, "platform", "win32")
+        cli = parse_agent_cli(text)
+        assert cli.bin == bin
+        assert cli.kind == ("codex" if "CODEX" in text else "claude")
+
+    def test_macos_and_linux_keep_shell_rules(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert parse_agent_cli(r"/opt/my\ bin/claude -p").bin == "/opt/my bin/claude"
+        with pytest.raises(ValueError, match="not a supported agent CLI"):
+            parse_agent_cli("claude.exe -p")
 
     @pytest.mark.parametrize("text", ["", "aider --yes", "codex exec -m"])
     def test_refused(self, text):

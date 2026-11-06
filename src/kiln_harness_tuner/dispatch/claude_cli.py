@@ -27,7 +27,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
+import subprocess
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -288,17 +291,51 @@ def child_env(
     return env, sorted(withheld)
 
 
+# How long `taskkill` may take to end a Windows process tree.
+_TASKKILL_TIMEOUT_SECS = 10
+
+
+def _kill_tree(pid: int) -> None:
+    """Kill the process tree under `pid`, without waiting for it to exit.
+
+    macOS and Linux: SIGKILL to the child's process group. Windows has no
+    process groups to signal, so `taskkill /T` ends the tree by parent pid —
+    there the child is often `cmd.exe` running npm's `claude.cmd` shim, and
+    killing that pid alone leaves the real CLI running."""
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True,
+            timeout=_TASKKILL_TIMEOUT_SECS,
+            check=False,
+        )
+    else:
+        os.killpg(pid, signal.SIGKILL)
+
+
+def spawn_argv(argv: list[str]) -> list[str]:
+    """`argv` with its executable found on PATH the way a shell finds it.
+    Only Windows needs this: there `CreateProcess` finds only an `.exe`, and
+    npm installs the agent CLIs as `.cmd` shims (`claude.cmd`). macOS and
+    Linux search PATH at exec time."""
+    if sys.platform != "win32" or not argv:
+        return argv
+    found = shutil.which(argv[0])
+    return [found, *argv[1:]] if found else argv
+
+
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
-    """SIGKILL the child's whole process group and reap it, tolerating every
+    """Kill the child's whole process tree and reap it, tolerating every
     race on the way out.
 
-    The GROUP, not just `claude`: the child is spawned as a
+    The TREE, not just `claude`: the child is spawned as a
     session leader (`start_new_session=True`), so its MCP servers
     (the loop gateway, the skill installer under `uv run`) and anything the
     agent launched from Bash share its pgid — signalling the pid alone
     re-parented all of them to init, still running and, for a Bash-launched
-    driver, still spending. `proc.kill()` stays as the fallback for a child
-    that is not a group leader (a test seam, a platform without killpg).
+    driver, still spending. Windows has no process group, and `_kill_tree`
+    walks the tree there. `proc.kill()` stays as the fallback for a child
+    that is not a group leader (a test seam).
 
     **The kill runs before the first suspension point on purpose**: awaiting
     this coroutine always executes it, so the signal — which is what stops the
@@ -310,8 +347,8 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     already-dead child that goes away with the process. `ProcessLookupError`
     means it exited on its own between the two — the outcome we wanted."""
     if proc.returncode is None:  # a reaped pid may already be someone else's
-        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-            os.killpg(proc.pid, signal.SIGKILL)
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            _kill_tree(proc.pid)
     with contextlib.suppress(ProcessLookupError):
         proc.kill()
     with contextlib.suppress(BaseException):
@@ -346,14 +383,15 @@ class AsyncioSubprocessRunner:
         cwd: str,
     ) -> SubprocessResult:
         proc = await asyncio.create_subprocess_exec(
-            *argv,
+            *spawn_argv(argv),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=self._env,
             # Its own session ⇒ its own process group, so a kill reaches the
-            # MCP servers and Bash children too (`_kill_and_reap`).
+            # MCP servers and Bash children too (`_kill_and_reap`). Windows
+            # ignores it; `_kill_tree` walks the tree there.
             start_new_session=True,
         )
         try:
@@ -857,7 +895,7 @@ class ClaudeCliDispatcher:
         output_model: type[M],
         scratch_dir: Path | None = None,
     ) -> str:
-        template = (self._templates_dir / f"{agent}.md").read_text()
+        template = (self._templates_dir / f"{agent}.md").read_text(encoding="utf-8")
         # Scratch-dir + tool guidance ride the shared render,
         # not each template — one place, every role.
         scratch_block = (

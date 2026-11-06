@@ -54,7 +54,7 @@ def _imported_names(path: Path) -> dict[str, set[str]]:
     Read off the AST rather than by substring, so a mention in a comment or a
     docstring is not an import and an import split over lines still is one."""
     out: dict[str, set[str]] = {}
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.ImportFrom) and node.module:
             out.setdefault(node.module, set()).update(
                 alias.name for alias in node.names

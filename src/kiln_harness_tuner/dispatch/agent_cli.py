@@ -20,9 +20,9 @@ repeated in the text: the CLI then sees it twice.
 
 from __future__ import annotations
 
-import shlex
 from dataclasses import dataclass
-from pathlib import Path
+
+from kiln_harness_tuner.command_line import executable_name, split_command
 
 # kind → the token that puts the CLI in its one-shot mode, and the options
 # that name the model and the effort. Empty: the CLI has no such option.
@@ -73,12 +73,12 @@ def _pop_option(
 def parse_agent_cli(text: str) -> AgentCli:
     """Parse `--agent-cli`. Raises ValueError with the supported forms."""
     try:
-        tokens = shlex.split(text)
+        tokens = split_command(text)
     except ValueError as exc:
         raise ValueError(f"cannot split {text!r}: {exc}") from exc
     if not tokens:
         raise ValueError("the command is empty")
-    kind = Path(tokens[0]).name
+    kind = executable_name(tokens[0])
     if kind not in _KINDS:
         raise ValueError(
             f"{tokens[0]!r} is not a supported agent CLI. Supported:"

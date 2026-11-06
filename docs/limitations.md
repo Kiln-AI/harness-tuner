@@ -17,8 +17,9 @@ session that hits its wall-clock cap is resumed once with a finish-up
 instruction rather than re-run, which is what stops it duplicating every
 artifact it had created — but there is no warm resume of a *run*.
 
-**The one-run-per-task lock is local.** It is a kernel `flock` on a file under
-`runs/`, so it holds on one machine. Two machines pointed at the same Kiln
+**The one-run-per-task lock is local.** It is an OS file lock (`flock`, or
+`msvcrt.locking` on Windows) on a file under `runs/`, so it holds on one
+machine. Two machines pointed at the same Kiln
 server and the same task are not covered, and the janitor's inference — that a
 `— RUNNING` record at startup means a dead orchestrator — is only safe because
 of that lock.

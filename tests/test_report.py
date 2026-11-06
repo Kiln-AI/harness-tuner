@@ -46,7 +46,9 @@ async def test_agent_markdown_written_verbatim(tmp_path):
 
     assert path == str(tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md")
     # Agent markdown leads verbatim; the code-computed spend appendix follows.
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert text.startswith("# Round report\n")
     assert SPEND_APPENDIX_HEADING in text
     events = dict(ctx.log.events)
@@ -90,7 +92,9 @@ async def test_hard_fail_ships_code_rendered_fallback_at_same_path(tmp_path):
 
     assert len(ctx.dispatch.calls_to("report_writer")) == 5
     assert ctx.sleeps == [30.0, 60.0, 120.0, 300.0]
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert FALLBACK_INTRO in text
     # The exit reason is stated once, by the appendix header — the fallback
     # body no longer repeats it (run-level facts are stated in one place).
@@ -127,7 +131,9 @@ async def test_retry_then_success_writes_agent_markdown(tmp_path):
         "report_writer", infra("timeout"), ok(ReportMarkdown(markdown="ok"))
     )
     await writer(ctx, "wrap_up")
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert text.startswith("ok\n")  # agent markdown + appendix
     assert ctx.sleeps == [30.0]
 
@@ -225,7 +231,9 @@ async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
 
     await writer(ctx, "wrap_up")
 
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert text.startswith("# Report\nbody\n")
     assert SPEND_APPENDIX_HEADING in text
     assert "| source | Claude Code | Kiln | total |" in text
@@ -243,7 +251,9 @@ async def test_spend_appendix_on_fallback_report(tmp_path):
     spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
     ctx.dispatch.queue("report_writer", *[infra("provider_error")] * 5)
     await writer(ctx, "timeout")
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert FALLBACK_INTRO in text
     assert SPEND_APPENDIX_HEADING in text
     assert "| batch_plan | $0.50 | — | $0.50 |" in text
@@ -259,7 +269,9 @@ async def test_spend_appendix_excludes_report_session(tmp_path):
         "report_writer", ok(ReportMarkdown(markdown="# R\n"), cost_usd=3.0)
     )
     await writer(ctx, "wrap_up")
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert "report_writer" not in text
     assert "| **total** | $0.50 | $0.00 | $0.50 |" in text
     # …but the spend event itself still fired, lane-tagged, for the wave log.
@@ -363,7 +375,9 @@ async def test_written_report_carries_the_header(tmp_path):
     writer, _ = make_writer(tmp_path, tracker)
     ctx.dispatch.queue("report_writer", ok(ReportMarkdown(markdown="# R\n")))
     await writer(ctx, "wrap_up")
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert "budget 90 min · elapsed 60 min · exit wrap_up" in text
 
 
@@ -387,12 +401,12 @@ async def test_orchestrate_end_to_end_wires_report_and_wave_log(tmp_path):
 
     report_path = tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md"
     assert result == str(report_path)
-    assert report_path.read_text().startswith("# done\n")
+    assert report_path.read_text(encoding="utf-8").startswith("# done\n")
     wave_log.close()
     kinds = [
         json.loads(line)["kind"]
         for line in (tmp_path / "runs" / RUN_ID / "wave_log.jsonl")
-        .read_text()
+        .read_text(encoding="utf-8")
         .splitlines()
     ]
     assert kinds == [
@@ -443,7 +457,7 @@ async def test_write_fallback_ships_a_report_with_no_dispatch(tmp_path):
     path = await writer.write_fallback(ctx, "quota_exhausted")
 
     assert path == str(writer.report_path)
-    text = writer.report_path.read_text()
+    text = writer.report_path.read_text(encoding="utf-8")
     assert "code-rendered fallback" in text
     assert "exit quota_exhausted" in text
     assert "budget $25.00" in text  # --budget-usd reaches the header
@@ -475,4 +489,4 @@ async def test_report_agent_gets_one_attempt_past_the_deadline(tmp_path):
 
     (written,) = [f for k, f in ctx.log.events if k == "report_written"]
     assert written["fallback"] is True
-    assert Path(path).read_text().startswith("# ")
+    assert Path(path).read_text(encoding="utf-8").startswith("# ")

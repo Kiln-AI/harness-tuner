@@ -124,7 +124,7 @@ def load_train_inputs(
     for task_dir in _task_dirs(project_path, task_id):
         for path in sorted(task_dir.glob("eval_inputs/*/eval_input.kiln")):
             try:
-                doc = json.loads(path.read_text())
+                doc = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             if tag not in (doc.get("tags") or []):
