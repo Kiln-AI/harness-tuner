@@ -34,7 +34,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `demo.py`, `--demo-project` and `validate_args`, `make_demo` in the flow, and the `read_fence_for` deny (§11, §12).
   - The `--demo-project` row in the flag table of `docs/your-own-task.md`, because `tests/test_docs.py` requires one row per flag.
   - Tests for the demo, the demo flow (including the `-1` second copy), and the cli test for `--demo-project` with `--task-id`.
-- [ ] Phase 5: Docs.
+- [x] Phase 5: Docs.
   - `docs/install.md` §4 and §6, with the two corrections, and the new "Try the demo" section (§14).
   - `docs/your-own-task.md` §1, §5 and the flag table rows for the optional flags (§14).
 - [ ] **Phase 6: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.
