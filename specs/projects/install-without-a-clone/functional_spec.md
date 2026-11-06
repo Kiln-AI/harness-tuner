@@ -51,7 +51,7 @@ uv sync
 uv run harness-tuner …
 ```
 
-Same state folder, same behaviour, with the agent files read from the package source in `src/` (editable install). §8.3 adds the extra denies a clone needs.
+Same state folder, same behaviour, with the agent files read from the package source in `src/` (editable install). The tuner does not know or care that it runs from a clone: no code looks for a checkout (§8.3).
 
 ### 3.3 What the user sees
 
@@ -83,7 +83,7 @@ Today's layout under the checkout moves unchanged under the state folder, plus o
     .quarantine/<project>-<task>/   archived probe and eval configs
   traces/<project>/<task>/<run_id>/  copied session transcripts
   reports/kiln-harness-tuner-<run_id>.md
-  agents/<cli>/<content-id>/  the agent files a run's sessions read (§5.3)
+  agents/<cli>/<version>/  the agent files a run's sessions read (§5.3)
 ```
 
 ### 4.3 Every path that moves
@@ -97,12 +97,12 @@ Today's layout under the checkout moves unchanged under the state folder, plus o
 | Reports | `<checkout>/reports/` | `<state>/reports/` |
 | Agent file source (skills, instructions, Claude MCP config) | `<checkout>/.agents/` | `src/kiln_harness_tuner/agent_files/` in the package (moved with `git mv`) |
 | Contributor instructions | `<checkout>/.agents/AGENTS.md` (shared with loop agents) | tracked `<checkout>/AGENTS.md` and `<checkout>/CLAUDE.md` (§5.2) |
-| Claude skills a run's sessions read | `<checkout>/.claude/skills/` | `<state>/agents/claude/<content-id>/.claude/skills/` |
-| Claude instructions a run's sessions read | `<checkout>/CLAUDE.md` | `<state>/agents/claude/<content-id>/CLAUDE.md` |
+| Claude skills a run's sessions read | `<checkout>/.claude/skills/` | `<state>/agents/claude/<version>/.claude/skills/` |
+| Claude instructions a run's sessions read | `<checkout>/CLAUDE.md` | `<state>/agents/claude/<version>/CLAUDE.md` |
 | Claude interactive MCP config a run writes | `<checkout>/.mcp.json`, `<checkout>/.claude/settings.json` | not written by a run any more (only `--dest` installs write it) |
-| Codex and OpenCode skills a run's sessions read | `<checkout>/.agents/skills/` | `<state>/agents/<cli>/<content-id>/.agents/skills/` |
-| Codex and OpenCode instructions | `<checkout>/AGENTS.md` | `<state>/agents/<cli>/<content-id>/AGENTS.md` |
-| Claude session working folder | `<checkout>` | `<state>/agents/claude/<content-id>/` |
+| Codex and OpenCode skills a run's sessions read | `<checkout>/.agents/skills/` | `<state>/agents/<cli>/<version>/.agents/skills/` |
+| Codex and OpenCode instructions | `<checkout>/AGENTS.md` | `<state>/agents/<cli>/<version>/AGENTS.md` |
+| Claude session working folder | `<checkout>` | `<state>/agents/claude/<version>/` |
 | Where the tuner finds Claude's own transcripts | `~/.claude/projects/<slug of checkout>/` | `~/.claude/projects/<slug of the Claude agents folder>/` |
 | Codex and OpenCode session folders | `<run>/scratch/<label>/` | unchanged inside the run folder (they move with it) |
 | Gateway trace folder | `<run>/scratch/traces/` | unchanged inside the run folder |
@@ -113,7 +113,7 @@ Today's layout under the checkout moves unchanged under the state folder, plus o
 
 ### 4.4 Old state in a checkout
 
-Not migrated. A checkout's old `runs/`, `traces/` and `reports/` stay where they are. The docs say so. A run from that clone keeps them read-denied (§8.3).
+Not migrated. A checkout's old `runs/`, `traces/` and `reports/` stay where they are, and nothing denies them any more (§8.3). The docs say so, and say to delete or move them.
 
 ### 4.5 The lock
 
@@ -138,7 +138,7 @@ No skill or role template changes.
 
 ### 5.3 A run installs them into the state folder
 
-Before its first session, a run installs the agent files for its agent CLI (the one `--agent-cli` names) into `<state>/agents/<cli>/<content-id>/`:
+Before its first session, a run installs the agent files for its agent CLI (the one `--agent-cli` names) into `<state>/agents/<cli>/<version>/`:
 
 | CLI | Skills | Instructions |
 |---|---|---|
@@ -146,14 +146,15 @@ Before its first session, a run installs the agent files for its agent CLI (the 
 | `codex` | `.agents/skills/` | `AGENTS.md` |
 | `opencode` | `.agents/skills/` | `AGENTS.md` |
 
-- **Content-addressed and immutable.** `<content-id>` is a short hash of the package's agent files. If the folder exists, the run uses it as is. If not, the run builds it in a temporary folder beside it and renames it into place. Two runs that start together on the same version both end up using one folder; a run on a different version gets its own. A live run's agent files therefore never change or disappear under it, which can happen in a checkout today.
+- **One folder per package version.** `<version>` is the installed package's version (`0.1.0`). A run on a newer version gets a new folder, so a live run on the old version is not disturbed.
+- **Checked at every run start.** If the folder is missing, or its files differ from the package's, the run builds a fresh copy in a temporary folder beside it and swaps it into place. If the files match, the run uses the folder as is. A released version's files never change, so for an installed user the folder is written once. The check matters for contributors: an editable install keeps version `0.1.0` while its skills are edited, and the check carries each edit into the next run.
 - **Skills and instructions only.** No `.mcp.json` or `.claude/settings.json`: loop sessions get their own MCP config per run and never read those.
-- **Pruning.** Each run start marks its folder as used. Folders of the same CLI that no run has used for 30 days are deleted at a run start. A failed prune is logged, never fatal.
+- **No clean-up.** Old version folders stay. Each is about 2 MB.
 
 ## 6. Where agent sessions run
 
-- **Claude Code**: every session's working folder is `<state>/agents/claude/<content-id>/`, so `.claude/skills/` and `CLAUDE.md` load from there.
-- **Codex and OpenCode**: each session still runs in its own folder under the run's scratch, because that folder is their fence. Each one gets a link `.agents/skills` to `<state>/agents/<cli>/<content-id>/.agents/skills/` and a copy of that folder's `AGENTS.md`. Codex works this way today. OpenCode is new to it: today it finds skills and instructions through the git root above its session folder, which is the checkout, and an installed copy has no git root.
+- **Claude Code**: every session's working folder is `<state>/agents/claude/<version>/`, so `.claude/skills/` and `CLAUDE.md` load from there.
+- **Codex and OpenCode**: each session still runs in its own folder under the run's scratch, because that folder is their fence. Each one gets a link `.agents/skills` to `<state>/agents/<cli>/<version>/.agents/skills/` and a copy of that folder's `AGENTS.md`. Codex works this way today. OpenCode is new to it: today it finds skills and instructions through the git root above its session folder, which is the checkout, and an installed copy has no git root.
 
 This refines design point 3: only Claude sessions start in the agents folder. Codex and OpenCode sessions link to it.
 
@@ -169,32 +170,36 @@ With `uvx`, the interpreter lives in uv's cache. Cleaning that cache during a ru
 
 ### 8.1 Rule
 
-Every path the fences name moves with §4.3. Every deny stays. No read deny is added or removed, except the clone-only denies in §8.3, which keep today's denies in force for a clone.
+Every path the fences name moves with §4.3. Every deny stays, except the checkout-based ones, which are removed (§8.3). No read deny is added.
 
 ### 8.2 Claude Code
 
 - **Read denies** (today → after): the run's own Kiln project (unchanged); `<checkout>/runs`, `traces`, `reports` → `<state>/runs`, `traces`, `reports` (this run's scratch is still re-opened); `~/.claude/projects` (unchanged).
-- **Read allows**: this run's scratch (unchanged); the Claude skills and instructions → `<state>/agents/claude/<content-id>/.claude/skills/` and `CLAUDE.md`; the trace folder for the trace-reading roles (unchanged inside the run folder).
+- **Read allows**: this run's scratch (unchanged); the Claude skills and instructions → `<state>/agents/claude/<version>/.claude/skills/` and `CLAUDE.md`; the trace folder for the trace-reading roles (unchanged inside the run folder).
 - **Bash sandbox writes**: the write deny moves from the checkout (today's working folder) to the state folder, with this run's scratch re-opened. The working folder is now the agents folder, inside the state folder.
 - **Edit tool**: every role is denied the Claude agents folder. It is the new working folder, which Claude grants by default, and its files outlive the run. The read-only roles' deny on the checkout moves to the whole state folder. The other Edit denies (the project tree, the trace folder) are unchanged.
 
-### 8.3 From a clone only
+### 8.3 Checkout-based denies are removed
 
-When the package runs from a clone, today's checkout-based denies stay in force, pointed at that clone:
+The tuner no longer has a checkout, so the denies built from one go, with the code that builds them:
 
-- every Kiln project inside the clone, except the run's own (today's scan of the checkout for `project.kiln`);
-- everything under the clone's `examples/`, except the run's own project (today's rule);
-- the clone's old `runs/`, `traces/` and `reports/` (left from before this change, §4.4).
+- the scan of the checkout for other Kiln projects (`kiln_project_dirs` over the repository root);
+- the deny of everything under the checkout's `examples/` (`example_denials`).
 
-An installed copy has no clone, so none of these apply to it.
+No code looks for a checkout, and no module derives a path from outside the package (`tests/test_paths.py` asserts that).
 
 ### 8.4 Codex and OpenCode
 
-Their fences are allow-lists. Only the allowed paths change: the skills folder becomes `<state>/agents/<cli>/<content-id>/.agents/skills/`, and the session and trace folders move with the run folder.
+Their fences are allow-lists. Only the allowed paths change: the skills folder becomes `<state>/agents/<cli>/<version>/.agents/skills/`, and the session and trace folders move with the run folder.
 
 ### 8.5 Known gaps (unchanged, out of scope)
 
-Claude's read fence is a deny-list, so a Claude loop agent can read files nobody named: Kiln projects outside a clone, `~/.kiln_ai/settings.yaml` (Kiln's provider API keys), and a clone kept for the demo (its `posts.jsonl` holds every split's labels). This was true before this project and does not change here. A separate task covers it ("Close Claude's read-fence gaps"). `docs/limitations.md` names the demo clone case.
+Claude's read fence is a deny-list, so a Claude loop agent can read files nobody named. That includes:
+- other Kiln projects;
+- `~/.kiln_ai/settings.yaml`, which holds Kiln's provider API keys;
+- any clone of this repository, which contains its `examples/` (the demo's `posts.jsonl` holds every split's labels) and any old run state.
+
+The first two were true before this project. The clone case was denied only for the clone the tuner ran from, and §8.3 removes that. A separate task covers all of it ("Close Claude's read-fence gaps"). `docs/limitations.md` names the clone case.
 
 ## 9. `harness-tuner-install-agents`
 
@@ -232,7 +237,7 @@ Contributors who want the skills in the repository run `uv run harness-tuner-ins
   - A new short section, "Where the tuner keeps its files": the state folder, the override, the layout, that old checkout state is not migrated, and that the lock is per state folder.
   - The "Verify" block updated.
 - **Every other doc, the CONTRIBUTING file, and the example README**: command names, `runs/` / `traces/` / `reports/` / `.agents/` paths, `uv run --project` and `uv run kiln-harness-tuner` mentions updated.
-- **`docs/limitations.md`**: the demo-clone gap (§8.5), the per-state-folder lock (§4.5), and the uvx cache note (§7).
+- **`docs/limitations.md`**: the clone gap (§8.5), replacing today's text about the `examples/` deny; the per-state-folder lock (§4.5); and the uvx cache note (§7).
 - **Agent-facing text** (skills, role templates) is unchanged apart from the instructions split (§5.2). Where it names a path relative to the run folder (`runs/<run_id>/scratch/traces/`, `reports/kiln-harness-tuner-<run_id>.md`), it stays correct.
 
 ## 12. CI packaging smoke test
@@ -276,11 +281,12 @@ Every start-up refusal below is one message with a `fix:` line and exit code 1, 
 | State folder and the run's Kiln project overlap (either inside the other) | Refuse: the fences would contradict each other (the project is read-denied whole, scratch must be writable). |
 | Agent files missing from the installed package | Refuse: name the path; fix: reinstall `harness-tuner`. |
 | Building the agents folder fails (disk full, permissions) | Refuse with the OS error; nothing half-built is left in place (the build happens in a temporary folder). |
-| Two runs start at once on the same version | One rename wins; the other discards its build and uses the winner's folder. |
-| A newer version starts while an older run is live | Each uses its own `<content-id>` folder; the older run is not disturbed. |
+| Two runs start at once on the same version | Both find the folder missing or matching; a missing one is built by each in its own temporary folder, and the second swap replaces the first with identical files. |
+| A newer version starts while an older run is live | Each uses its own `<version>` folder; the older run is not disturbed. |
+| A contributor edits a skill while a run from the same clone is live, then starts a second run | The second run's check finds different files and swaps in a fresh copy; the live run's later sessions see the edited skills. Accepted: it only happens to contributors. |
 | `sys.executable` is empty | Refuse: the MCP servers cannot be started. |
 | `KILN_HARNESS_TUNER_HOME` set to `""` | Treated as unset. |
-| Old `runs/`, `traces/`, `reports/` in a checkout | Left in place; read-denied when running from that clone. |
+| Old `runs/`, `traces/`, `reports/` in a checkout | Left in place and no longer denied (§8.5); the docs say to delete or move them. |
 | `--force` passed to `harness-tuner-install-agents` | argparse refuses the unknown option. |
 | `harness-tuner-install-agents` without `--dest` | argparse refuses: `--dest` is required. |
 
