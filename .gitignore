@@ -260,3 +260,7 @@ tempCodeRunnerFile.py
 /.claude/skills/
 /.claude/settings.json
 /.mcp.json
+
+# Spec-driven development: per-user state and local review artifacts.
+/.specs_skill_state/
+/reviews/
