@@ -1,4 +1,4 @@
-"""ClaudeCliDispatcher — the reference AgentDispatcher (docs/harness-seam.md).
+"""ClaudeCliDispatcher — the reference AgentDispatcher (docs/agent-cli.md).
 
 One `claude -p` subprocess per call, cwd = the repository root so
 `.claude/skills/` loads exactly as it does for interactive sessions. MCP
@@ -222,7 +222,7 @@ class SubprocessResult:
 @dataclass
 class CliRound:
     """What one finished CLI session printed, read into the loop's terms:
-    the harness-specific part of a dispatch round. Every
+    the CLI-specific part of a dispatch round. Every
     dispatcher reads its CLI's output into this; the retry, repair and
     error-routing logic around it is shared."""
 
@@ -689,7 +689,7 @@ _PROMPT_EXCLUDED = {"kiln_host", "project_path"}
 class ClaudeCliDispatcher:
     """Prototype AgentDispatcher: one `claude -p` subprocess per call.
 
-    The harness-specific steps are methods a second CLI
+    The CLI-specific steps are methods a second CLI
     dispatcher overrides — `_argv` (the command), `_cwd` (where it runs),
     `_parse_cli_output` (what it printed) and `_transcript_source` (where its
     session transcript is). Everything else is shared."""
@@ -697,7 +697,7 @@ class ClaudeCliDispatcher:
     # How logs and errors name the CLI; the preflight's sign-in hint.
     CLI_NAME = "claude -p"
     SIGN_IN_HINT = "the Claude Code sign-in every agent session needs"
-    # A non-zero exit is `agent_crash`, its text unread (docs/harness-seam.md
+    # A non-zero exit is `agent_crash`, its text unread (docs/agent-cli.md
     # section 5). A CLI that ends a failed session with a STRUCTURED error event and
     # a non-zero exit sets this, so that event is classified like an
     # `is_error` result — quota and auth then stop the run.
@@ -769,7 +769,7 @@ class ClaudeCliDispatcher:
         # semaphore over every `claude -p` subprocess — wave items and
         # setup's describe fan-out share it. None = unlimited.
         self._semaphore = asyncio.Semaphore(max_concurrent) if max_concurrent else None
-        # Harness wiring — cli.py always passes
+        # Run wiring — cli.py always passes
         # the full set; None (minimal/test wiring) omits the matching argv
         # flags and skips scratch dirs / trace copies.
         self._run_id = run_id

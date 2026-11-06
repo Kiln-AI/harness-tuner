@@ -475,7 +475,7 @@ that runs do not differ across machines. Under `claude -p` the model is
 (`AGENT_MODEL` and `AGENT_MODEL_DEFAULTS`). Under Codex and OpenCode the
 model is the one named in `--agent-cli`, or the CLI's own default. A model
 named in `--agent-cli` also replaces Claude's defaults
-([harness-seam.md](harness-seam.md) section 9). The effort is `high` for
+([agent-cli.md](agent-cli.md) section 9). The effort is `high` for
 every role unless `--agent-cli` names one (`AGENT_EFFORT`). `--agent-model ROLE=MODEL` and
 `--agent-effort ROLE=EFFORT` override per role, repeatably; an unknown role
 fails at startup rather than silently keeping the default. The roles are the
