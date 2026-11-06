@@ -128,8 +128,9 @@ agent:
 
 - the report's **spend appendix**, a per-source × per-lane table appended to
   every report, including the one written on a fatal exit;
-- the `spend` events in `runs/<run_id>/wave_log.jsonl`, each carrying the item
-  it belongs to, the source that spent it and its lane.
+- the `spend` events in the run folder's `wave_log.jsonl`
+  (`~/.kiln_ai/harness_tuner/runs/<run_id>/` by default), each carrying the
+  item it belongs to, the source that spent it and its lane.
 
 Divide by what you got — items measured, experiments run, waves completed — and
 that is your task's rate. It is the only one worth keeping, and it is worth

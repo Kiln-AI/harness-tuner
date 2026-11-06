@@ -96,10 +96,13 @@ the loop installed, a running Kiln studio server, and a signed-in agent CLI.
 You also need a Fireworks key in Kiln, because the baseline calls DeepSeek
 V4.1 Flash 1017 through Fireworks.
 
-1. Copy the project out of the repository. Kiln and the loop write runs into
-   the project folder, and a copy keeps your clone clean.
+1. Copy the project out of a clone of this repository. The example is not in
+   the installed package. Kiln and the loop write runs into the project
+   folder, and a copy keeps your clone clean.
 
    ```
+   git clone https://github.com/Kiln-AI/harness-tuner.git
+   cd harness-tuner
    mkdir -p ~/kiln-projects
    cp -R "examples/moderation/Forum Moderation" ~/kiln-projects/
    ```
@@ -116,7 +119,7 @@ V4.1 Flash 1017 through Fireworks.
 3. Start the loop:
 
    ```
-   kiln-harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
+   harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
              --project-id 424242975950 --task-id 424242783061 \
              --guidance "Improve the moderation decisions. Keep the output format." \
              --timeout-mins 60 --budget-usd 20
@@ -126,8 +129,9 @@ V4.1 Flash 1017 through Fireworks.
    sessions and the model calls of the task. Read
    [docs/costs.md](../../docs/costs.md) to estimate a run.
 
-   The loop shows its progress in the terminal. When the run ends, the report
-   is in `reports/` in this repository.
+   The loop shows its progress in the terminal. When the run ends, it prints
+   the report's path. The report is in `~/.kiln_ai/harness_tuner/reports/` by
+   default, not in the clone.
 
 4. Check the result on test yourself. The loop never reads test. In Kiln, run
    the `Decision correct` eval on the test split for the baseline and for the

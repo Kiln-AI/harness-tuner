@@ -11,15 +11,16 @@ rather than trust it.
 
 ```
 terminal
-  $ kiln-harness-tuner --project-path <dir> --project-id <id> --task-id <id> \
+  $ harness-tuner --project-path <dir> --project-id <id> --task-id <id> \
       --guidance "…"
 
-  ORCHESTRATOR  (src/kiln_harness_tuner, this repository)
+  ORCHESTRATOR  (src/kiln_harness_tuner, the harness-tuner package)
     ├─ REST (httpx) ─────────► Kiln studio server
     │                            eval jobs, statistics, memories, run configs
     ├─ claude -p subprocess ─► agents
-    │    cwd = repository root   tools: the loop gateway's typed operations
-    │                            (per role, train-only); skills from .agents/skills
+    │    cwd = the agents folder  tools: the loop gateway's typed operations
+    │                             (per role, train-only); skills from
+    │                             .claude/skills in the agents folder
     └─ rich live display ────► the person running it
 
   KILN STUDIO SERVER ──────► the subject model, whose tools reach whatever
@@ -28,6 +29,17 @@ terminal
 
 The Kiln host defaults to `kiln.DEFAULT_KILN_HOST` and is set per run with
 `--kiln-host`.
+
+A run keeps everything it writes in the **state folder**, `<state>` below
+([`paths.py`](../src/kiln_harness_tuner/paths.py)): `~/.kiln_ai/harness_tuner/`,
+or the folder `KILN_HARNESS_TUNER_HOME` names. It holds the run folders, the
+run lock, the quarantine, the copied transcripts, the reports and the **agents
+folder**, `<state>/agents/<cli>/<version>/`, which holds the skills and
+instructions the run's sessions read. A path in this document that starts
+with `runs/`, `traces/` or `reports/` is inside the state folder
+([install.md](install.md#where-the-tuner-keeps-its-files) has the layout).
+The tuner reads its agent files and role templates from its own package, and
+nothing from a checkout.
 
 Two properties are load-bearing:
 
@@ -61,9 +73,10 @@ full contract.
 Loop agents never get a generic Kiln API tool. Each role's
 session is given its own MCP config holding one Kiln server, the loop
 gateway, started for that role; its tools are named
-`mcp__kiln_harness_tuner_gateway__<operation>` (section 12). The installed
-`.mcp.json` and its `kiln_api_mcp` server (`call_kiln_api`) serve
-interactive sessions only and are never rendered into a loop session.
+`mcp__kiln_harness_tuner_gateway__<operation>` (section 12). The `.mcp.json`
+that `harness-tuner-install-agents --dest` writes, and its `kiln_api_mcp`
+server (`call_kiln_api`), serve interactive sessions only and are never
+rendered into a loop session.
 
 ## 3. The wave loop
 
@@ -73,15 +86,32 @@ every failure path gets a code-rendered fallback built from `RunStatus`.
 
 ### 3.1 Pre-flight
 
-In this order, and the order is the design:
+In this order, and the order is the design. Two start-up steps come first,
+and they write in the state folder only:
+
+- **The state folder** (`paths.py`). Its path is read; a state folder and a
+  Kiln project that overlap (one inside the other) are refused before
+  anything is created; then the folder and its layout are created, and a
+  test write proves it is writable. Each failure is one message with a fix
+  line.
+- **The agent files** (`install_agents.install_for_run`). The skills and the
+  instructions for the run's agent CLI go into the agents folder,
+  `<state>/agents/<cli>/<version>/`, where its sessions read them. A folder
+  that already matches the package is used as it is. Otherwise a fresh copy is
+  built in a temporary folder beside it and renamed into place, so a failed
+  build leaves nothing half-built where sessions read.
+
+Then:
 
 0. **The agent-CLI check** (`check_agent_cli`). One short prompt
    with no tools goes through `--agent-cli`, before the lock and the run
-   directory. A CLI that cannot answer stops the start and leaves nothing
-   behind ([agent-cli.md](agent-cli.md) section 9).
+   directory. A CLI that cannot answer stops the start and leaves no lock and
+   no run directory behind ([agent-cli.md](agent-cli.md) section 9).
 1. **The run lock.** A kernel `flock` on `runs/.lock-<project>-<task>`. One
-   live run per task. The kernel releases it when the holder dies, so there is
-   no stale-lock reclaim step and no reclaim race.
+   live run per task and state folder. The kernel releases it when the holder
+   dies, so there is no stale-lock reclaim step and no reclaim race. The run
+   folder `runs/<run_id>/` is created next, and its path is printed before
+   the live display starts (section 11).
 2. **The rendered per-run configuration.** `render_run_configs` writes
    `runs/<run_id>/mcp_config.<role>.json` and
    `runs/<run_id>/settings.<role>.json` for every role (plus the shared
@@ -844,8 +874,16 @@ writer's input. Another host can render it its own way.
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
   shapes — an agent's tool result can carry whatever it read.
+- **The terminal lines** (`cli._run` and `cli.main`). When the run folder exists, before
+  the live display: `harness-tuner: run <run_id> — files in <run folder>/`.
+  At a clean finish: `harness-tuner: run finished — report: <path>`. After a
+  reported error, a SIGTERM, a SIGHUP or a Ctrl-C, on stderr:
+  `harness-tuner: run folder: <run folder>` once the folder exists, whose
+  `kiln-harness-tuner.log` holds the details, and, after an error,
+  `harness-tuner: report: <path>` when the fallback report was written.
 
-`runs/` and `traces/` are git-ignored here. They are a user's local output.
+All of these are in the state folder, never in the folder the run was started
+from.
 
 ## 12. Sandbox and scope
 
@@ -865,27 +903,30 @@ all: each runs with
 
 **`settings.<role>.json`** — four mechanisms, and the gateway hook for that
 role. **`settings.readonly.json`** and the val readers' files are the same
-with no write grant at all; the read-only roles (`READ_ONLY_ROLES` in `dispatch/claude_cli.py`: the
-promotion agent and the report writer, which hold val data, and the two
-reviewers) run under it, and get no scratch directory.
+with no write grant at all, and with two more write denies first: the whole
+state folder and the scratch tree. The read-only roles (`READ_ONLY_ROLES` in
+`dispatch/claude_cli.py`: the promotion agent and the report writer, which
+hold val data, and the two reviewers) run under it, and get no scratch
+directory.
 
 1. **File writes.** One path-scoped allow rule for the run's scratch tree, and
    an explicit deny over the Kiln project tree. The session's working directory
-   is the repository root, which is an implicit write grant the deny has to
-   beat. A second deny covers the gateway's trace folder
-   (`runs/<run_id>/scratch/traces/`): agents read it, and only the gateway
-   writes it. The deny binds the file tools. Bash inside the OS sandbox can
-   still write the scratch tree, the trace folder included; a file changed
-   that way changes what a later agent reads, never what is measured, which
-   is read from Kiln.
+   is the agents folder (`<state>/agents/claude/<version>/`), which Claude Code
+   lets the file tools write by default. So every role also gets a deny over
+   the agents folder: its skills and `CLAUDE.md` are read by every later
+   session and every later run on the same version. A further deny covers the
+   gateway's trace folder (`runs/<run_id>/scratch/traces/`): agents read it,
+   and only the gateway writes it. The deny binds the file tools. Bash inside
+   the OS sandbox can still write the scratch tree, the trace folder included;
+   a file changed that way changes what a later agent reads, never what is
+   measured, which is read from Kiln.
 2. **The read fence.** `read_fence_for` builds it. Denied: the run's OWN
    Kiln project, whole — its eval inputs, task runs and eval runs
-   are every split's data; every *other* Kiln project in the repository at
-   any depth; `runs/` (this run's directory included, except its scratch),
-   `traces/` and `reports/`; every child of `examples/` except the one on the
-   path to the run's own project, at every level down; and every other Claude
-   session's transcripts. Allowed: the run's scratch, and the
-   `.claude/skills` and `CLAUDE.md` that the run installs for Claude Code.
+   are every split's data; the state folder's `runs/` (this run's directory
+   included, except its scratch), `traces/` and `reports/`; and every other
+   Claude session's transcripts (`~/.claude/projects`). Allowed: the run's
+   scratch, and the `.claude/skills` and `CLAUDE.md` that the run installs
+   for Claude Code in the agents folder.
 
    **The trace folder.** The roles that read traces —
    `TRACE_READER_ROLES` in `gateway/ops.py`: the planner, the builder, the
@@ -906,35 +947,40 @@ reviewers) run under it, and get no scratch directory.
    and a project skill a builder clones is copied into its scratch by the
    skill installer's `export_skill_bundle`.
 
-   Three details matter. The project scan is a pruning walk, not a one-level
-   glob, and it follows symlinks behind a visited set — a project the fence
-   cannot see is a project whose runs, eval runs and memory store an agent can
-   read. A denied tree containing an allowed path is replaced by its entries
-   minus the allowed ones, recursively down to the allowed path and files
-   included, because a read deny rule has no allow override. And because
-   those entries are enumerated when the settings are rendered, every file
-   the orchestrator writes into the run directory is created before then
-   (`RUN_DIR_ENTRIES` in `cli.py`) — and the run directory is denied by
-   default besides: before every session the dispatcher re-reads it and adds
-   a deny rule for each entry but `scratch/` that has none, in both settings
-   files (`dispatch/run_fence.py`), so a writer that skips the list is
-   fenced from the next session on.
+   Two details matter. A denied tree containing an allowed path is replaced by
+   its entries minus the allowed ones, recursively down to the allowed path and
+   files included, because a read deny rule has no allow override. And because
+   those entries are enumerated when the settings are rendered, every file the
+   orchestrator writes into the run directory is created before then
+   (`RUN_DIR_ENTRIES` in `cli.py`) — and the run directory is denied by default
+   besides: before every session the dispatcher re-reads it and adds a deny
+   rule for each entry but `scratch/` that has none, in both settings files
+   (`dispatch/run_fence.py`), so a writer that skips the list is fenced from
+   the next session on.
 
-   Everything under `examples/` is denied because **an example is the answer
-   key**, not only its Kiln project: its labelled corpus, its scorer and its
-   README state the answers. Every way of failing to locate the run's
-   own project fails **closed** — all of `examples/` is denied and the run
-   breaks loudly.
-3. **The OS sandbox.** Bash and its children run sandboxed: the repository is
-   deny-write, the scratch tree is re-opened, the read fence is repeated, and
-   the outbound network allowlist is empty. A missing sandbox is a loud failure
-   rather than a silent unsandboxed fallback.
+   The fence is a deny list, so a path nobody names is readable: other Kiln
+   projects, Kiln's `~/.kiln_ai/settings.yaml`, and any clone of this
+   repository with its `examples/`, which is an answer key
+   ([limitations.md](limitations.md#containment)). A state folder and a Kiln
+   project that overlap are refused at start-up (`paths.check_no_overlap`):
+   the project is denied whole, and the scratch inside the state folder must
+   be writable.
+3. **The OS sandbox.** Bash and its children run sandboxed: the state folder,
+   which holds the working directory, is deny-write, the scratch tree is
+   re-opened, the read fence is repeated, and the outbound network allowlist
+   is empty. A missing sandbox is a loud failure rather than a silent
+   unsandboxed fallback.
 4. **The loop gateway**
    ([`gateway/`](../src/kiln_harness_tuner/gateway/)). Loop agents never get a generic
    Kiln API tool. Each role's MCP config holds the gateway, started with
-   `--role <role>` outside the sandbox, and it serves that role's typed
-   operations and nothing else (`gateway/ops.py`, `ROLE_OPS`; the
-   `kiln-harness-tuner-gateway` skill documents each). Three properties:
+   `--role <role>` outside the sandbox as
+   `<python> -P -m kiln_harness_tuner.gateway.server`, where `<python>` is the
+   interpreter that runs the tuner (the skill installer is started the same
+   way). `-P` keeps the current folder off `sys.path`: Codex and OpenCode
+   start an MCP server in the session's workspace, which the agent writes.
+   The gateway serves that role's typed operations and nothing else
+   (`gateway/ops.py`, `ROLE_OPS`; the `kiln-harness-tuner-gateway` skill
+   documents each). Three properties:
 
    - **Positive allowlisting.** Before the first dispatch the orchestrator
      computes the run's TRAIN item set (`gateway/trainset.py`) from every
@@ -974,7 +1020,7 @@ reviewers) run under it, and get no scratch directory.
      errors, final-reply length). The layout:
 
      ```
-     traces/
+     runs/<run_id>/scratch/traces/
        <run_config_id>/
          <eval_id>/<item_id>.md        header, then one block per message
          _system/<hash>.md             system prompt and tool definitions,
@@ -1053,6 +1099,9 @@ them, is [agent-cli.md](agent-cli.md) section 6.
 src/kiln_harness_tuner/
   cli.py            the console script: flags, run lock, rendered per-run
                     config, the read fence, the composition root
+  paths.py          the state folder: its path, its layout, its checks
+  install_agents.py the agent files: a run's install into the state folder,
+                    and harness-tuner-install-agents --dest
   kiln.py           KilnClient, the one REST client
   kiln_names.py     Kiln-valid names for the objects the loop creates
   budget.py         the per-candidate spending caps and their holds
@@ -1092,6 +1141,8 @@ src/kiln_harness_tuner/
   model_preflight.py  one test call per model before the first spend
   concurrency.py, provider_errors.py, snapshots.py
   agents/           one prompt template per agent role
+  agent_files/      the agents' skills and instructions (package data),
+                    installed per agent CLI into the state folder
   dispatch/         the seam (base.py), --agent-cli (agent_cli.py), the
                     claude -p, codex exec and opencode run implementations,
                     and the run-directory read fence (run_fence.py)
@@ -1099,7 +1150,6 @@ src/kiln_harness_tuner/
                     and the trace files it writes (trace_files.py)
   skill_installer/  the MCP server that installs a skill bundle atomically
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
-.agents/            the agents' skills and instructions, installed per agent CLI
 tests/              the offline suite
 ```
 
@@ -1130,8 +1180,8 @@ deadline into wrap-up, janitor, `loop_exit`; the dispatcher's plumbing against
 recorded `claude -p` output, which covers prompt rendering, the fenced-JSON
 extraction, the repair retry and usage parsing.
 
-Four guards hold properties that are not behaviour: `test_paths.py` (only the
-declared root-deriving modules walk out of the package, and they agree),
+Four guards hold properties that are not behaviour: `test_paths.py` (no
+module derives a path from outside the package),
 `test_dispatch_boundary.py` (the seam), `test_preflight_messages.py` (every
 pre-flight error carries a fix line, and the site count is stated so the guard
 cannot narrow in silence) and `test_docs.py`.

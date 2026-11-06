@@ -1,6 +1,6 @@
 # Kiln Harness Tuner
 
-[![CI](https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml)
+[![CI](https://github.com/Kiln-AI/harness-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/Kiln-AI/harness-tuner/actions/workflows/ci.yml)
 
 An agentic optimize loop for Kiln tasks. You give it a task that already has
 evals and a train/val/test split; it plans experiments against your baseline,
@@ -12,84 +12,110 @@ reads test — so the number you ship on is one the loop never optimized against
 
 | What | Why |
 |---|---|
-| Python 3.11+ and `uv` | The package. |
-| A running Kiln studio server, with your project in it | Every measurement is a Kiln eval job. This repository does not ship it: Kiln is at `https://kiln.tech`, the address `kiln-ai` declares in its own distribution metadata. |
+| Python 3.11+ and `uv` | `uv` installs the package, and finds or downloads a Python for it. |
+| A running Kiln studio server, with your project in it, on the same machine | Every measurement is a Kiln eval job. The tuner also reads and writes the project folder on disk, so it runs where the server's projects are. This repository does not ship the server: Kiln is at `https://kiln.tech`, the address `kiln-ai` declares in its own distribution metadata. |
 | An agent CLI, signed in: Claude Code, Codex or OpenCode | Every agent is a `claude -p` subprocess by default. `--agent-cli 'codex exec …'` or `--agent-cli 'opencode run …'` selects another one. |
 | A model provider key in Kiln | Your task's run configs call it. |
-| `uv` on the `PATH` that `claude -p` inherits | Each agent session starts the loop gateway, its only Kiln access, with `uv run`. |
 
 [docs/install.md](docs/install.md) has the check command, the failure message
 and the fix for each one.
 
-**Not on macOS x86_64.** Two locked dependencies publish no wheel for it and no
-source distribution, so `uv sync` stops. Linux on either architecture, Windows
-and macOS on Apple silicon are fine.
-[docs/install.md](docs/install.md) has the measurement and what a fix would
-take.
+**Not on macOS x86_64.** The lock pins two dependencies at versions that
+publish no wheel and no source distribution for it, so `uv sync` in a clone
+stops. `uv tool install` does not use the lock, so what it installs there depends on
+what PyPI has at the time, and it can need a source build. No test covers it.
+Linux on either architecture, Windows and macOS on Apple silicon are fine.
+[docs/install.md](docs/install.md#platform-support) has the details.
 
 ## Install
 
-Clone the repository and run everything below from its root. It has to be a
-real checkout rather than an installed wheel: a run reads the agents' skills
-and instructions (`.agents/`) out of that directory.
-
 ```
-git clone https://github.com/Kiln-AI/kiln-harness-tuner.git
-cd kiln-harness-tuner
-uv sync
-uv tool install .
+uv tool install harness-tuner
 ```
 
-`uv sync` builds the development environment. `uv tool install .` puts the
-console scripts on your `PATH`; `kiln_api_mcp` among them is for interactive
-Claude Code sessions (loop agents reach Kiln through the loop gateway, which
-each session starts with `uv run`).
+This puts the console scripts on your `PATH`: `harness-tuner` runs the loop,
+and `harness-tuner-install-agents` and `kiln_api_mcp` are for interactive
+agent sessions (below). You can run the commands from any folder.
+
+To run the loop with no install, use `uvx`:
+
+```
+uvx harness-tuner --project-path … --project-id … --task-id …
+```
 
 Verify:
 
 ```
-kiln-harness-tuner --help
+harness-tuner --help
 kiln_api_mcp --help
 ```
 
 Both print usage. If either says `command not found`, read
 [docs/install.md](docs/install.md).
 
-## Install the agents' skills for your agent CLI
+### From a clone
 
-The loop's agents follow skills and one instructions file. The repository
-keeps one copy of each in `.agents/`: the skills in `.agents/skills/` and the
-instructions in `.agents/AGENTS.md`. Each agent CLI reads them from its own
-place, and `kiln-harness-tuner-install-agents` copies them there:
-
-| `--agent-cli` | Agent CLI | Skills | Instructions |
-|---|---|---|---|
-| `claude` | Claude Code | `.claude/skills/` | `CLAUDE.md`, plus the `kiln_api_mcp` server in `.mcp.json` and `.claude/settings.json` |
-| `codex` | Codex | `.agents/skills/` | `AGENTS.md` |
-| `opencode` | OpenCode | `.agents/skills/` | `AGENTS.md` |
-
-A run installs for its own agent CLI (the one `kiln-harness-tuner --agent-cli`
-names) before the first session, so you do not need to do it by hand to run
-the loop. Run it yourself to work on this repository in an agent CLI, or to
-use the skills in another project:
+Contributors run the tuner from a clone of the repository:
 
 ```
-kiln-harness-tuner-install-agents --agent-cli claude
-kiln-harness-tuner-install-agents --agent-cli codex
-kiln-harness-tuner-install-agents --agent-cli opencode
-kiln-harness-tuner-install-agents --agent-cli all
-kiln-harness-tuner-install-agents --agent-cli claude --dest ~/my-kiln-project
+git clone https://github.com/Kiln-AI/harness-tuner.git
+cd harness-tuner
+uv sync
+uv run harness-tuner --help
 ```
+
+A run from a clone works the same way as an installed one. It reads the
+agents' files from `src/kiln_harness_tuner/agent_files/` and keeps its state
+in the same folder.
+
+### Where the files go
+
+The tuner writes nothing in the folder you start it from. It keeps its runs,
+traces and reports in `~/.kiln_ai/harness_tuner/`, or in the folder that
+`KILN_HARNESS_TUNER_HOME` names. A run prints its folder when it starts, and
+the path of its report when it finishes:
+
+```
+harness-tuner: run 260601-0930 — files in /home/you/.kiln_ai/harness_tuner/runs/260601-0930/
+…
+harness-tuner: run finished — report: /home/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-260601-0930.md
+```
+
+[docs/install.md](docs/install.md#where-the-tuner-keeps-its-files) has the
+layout.
+
+## The agents' skills in your own project
+
+The loop's agents follow skills and one instructions file, which ship in the
+package. A run installs them for its own agent CLI (the one `--agent-cli`
+names) into the state folder before its first session. You do not install
+anything by hand to run the loop.
+
+Three of the skills, `kiln-api`, `kiln-task-setup` and `memory`, are useful in
+any project that works with Kiln. `harness-tuner-install-agents` copies the
+skills into a folder of your own, for your interactive agent sessions:
+
+```
+harness-tuner-install-agents --agent-cli claude --dest ~/my-kiln-project
+harness-tuner-install-agents --agent-cli codex --dest ~/my-kiln-project
+harness-tuner-install-agents --agent-cli all --dest ~/my-kiln-project
+```
+
+| `--agent-cli` | Agent CLI | What it writes under `--dest` |
+|---|---|---|
+| `claude` | Claude Code | the skills in `.claude/skills/`, and the `kiln_api_mcp` server (the `call_kiln_api` tool) in `.mcp.json` and `.claude/settings.json` |
+| `codex` | Codex | the skills in `.agents/skills/` |
+| `opencode` | OpenCode | the skills in `.agents/skills/` |
+
+`--dest` is required. A skill of the same name is replaced; other skills there
+are left alone. For `claude`, the command merges the `kiln_api_mcp` server into the two JSON
+files and keeps what is already in them. It writes no instructions file: the
+loop agents' instructions describe the loop, and are of no use in another
+project.
 
 Here `--agent-cli` takes the CLI's name. The whole command a run takes
 (`--agent-cli 'codex exec -m gpt-6.1-sol'`) also works: its first word names
 the CLI.
-
-`--dest` installs into another directory. The `kiln-api`, `kiln-task-setup`
-and `memory` skills are useful in any project that works with Kiln. A skill
-of the same name is replaced; other skills there are left alone. An
-instructions file that the command did not write is never replaced, unless
-you pass `--force`.
 
 ## Quickstart: the moderation example
 
@@ -101,21 +127,26 @@ that costs nothing to score. The forum's house rules are stricter than common
 sense, and the baseline is a short prompt that does not state them, so it
 makes mistakes the loop can find and fix.
 
-After [Install](#install), with Kiln running and a Fireworks key in Kiln:
+The example is in this repository, not in the package. After
+[Install](#install), with Kiln running and a Fireworks key in Kiln, clone the
+repository and copy the example's Kiln project out of it:
 
 ```
+git clone https://github.com/Kiln-AI/harness-tuner.git
+cd harness-tuner
 mkdir -p ~/kiln-projects
 cp -R "examples/moderation/Forum Moderation" ~/kiln-projects/
 curl -X POST "http://localhost:8757/api/import_project?trusted=true&project_path=$HOME/kiln-projects/Forum%20Moderation/project.kiln"
-kiln-harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
+harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
           --project-id 424242975950 --task-id 424242783061 \
           --guidance "Improve the moderation decisions. Keep the output format." \
           --timeout-mins 60 --budget-usd 20
 ```
 
-The loop shows its progress in the terminal and writes its report to
-`reports/`. The example's README explains each step, the labelling
-guidelines, and how to check the result on test yourself.
+The loop shows its progress in the terminal, writes its report to
+`~/.kiln_ai/harness_tuner/reports/` by default, and prints the report's path at the end.
+The example's README explains each step, the labelling guidelines, and how to
+check the result on test yourself.
 
 This README quotes no result yet. A score belongs to one task, one model and
 one corpus, so a number from another task would not tell you what the loop
@@ -124,14 +155,15 @@ does on yours.
 ## Run it on your own task
 
 ```
-kiln-harness-tuner --project-path "/path/to/Your Kiln Project" \
+harness-tuner --project-path "/path/to/Your Kiln Project" \
           --project-id <id> --task-id <id> \
           --guidance "what to work on, and what not to touch" \
           --timeout-mins 60 --budget-usd <your ceiling>
 ```
 
 The loop shows its progress in the terminal, works in waves until the budget,
-the clock or its own planner ends it, and writes a report under `reports/`.
+the clock or its own planner ends it, and writes a report under
+`~/.kiln_ai/harness_tuner/reports/` by default.
 
 **Start it bounded, with headroom for a whole wave.** No wave ever *starts*
 past either limit, but they end a run differently: at the budget ceiling the
@@ -241,7 +273,7 @@ CLI's own account.
 - [docs/how-it-works.md](docs/how-it-works.md) — the whole loop for a
   first-time reader, with a diagram and one section for each objective.
 - [docs/install.md](docs/install.md) — every requirement, each with its check,
-  its failure message and its fix.
+  its failure message and its fix, and where the tuner keeps its files.
 - [docs/concepts.md](docs/concepts.md) — wave, experiment, arm, lever, split,
   promotion gate, memory, probe. Read this before the report of your first run.
 - [docs/your-own-task.md](docs/your-own-task.md) — what a task needs, what setup

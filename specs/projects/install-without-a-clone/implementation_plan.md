@@ -19,7 +19,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - The instructions split, with root `AGENTS.md` and `CLAUDE.md`.
   - `cli.py` wiring: start and exit lines, `-P -m` MCP commands, fences, and removal of `REPO_ROOT` and the checkout code (architecture §5).
   - Dispatchers (architecture §6), `.gitignore`, tests (architecture §10).
-- [ ] Phase 3: Docs.
+- [x] Phase 3: Docs.
   - README, `docs/install.md`, `docs/limitations.md` and every other doc, the CONTRIBUTING file and the example README (FS §11, architecture §11).
 - [ ] Phase 4: CI packaging smoke test.
   - `tests/packaging/smoke_installed_wheel.py`, `tests/packaging/fake_claude.py`, and the `package` job (architecture §9).

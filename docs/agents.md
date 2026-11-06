@@ -311,11 +311,12 @@ answered — the guidance is in the input precisely so that cannot happen.
 item, every promotion, the spend and the exit reason.
 
 **Must return** `ReportMarkdown` — the report as markdown. **Code writes the
-file** at `reports/kiln-harness-tuner-<run_id>.md` and appends a code-computed spend
-appendix. A format-critical file is never written by an agent. Code also
-appends why each arm stopped, and a trade-off table of the screened
-candidates ([architecture.md](architecture.md) section 11). The agent points
-at these tables and does not restate them.
+file** at `reports/kiln-harness-tuner-<run_id>.md` in the state folder
+([install.md](install.md#where-the-tuner-keeps-its-files)) and appends a
+code-computed spend appendix. A format-critical file is never written by an
+agent. Code also appends why each arm stopped, and a trade-off table of the
+screened candidates ([architecture.md](architecture.md) section 11). The agent
+points at these tables and does not restate them.
 
 It may read exit-time memory, including both val-carrying records, and it must
 label their numbers val-grade.

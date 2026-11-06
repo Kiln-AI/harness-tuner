@@ -55,11 +55,12 @@ agent cannot design against the data that decides a promotion.
 
 Agents read train traces as files. When an agent asks the gateway for train
 results, the gateway writes each train trace to the run's scratch folder
-(`runs/<run id>/scratch/traces/`) and answers with the file paths, a short
-summary per item, and a per-run-config stats file (tool calls, tokens per turn,
-tool errors). The agent then uses `Grep` and `Read` on the files. Only rows the
-gateway accepts as train are written. No gateway answer is larger than a fixed
-cap; a longer answer comes in parts.
+(`~/.kiln_ai/harness_tuner/runs/<run id>/scratch/traces/` by default) and
+answers with the file paths, a short summary per item, and a per-run-config
+stats file (tool calls, tokens per turn, tool errors). The agent then uses
+`Grep` and `Read` on the files. Only rows the gateway accepts as train are
+written. No gateway answer is larger than a fixed cap; a longer answer comes in
+parts.
 
 ## The path of a run
 
@@ -206,8 +207,11 @@ The run stops when:
 - two waves in a row fail (the tripwire);
 - an agent provider reports a quota or authentication error.
 
-Then a report agent writes the round report from the run's records, to
-`reports/kiln-harness-tuner-<run id>.md`.
+Then a report agent writes the round report from the run's records, and code
+saves it to `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md`
+by default. The run prints the path when it ends. The state folder holds all
+of a run's files
+([install.md](install.md#where-the-tuner-keeps-its-files)).
 
 ## The objectives
 

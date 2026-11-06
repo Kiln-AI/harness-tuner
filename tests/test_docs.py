@@ -1,4 +1,4 @@
-"""The two properties of the documentation a reviewer cannot hold by reading.
+"""The properties of the documentation a reviewer cannot hold by reading.
 
 **Every CLI flag is documented exactly once.** A flag nobody documents is a
 flag nobody uses, and a flag documented twice is two descriptions that will
@@ -9,10 +9,10 @@ of options `cli.build_parser()` defines.
 not exist is broken, and the mistake this repository is most likely to make is
 linking forward to a document a later phase writes.
 
-The two checks read different sets of files, on purpose. The link check covers
-`docs/` **and the two documents at the repository root**: `README.md` is almost
-entirely links into `docs/`, and a misspelling there is invisible to a check
-that reads `docs/` alone and broken for every reader.
+The link and flag checks read different sets of files, on purpose. The link
+check covers `docs/` **and the two documents at the repository root**:
+`README.md` is almost entirely links into `docs/`, and a misspelling there is
+invisible to a check that reads `docs/` alone and broken for every reader.
 
 The flag check stays over `docs/` alone, and the reason is the documentation
 plan, not the entry pattern: the flag reference lives in `docs/`, one row per
@@ -31,6 +31,12 @@ one backticked long flag:
 Prose mentions and example command lines are deliberately NOT entries. That is
 what lets a quickstart print a whole command without claiming to document its
 flags, and it is what lets this file say `--no-recon` in a sentence.
+
+**No retired command or install form comes back.** The commands lost their
+`kiln-` prefix, a run stopped needing a checkout, and the loop agents'
+instructions left `.agents/`. A document that still names an old form tells
+the reader to type something that no longer works, and a reader copies
+commands. This check reads every document a user or a contributor meets.
 """
 
 from __future__ import annotations
@@ -79,6 +85,37 @@ ROOT_DOCS = (
 )
 
 
+# The user-facing documents outside the link-checked set. The retired-form
+# check reads these as well.
+USER_DOCS = (
+    ".github/CONTRIBUTING.md",
+    "examples/moderation/README.md",
+)
+
+# Forms the documents must not name any more, each with what replaced it.
+# The tuner's own file names keep the old prefix (`kiln-harness-tuner.log`,
+# `kiln-harness-tuner-<run_id>.md`), and so do the skill names
+# (`kiln-harness-tuner-gateway`), so the bare name is matched only where no
+# `-` and no `.log` follows it.
+RETIRED_FORMS = {
+    "the old command and repository name `kiln-harness-tuner` (now"
+    " `harness-tuner`)": re.compile(r"kiln-harness-tuner(?![\w-]|\.log\b)"),
+    "an old `kiln-harness-tuner-…` command (now `harness-tuner-…`)": re.compile(
+        r"kiln-harness-tuner-(?:install-agents|gateway-mcp|gateway-hook"
+        r"|skill-installer-mcp)\b"
+    ),
+    "`uv run --project` (a run starts its MCP servers as `<python> -P -m`)": (
+        re.compile(r"uv run --project")
+    ),
+    "`uv tool install .` (now `uv tool install harness-tuner`)": re.compile(
+        r"uv tool install \.(?![\w/])"
+    ),
+    "`.agents/AGENTS.md` (now `src/kiln_harness_tuner/agent_files/AGENTS.md`)": (
+        re.compile(r"\.agents/AGENTS\.md")
+    ),
+}
+
+
 def doc_files() -> list[Path]:
     """The documentation tree — the surface the FLAG check owns."""
     return sorted(DOCS_ROOT.rglob("*.md"))
@@ -87,6 +124,12 @@ def doc_files() -> list[Path]:
 def linked_files() -> list[Path]:
     """Every document whose links are checked: the tree, plus ROOT_DOCS."""
     return [REPO_ROOT / name for name in ROOT_DOCS] + doc_files()
+
+
+def user_docs() -> list[Path]:
+    """Every document the retired-form check reads: the link-checked set,
+    plus USER_DOCS."""
+    return linked_files() + [REPO_ROOT / name for name in USER_DOCS]
 
 
 def parser_flags() -> set[str]:
@@ -239,4 +282,33 @@ def test_every_internal_link_resolves(path: Path):
                 )
     assert not broken, f"{path.relative_to(REPO_ROOT)} has broken links:\n" + "\n".join(
         broken
+    )
+
+
+def test_the_retired_form_check_reads_every_user_document():
+    """The scan's coverage, asserted for the same reason as the link check's:
+    a narrowed set passes with fewer cases and reads as green."""
+    scanned = {path.resolve() for path in user_docs()}
+    for name in (
+        *ROOT_DOCS,
+        *USER_DOCS,
+        ".github/CONTRIBUTING.md",
+        "examples/moderation/README.md",
+    ):
+        assert (REPO_ROOT / name).is_file(), f"{name} does not exist"
+        assert (REPO_ROOT / name).resolve() in scanned, f"{name} is not scanned"
+
+
+@pytest.mark.parametrize(
+    "path", user_docs(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
+def test_docs_name_no_retired_command(path: Path):
+    hits = [
+        f"line {lineno}: {what}: {line.strip()}"
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        for what, pattern in RETIRED_FORMS.items()
+        if pattern.search(line)
+    ]
+    assert not hits, f"{path.relative_to(REPO_ROOT)} names retired forms:\n" + (
+        "\n".join(hits)
     )
