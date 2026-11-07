@@ -64,6 +64,11 @@ going looking.
   `unbound_unresolved_issue_ids` — issue memories with no eval binding that
   setup refused to guess at. The last two are a human's work queue: name
   them in the Setup section. `None` = the phase did not run.
+- `unloadable_evals`: the active evals whose default config Kiln can't load
+  (`eval_id`, `name`, `reason` — Kiln's own message). The run left them out:
+  they were never measured or gated, and their issues were left as they
+  were. Name each in the Setup section, under the evals count, as one line:
+  `Left out: "<name>" (Kiln can't load it: <reason>)`, joined with `; `.
 - `detectability` and `noise_check`: the pre-run check —
   per (eval, score) the train items with room, the significance floor, and
   the val split's size with an estimate of its room — and, with
@@ -160,10 +165,12 @@ going looking.
 > this loop never reads test.
 
 ## Setup
-<only when `run_status.setup` says something happened: issues seeded for new
-evals, bindings repaired, `UNMEASURABLE:` flags, and anything needing a
-human (unbound issues, how the baseline was picked). Drop the section on a
-warm run that seeded nothing.>
+<only when `run_status.setup` says something happened or
+`run_status.unloadable_evals` is not empty: issues seeded for new evals,
+bindings repaired, `UNMEASURABLE:` flags, evals left out because Kiln can't
+load them, and anything needing a human (unbound issues, how the baseline
+was picked). Drop the section on a warm run that seeded nothing and left no
+eval out.>
 
 ## Outcome
 <2–5 sentences: what changed, headline val summary of the final promotion(s),

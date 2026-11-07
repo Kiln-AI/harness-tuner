@@ -275,7 +275,8 @@ class FakeKiln:
         self.eval_load_error_count: int = 0
         # `eval_configs[config_id]` — served by
         # `GET …/evals/{eid}/eval_config/{ecid}`, the only config the setup
-        # phase reads (the one `current_config_id` names).
+        # phase reads (the one `current_config_id` names). An exception is
+        # raised instead, as Kiln's answer for a config it can't load.
         self.eval_configs: dict[str, Any] = {}
         self.specs: Any = []
         # The setup phase reads the task record (for
@@ -664,7 +665,10 @@ class FakeKiln:
                 raise KilnAPIError(
                     method, url_path, 404, {"detail": "no such eval config"}
                 )
-            return self.eval_configs[match["ecid"]]
+            config = self.eval_configs[match["ecid"]]
+            if isinstance(config, BaseException):
+                raise config  # a config Kiln answers with an error
+            return config
 
         match = _EVAL_PATH.match(url_path)
         if match:

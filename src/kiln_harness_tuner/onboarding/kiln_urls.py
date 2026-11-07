@@ -31,5 +31,11 @@ def evals(host: str, project_id: str, task_id: str) -> str:
     return f"{host}/specs/{project_id}/{task_id}"
 
 
+def eval_page(
+    host: str, project_id: str, task_id: str, spec_id: str, eval_id: str
+) -> str:
+    return f"{host}/specs/{project_id}/{task_id}/{spec_id}/{eval_id}"
+
+
 def providers(host: str) -> str:
     return f"{host}/settings/providers"

@@ -288,8 +288,31 @@ async def test_a_gone_eval_config_is_skipped(status):
     assert await needs_of(kiln) == [Need("fireworks_ai", BASELINE_RC)]
 
 
-async def test_an_eval_config_that_cant_be_read_raises():
-    broken = KilnAPIError("GET", "config", 500, {"detail": "boom"})
+@pytest.mark.parametrize("status", [400, 422])
+async def test_an_eval_kiln_cant_load_needs_no_key(status):
+    unloadable = KilnAPIError(
+        "GET", "config", status, {"error_messages": ["Invalid Jinja2 template"]}
+    )
+    kiln = kiln_with(
+        on(
+            "/evals",
+            [
+                {"id": "eval_1", "name": "Tone", "current_config_id": "ec_1"},
+                {"id": "eval_2", "name": "Accuracy", "current_config_id": "ec_2"},
+            ],
+        ),
+        on("/evals/eval_1/eval_config/ec_1", unloadable),
+        on("/evals/eval_2/eval_config/ec_2", V2_JUDGE),
+    )
+    assert await needs_of(kiln) == [
+        Need("fireworks_ai", BASELINE_RC),
+        Need("anthropic", 'eval "Accuracy"\'s judge'),
+    ]
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+async def test_an_eval_config_that_cant_be_read_raises(status):
+    broken = KilnAPIError("GET", "config", status, {"detail": "boom"})
     with pytest.raises(KilnAPIError):
         await needs_of(kiln_with(on("/evals/eval_1/eval_config/ec_1", broken)))
 

@@ -73,6 +73,11 @@ START = Action("s", "Start the run", ActionKind.START)
 CHANGE = Action("e", "Change an answer", ActionKind.CHANGE)
 START_QUESTION = "Start the run?"
 CHANGE_QUESTION = "Which answer do you want to change?"
+WELCOME_TITLE = "Kiln Harness Tuner"
+WELCOME_DESCRIPTION = (
+    "Automatically improves an AI agent by tuning its harness: the prompt,"
+    " model, tools, skills and settings around it."
+)
 
 
 class KilnRunner(Protocol):
@@ -142,7 +147,7 @@ def prepare_start(
     given = given_dests(argv, option_dests)
     defaults = parser_defaults(option_dests)
     try:
-        terminal.header(f"Kiln Harness Tuner {__version__}")
+        terminal.welcome(WELCOME_TITLE, __version__, WELCOME_DESCRIPTION)
         _check_kiln(run, terminal, host)
         if args.demo_project:
             _use_demo(args, terminal=terminal, run=run, home=home)

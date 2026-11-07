@@ -175,6 +175,39 @@ def test_fallback_report_drops_the_setup_section_on_a_warm_run():
     assert "## Setup" not in render_fallback_report(tracker.snapshot())
 
 
+def test_a_warm_run_with_evals_kiln_cant_load_lists_them_under_the_evals():
+    tracker = make_tracker()
+    tracker.event(
+        "eval_unloadable",
+        eval_id="424242966189",
+        name="Tone",
+        reason="Invalid Jinja2 template: No filter named 'trace_overview'",
+        line="Kiln can't load eval …",
+    )
+    tracker.event("eval_unloadable", eval_id="424242005456", name="Format", reason="x")
+    tracker.event("setup_ok", report=SetupReport(evals_total=3, evals_active=3))
+
+    lines = render_fallback_report(tracker.snapshot()).splitlines()
+
+    evals = lines.index("- evals: 3 active of 3")
+    assert lines[evals - 2 : evals + 2] == [
+        "## Setup",
+        "",
+        "- evals: 3 active of 3",
+        '- Left out: "Tone" (Kiln can\'t load it: Invalid Jinja2 template: No'
+        " filter named 'trace_overview'); \"Format\" (Kiln can't load it: x)",
+    ]
+
+
+def test_fallback_report_has_no_left_out_line_when_every_eval_loads():
+    tracker = make_tracker()
+    tracker.event(
+        "setup_sync",
+        report=SetupReport(evals_total=1, evals_active=1, seeded_eval_ids=["e1"]),
+    )
+    assert "Left out" not in render_fallback_report(tracker.snapshot())
+
+
 def test_fallback_report_names_tripwire_and_spend():
     tracker = make_tracker()
     tracker.event("run_start", deadline=100.0)

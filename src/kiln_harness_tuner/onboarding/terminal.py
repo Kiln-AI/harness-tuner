@@ -66,7 +66,10 @@ class Action:
 class Terminal(Protocol):
     interactive: bool  # True for a guided start
 
-    def header(self, text: str) -> None: ...
+    def welcome(self, title: str, version: str, description: str) -> None:
+        """What a guided start opens with: the title, the version and what
+        the tool does."""
+        ...
 
     def step(self, status: StepStatus, label: str, text: str) -> None:
         """One finished step: a symbol, the label in a fixed width, the text."""

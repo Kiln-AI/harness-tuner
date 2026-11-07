@@ -1514,6 +1514,78 @@ async def test_an_empty_spec_listing_body_reads_as_no_specs():
     assert [(e["id"], c) for e, c in await _active_evals(ctx)] == [("eval_1", "ec_1")]
 
 
+async def test_the_active_set_leaves_out_the_evals_kiln_cant_load():
+    ctx = make_ctx()
+    seed_active_eval(ctx.kiln)
+    ctx.kiln.evals["eval_2"] = make_eval("eval_2", "ec_2")
+    ctx.unloadable_evals = {"eval_2": ("Tone", "Invalid Jinja2 template")}
+    assert [(e["id"], c) for e, c in await _active_evals(ctx)] == [("eval_1", "ec_1")]
+
+
+async def test_a_run_goes_on_without_an_eval_kiln_cant_load():
+    ctx = make_ctx()
+    seed_baseline(ctx.kiln)
+    seed_active_eval(ctx.kiln)
+    ctx.kiln.evals["eval_2"] = make_eval("eval_2", "ec_2", name="Tone")
+    ctx.kiln.eval_configs["ec_2"] = KilnAPIError(
+        "GET", "config", 422, {"error_messages": ["Invalid Jinja2 template"]}
+    )
+    inner_call = ctx.kiln.call
+    eval_2_reads: list[str] = []
+
+    async def kiln_cant_load_eval_2(method, url_path, *args, **kwargs):
+        # Kiln answers every read that loads the eval's config the same way.
+        if "/evals/eval_2/eval_config/ec_2/" in url_path:
+            eval_2_reads.append(url_path)
+            raise KilnAPIError(method, url_path, 422, {"detail": "unloadable"})
+        return await inner_call(method, url_path, *args, **kwargs)
+
+    ctx.kiln.call = kiln_cant_load_eval_2
+    ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
+
+    await orchestrate(ctx, "", timeout_mins=180)
+
+    assert ctx.unloadable_evals == {"eval_2": ("Tone", "Invalid Jinja2 template")}
+    assert [f["eval_id"] for k, f in ctx.log.events if k == "eval_unloadable"] == [
+        "eval_2"
+    ]
+    assert "contract_ok" in [k for k, _ in ctx.log.events]
+    assert eval_2_reads == []
+
+
+async def test_a_run_goes_on_past_an_archived_eval_kiln_cant_load():
+    # Listed first, so the contract preflight would probe its stored results
+    # first; Kiln answers that read the same way as its config.
+    ctx = make_ctx()
+    seed_baseline(ctx.kiln)
+    ctx.kiln.evals["eval_0"] = make_eval("eval_0", "ec_0", name="Old")
+    seed_active_eval(ctx.kiln)
+    ctx.kiln.specs.append({"id": "spec_0", "eval_id": "eval_0", "status": "archived"})
+    ctx.kiln.eval_configs["ec_0"] = KilnAPIError(
+        "GET", "config", 400, {"error_messages": ["Invalid Jinja2 template"]}
+    )
+    inner_call = ctx.kiln.call
+    eval_0_reads: list[str] = []
+
+    async def kiln_cant_load_eval_0(method, url_path, *args, **kwargs):
+        if "/evals/eval_0/eval_config/ec_0/" in url_path:
+            eval_0_reads.append(url_path)
+            raise KilnAPIError(method, url_path, 422, {"detail": "unloadable"})
+        return await inner_call(method, url_path, *args, **kwargs)
+
+    ctx.kiln.call = kiln_cant_load_eval_0
+    ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
+
+    await orchestrate(ctx, "", timeout_mins=180)
+
+    assert ctx.unloadable_eval_ids == frozenset({"eval_0"})
+    # Not in the run, so not news.
+    assert ctx.unloadable_evals == {}
+    assert "eval_unloadable" not in [k for k, _ in ctx.log.events]
+    assert "contract_ok" in [k for k, _ in ctx.log.events]
+    assert eval_0_reads == []
+
+
 async def test_hard_4xx_from_measurement_is_fatal():
     # The 422 missing-split answer propagates out.
     ctx = make_ctx()

@@ -12,10 +12,10 @@ def plain_text(title: str, body: Sequence[str]) -> str:
 
 class OnboardingError(Exception):
     """A start-up problem the user must fix, as a title and the lines that
-    explain it. `str()` is the plain message, which `main` prints as
-    `<prog>: <message>` to stderr before exiting 1. A guided start shows the
-    error as a ✗ block instead, and sets `shown` so `main` doesn't print it
-    again."""
+    explain it. `str()` is the plain message. `main` shows the title and the
+    lines on the error screen (`error_screen.show_error`) before exiting 1. A
+    guided start shows the error as a ✗ block instead, and sets `shown` so
+    `main` prints only the screen's closing line."""
 
     def __init__(self, title: str, body: Sequence[str] = ()):
         self.title = title

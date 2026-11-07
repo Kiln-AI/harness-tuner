@@ -890,21 +890,25 @@ def show_closing_line(prog: str, *, stream: TextIO = sys.stderr) -> None
 ```
 
 **`error_body`**
-- **`KilnAPIError`:** `[f"{exc.method} {exc.url_path}", f"HTTP {exc.status_code}: {exc.kiln_message}"]`.
+- **`KilnAPIError`:** `[Unbroken(f"{exc.method} {exc.url_path}"), f"HTTP {exc.status_code}: {exc.kiln_message}"]`.
 - **`KilnTransportError`:** the message, plus `Is Kiln still running at <host>?`.
 - **Anything else:** `str(exc).splitlines()`, with blank lines kept as paragraph breaks.
 
-**`show_error`** builds a `Console(file=stream, highlight=False, soft_wrap=False, emoji=False)`.
+**`show_error`** chooses its form on `stream.isatty()`, not on rich's `console.is_terminal`: rich's test also honours `FORCE_COLOR` and `TTY_COMPATIBLE`, which CI and agent harnesses set, and a script reading stderr needs the plain form. `show_closing_line` chooses the same way.
 
-- **When `console.is_terminal`,** it prints:
+- **When the stream is a terminal,** it builds a `Console(file=stream, highlight=False, soft_wrap=False, emoji=False)` and prints:
   1. a blank line;
   2. `✗ ` + the title, in `bold red`;
   3. a blank line;
-  4. each body line through `Padding(Text(line), (0, 0, 0, 2))`, which wraps;
+  4. each body line, indented two spaces;
   5. a blank line;
   6. the ending lines, indented the same way;
   7. a blank line;
   8. the dimmed closing line.
+
+  **Wrapping.** The screen never breaks a path or a request.
+  - The request line (`<METHOD> <path>`) and the `Run folder:` and `Report:` lines are `Unbroken` (a `str` subclass that `error_body` and `ending_lines` return). Each is printed whole, label and path on one line, with `soft_wrap=True`, so the terminal wraps a long one with nothing put inside it.
+  - Every other line is prose. It is wrapped at its spaces to the width after the indent (`Text.wrap` with `overflow="ignore"`). A word wider than the line, such as a path, is kept whole on its own line. Each part is printed with `soft_wrap=True` and without trailing spaces.
 
   Every `Text` is built without markup.
 - **Otherwise** it writes plain lines:
@@ -955,11 +959,11 @@ async def read_eval_config(kiln, base: str, eval_id: str, config_id: str) -> Eva
 - `_read_config_properties` is rebuilt on `read_eval_config`.
 - `EvalView` gains `unloadable: str | None`.
 - `read_eval_views` fills it.
-- **Skipped for an unloadable view:** `build_sync_plan`, `describe_all` and `audit_splits`. They act as if the eval weren't active; the plan's existing records for it are neither refreshed nor repaired.
+- **Skipped for an active unloadable view** (`EvalView.in_run` is false): `SyncPlan.active`, so `describe_all` and the seed and refresh partitions, and `audit_splits`. Its issues are neither seeded, refreshed, repaired nor flagged unmeasurable. An inactive unloadable view is synced as any inactive eval is.
 - **`run_setup`**
   - sets `ctx.unloadable_evals = {view.id: (view.name, reason)}`;
   - logs one `eval_unloadable` event per eval (`eval_id`, `name`, `reason`, `line`), whose `line` is the FS §20 warning text without the link.
-- `Ctx` gains `unloadable_evals: dict[str, tuple[str, str]] = field(default_factory=dict)`.
+- `Ctx` gains `unloadable_evals: dict[str, tuple[str, str]] = field(default_factory=dict)` (the active evals the run leaves out) and `unloadable_eval_ids: frozenset[str]` (every eval whose config Kiln can't load, active or not). `contract_preflight` skips `unloadable_eval_ids` in its stored-results probe, because Kiln answers that read the same way as the config.
 
 **The measurement set.** `orchestrator._active_evals` drops rows whose id is in `ctx.unloadable_evals`, next to its `_new_eval_refused` filter. Every run-time reader of the active set (analysis, job drives, noise, judge copy, the detectability check) follows it.
 
@@ -973,7 +977,7 @@ async def read_eval_config(kiln, base: str, eval_id: str, config_id: str) -> Eva
 
 **The report.**
 - `RunStatusTracker` records `eval_unloadable` events into `RunStatus.unloadable_evals`.
-- `ReportWriter` adds one `Left out:` line to its evals section when there are any, as `"<name>" (Kiln can't load it: <reason>)`, joined with `; `.
+- The fallback report (`render_fallback_report`) adds one `Left out:` line to its Setup section, under the evals count, when there are any, as `"<name>" (Kiln can't load it: <reason>)`, joined with `; `. The agent-written report has no section that code controls: it follows the `kiln-harness-tuner-report` skill, which tells the agent to write the same line, as the rest of the Setup section works.
 - `PlainUi` and `LiveUi` print the event's `line` as they do other warnings.
 
 ## 29. Tests (phases 9–10)

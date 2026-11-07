@@ -501,6 +501,8 @@ SETUP_LINE_EVENTS = frozenset(
         "model_preflight",
         "model_preflight_flag",
         "model_preflight_untested",
+        # An eval Kiln can't load, which the run leaves out.
+        "eval_unloadable",
     }
 )
 

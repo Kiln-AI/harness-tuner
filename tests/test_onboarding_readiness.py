@@ -11,6 +11,7 @@ from onboarding_fakes import (
     task_base,
 )
 
+from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.onboarding.readiness import Readiness, readiness_problem
 from kiln_harness_tuner.onboarding.terminal import Action, ActionKind
 from kiln_harness_tuner.setup import (
@@ -112,8 +113,12 @@ async def test_a_ready_task_has_no_problem_and_counts_what_it_has():
     readiness = await check(kiln)
     assert readiness == Readiness(None, run_configs=2, measurable=2, warnings=[])
     assert readiness.step_text == "2 run configs · 2 evals the tuner can measure"
+    # Each measurable eval's default config is read, to see that Kiln can
+    # load it. A 404 is a config that is gone, not one Kiln can't load.
     assert sorted(kiln.paths()) == [
         f"{BASE}/evals",
+        f"{BASE}/evals/a/eval_config/ec_1",
+        f"{BASE}/evals/b/eval_config/ec_1",
         f"{BASE}/run_configs",
         f"{BASE}/specs",
     ]
@@ -231,3 +236,112 @@ async def test_load_errors_warn_alongside_a_problem():
 async def test_a_drifted_listing_raises_setup_precondition_error(read, body):
     with pytest.raises(SetupPreconditionError, match=f"GET {BASE}/{read} did not"):
         await check(kiln_with(**{read: body}))
+
+
+# ---- evals Kiln can't load ----
+
+JINJA = "Invalid Jinja2 template: No filter named 'trace_overview'"
+
+
+def cant_load(status: int = 422, message: str = JINJA) -> KilnAPIError:
+    """Kiln's answer for an eval config it can't load."""
+    return KilnAPIError(
+        "GET", "config", status, {"error_messages": [f": Value error, {message}"]}
+    )
+
+
+def kiln_with_configs(evals: list, specs: list, configs: dict) -> RouteKiln:
+    """A ready task with `evals` and `specs`, whose eval `id`'s config
+    read answers `configs[id]`."""
+    kiln = kiln_with(evals=evals, specs=specs)
+    for row in evals:
+        if row["id"] in configs:
+            path = f"{BASE}/evals/{row['id']}/eval_config/{row['current_config_id']}"
+            kiln.routes[("GET", path)] = configs[row["id"]]
+    return kiln
+
+
+def warning(name: str, link: str, reason: str = JINJA) -> str:
+    return (
+        f'Kiln can\'t load eval "{name}": {reason}.\n'
+        "  The run leaves it out. To use it, fix its judge in Kiln, or update"
+        " Kiln if\n"
+        f"  the eval was made with a newer version: {link}"
+    )
+
+
+@pytest.mark.parametrize("status", [400, 422])
+async def test_an_eval_kiln_cant_load_is_left_out_with_a_warning(status):
+    evals = [an_eval("a", "Tone"), an_eval("b", "Accuracy"), an_eval("c", "Format")]
+    kiln = kiln_with_configs(
+        evals, [a_spec("a")], {"a": cant_load(status), "b": {"id": "ec_1"}}
+    )
+    readiness = await check(kiln)
+    assert readiness.problem is None
+    assert (readiness.measurable, readiness.left_out) == (2, 1)
+    assert readiness.step_text == (
+        "1 run config · 2 evals the tuner can measure (1 left out)"
+    )
+    # Its link is its own page, through its spec.
+    assert readiness.warnings == [
+        warning("Tone", f"{EVALS_LINK}/spec_a/a"),
+    ]
+
+
+async def test_an_eval_with_no_spec_links_to_the_evals_list():
+    evals = [an_eval("a", "Tone"), an_eval("b", "Accuracy")]
+    kiln = kiln_with_configs(
+        evals, [a_spec("zz")], {"a": cant_load(400, "Bad config.")}
+    )
+    readiness = await check(kiln)
+    # Kiln's own full stop is not doubled.
+    assert readiness.warnings == [warning("Tone", EVALS_LINK, "Bad config")]
+
+
+async def test_each_eval_kiln_cant_load_gets_its_warning_after_the_load_errors():
+    envelope = {
+        "evals": [an_eval("a", "Tone"), an_eval("b", "Accuracy"), an_eval("c")],
+        "load_error_count": 1,
+    }
+    kiln = kiln_with(evals=envelope)
+    for eval_id in ("a", "b"):
+        path = f"{BASE}/evals/{eval_id}/eval_config/ec_1"
+        kiln.routes[("GET", path)] = cant_load()
+    readiness = await check(kiln)
+    assert readiness.problem is None
+    assert readiness.step_text == (
+        "1 run config · 1 eval the tuner can measure (2 left out)"
+    )
+    assert readiness.warnings == [
+        "Kiln couldn't load 1 eval of this task, so the run can't measure it.",
+        warning("Tone", EVALS_LINK),
+        warning("Accuracy", EVALS_LINK),
+    ]
+
+
+async def test_when_kiln_can_load_none_of_the_evals_the_task_isnt_ready():
+    evals = [an_eval("a", "Tone"), an_eval("b", "Accuracy")]
+    kiln = kiln_with_configs(evals, [], {"a": cant_load(), "b": cant_load(400)})
+    readiness = await check(kiln)
+    problem = readiness.problem
+    assert problem is not None
+    assert problem.body == (
+        *WHY,
+        "  • An eval it can measure: Kiln can't load any of this task's evals"
+        " (see the warnings).",
+    )
+    assert problem.actions == (EVALS_ACTION,)
+    assert problem.warnings == (
+        warning("Tone", EVALS_LINK),
+        warning("Accuracy", EVALS_LINK),
+    )
+    assert (readiness.measurable, readiness.left_out) == (0, 2)
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+async def test_any_other_error_reading_an_eval_config_still_stops(status):
+    broken = KilnAPIError("GET", "config", status, {"detail": "boom"})
+    kiln = kiln_with_configs([an_eval("a", "Tone")], [], {"a": broken})
+    with pytest.raises(KilnAPIError) as raised:
+        await check(kiln)
+    assert raised.value is broken

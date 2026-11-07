@@ -1,4 +1,4 @@
-"""`prepare_start` end to end on a fake Kiln: the header, the Kiln check,
+"""`prepare_start` end to end on a fake Kiln: the welcome, the Kiln check,
 the demo copy, the project and task pickers, the readiness check and the
 API-key check, each with its step line; then, in a guided start, the
 questions, the key check again for a new policy, the summary with the rerun
@@ -36,6 +36,7 @@ from onboarding_fakes import (
 
 from kiln_harness_tuner import __version__
 from kiln_harness_tuner.cli import ConfigRenderError, build_parser, load_model_policy
+from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.model_policy import ModelPolicy, Rule
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE, IMPORT_PATH
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
@@ -182,7 +183,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
     assert (args.model_policy, args.min_effect, args.noise_check) == (None, None, 0)
     assert (args.max_concurrent_evals, args.max_concurrent_agents) == (4, 4)
     assert terminal.transcript == [
-        f"header Kiln Harness Tuner {__version__}",
+        f"welcome Kiln Harness Tuner v{__version__}",
         "busy Checking Kiln at http://localhost:8757…",
         "step Kiln: 1.0.3 at http://localhost:8757",
         "busy Reading projects…",
@@ -566,6 +567,67 @@ def test_the_readiness_warning_not_guided_comes_before_the_error():
     assert terminal.err == [LOAD_WARNING]
 
 
+TWO_EVALS = [
+    {"id": "eval_1", "name": "Tone", "current_config_id": "ec_1"},
+    {"id": "eval_2", "name": "Accuracy", "current_config_id": "ec_2"},
+]
+TONE_CONFIG = f"{BASE}/evals/eval_1/eval_config/ec_1"
+
+
+def tone_answers(status: int) -> KilnAPIError:
+    return KilnAPIError(
+        "GET",
+        TONE_CONFIG,
+        status,
+        {"error_messages": [": Value error, Invalid Jinja2 template"]},
+    )
+
+
+def with_tone_answering(answer: object) -> RouteKiln:
+    """The demo's task with two evals, whose "Tone" config read gives
+    `answer`."""
+    kiln = two_projects(evals=TWO_EVALS)
+    kiln.routes[("GET", f"{BASE}/evals/eval_2/eval_config/ec_2")] = eval_config()
+    kiln.routes[("GET", TONE_CONFIG)] = answer
+    return kiln
+
+
+TONE_WARNING = (
+    'Kiln can\'t load eval "Tone": Invalid Jinja2 template.\n'
+    "  The run leaves it out. To use it, fix its judge in Kiln, or update Kiln if\n"
+    f"  the eval was made with a newer version: {HOST}/specs/{PROJECT_ID}/{TASK_ID}"
+)
+
+
+def test_an_eval_kiln_cant_load_is_left_out_of_a_guided_start_with_a_warning():
+    terminal = ScriptedTerminal()
+    start_answered(with_tone_answering(tone_answers(422)), terminal, EVERY_FLAG)
+    ready = terminal.transcript.index(
+        "step Ready: 1 run config · 1 eval the tuner can measure (1 left out)"
+    )
+    assert terminal.transcript[ready + 1] == f"warn {TONE_WARNING}"
+    assert terminal.blocks == []
+    # The key check reads no judge for it.
+    assert "step API keys: Fireworks AI" in terminal.transcript
+
+
+def test_not_guided_an_eval_kiln_cant_load_warns_on_stderr_and_the_start_goes_on():
+    terminal = ScriptedTerminal(interactive=False)
+    args = start(with_tone_answering(tone_answers(400)), terminal, EVERY_FLAG)
+    assert args.task_id == TASK_ID
+    assert terminal.err == [TONE_WARNING]
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500])
+def test_any_other_error_on_an_eval_config_stops_the_start(status):
+    error = tone_answers(status)
+    terminal = ScriptedTerminal()
+    with pytest.raises(KilnAPIError) as raised:
+        start_answered(with_tone_answering(error), terminal, EVERY_FLAG)
+    assert raised.value is error
+    assert terminal.blocks == [] and terminal.questions == []
+
+
 def test_ctrl_c_at_the_picker_stops_with_130():
     with pytest.raises(OnboardingStopped) as stopped:
         start(two_projects(), ScriptedTerminal([KeyboardInterrupt()]), [])
@@ -643,10 +705,13 @@ def missing_key_bodies(terminal: ScriptedTerminal) -> list[tuple[str, ...]]:
 
 def test_a_retry_sees_a_judge_changed_in_kiln():
     kiln = two_projects()
-    # The user moves Tone to a code eval while the key menu waits.
+    legacy_judge = eval_config(
+        {"eval_steps": ["Is it polite?"]}, model_provider="openai"
+    )
+    # The readiness check reads the config, then the key check does; the user
+    # moves Tone to a code eval while the key menu waits.
     kiln.routes[("GET", f"{BASE}/evals/eval_1/eval_config/ec_1")] = responses(
-        eval_config({"eval_steps": ["Is it polite?"]}, model_provider="openai"),
-        eval_config(),
+        legacy_judge, legacy_judge, eval_config()
     )
     terminal = ScriptedTerminal(["r"])
     start_answered(kiln, terminal, EVERY_FLAG)

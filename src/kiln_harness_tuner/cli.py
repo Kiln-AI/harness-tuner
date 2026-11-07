@@ -29,6 +29,8 @@ from typing import Any
 from rich.console import Console
 
 from kiln_harness_tuner.analysis import AnalysisError, Analyzer
+from kiln_harness_tuner.contract import ContractPreflightError
+from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.agent_cli import (
     DEFAULT_AGENT_CLI,
     AgentCli,
@@ -51,7 +53,13 @@ from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSetError
 from kiln_harness_tuner.install_agents import InstallError
 from kiln_harness_tuner.install_agents import install as install_agents
-from kiln_harness_tuner.kiln import DEFAULT_KILN_HOST, KilnClient, KilnError
+from kiln_harness_tuner.kiln import (
+    DEFAULT_KILN_HOST,
+    KilnAPIError,
+    KilnClient,
+    KilnError,
+    KilnTransportError,
+)
 from kiln_harness_tuner.logbook import configure_run_logging
 from kiln_harness_tuner.memory import (
     BaselineRecordMissingError,
@@ -60,12 +68,20 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
+from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import (
     OnboardingError,
     OnboardingStopped,
     prepare_start,
 )
 from kiln_harness_tuner.onboarding.demo import demo_fence_root
+from kiln_harness_tuner.onboarding.error_screen import (
+    RunProgress,
+    ending_lines,
+    error_body,
+    show_closing_line,
+    show_error,
+)
 from kiln_harness_tuner.onboarding.questions import (
     number_text,
     parse_budget,
@@ -82,7 +98,12 @@ from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.reference_check import REFERENCE_CHECK_MODES
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
-from kiln_harness_tuner.setup import SetupError
+from kiln_harness_tuner.setup import (
+    EvalSplitAuditError,
+    SetupDescribeError,
+    SetupError,
+    SetupPreconditionError,
+)
 from kiln_harness_tuner.skill_installer import sweep_staging
 from kiln_harness_tuner.status import RunStatusTracker, make_run_id
 from kiln_harness_tuner.ui import LiveUi, PlainUi
@@ -1192,6 +1213,12 @@ def _acquire_run_lock(
     return RunLock(lock_path, fd)
 
 
+# How far this invocation got, for the error screen's ending: `_run` fills it
+# in as the agent CLI check passes, the run folder is made, and the spend
+# meter and the report writer are built. `main` resets it.
+_RUN_PROGRESS = RunProgress()
+
+
 async def _run(args: argparse.Namespace) -> str:
     try:
         agent_cli = parse_agent_cli(args.agent_cli)
@@ -1209,6 +1236,7 @@ async def _run(args: argparse.Namespace) -> str:
     # Before the run lock and the run directory: a CLI that cannot answer
     # leaves nothing behind.
     await check_agent_cli(agent_cli, target, models, efforts)
+    _RUN_PROGRESS.cli_checked = True
     policy = load_model_policy(args.model_policy)
     runs_root = REPO_ROOT / "runs"
     lock = _acquire_run_lock(runs_root, target.task_id, target.project_id)
@@ -1218,6 +1246,7 @@ async def _run(args: argparse.Namespace) -> str:
         run_started_at = datetime.now()
         run_id = _unique_run_id(runs_root, run_started_at)
         run_dir = runs_root / run_id
+        _RUN_PROGRESS.run_dir = run_dir
         # Diagnostics to `runs/<run_id>/kiln-harness-tuner.log` from the first moment
         # the run has a directory — before `render_run_configs`, so a startup failure
         # there is in the file too. File only: the live UI owns the
@@ -1294,6 +1323,7 @@ async def _run(args: argparse.Namespace) -> str:
                 noise_check_items=args.noise_check,
                 model_preflight=not args.skip_model_preflight,
             )
+            _RUN_PROGRESS.spend = ctx.spend
             # The tracker MUST share Ctx.clock's domain — run_start's monotonic
             # `deadline` is compared against the tracker's clock.
             tracker = RunStatusTracker(
@@ -1318,6 +1348,7 @@ async def _run(args: argparse.Namespace) -> str:
                 # — re-point it at the fan-out now that it exists.
                 ctx.analyzer.log = ctx.log
                 report_writer = ReportWriter(tracker, run_id, REPO_ROOT / "reports")
+                _RUN_PROGRESS.report_path = report_writer.report_path
                 ctx.write_report = report_writer
                 # Agent-free report for fatal/circuit-break exits: a
                 # report always ships, whatever the exit.
@@ -1373,7 +1404,62 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
                 loop.remove_signal_handler(sig)
 
 
+# The error screen's title for each error that stops the start or the run,
+# most specific first: the first `isinstance` match wins. Kept here, not in
+# the error screen's module, because it names `PreflightError`, and only the
+# composition root may import a dispatcher (tests/test_dispatch_boundary.py).
+ERROR_TITLES: tuple[tuple[type[BaseException], str], ...] = (
+    (KilnTransportError, "Lost the connection to Kiln"),
+    (KilnAPIError, "Kiln returned an error"),
+    (RunLockError, "Another run is already using this task"),
+    (PreflightError, "The tuner's agents couldn't start"),
+    (ConfigRenderError, "A start-up option needs fixing"),
+    (EvalSplitAuditError, "Some evals have no train or val split"),
+    (SetupDescribeError, "The tuner couldn't describe an eval"),
+    (UnderpoweredEvalsError, "No eval can show a win on val"),
+    (ModelPreflightError, "The task's model failed its test call"),
+    (SetupPreconditionError, "The task isn't set up the way the tuner needs"),
+    (SetupError, "Setup stopped the run"),
+    (BaselineRecordMissingError, "The task has no baseline the tuner can use"),
+    (ContractPreflightError, "Kiln's API isn't what the tuner expects"),
+    (AnalysisError, "Measuring a candidate failed"),
+    (MemoryWriteRefused, "The tuner refused an unsafe memory write"),
+    (RecordKindError, "An agent named the wrong kind of record"),
+    (QuarantineError, "The tuner couldn't tell the splits apart"),
+    (TrainSetError, "The train split isn't clear"),
+)
+FALLBACK_TITLE = "The run stopped"
+
+# The errors `main` shows on the error screen instead of a traceback. They
+# carry instructive messages; anything else is a genuine bug and may raise raw.
+SHOWN_ERRORS: tuple[type[BaseException], ...] = (
+    BaselineRecordMissingError,
+    SetupError,  # setup precondition / split audit / description
+    AnalysisError,
+    KilnError,
+    PreflightError,
+    ConfigRenderError,
+    RunLockError,
+    MemoryWriteRefused,  # a refused lifecycle write that reached the top
+    RecordKindError,  # an agent-supplied id of the wrong record kind
+    QuarantineError,  # the splits could not be decided
+    TrainSetError,  # the train boundary is unclear: no agent may start
+)
+
+
+def title_for(exc: BaseException) -> str:
+    """The error screen's title for `exc`."""
+    if isinstance(exc, OnboardingError):
+        return exc.title
+    return next(
+        (title for kind, title in ERROR_TITLES if isinstance(exc, kind)),
+        FALLBACK_TITLE,
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    global _RUN_PROGRESS
+    _RUN_PROGRESS = RunProgress()
     parser = build_parser()
     raw_argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(raw_argv)
@@ -1391,9 +1477,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{PROG}: stopped.", file=sys.stderr)
         return stop.exit_code
     except OnboardingError as exc:
-        # A guided start has already shown it, as a block on the terminal.
-        if not exc.shown:
-            print(f"{PROG}: {exc}", file=sys.stderr)
+        if exc.shown:
+            # A guided start has already shown it, as a block on the terminal.
+            show_closing_line(PROG)
+        else:
+            show_error(exc.title, exc.body, ending_lines(_RUN_PROGRESS), prog=PROG)
         return 1
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
@@ -1403,22 +1491,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 128 + signum  # 143 for SIGTERM, 129 for SIGHUP: the shell's codes
-    except (
-        BaselineRecordMissingError,
-        SetupError,  # setup precondition / split audit / description
-        AnalysisError,
-        KilnError,
-        PreflightError,
-        ConfigRenderError,
-        RunLockError,
-        MemoryWriteRefused,  # a refused lifecycle write that reached the top
-        RecordKindError,  # an agent-supplied id of the wrong record kind
-        QuarantineError,  # the splits could not be decided
-        TrainSetError,  # the train boundary is unclear: no agent may start
-    ) as exc:
-        # The hard errors carry instructive messages — land them instead
-        # of a traceback. Anything else is a genuine bug and may raise raw.
-        print(f"{PROG}: {exc}", file=sys.stderr)
+    except SHOWN_ERRORS as exc:
+        show_error(
+            title_for(exc),
+            error_body(exc, host=args.kiln_host),
+            ending_lines(_RUN_PROGRESS),
+            prog=PROG,
+        )
         return 1
     print(f"{PROG}: run finished — {result}")
     return 0

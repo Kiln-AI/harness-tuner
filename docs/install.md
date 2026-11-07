@@ -275,17 +275,19 @@ warns and goes on, and a later call to a missing API fails with its own error:
 ```
 
 **Not guided** (CI, a script, a pipe, another agent, or `--no-interaction`),
-there is no menu. The title and the explanation go to stderr, prefixed
-`kiln-harness-tuner:`, with the address of each page the menu would have
-opened when the explanation doesn't already give it, and the CLI exits 1
-without reading any input:
+there is no menu. The title goes to stderr as
+`kiln-harness-tuner: error: <title>`, then the explanation, with the address
+of each page the menu would have opened when the explanation doesn't already
+give it, and the CLI exits 1 without reading any input:
 
 ```
-kiln-harness-tuner: Kiln isn't running at http://localhost:8757
+kiln-harness-tuner: error: Kiln isn't running at http://localhost:8757
   The tuner works through the Kiln app, so Kiln has to be open on this computer.
     1. Install Kiln if you don't have it: https://kiln.tech/download
     2. Open the Kiln app and wait for its window to appear.
   Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.
+  Nothing was spent and no run folder was created.
+kiln-harness-tuner stopped with an error (exit 1)
 ```
 
 The later start-up checks — the project and the task, the readiness of the
@@ -567,7 +569,8 @@ start is **guided** when its stdin and its stdout are both terminals and
 `--no-interaction` isn't given. Without a terminal (CI, a script, a pipe,
 another agent) it is never guided, flag or not.
 
-**A guided start** prints a header line, then one step line per finished step:
+**A guided start** opens with a box that names the tool, its version and what
+it does, then prints one step line per finished step:
 `✓` in green for a step that passed, `✗` in red for a check that failed, and
 `!` in yellow for a warning, each with a fixed-width label. While it calls
 Kiln, a spinner says what it is doing, such as `Reading projects…` or
@@ -596,15 +599,45 @@ answer, and shows a summary before it starts the run
 
 **A start that isn't guided** asks nothing and waits for nothing. It runs the
 same checks in the same order, and prints the step lines as plain text, with no
-symbols, colour or spinners.
+symbols, colour or spinners. It prints no welcome box.
 
-- A failed check prints its title and explanation to stderr, prefixed
-  `kiln-harness-tuner:`, and the CLI exits 1.
+- A failed check prints its title to stderr as
+  `kiln-harness-tuner: error: <title>`, then its explanation, and the CLI
+  exits 1.
 - A missing `--project-id` or `--task-id`, when Kiln has more than one to
   choose from, is an error that lists them
   ([your-own-task.md](your-own-task.md) section 5).
 - Every option not given takes its default. The summary is printed, and the
   run starts.
+
+**An error that stops the start or the run** is shown the same way every
+time, on stderr. On a terminal it is a red `✗` title, the error's own lines,
+what the stop left behind, and a last line:
+
+```
+✗ Kiln returned an error
+
+  GET /api/projects/424242189194/tasks/424242920784/evals/424242136270/eval_config/424242913607
+  HTTP 500: Internal Server Error
+
+  The run stopped. Spent $3.20 so far (agents and the task's model calls).
+  Run folder: /Users/you/harness-tuner/runs/261107-1412
+  Report: /Users/you/harness-tuner/reports/kiln-harness-tuner-261107-1412.md
+
+kiln-harness-tuner stopped with an error (exit 1)
+```
+
+- **The title** says what kind of error it is, for example
+  `Lost the connection to Kiln` or `Another run is already using this task`.
+- **A Kiln error** shows the request and Kiln's own message. A lost connection
+  also asks whether Kiln is still running.
+- **What the stop left behind** is one of three: nothing spent and no run
+  folder; only the agent CLI's one test prompt spent; or the run's spend so
+  far, its run folder, and its report when one was written.
+- **Without a terminal** the same lines are plain text, and the first line is
+  `kiln-harness-tuner: error: <title>`.
+- A failed check that a guided start has already shown as a `✗` block is not
+  shown again. Only the last line follows it.
 
 A guided start writes its steps, its prompts and its summary to stdout. A
 start that isn't guided writes its step lines and summary to stdout, and its
@@ -644,7 +677,12 @@ In a terminal, the start checks Kiln, makes the copy, checks it, and asks its
 questions. With each pre-filled answer accepted, the screen ends like this:
 
 ```
-Kiln Harness Tuner 0.1.0
+╭──────────────────────────────────────────────────────────────────╮
+│ Kiln Harness Tuner                                        v0.1.0 │
+│                                                                  │
+│ Automatically improves an AI agent by tuning its harness: the    │
+│ prompt, model, tools, skills and settings around it.             │
+╰──────────────────────────────────────────────────────────────────╯
 
 ✓ Kiln      1.2.0 at http://localhost:8757
 ✓ Demo      ~/Kiln Projects/Forum Moderation, imported as project 731954460212

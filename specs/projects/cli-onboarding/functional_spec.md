@@ -590,12 +590,12 @@ Every error that stops the start or the run is shown the same way. This covers e
 ```
 ✗ Kiln returned an error
 
-  GET /api/projects/189194447825/tasks/920784333097/evals/136270422521/eval_config/913607815753
+  GET /api/projects/424242189194/tasks/424242920784/evals/424242136270/eval_config/424242913607
   HTTP 422: Invalid Jinja2 template: No filter named 'trace_overview'
 
   The run stopped. Spent $3.20 so far (agents and the task's model calls).
-  Run folder: /Users/you/harness-tuner/runs/20261107-1412
-  Report: /Users/you/harness-tuner/reports/kiln-harness-tuner-20261107-1412.md
+  Run folder: /Users/you/harness-tuner/runs/261107-1412
+  Report: /Users/you/harness-tuner/reports/kiln-harness-tuner-261107-1412.md
 
 kiln-harness-tuner stopped with an error (exit 1)
 ```
@@ -620,8 +620,9 @@ The title is red and bold, one short line per kind of error. The most specific c
 | `SetupPreconditionError` | The task isn't set up the way the tuner needs |
 | any other `SetupError` | Setup stopped the run |
 | `BaselineRecordMissingError` | The task has no baseline the tuner can use |
+| `ContractPreflightError` | Kiln's API isn't what the tuner expects |
 | `AnalysisError` | Measuring a candidate failed |
-| `MemoryWriteRefused` | Kiln refused a memory write |
+| `MemoryWriteRefused` | The tuner refused an unsafe memory write |
 | `RecordKindError` | An agent named the wrong kind of record |
 | `QuarantineError` | The tuner couldn't tell the splits apart |
 | `TrainSetError` | The train split isn't clear |
@@ -676,7 +677,7 @@ The last line is `kiln-harness-tuner stopped with an error (exit 1)`, dimmed. Th
 
 - The link is the eval's own page when its spec is known, and the evals list otherwise.
 - The passed step line counts only the evals that load, and adds `(N left out)`: `✓ Ready     2 run configs · 2 evals the tuner can measure (1 left out)`.
-- **When every measurable eval is one Kiln can't load,** readiness fails. Its eval line reads `• An eval it can measure: Kiln can't load any of this task's evals (see above).`, with the `e) Open Evals in Kiln` action.
+- **When every measurable eval is one Kiln can't load,** readiness fails. Its eval line reads `• An eval it can measure: Kiln can't load any of this task's evals (see the warnings).`, with the `e) Open Evals in Kiln` action.
 - **Not guided,** the warnings go to stderr as `kiln-harness-tuner: …` lines, and the run goes on.
 
 **The key check** (§7) skips an eval Kiln can't load, because its judge's provider can't be read.

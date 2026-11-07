@@ -318,6 +318,12 @@ class Ctx:
     #   is measured (`quarantine.new_eval_split_problem`). None = no check.
     startup_eval_ids: frozenset[str] | None = None
     checked_evals: dict[str, str | None] = field(default_factory=dict)
+    # The active evals whose config Kiln can't load (eval id -> its name and
+    # Kiln's reason), set by setup: the whole run leaves them out.
+    #   `unloadable_eval_ids`: every eval setup found Kiln can't load, active
+    #   or not — a read that loads its config would fail the same way.
+    unloadable_evals: dict[str, tuple[str, str]] = field(default_factory=dict)
+    unloadable_eval_ids: frozenset[str] = frozenset()
     policy_exempt_rcs: set[str] = field(default_factory=set)
     # `measure_baseline_first`: measure the baseline on train
     #   (every active eval, the full split) at setup when its stored rows do
@@ -2442,7 +2448,8 @@ def _coverage_shortfall(
 async def _active_evals(ctx: Ctx) -> list[tuple[dict[str, Any], str]]:
     """The active set, pinned: an eval with a spec is active iff the
     spec's status is "active"; no default eval config → non-active (each eval
-    always runs its default config, never loop-chosen)."""
+    always runs its default config, never loop-chosen). An eval Kiln couldn't
+    load at setup is left out for the whole run."""
     base = f"/api/projects/{ctx.target.project_id}/tasks/{ctx.target.task_id}"
     # Same envelope the setup read handles, and the same reason to go through
     # one reader: an unwrapped body here is a dict, and iterating it yields its
@@ -2461,7 +2468,8 @@ async def _active_evals(ctx: Ctx) -> list[tuple[dict[str, Any], str]]:
     return [
         (eval_def, config_id)
         for eval_def, config_id in measurable_evals(evals, specs)
-        if not _new_eval_refused(ctx, str(eval_def["id"]))
+        if str(eval_def["id"]) not in ctx.unloadable_evals
+        and not _new_eval_refused(ctx, str(eval_def["id"]))
     ]
 
 

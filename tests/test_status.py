@@ -19,6 +19,7 @@ from kiln_harness_tuner.schemas import (
     MergeWork,
     PromotionDecision,
     SetupReport,
+    UnloadableEval,
     WinRef,
 )
 from kiln_harness_tuner.status import (
@@ -543,6 +544,18 @@ def test_setup_ok_folds_the_same_way():
     tracker.event("setup_ok", report=report)
 
     assert tracker.snapshot().setup == report
+
+
+def test_each_eval_kiln_cant_load_is_recorded():
+    tracker = make_tracker()
+    tracker.event(
+        "eval_unloadable", eval_id="e1", name="Tone", reason="bad", line="Kiln …"
+    )
+    tracker.event("eval_unloadable", eval_id="e2", reason="worse")
+    assert tracker.snapshot().unloadable_evals == [
+        UnloadableEval(eval_id="e1", name="Tone", reason="bad"),
+        UnloadableEval(eval_id="e2", name="e2", reason="worse"),
+    ]
 
 
 def test_a_setup_event_without_a_report_is_ignored():

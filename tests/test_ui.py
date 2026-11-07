@@ -740,6 +740,24 @@ def test_both_uis_voice_the_setup_phase():
         assert "setup: 2 of 2 evals active — in sync" in text
 
 
+def test_both_views_print_each_eval_kiln_cant_load():
+    line = (
+        'Kiln can\'t load eval "Tone": bad. The run leaves it out. To use it, fix'
+        " its judge in Kiln, or update Kiln if the eval was made with a newer"
+        " version."
+    )
+    for build in (
+        lambda console: LiveUi(make_tracker(), console=console),
+        lambda console: PlainUi(make_tracker(), console=console),
+    ):
+        console, out = capture_console()
+        with build(console) as ui:
+            ui.event(
+                "eval_unloadable", eval_id="e1", name="Tone", reason="bad", line=line
+            )
+        assert 'Kiln can\'t load eval "Tone": bad.' in out.getvalue()
+
+
 def test_live_ui_carries_exactly_one_totals_row_at_a_time():
     # Always visible, always exactly one — before wave 1, during a wave,
     # and (as the exit block's frozen row) after exit.

@@ -98,7 +98,14 @@ def test_a_running_new_kiln_passes_with_its_step_line():
     kiln = make_kiln()
     terminal = ScriptedTerminal()
     start(kiln, terminal)
-    assert terminal.headers == [f"Kiln Harness Tuner {__version__}"]
+    assert terminal.welcomes == [
+        (
+            "Kiln Harness Tuner",
+            __version__,
+            "Automatically improves an AI agent by tuning its harness: the"
+            " prompt, model, tools, skills and settings around it.",
+        )
+    ]
     assert terminal.steps[0] == ("ok", "Kiln", "1.0.3 at http://localhost:8757")
     assert terminal.busy_texts[0] == "Checking Kiln at http://localhost:8757…"
     assert terminal.blocks == [] and terminal.err == []

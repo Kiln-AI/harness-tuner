@@ -22,8 +22,11 @@ from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent, merge_key_bin
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import Output
 from questionary.prompts.common import InquirerControl
+from rich.box import ROUNDED
 from rich.cells import cell_len
-from rich.console import Console
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
@@ -37,6 +40,9 @@ from kiln_harness_tuner.onboarding.terminal import (
 
 T = TypeVar("T")
 
+# The `primary` colour of Kiln's web UI (its tailwind config).
+KILN_BLUE = "#415CF5"
+WELCOME_MAX_WIDTH = 68
 LABEL_WIDTH = 9
 COLUMN_GAP = "   "
 PICK_HINT = "↑↓ move · type to filter · Enter pick"
@@ -177,8 +183,22 @@ class RichTerminal:
             text, soft_wrap=True, markup=False, highlight=False, emoji=False
         )
 
-    def header(self, text: str) -> None:
-        self._print(Text(text, style="bold"))
+    def welcome(self, title: str, version: str, description: str) -> None:
+        title_row = Table.grid(expand=True)
+        title_row.add_column()
+        title_row.add_column(justify="right")
+        title_row.add_row(
+            Text(title, style=f"bold {KILN_BLUE}"), Text(f"v{version}", style="dim")
+        )
+        self.console.print(
+            Panel(
+                Group(title_row, Text(), Text(description)),
+                box=ROUNDED,
+                padding=(0, 1),
+                width=min(self.console.width, WELCOME_MAX_WIDTH),
+                border_style=KILN_BLUE,
+            )
+        )
         self._print()
 
     def step(self, status: StepStatus, label: str, text: str) -> None:
@@ -329,7 +349,7 @@ class PlainTerminal:
     def __init__(self, prog: str):
         self.prog = prog
 
-    def header(self, text: str) -> None:
+    def welcome(self, title: str, version: str, description: str) -> None:
         pass
 
     def step(self, status: StepStatus, label: str, text: str) -> None:

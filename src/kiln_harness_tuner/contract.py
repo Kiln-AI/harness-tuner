@@ -90,7 +90,9 @@ async def contract_preflight(ctx: Ctx, baseline_rc_id: str) -> dict[str, Any]:
         config_id = (
             eval_def.get("current_config_id") if isinstance(eval_def, dict) else None
         )
-        if not config_id:
+        # An eval Kiln can't load, active or not, answers its results read
+        # the same way, and it is not in the run.
+        if not config_id or str(eval_def["id"]) in ctx.unloadable_eval_ids:
             continue
         route = f"GET {base}/evals/{eval_def['id']}/…/results?split=train"
         rows = await ctx.analyzer.stored_results(

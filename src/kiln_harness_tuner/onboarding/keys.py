@@ -19,15 +19,12 @@ from typing import Any
 
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.job_drives import MULTI_TURN_MODE
-from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriter
 from kiln_harness_tuner.model_policy import ModelPolicy, run_config_pair
 from kiln_harness_tuner.onboarding import kiln_urls
 from kiln_harness_tuner.onboarding.terminal import Action, ActionKind, Problem
 from kiln_harness_tuner.quarantine import task_dirs
 from kiln_harness_tuner.setup import (
-    CONFIG_GONE_STATUSES,
-    SETUP_CONFIG_READ_CONCURRENCY,
     SetupPreconditionError,
     _require_rows,
     _run_config_id,
@@ -35,6 +32,7 @@ from kiln_harness_tuner.setup import (
     choose_baseline_rc,
     eval_rows_from_response,
     measurable_evals,
+    read_eval_configs,
     unreadable_response_message,
 )
 
@@ -207,36 +205,14 @@ async def _judge_needs(
     kiln: KilnApi, base: str, measurable: Sequence[tuple[dict[str, Any], str]]
 ) -> list[Need]:
     """The judge provider of each eval the loop measures, from the eval's
-    default config. Bounded like setup's own config reads."""
-    semaphore = asyncio.Semaphore(SETUP_CONFIG_READ_CONCURRENCY)
-
-    async def provider_of(eval_id: str, config_id: str) -> str | None:
-        async with semaphore:
-            config = await _eval_config(
-                kiln, f"{base}/evals/{eval_id}/eval_config/{config_id}"
-            )
-        return judge_provider(config)
-
-    providers = await asyncio.gather(
-        *(provider_of(str(row["id"]), config_id) for row, config_id in measurable)
-    )
+    default config. An eval Kiln can't load is left out of the run, and its
+    judge's provider can't be read, so it needs no key."""
+    reads = await read_eval_configs(kiln, base, measurable)
     return [
         Need(provider, f'eval "{_text(row.get("name")) or row["id"]}"\'s judge')
-        for (row, _config_id), provider in zip(measurable, providers, strict=True)
-        if provider is not None
+        for (row, _config_id), read in zip(measurable, reads, strict=True)
+        if (provider := judge_provider(read.config)) is not None
     ]
-
-
-async def _eval_config(kiln: KilnApi, path: str) -> Any:
-    """The eval config, or `None` when it is gone. Setup's rule: a 404 or a
-    410 is a real answer, and any other error means the config couldn't be
-    read, so it propagates."""
-    try:
-        return await kiln.call("GET", path)
-    except KilnAPIError as exc:
-        if exc.status_code not in CONFIG_GONE_STATUSES:
-            raise
-        return None
 
 
 def simulated_user_providers(project_path: Path, task_id: str) -> set[str]:

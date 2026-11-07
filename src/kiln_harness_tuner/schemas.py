@@ -1159,6 +1159,15 @@ class SetupReport(BaseModel):
     baseline_rc_id: str | None = None
 
 
+class UnloadableEval(BaseModel):
+    """An active eval whose default config Kiln can't load, with Kiln's
+    reason: the run leaves it out (`eval_unloadable` events)."""
+
+    eval_id: str
+    name: str
+    reason: str
+
+
 Objective = Literal["quality", "speed", "cost"]
 # `--objective`: what the loop optimises. quality = the eval scores (the
 # behaviour before the other objectives); speed = per-request wall-clock latency, and
@@ -2033,6 +2042,9 @@ class RunStatus(BaseModel):
     setup: SetupReport | None = None  # the pre-flight setup phase's record
     #   folded from the `setup_sync`/`setup_ok` event —
     #   None only until the phase has run (or in a RunStatus built by hand)
+    # The active evals Kiln can't load, which this run left out
+    # (`eval_unloadable` events) — the report's `Left out:` line.
+    unloadable_evals: list[UnloadableEval] = []
     # First-class hole accounting: coverage and hole facts are counted here,
     # not only as prose inside agent findings.
     budget_usd: float | None = None  # --budget-usd, from run_start (None = no cap)

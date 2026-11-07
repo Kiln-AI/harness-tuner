@@ -21,6 +21,7 @@ from kiln_harness_tuner.onboarding.console import (
     graphical_browser_expected,
 )
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
+from kiln_harness_tuner.onboarding.flow import WELCOME_DESCRIPTION
 from kiln_harness_tuner.onboarding.terminal import ENTER as ENTER_ACTION_KEY
 from kiln_harness_tuner.onboarding.terminal import Action, ActionKind, Option
 
@@ -252,23 +253,81 @@ def test_ctrl_c_and_ctrl_d_stop_every_prompt(keys, prompt, key, exit_code):
 # ---- output ----
 
 
-def test_header_step_warn_and_say():
+def test_step_warn_and_say():
     terminal = RichTerminal(PROG, console=captured_console())
-    terminal.header("Kiln Harness Tuner 0.1.0")
     terminal.step("ok", "Kiln", "1.2.0 at http://localhost:8757")
     terminal.step("fail", "API keys", "missing")
     terminal.step("warn", "Ready", "maybe")
     terminal.warn("Couldn't read Kiln's API list, so its version wasn't checked.")
     terminal.say("A [bold] word stays as typed.")
     assert output(terminal) == (
-        "Kiln Harness Tuner 0.1.0\n"
-        "\n"
         "✓ Kiln      1.2.0 at http://localhost:8757\n"
         "✗ API keys  missing\n"
         "! Ready     maybe\n"
         "! Couldn't read Kiln's API list, so its version wasn't checked.\n"
         "A [bold] word stays as typed.\n"
     )
+
+
+# ---- the welcome box ----
+
+
+def welcome(console: Console) -> str:
+    RichTerminal(PROG, console=console).welcome(
+        "Kiln Harness Tuner", "0.1.0", WELCOME_DESCRIPTION
+    )
+    return console.file.getvalue()
+
+
+def test_the_welcome_box_holds_the_title_the_version_and_the_description():
+    assert welcome(captured_console()) == (
+        "╭──────────────────────────────────────────────────────────────────╮\n"
+        "│ Kiln Harness Tuner                                        v0.1.0 │\n"
+        "│                                                                  │\n"
+        "│ Automatically improves an AI agent by tuning its harness: the    │\n"
+        "│ prompt, model, tools, skills and settings around it.             │\n"
+        "╰──────────────────────────────────────────────────────────────────╯\n"
+        "\n"
+    )
+
+
+def test_the_welcome_box_is_capped_at_68_columns_and_wraps_when_narrower():
+    wide = welcome(captured_console()).splitlines()
+    assert {len(line) for line in wide if line} == {68}
+    narrow = Console(
+        file=io.StringIO(), force_terminal=True, color_system=None, width=40
+    )
+    assert welcome(narrow).splitlines() == [
+        "╭──────────────────────────────────────╮",
+        "│ Kiln Harness Tuner            v0.1.0 │",
+        "│                                      │",
+        "│ Automatically improves an AI agent   │",
+        "│ by tuning its harness: the prompt,   │",
+        "│ model, tools, skills and settings    │",
+        "│ around it.                           │",
+        "╰──────────────────────────────────────╯",
+        "",
+    ]
+
+
+def test_the_welcome_box_is_kiln_blue_and_no_color_keeps_only_the_text(
+    monkeypatch,
+):
+    def rendered(**env) -> str:
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        console = Console(
+            file=io.StringIO(), force_terminal=True, color_system="truecolor"
+        )
+        return welcome(console)
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    kiln_blue = "38;2;65;92;245"  # #415CF5
+    assert f"\x1b[1;{kiln_blue}mKiln Harness Tuner" in rendered()
+    assert f"\x1b[{kiln_blue}m╭" in rendered()
+    plain = rendered(NO_COLOR="1")
+    assert "38;2" not in plain and "\x1b[3" not in plain
+    assert "Kiln Harness Tuner" in plain and "╭" in plain
 
 
 def test_block_is_set_off_by_blank_lines_and_indented():
@@ -371,7 +430,7 @@ def test_open_url_with_no_graphical_browser_only_prints_the_link(monkeypatch):
 def test_plain_terminal_prints_plain_lines(capsys):
     terminal = PlainTerminal(PROG)
     assert terminal.interactive is False
-    terminal.header("Kiln Harness Tuner 0.1.0")
+    terminal.welcome("Kiln Harness Tuner", "0.1.0", WELCOME_DESCRIPTION)
     with terminal.busy("Checking Kiln…"):
         terminal.step("ok", "Kiln", "1.2.0 at http://localhost:8757")
     terminal.say("hello")

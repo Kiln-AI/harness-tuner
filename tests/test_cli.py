@@ -10,26 +10,37 @@ import pytest
 from rich.console import Console
 
 import kiln_harness_tuner.cli
+from kiln_harness_tuner.analysis import AnalysisError
 from kiln_harness_tuner.cli import (
+    ERROR_TITLES,
     PROG,
+    ConfigRenderError,
+    RunLockError,
     build_parser,
     load_model_policy,
     main,
     render_run_configs,
     target_from_args,
+    title_for,
 )
+from kiln_harness_tuner.contract import ContractPreflightError
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.claude_cli import PreflightError
-from kiln_harness_tuner.memory import BaselineRecordMissingError
+from kiln_harness_tuner.gateway.trainset import TrainSetError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
+from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriteRefused
+from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.demo import demo_fence_root
 from kiln_harness_tuner.onboarding.summary import OptionInfo
+from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
     EvalSplitAuditError,
     SetupDescribeError,
+    SetupError,
     SetupPreconditionError,
     no_run_configs_message,
 )
@@ -354,6 +365,10 @@ def _never_run(seen):
     return fake_run
 
 
+CLOSING = "kiln-harness-tuner stopped with an error (exit 1)\n"
+NOTHING_SPENT = "  Nothing was spent and no run folder was created.\n"
+
+
 def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
     def fails(args, _argv, **_kwargs):
         raise OnboardingError("Kiln isn't running at http://localhost:8757.")
@@ -363,12 +378,16 @@ def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
     assert main(ARGS) == 1
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: Kiln isn't running at http://localhost:8757.\n"
+        "kiln-harness-tuner: error: Kiln isn't running at http://localhost:8757.\n"
+        + NOTHING_SPENT
+        + CLOSING
     )
     assert ran == []
 
 
-def test_main_prints_nothing_for_an_error_the_guided_start_showed(monkeypatch, capsys):
+def test_main_prints_only_the_closing_line_for_an_error_the_guided_start_showed(
+    monkeypatch, capsys
+):
     def shown(args, _argv, **_kwargs):
         error = OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])
         error.shown = True
@@ -378,7 +397,7 @@ def test_main_prints_nothing_for_an_error_the_guided_start_showed(monkeypatch, c
     monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", shown)
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
     assert main(ARGS) == 1
-    assert capsys.readouterr().err == ""
+    assert capsys.readouterr().err == CLOSING
     assert ran == []
 
 
@@ -389,8 +408,152 @@ def test_main_prints_a_titled_error_with_its_body(monkeypatch, capsys):
     monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fails)
     assert main(ARGS) == 1
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: Kiln has no project 999\n  Projects in Kiln:\n"
+        "kiln-harness-tuner: error: Kiln has no project 999\n"
+        "  Projects in Kiln:\n" + NOTHING_SPENT + CLOSING
     )
+
+
+CONFIG_PATH = "/api/projects/424242748186/tasks/424242613304/evals/e1/eval_config/c1"
+JINJA_ERROR = KilnAPIError(
+    "GET",
+    CONFIG_PATH,
+    500,
+    {"error_messages": [": Value error, Invalid Jinja2 template: no 'x' filter"]},
+)
+JINJA_BODY = (
+    f"  GET {CONFIG_PATH}\n  HTTP 500: Invalid Jinja2 template: no 'x' filter\n"
+)
+
+
+def test_main_shows_a_kiln_error_before_the_run_with_nothing_spent(monkeypatch, capsys):
+    async def fails(args):
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails)
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "kiln-harness-tuner: error: Kiln returned an error\n"
+        + JINJA_BODY
+        + NOTHING_SPENT
+        + CLOSING
+    )
+
+
+def test_main_after_the_agent_cli_check_names_its_one_test_prompt(
+    monkeypatch, capsys, tmp_path
+):
+    _redirect_roots(monkeypatch, tmp_path)
+
+    def locked(*_args):
+        raise RunLockError("another run (pid 7) is live against task 424242613304.")
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_acquire_run_lock", locked)
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "kiln-harness-tuner: error: Another run is already using this task\n"
+        "  another run (pid 7) is live against task 424242613304.\n"
+        "  The only spend was the agent CLI's one test prompt."
+        " No run folder was created.\n" + CLOSING
+    )
+
+
+@pytest.mark.parametrize("report", [True, False], ids=["report", "no report"])
+def test_main_after_the_run_folder_names_spend_folder_and_report(
+    monkeypatch, capsys, tmp_path, report
+):
+    _redirect_roots(monkeypatch, tmp_path)
+    seen = {}
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        ctx.log.event("spend", source="preflight", cost_usd=1.25)
+        ctx.log.event("spend", source="describe_eval", cost_usd=1.95)
+        seen["run_dir"] = ctx.run_dir
+        if report:
+            seen["report"] = await ctx.write_fallback(ctx, "fatal")
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 1
+    report_line = f"  Report: {seen['report']}\n" if report else ""
+    assert capsys.readouterr().err == (
+        "kiln-harness-tuner: error: Kiln returned an error\n"
+        + JINJA_BODY
+        + "  The run stopped. Spent $3.20 so far"
+        " (agents and the task's model calls).\n"
+        f"  Run folder: {seen['run_dir']}\n" + report_line + CLOSING
+    )
+
+
+def test_each_run_starts_with_nothing_spent(monkeypatch, capsys, tmp_path):
+    """How far one `main` got is not the next one's ending."""
+    _redirect_roots(monkeypatch, tmp_path)
+
+    async def fails_in_the_run(ctx, guidance, timeout_mins):
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fails_in_the_run)
+    assert main(ARGS) == 1
+    assert "Run folder:" in capsys.readouterr().err
+
+    async def fails_at_once(args):
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails_at_once)
+    assert main(ARGS) == 1
+    assert NOTHING_SPENT in capsys.readouterr().err
+
+
+SETUP_ERRORS = [
+    (EvalSplitAuditError("x"), "Some evals have no train or val split"),
+    (
+        SetupDescribeError("e1", "Tone", "rate_limit: 429", attempts=2),
+        "The tuner couldn't describe an eval",
+    ),
+    (UnderpoweredEvalsError("x"), "No eval can show a win on val"),
+    (ModelPreflightError("x"), "The task's model failed its test call"),
+    (
+        SetupPreconditionError("x"),
+        "The task isn't set up the way the tuner needs",
+    ),
+    (SetupError("x"), "Setup stopped the run"),
+]
+
+
+TITLES = [
+    (KilnTransportError("x"), "Lost the connection to Kiln"),
+    (KilnAPIError("GET", "/x", 422, None), "Kiln returned an error"),
+    (KilnError("x"), "The run stopped"),
+    (RunLockError("x"), "Another run is already using this task"),
+    (PreflightError("x"), "The tuner's agents couldn't start"),
+    (ConfigRenderError("x"), "A start-up option needs fixing"),
+    *SETUP_ERRORS,
+    (
+        BaselineRecordMissingError("x"),
+        "The task has no baseline the tuner can use",
+    ),
+    (AnalysisError("x"), "Measuring a candidate failed"),
+    (ContractPreflightError("x"), "Kiln's API isn't what the tuner expects"),
+    (MemoryWriteRefused("x"), "The tuner refused an unsafe memory write"),
+    (RecordKindError("x"), "An agent named the wrong kind of record"),
+    (QuarantineError("x"), "The tuner couldn't tell the splits apart"),
+    (TrainSetError("x"), "The train split isn't clear"),
+    (OnboardingError("Kiln isn't running"), "Kiln isn't running"),
+    (RuntimeError("x"), "The run stopped"),
+]
+
+
+@pytest.mark.parametrize(
+    "error,title", TITLES, ids=[type(error).__name__ for error, _title in TITLES]
+)
+def test_each_error_has_its_title(error, title):
+    assert title_for(error) == title
+
+
+def test_the_titles_are_most_specific_first():
+    # A class listed after one of its bases would never be reached.
+    kinds = [kind for kind, _title in ERROR_TITLES]
+    for i, kind in enumerate(kinds):
+        assert not any(issubclass(kind, base) for base in kinds[:i]), kind
 
 
 @pytest.mark.parametrize("exit_code", [1, 130])

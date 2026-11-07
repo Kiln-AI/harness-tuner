@@ -60,7 +60,7 @@ class ScriptedTerminal:
     def __init__(self, answers: Sequence[Answer] = (), *, interactive: bool = True):
         self.answers = list(answers)
         self.interactive = interactive
-        self.headers: list[str] = []
+        self.welcomes: list[tuple[str, str, str]] = []
         self.steps: list[tuple[StepStatus, str, str]] = []
         self.blocks: list[tuple[str, tuple[str, ...]]] = []
         self.out: list[str] = []
@@ -69,15 +69,15 @@ class ScriptedTerminal:
         self.opened: list[str] = []
         self.asked: list[Asked] = []
         self.options: list[tuple[Option[Any], ...]] = []  # each pick's options
-        # Everything above, in order, one short line each: `step Kiln: …`,
-        # `block <title>`, `say <first line>`, `warn …`, `busy …`, `pick …`,
-        # `act …`, `text …`, `open …`.
+        # Everything above, in order, one short line each: `welcome …`,
+        # `step Kiln: …`, `block <title>`, `say <first line>`, `warn …`,
+        # `busy …`, `pick …`, `act …`, `text …`, `open …`.
         self.transcript: list[str] = []
         self._spinning = False
 
-    def header(self, text: str) -> None:
-        self.headers.append(text)
-        self.transcript.append(f"header {text}")
+    def welcome(self, title: str, version: str, description: str) -> None:
+        self.welcomes.append((title, version, description))
+        self.transcript.append(f"welcome {title} v{version}")
 
     def step(self, status: StepStatus, label: str, text: str) -> None:
         self.steps.append((status, label, text))

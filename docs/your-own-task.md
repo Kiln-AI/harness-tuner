@@ -55,6 +55,30 @@ When Kiln reports evals it couldn't load, a warning says how many, for example
 check doesn't fail on it. Right after it, the start checks that Kiln has a key
 for every provider the run will call ([install.md](install.md) section 6).
 
+**An eval whose default config Kiln can't load** is left out of the run. Kiln
+answers such a config with HTTP 400 or 422, for example when the judge's
+template uses a filter that this version of Kiln doesn't have. The readiness
+check reads each eval's default config, and warns about each one it can't
+load:
+
+```
+! Kiln can't load eval "Tone": Invalid Jinja2 template: No filter named 'trace_overview'.
+  The run leaves it out. To use it, fix its judge in Kiln, or update Kiln if
+  the eval was made with a newer version: http://localhost:8757/specs/<project_id>/<task_id>/<spec_id>/<eval_id>
+```
+
+- The link is the eval's own page when the eval has a spec, and the task's
+  evals otherwise.
+- The step line counts only the evals that load:
+  `✓ Ready     2 run configs · 2 evals the tuner can measure (1 left out)`.
+- When Kiln can load none of the task's evals, the check fails with
+  `• An eval it can measure: Kiln can't load any of this task's evals (see the warnings).`
+- The key check skips the eval, and the run never measures or gates on it.
+  Setup leaves its issue memories as they are, and the report names it under
+  the evals as `Left out: "Tone" (Kiln can't load it: …)`.
+- Any other error on the read still stops the start: Kiln unreachable, HTTP
+  401, 403 or 429, or a 5xx.
+
 ### 1.1 At least one run config
 
 A run config is a complete, runnable configuration of the task: a model, a
@@ -183,10 +207,12 @@ resolved, or the start stops, in a guided start as a `✗` block and otherwise o
 stderr:
 
 ```
-kiln-harness-tuner: --project-path isn't Kiln's folder for project Forum Moderation
+kiln-harness-tuner: error: --project-path isn't Kiln's folder for project Forum Moderation
   --project-path is /a/b,
   but Kiln has project 424242975950 at /c/d.
   Drop --project-path, or pass /c/d.
+  Nothing was spent and no run folder was created.
+kiln-harness-tuner stopped with an error (exit 1)
 ```
 
 The read fence denies the folder it is given, so a wrong path would leave the
@@ -381,7 +407,12 @@ Each finished step leaves one line, so a guided start that has picked its
 project and task reads:
 
 ```
-Kiln Harness Tuner 0.1.0
+╭──────────────────────────────────────────────────────────────────╮
+│ Kiln Harness Tuner                                        v0.1.0 │
+│                                                                  │
+│ Automatically improves an AI agent by tuning its harness: the    │
+│ prompt, model, tools, skills and settings around it.             │
+╰──────────────────────────────────────────────────────────────────╯
 
 ✓ Kiln      1.2.0 at http://localhost:8757
 ✓ Project   Forum Moderation (424242975950)
@@ -469,10 +500,12 @@ never asks. One choice is still used. Two or more is an error that lists them,
 one line each, ID then name:
 
 ```
-kiln-harness-tuner: --project-id is needed when the start isn't guided
+kiln-harness-tuner: error: --project-id is needed when the start isn't guided
   Projects in Kiln:
     424242975950  Forum Moderation
     118230554411  Support Triage
+  Nothing was spent and no run folder was created.
+kiln-harness-tuner stopped with an error (exit 1)
 ```
 
 Tasks are listed the same way, under `--task-id is needed …`. For a `--task-id`
