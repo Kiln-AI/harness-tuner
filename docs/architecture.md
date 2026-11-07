@@ -821,8 +821,9 @@ writer's input. Another host can render it its own way.
 
 - **The live display** (`ui.py`, built on `rich.live`). Completed waves are
   never erased or rewritten — each freezes into scrollback as-is, and only the
-  active wave's block updates. One pinned totals row, always present. `--no-ui`
-  falls back to plain timestamped lines for a non-interactive terminal.
+  active wave's block updates. One pinned totals row, always present.
+  `--no-progress` falls back to plain timestamped lines for a non-interactive
+  terminal.
 - **The wave log** (`wave_log.py`) is the append-only audit trail under
   `runs/<run_id>/`.
 - **The report** — the report-writer agent returns markdown and **code** writes

@@ -28,6 +28,7 @@ from rich.text import Text
 
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.terminal import (
+    ENTER,
     Action,
     Option,
     StepStatus,
@@ -69,6 +70,10 @@ def aligned_rows(options: Sequence[Option[Any]]) -> list[str]:
         ).rstrip()
         for row in cells
     ]
+
+
+def _key_name(action: Action) -> str:
+    return "Enter" if action.key == ENTER else action.key
 
 
 def _exit_with(result: int) -> Callable[[KeyPressEvent], None]:
@@ -219,7 +224,12 @@ class RichTerminal:
             raise OnboardingStopped(1) from None
 
     def pick(
-        self, question: str, options: Sequence[Option[T]], *, hint: str | None = None
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: T | None = None,
     ) -> T:
         # The filter matches the whole row text, so typing an ID works.
         choices = [
@@ -234,9 +244,21 @@ class RichTerminal:
                 zip(aligned_rows(options), options, strict=True)
             )
         ]
+        # questionary refuses a default it can't point at.
+        start = next(
+            (
+                choice
+                for choice, option in zip(choices, options, strict=True)
+                if default is not None
+                and option.value == default
+                and option.disabled is None
+            ),
+            None,
+        )
         prompt = questionary.select(
             question,
             choices=choices,
+            default=start,
             use_search_filter=True,
             use_jk_keys=False,
             instruction=hint or PICK_HINT,
@@ -245,25 +267,32 @@ class RichTerminal:
         return options[self._ask(prompt, _pick_bindings(prompt))].value
 
     def act(self, question: str, actions: Sequence[Action]) -> Action:
+        # The keys are drawn here, not by questionary's shortcuts, which must
+        # be single characters and only move the cursor: `Enter)` is a key
+        # name, and each letter acts at once.
+        assert all(action.key != ENTER for action in actions[1:]), (
+            "Enter picks the first action"
+        )
         choices = [
-            questionary.Choice(title=action.label, value=i, shortcut_key=action.key)
+            questionary.Choice(title=f"{_key_name(action)}) {action.label}", value=i)
             for i, action in enumerate(actions)
         ]
         prompt = questionary.select(
             question,
             choices=choices,
-            use_shortcuts=True,
             use_jk_keys=False,
-            # An empty instruction gets questionary's own "(Use shortcuts or
-            # arrow keys)"; the keys in front of each action say it.
+            # An empty instruction gets questionary's own "(Use arrow keys)";
+            # the keys in front of each action say it.
             instruction=" ",
             **self._io,
         )
-        # questionary's shortcut only moves the cursor to its action. These
-        # eager bindings, merged over its own, act at once with no Enter.
+        # Eager bindings, merged over questionary's own: a letter acts at
+        # once with no Enter. Enter picks the action the cursor is on, which
+        # starts on the first.
         keys = KeyBindings()
         for i, action in enumerate(actions):
-            keys.add(action.key, eager=True)(_exit_with(i))
+            if action.key != ENTER:
+                keys.add(action.key, eager=True)(_exit_with(i))
         return actions[self._ask(prompt, keys)]
 
     def text(
@@ -322,7 +351,12 @@ class PlainTerminal:
         raise RuntimeError("not a guided start")
 
     def pick(
-        self, question: str, options: Sequence[Option[T]], *, hint: str | None = None
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: T | None = None,
     ) -> T:
         raise RuntimeError("not a guided start")
 

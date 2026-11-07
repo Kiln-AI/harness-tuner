@@ -14,10 +14,16 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from kiln_harness_tuner.analysis import KilnApi
+from kiln_harness_tuner.cli import build_parser
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import KilnRunner
-from kiln_harness_tuner.onboarding.terminal import Action, Option, StepStatus
+from kiln_harness_tuner.onboarding.terminal import (
+    WHAT_NEXT,
+    Action,
+    Option,
+    StepStatus,
+)
 
 T = TypeVar("T")
 
@@ -26,12 +32,15 @@ Answer = Any  # a value, a key, a text, a callable, or an exception to raise
 
 @dataclass(frozen=True)
 class Asked:
-    """One prompt: its kind (`pick`, `act` or `text`), its question, and
-    what it offered: the options' values, or the actions' keys."""
+    """One prompt: its kind (`pick`, `act` or `text`), its question, what it
+    offered (the options' values, the actions' keys, or a text's default),
+    its default and its hint."""
 
     kind: str
     question: str
     offered: tuple[Any, ...] = ()
+    default: Any = None
+    hint: str | None = None
 
 
 class ScriptedTerminal:
@@ -40,7 +49,9 @@ class ScriptedTerminal:
     An answer that is an exception is raised instead. A callable answer is
     called first, so a test can change Kiln while the prompt waits: with no
     arguments for `pick` and `act`, and with the `validate` function for
-    `text`. When the answers run out, the prompt stops the way Ctrl-D does.
+    `text`. A text answered with a string must pass `validate`, since the
+    real field refuses one that doesn't. When the answers run out, the
+    prompt stops the way Ctrl-D does.
 
     Everything the start shows is recorded. A test fails at once on a
     prompt in a start that isn't guided, a key or value the prompt didn't
@@ -79,7 +90,8 @@ class ScriptedTerminal:
 
     def say(self, text: str) -> None:
         self.out.append(text)
-        self.transcript.append(f"say {text.splitlines()[0]}")
+        first = next((line for line in text.splitlines() if line.strip()), "")
+        self.transcript.append(f"say {first}")
 
     def warn(self, text: str) -> None:
         self.err.append(text)
@@ -111,11 +123,16 @@ class ScriptedTerminal:
         return answer
 
     def pick(
-        self, question: str, options: Sequence[Option[T]], *, hint: str | None = None
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: T | None = None,
     ) -> T:
         offered = tuple(o.value for o in options)
         self.options.append(tuple(options))
-        answer = self._answer(Asked("pick", question, offered))
+        answer = self._answer(Asked("pick", question, offered, default, hint))
         value: Any = answer() if callable(answer) else answer
         pickable = [o.value for o in options if o.disabled is None]
         assert value in pickable, f"{value!r} isn't a pickable option of {offered}"
@@ -138,9 +155,14 @@ class ScriptedTerminal:
         hint: str | None = None,
         validate: Callable[[str], str | None] | None = None,
     ) -> str:
-        answer = self._answer(Asked("text", question, (default,)))
-        text: Any = answer(validate) if callable(answer) else answer
-        return text
+        answer = self._answer(Asked("text", question, (default,), default, hint))
+        if callable(answer):
+            typed: Any = answer(validate)
+            return typed
+        if validate is not None:
+            refused = validate(answer)
+            assert refused is None, f"{answer!r} is refused: {refused}"
+        return answer
 
     def open_url(self, url: str) -> None:
         self.opened.append(url)
@@ -152,8 +174,21 @@ class ScriptedTerminal:
         return [asked.offered for asked in self.asked if asked.kind == "act"]
 
     @property
+    def problem_menus(self) -> list[tuple[str, ...]]:
+        """The keys of each failed check's menu, in order."""
+        return [
+            asked.offered
+            for asked in self.asked
+            if asked.kind == "act" and asked.question == WHAT_NEXT
+        ]
+
+    @property
     def questions(self) -> list[str]:
         return [asked.question for asked in self.asked]
+
+    def asked_about(self, question: str) -> Asked:
+        """The last prompt that asked `question`."""
+        return next(a for a in reversed(self.asked) if a.question == question)
 
     def step_lines(self) -> list[str]:
         """The step lines as `label: text`, for short assertions."""
@@ -419,13 +454,45 @@ def flags(
     demo_project: bool = False,
     no_interaction: bool = False,
 ) -> argparse.Namespace:
-    """The flags the start-up reads, each `None` when not given."""
-    return argparse.Namespace(
-        kiln_host=kiln_host,
-        project_id=project_id,
-        task_id=task_id,
-        project_path=project_path,
-        model_policy=model_policy,
-        demo_project=demo_project,
-        no_interaction=no_interaction,
-    )
+    """The parsed flags, with the parser's defaults for every flag not
+    named here; the project flags are `None` when not given."""
+    args = build_parser().parse_args([])
+    args.kiln_host = kiln_host
+    args.project_id = project_id
+    args.task_id = task_id
+    args.project_path = project_path
+    args.model_policy = model_policy
+    args.demo_project = demo_project
+    args.no_interaction = no_interaction
+    return args
+
+
+# Every core question answered by a flag with its default value.
+CORE_ANSWERED = [
+    "--objective",
+    "quality",
+    "--guidance",
+    "",
+    "--agent-cli",
+    "claude -p",
+    "--budget-usd",
+    "50",
+    "--timeout-mins",
+    "720",
+]
+# With the advanced questions that have a flag for their default, so a
+# guided start asks only the Advanced menu and whether to start the run: for
+# tests about the checks, which answer those with `KEEP_AND_START`.
+ANSWERED = [
+    *CORE_ANSWERED,
+    "--max-concurrent-evals",
+    "4",
+    "--max-concurrent-agents",
+    "4",
+]
+ADVANCED_PROMPT = (
+    "Advanced options: any model · 4 evals and 4 agents at once"
+    " · no minimum effect · no noise check"
+)
+KEEP_AND_START = ["enter", "s"]
+START_PROMPT = "Start the run?"

@@ -365,7 +365,7 @@ Each question's text, hint and validation:
    - It is asked only when question 3 was asked or skipped by detection, not when `--agent-cli` was given.
 5. **Budget.**
    - Hint: `The most this run may spend, in USD: the tuner's agents and the task's model calls together. No wave starts past it. Type none for no cap.`
-   - When the agent CLI is Codex or OpenCode, the hint adds `<CLI> doesn't report its cost, so this caps the task's model calls only.`
+   - When the agent CLI doesn't report its cost (Codex), the hint adds `<CLI> doesn't report its cost, so this caps the task's model calls only.`
    - **Valid answers:** a number above 0, with an optional leading `$` (`50`, `$12.50`), or `none`.
    - An invalid answer shows `Enter an amount in USD, like 50, or none`.
 6. **Time limit.**

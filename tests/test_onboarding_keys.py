@@ -25,6 +25,7 @@ from kiln_harness_tuner.model_policy import ModelPolicy, Rule
 from kiln_harness_tuner.onboarding.keys import (
     NO_KEY_PROVIDERS,
     SIMULATED_USER,
+    Baseline,
     Need,
     judge_provider,
     key_problem,
@@ -82,9 +83,9 @@ def baseline_memory(*tags: str) -> Routes:
     }
 
 
-async def needs_of(
+async def needs_and_baseline(
     kiln: RouteKiln, *, project_path: Path = EMPTY, policy: ModelPolicy | None = None
-) -> list[Need]:
+) -> tuple[list[Need], Baseline | None]:
     return await needed_providers(
         kiln,
         project_id=PROJECT_ID,
@@ -92,6 +93,20 @@ async def needs_of(
         project_path=project_path,
         policy=policy,
     )
+
+
+async def needs_of(
+    kiln: RouteKiln, *, project_path: Path = EMPTY, policy: ModelPolicy | None = None
+) -> list[Need]:
+    needs, _baseline = await needs_and_baseline(
+        kiln, project_path=project_path, policy=policy
+    )
+    return needs
+
+
+async def baseline_of(kiln: RouteKiln) -> Baseline | None:
+    _needs, baseline = await needs_and_baseline(kiln)
+    return baseline
 
 
 # ---- the baseline ----
@@ -156,6 +171,46 @@ async def test_a_run_config_with_no_name_is_named_by_its_id():
     assert await needs_of(kiln) == [
         Need("fireworks_ai", 'the task\'s run config "rc_9"')
     ]
+
+
+# ---- the baseline, for the summary ----
+
+LLAMA = "llama-v3p1-8b-instruct"
+
+
+async def test_the_baseline_is_named_with_its_model_and_provider():
+    kiln = kiln_with(
+        on("", {"id": TASK_ID, "default_run_config_id": "rc_1"}),
+        on("/run_configs", TWO_RUN_CONFIGS),
+    )
+    assert await baseline_of(kiln) == Baseline("Default", LLAMA, "OpenAI")
+
+
+async def test_the_baseline_the_tuner_recorded_is_the_one_named():
+    kiln = kiln_with(on("/run_configs", TWO_RUN_CONFIGS), baseline_memory("rc_rc_2"))
+    assert await baseline_of(kiln) == Baseline("Tuned", LLAMA, "Groq")
+
+
+async def test_a_baseline_with_no_model_is_named_alone():
+    kiln = kiln_with(on("/run_configs", [run_config("rc_9", name="", provider=None)]))
+    assert await baseline_of(kiln) == Baseline("rc_9", None, None)
+
+
+async def test_a_provider_with_no_display_name_is_named_by_its_id():
+    kiln = kiln_with(on("/run_configs", [run_config(provider="new_cloud")]))
+    assert await baseline_of(kiln) == Baseline("Baseline", LLAMA, "new_cloud")
+
+
+@pytest.mark.parametrize(
+    "routes",
+    [on("/run_configs", []), baseline_memory()],
+    ids=["no run configs", "a record that names none"],
+)
+async def test_no_baseline_run_config_names_none(routes):
+    assert (
+        await baseline_of(kiln_with(on("/run_configs", TWO_RUN_CONFIGS), routes))
+        is None
+    )
 
 
 async def test_a_task_that_isnt_an_object_is_a_precondition_error():

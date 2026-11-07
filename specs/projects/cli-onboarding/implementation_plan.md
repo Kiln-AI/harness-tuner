@@ -44,7 +44,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - The FS §4–§9 messages and actions in `kiln_check.py`, `choose.py` (no projects → use the demo, no tasks → pick another project), `readiness.py` (one action per link), `keys.py` and `demo.py`. `kiln_urls.py` gains the download and update links.
   - `flow.py`: the header, step lines and spinners. The terminal is chosen by the guided rule, and `--no-interaction` is added in `cli.py` with its row in the flag table of `docs/your-own-task.md` (`tests/test_docs.py` requires one row per flag). The rerun line stays where it is until phase 7.
   - Tests: `test_onboarding_console.py`, `ScriptedTerminal` by key, and the existing onboarding tests updated to the new messages (§24).
-- [ ] Phase 7: The questions and the summary (guided start, part 2).
+- [x] Phase 7: The questions and the summary (guided start, part 2).
   - `questions.py`: `Answers`, the question registry, the value parsers, agent CLI detection, the Advanced menu and `ask_one` (§20).
   - `summary.py`: `OptionInfo`, `given_dests`, `summary_lines` and the multi-line rerun command with `--no-interaction`. `flow.rerun_command` and the early rerun line go (§21).
   - `keys.needed_providers` returns the `Baseline` (§21).

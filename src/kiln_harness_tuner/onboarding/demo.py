@@ -36,6 +36,9 @@ DEMO_TASK_ID = "424242783061"
 KILN_PROJECTS_DIR = "Kiln Projects"
 IMPORT_PATH = "/api/import_project"
 PROJECT_FILE = "project.kiln"
+# The demo's own guidance, which a guided start pre-fills: the guidance the
+# moderation example runs with.
+DEMO_GUIDANCE = "Improve the moderation decisions. Keep the output format."
 
 
 @dataclass(frozen=True)

@@ -8,10 +8,14 @@ import httpx
 import pytest
 import respx
 from onboarding_fakes import (
+    ADVANCED_PROMPT,
+    ANSWERED,
     FOLDER,
     HOST,
+    KEEP_AND_START,
     PROG,
     PROJECT_ID,
+    START_PROMPT,
     TASK_ID,
     RouteKiln,
     ScriptedTerminal,
@@ -23,7 +27,7 @@ from onboarding_fakes import (
 )
 
 from kiln_harness_tuner import __version__
-from kiln_harness_tuner.cli import load_model_policy
+from kiln_harness_tuner.cli import build_parser, load_model_policy
 from kiln_harness_tuner.kiln import KilnAPIError, KilnTransportError
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import kiln_runner, prepare_start
@@ -67,14 +71,17 @@ def check_paths(kiln: RouteKiln) -> list[str]:
 
 
 def start(kiln: RouteKiln, terminal: ScriptedTerminal, host: str = HOST):
-    """`prepare_start` with every project flag given, so a start that gets
-    past the Kiln check asks nothing more."""
+    """`prepare_start` with every project flag and core question given, so a
+    guided start that gets past the Kiln check asks only the Advanced menu,
+    kept, and whether to start, and starts."""
     args = flags(PROJECT_ID, TASK_ID, FOLDER, kiln_host=host)
+    if terminal.interactive:
+        terminal.answers += KEEP_AND_START
     returned = prepare_start(
         args,
-        [],
+        ANSWERED,
         prog=PROG,
-        parser_long_options=[],
+        option_dests=build_parser().option_dests,
         policy_loader=load_model_policy,
         terminal=terminal,
         runner=runner_for(kiln),
@@ -94,7 +101,8 @@ def test_a_running_new_kiln_passes_with_its_step_line():
     assert terminal.headers == [f"Kiln Harness Tuner {__version__}"]
     assert terminal.steps[0] == ("ok", "Kiln", "1.0.3 at http://localhost:8757")
     assert terminal.busy_texts[0] == "Checking Kiln at http://localhost:8757…"
-    assert terminal.blocks == [] and terminal.err == [] and terminal.asked == []
+    assert terminal.blocks == [] and terminal.err == []
+    assert terminal.questions == [ADVANCED_PROMPT, START_PROMPT]
     assert check_paths(kiln) == ["/ping", "/openapi.json"]
 
 
@@ -110,7 +118,7 @@ def test_kiln_not_running_check_again_succeeds():
     terminal = ScriptedTerminal(["r"])
     start(kiln, terminal)
     assert terminal.blocks == [NOT_RUNNING]
-    assert terminal.menus == [("r", "d", "x")]
+    assert terminal.problem_menus == [("r", "d", "x")]
     assert terminal.busy_texts[:2] == ["Checking Kiln at http://localhost:8757…"] * 2
     assert terminal.steps[0][:2] == ("ok", "Kiln")
     assert check_paths(kiln) == ["/ping", "/ping", "/openapi.json"]
@@ -145,7 +153,7 @@ def test_kiln_not_running_d_opens_the_download_page():
     terminal = ScriptedTerminal(["d", "r"])
     start(kiln, terminal)
     assert terminal.opened == [DOWNLOAD]
-    assert terminal.menus == [("r", "d", "x")] * 2
+    assert terminal.problem_menus == [("r", "d", "x")] * 2
 
 
 def test_kiln_not_running_not_guided_fails_with_the_plain_message():
@@ -284,7 +292,7 @@ def test_too_old_u_opens_kilns_update_page():
     terminal = ScriptedTerminal(["u", "r"])
     start(kiln, terminal)
     assert terminal.opened == [f"{HOST}/settings/check_for_update"]
-    assert terminal.menus == [("r", "u", "d", "x")] * 2
+    assert terminal.problem_menus == [("r", "u", "d", "x")] * 2
 
 
 def test_too_old_not_guided_fails_with_the_title_and_the_body():
@@ -326,7 +334,8 @@ def test_the_unreadable_api_list_warning_follows_the_step_and_the_start_goes_on(
     assert terminal.err == [
         "Couldn't read Kiln's API list, so its version wasn't checked."
     ]
-    assert terminal.blocks == [] and terminal.asked == []
+    assert terminal.blocks == []
+    assert terminal.questions == [ADVANCED_PROMPT, START_PROMPT]
 
 
 def test_the_default_terminal_without_a_tty_is_the_plain_one(capsys):
@@ -334,7 +343,7 @@ def test_the_default_terminal_without_a_tty_is_the_plain_one(capsys):
         flags(PROJECT_ID, TASK_ID, FOLDER),
         [],
         prog=PROG,
-        parser_long_options=[],
+        option_dests=build_parser().option_dests,
         policy_loader=load_model_policy,
         runner=runner_for(make_kiln(api="not json")),
     )
@@ -363,7 +372,7 @@ def test_ctrl_c_during_a_kiln_read_stops_with_130():
             flags(),
             [],
             prog=PROG,
-            parser_long_options=[],
+            option_dests=build_parser().option_dests,
             policy_loader=load_model_policy,
             terminal=ScriptedTerminal(),
             runner=interrupted,

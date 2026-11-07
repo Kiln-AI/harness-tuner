@@ -89,6 +89,15 @@ class Need:
     from_policy: bool = False
 
 
+@dataclass(frozen=True)
+class Baseline:
+    """The run config the run starts from, as the summary names it."""
+
+    name: str
+    model: str | None
+    provider: str | None  # Kiln's display name
+
+
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -100,9 +109,10 @@ async def needed_providers(
     task_id: str,
     project_path: Path,
     policy: ModelPolicy | None,
-) -> list[Need]:
+) -> tuple[list[Need], Baseline | None]:
     """Every provider the run will call, in the order the fix lines name
-    them: the baseline, the judges, the simulated user, then the policy."""
+    them: the baseline, the judges, the simulated user, then the policy.
+    With them, the baseline run config, or `None` when none is found."""
     base = f"/api/projects/{project_id}/tasks/{task_id}"
     task, run_config_body, eval_body, spec_body = await asyncio.gather(
         kiln.call("GET", base),
@@ -121,7 +131,10 @@ async def needed_providers(
 
     memory = MemoryWriter(kiln, project_id=project_id, task_id=task_id)
     baseline_rc_id = await _baseline_rc_id(memory, task, run_configs)
-    needs = _baseline_needs(baseline_rc_id, run_configs)
+    baseline_row = next(
+        (rc for rc in run_configs if _run_config_id(rc) == baseline_rc_id), None
+    )
+    needs = _baseline_needs(baseline_row)
     needs += await _judge_needs(kiln, base, measurable_evals(evals, specs))
     if task.get("turn_mode") == MULTI_TURN_MODE:
         needs += [
@@ -129,7 +142,7 @@ async def needed_providers(
             for provider in sorted(simulated_user_providers(project_path, task_id))
         ]
     needs += _policy_needs(policy)
-    return needs
+    return needs, _baseline(baseline_row)
 
 
 async def _baseline_rc_id(
@@ -151,15 +164,28 @@ async def _baseline_rc_id(
         return None
 
 
-def _baseline_needs(rc_id: str | None, run_configs: list[dict[str, Any]]) -> list[Need]:
-    row = next((rc for rc in run_configs if _run_config_id(rc) == rc_id), None)
+def _run_config_name(row: dict[str, Any]) -> str:
+    return _text(row.get("name")) or _run_config_id(row)
+
+
+def _baseline_needs(row: dict[str, Any] | None) -> list[Need]:
     if row is None:
         return []
     provider, _model = run_config_pair(row)
     if not provider:
         return []
-    name = _text(row.get("name")) or _run_config_id(row)
-    return [Need(provider, f'the task\'s run config "{name}"')]
+    return [Need(provider, f'the task\'s run config "{_run_config_name(row)}"')]
+
+
+def _baseline(row: dict[str, Any] | None) -> Baseline | None:
+    if row is None:
+        return None
+    provider, model = run_config_pair(row)
+    return Baseline(
+        _run_config_name(row),
+        model or None,
+        provider_name(provider) if provider else None,
+    )
 
 
 def judge_provider(config: Any) -> str | None:

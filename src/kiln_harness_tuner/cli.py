@@ -3,9 +3,9 @@ invoked manually from a terminal).
 
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
 observability: run id, wave log (`runs/<run_id>/`, run scratch), `RunStatus`
-tracker + UI (rich live display, or plain lines under `--no-ui` / non-TTY),
-and the report hook (`reports/kiln-harness-tuner-<run_id>.md`) — then runs
-`orchestrate`, which returns the report path.
+tracker + UI (rich live display, or plain lines under `--no-progress` /
+non-TTY), and the report hook (`reports/kiln-harness-tuner-<run_id>.md`) —
+then runs `orchestrate`, which returns the report path.
 """
 
 from __future__ import annotations
@@ -66,6 +66,12 @@ from kiln_harness_tuner.onboarding import (
     prepare_start,
 )
 from kiln_harness_tuner.onboarding.demo import demo_fence_root
+from kiln_harness_tuner.onboarding.questions import (
+    number_text,
+    parse_budget,
+    parse_fraction,
+)
+from kiln_harness_tuner.onboarding.summary import OptionInfo
 from kiln_harness_tuner.orchestrator import (
     DEFAULT_COVERAGE_FLOOR,
     Ctx,
@@ -88,7 +94,9 @@ logger = logging.getLogger(__name__)
 # rename of the command is this one line.
 PROG = "kiln-harness-tuner"
 
-DEFAULT_TIMEOUT_MINS = 180
+DEFAULT_TIMEOUT_MINS = 720  # 12 hours
+# The run's cost cap by default: `--budget-usd none` runs with no cap.
+DEFAULT_BUDGET_USD = 50.0
 # Concurrency defaults: bounded by default — the
 # unbounded gathers were what manufactured provider 429 storms ("Kiln Harness Tuner's
 # own parallelism creates the limit that stalls it"). 4 concurrent eval jobs × ~a few
@@ -162,21 +170,32 @@ REMOVED_FLAGS = {
         " speed when latency is the goal; the latency of each arm per request"
         " is still reported"
     ),
+    "--no-ui": (
+        "--no-ui was renamed --no-progress: plain log lines instead of the live"
+        " progress display"
+    ),
 }
 
 
 class _Parser(argparse.ArgumentParser):
     """An ArgumentParser that names a removed flag and gives the reason, and
-    records its long option strings in `long_options`: the start-up rebuilds
-    the command line from them, and the parser's own table is private."""
+    records each long option's dest, whether it takes a value, and its
+    default in `option_dests`: the start-up reads the command line with
+    them (which flags were given, and the rerun command), and the parser's
+    own table is private."""
 
     def __init__(self, *args: Any, **kwargs: Any):
-        self.long_options: list[str] = []
+        self.option_dests: dict[str, OptionInfo] = {}
         super().__init__(*args, **kwargs)
 
     def add_argument(self, *args: Any, **kwargs: Any) -> argparse.Action:
         action = super().add_argument(*args, **kwargs)
-        self.long_options += [s for s in action.option_strings if s.startswith("--")]
+        info = OptionInfo(
+            action.dest, takes_value=action.nargs != 0, default=action.default
+        )
+        for option in action.option_strings:
+            if option.startswith("--"):
+                self.option_dests[option] = info
         return action
 
     def parse_known_args(  # type: ignore[override]
@@ -239,20 +258,22 @@ def build_parser() -> _Parser:
         "--timeout-mins",
         type=int,
         default=DEFAULT_TIMEOUT_MINS,
-        help=f"time budget, wave-boundary checked (default {DEFAULT_TIMEOUT_MINS})",
+        help="time budget in minutes, wave-boundary checked (default"
+        f" {DEFAULT_TIMEOUT_MINS}, 12 hours)",
     )
     parser.add_argument(
-        "--no-ui",
+        "--no-progress",
         action="store_true",
-        help="plain log lines instead of the live display (V1)",
+        help="plain log lines instead of the live progress display during the run",
     )
     parser.add_argument(
         "--budget-usd",
-        type=float,
-        default=None,
+        type=_budget,
+        default=DEFAULT_BUDGET_USD,
+        metavar="USD",
         help="cost ceiling for the run (both lanes); at the ceiling the run"
         " exits, one projected wave short of it the next wave is the wrap-up"
-        " (default: no ceiling)",
+        f" (default {number_text(DEFAULT_BUDGET_USD)}; none = no ceiling)",
     )
     parser.add_argument(
         "--coverage-floor",
@@ -418,17 +439,22 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         )
 
 
-def _fraction(text: str) -> float:
-    """`--min-effect`: a share of items, above 0 and at most 1."""
+def _budget(text: str) -> float | None:
+    """`--budget-usd`: USD above 0, or `none` for no cap. The start's budget
+    question takes the same values."""
     try:
-        value = float(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
-    if not 0.0 < value <= 1.0:
-        raise argparse.ArgumentTypeError(
-            f"{text!r} is not a fraction above 0 and at most 1 (0.1 = 10%)"
-        )
-    return value
+        return parse_budget(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
+def _fraction(text: str) -> float:
+    """`--min-effect`: a share of items, above 0 and at most 1. The start's
+    question takes the same values."""
+    try:
+        return parse_fraction(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
 
 def _positive_int(text: str) -> int:
@@ -1278,10 +1304,10 @@ async def _run(args: argparse.Namespace) -> str:
                 agent_cli=agent_cli.kind,
             )
             console = Console()
-            # --no-ui (and CI / non-TTY) falls back to plain log lines.
+            # --no-progress (and CI / non-TTY) falls back to plain log lines.
             ui = (
                 LiveUi(tracker, console=console)
-                if not args.no_ui and console.is_terminal
+                if not args.no_progress and console.is_terminal
                 else PlainUi(tracker, console=console)
             )
             with WaveLog(run_dir / "wave_log.jsonl") as wave_log, ui:
@@ -1357,7 +1383,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args,
             raw_argv,
             prog=PROG,
-            parser_long_options=parser.long_options,
+            option_dests=parser.option_dests,
             policy_loader=load_model_policy,
         )
         result = asyncio.run(_run_with_signals(args))

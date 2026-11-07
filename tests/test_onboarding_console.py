@@ -21,6 +21,7 @@ from kiln_harness_tuner.onboarding.console import (
     graphical_browser_expected,
 )
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
+from kiln_harness_tuner.onboarding.terminal import ENTER as ENTER_ACTION_KEY
 from kiln_harness_tuner.onboarding.terminal import Action, ActionKind, Option
 
 PROG = "kiln-harness-tuner"
@@ -137,6 +138,16 @@ def test_enter_does_nothing_while_the_filter_matches_nothing(keys):
     assert keys("zzz" + ENTER + clear + DOWN + ENTER).pick("Which?", PROJECTS) == "p2"
 
 
+def test_pick_starts_on_its_default(keys):
+    assert keys(ENTER).pick("Which?", PROJECTS, default="p2") == "p2"
+    assert keys(DOWN + ENTER).pick("Which?", PROJECTS, default="p2") == "p3"
+
+
+def test_pick_starts_on_the_first_enabled_row_for_a_disabled_default(keys):
+    assert keys(ENTER).pick("Which CLI?", CLIS, default="codex") == "claude"
+    assert keys(ENTER).pick("Which CLI?", CLIS, default="nothing") == "claude"
+
+
 def test_pick_rows_are_aligned_across_options():
     assert aligned_rows(PROJECTS) == [
         "Forum Moderation   424242975950   ~/Kiln Projects/Forum",
@@ -163,6 +174,35 @@ def test_act_by_arrows_and_enter(keys):
 
 def test_act_ignores_a_key_no_action_has(keys):
     assert keys("q" + ENTER).act("What next?", ACTIONS) is ACTIONS[0]
+
+
+ADVANCED = [
+    Action(ENTER_ACTION_KEY, "Keep these", ActionKind.KEEP),
+    Action("c", "Customize", ActionKind.CUSTOMIZE),
+]
+
+
+def test_an_enter_action_is_picked_by_enter_and_the_others_by_their_keys(keys):
+    assert keys(ENTER).act("Advanced options", ADVANCED) is ADVANCED[0]
+    assert keys("c").act("Advanced options", ADVANCED) is ADVANCED[1]
+    assert keys(DOWN + ENTER).act("Advanced options", ADVANCED) is ADVANCED[1]
+
+
+def test_act_draws_each_key_before_its_label(keys, monkeypatch):
+    drawn = []
+    select = console_module.questionary.select
+
+    def drawing(question, choices, **kwargs):
+        drawn.append([choice.title for choice in choices])
+        return select(question, choices=choices, **kwargs)
+
+    monkeypatch.setattr(console_module.questionary, "select", drawing)
+    keys(ENTER).act("Advanced options", ADVANCED)
+    keys(ENTER).act("What next?", ACTIONS)
+    assert drawn == [
+        ["Enter) Keep these", "c) Customize"],
+        ["r) Check again", "d) Open the download page", "x) Exit"],
+    ]
 
 
 # ---- text ----

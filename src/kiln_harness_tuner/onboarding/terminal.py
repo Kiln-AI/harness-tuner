@@ -48,11 +48,16 @@ class ActionKind(Enum):
     CUSTOMIZE = "customize"
 
 
+# The key of an action that Enter picks, shown as `Enter)`. Enter picks the
+# action the cursor is on, which starts on the first, so it leads its menu.
+ENTER = "enter"
+
+
 @dataclass(frozen=True)
 class Action:
     """One entry of an action menu, chosen by its single `key`."""
 
-    key: str  # one lower-case letter, unique in its menu
+    key: str  # one lower-case letter, unique in its menu, or ENTER
     label: str
     kind: ActionKind
     url: str | None = None  # the page an OPEN action opens
@@ -81,10 +86,17 @@ class Terminal(Protocol):
         ...
 
     def pick(
-        self, question: str, options: Sequence[Option[T]], *, hint: str | None = None
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: T | None = None,
     ) -> T:
-        """One option's value. Ctrl-C raises `OnboardingStopped(130)`, and
-        Ctrl-D `OnboardingStopped(1)`, as at every prompt."""
+        """One option's value. The cursor starts on `default`'s option, else
+        on the first one that can be picked. Ctrl-C raises
+        `OnboardingStopped(130)`, and Ctrl-D `OnboardingStopped(1)`, as at
+        every prompt."""
         ...
 
     def act(self, question: str, actions: Sequence[Action]) -> Action: ...
