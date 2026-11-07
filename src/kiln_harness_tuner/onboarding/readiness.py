@@ -10,10 +10,17 @@ audit keeps its own message.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.onboarding import kiln_urls
-from kiln_harness_tuner.onboarding.terminal import Problem
+from kiln_harness_tuner.onboarding.terminal import (
+    Action,
+    ActionKind,
+    Problem,
+    english_list,
+    plural,
+)
 from kiln_harness_tuner.setup import (
     _require_rows,
     _usable_run_configs,
@@ -22,20 +29,48 @@ from kiln_harness_tuner.setup import (
     measurable_evals,
 )
 
+WHY = (
+    "The tuner starts from one of the task's run configs and measures every change",
+    "with its evals. This task is missing:",
+)
 
-def _load_error_warning(count: int, task_name: str) -> str:
-    evals, them = ("eval", "it") if count == 1 else ("evals", "them")
-    return (
-        f"Kiln couldn't load {count} {evals} of task {task_name}, so the run"
-        f" can't measure {them}."
-    )
+
+@dataclass(frozen=True)
+class Readiness:
+    """The check's outcome: the problem, if any, and the warnings to print
+    whatever the outcome; a problem carries them too, for after its block.
+    The counts are for the step line."""
+
+    problem: Problem | None
+    run_configs: int
+    measurable: int
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def step_text(self) -> str:
+        return (
+            f"{plural(self.run_configs, 'run config')}"
+            f" · {plural(self.measurable, 'eval')} the tuner can measure"
+        )
+
+
+def _load_error_warning(count: int) -> str:
+    evals = plural(count, "eval")
+    them = "it" if count == 1 else "them"
+    return f"Kiln couldn't load {evals} of this task, so the run can't measure {them}."
+
+
+def _no_judge_line(names: list[str]) -> str:
+    has = "has" if len(names) == 1 else "have"
+    quoted = english_list([f'"{name}"' for name in names])
+    return f"• A default judge on its active evals: {quoted} {has} none set."
 
 
 async def readiness_problem(
     kiln: KilnApi, *, host: str, project_id: str, task_id: str, task_name: str
-) -> tuple[Problem | None, list[str]]:
-    """Every reason the task can't be tuned, as one problem (or `None`),
-    and the warnings to print whatever the outcome."""
+) -> Readiness:
+    """Every reason the task can't be tuned, as one problem with one action
+    per page that fixes a reason."""
     base = f"/api/projects/{project_id}/tasks/{task_id}"
     run_config_body, eval_body, spec_body = await asyncio.gather(
         kiln.call("GET", f"{base}/run_configs"),
@@ -47,31 +82,47 @@ async def readiness_problem(
     )
     evals, load_errors = eval_rows_from_response(f"{base}/evals", eval_body)
     specs = _require_rows(f"{base}/specs", spec_body)
-    warnings = [_load_error_warning(load_errors, task_name)] if load_errors else []
+    measurable = measurable_evals(evals, specs)
+    warnings = [_load_error_warning(load_errors)] if load_errors else []
 
-    lines: list[tuple[str, str]] = []
+    lines: list[str] = []
+    actions: list[Action] = []
     if not run_configs:
-        link = kiln_urls.run_configs(host, project_id, task_id)
-        lines.append((f"It has no run configs. Create one in Kiln: {link}", link))
-    if not measurable_evals(evals, specs):
-        link = kiln_urls.evals(host, project_id, task_id)
+        lines.append("• A run config: the model and prompt the tuner starts from.")
+        actions.append(
+            Action(
+                "c",
+                "Open Run configs in Kiln",
+                ActionKind.OPEN,
+                url=kiln_urls.run_configs(host, project_id, task_id),
+            )
+        )
+    if not measurable:
         active = active_eval_rows(evals, specs)
         if active:
-            names = ", ".join(f'"{row.get("name") or row["id"]}"' for row in active)
-            lines.append(
-                (
-                    f"Its active evals have no default eval config: {names}."
-                    f" Set one on each eval's page in Kiln: {link}",
-                    link,
-                )
-            )
+            names = [str(row.get("name") or row["id"]) for row in active]
+            lines.append(_no_judge_line(names))
         else:
             lines.append(
-                (f"It has no eval the loop can measure. Add one in Kiln: {link}", link)
+                "• An eval it can measure: an active eval with a default judge set."
             )
-    if not lines:
-        return None, warnings
-    message = f"Task {task_name} ({task_id}) isn't ready to tune:\n" + "\n".join(
-        f"  • {text}" for text, _link in lines
+        actions.append(
+            Action(
+                "e",
+                "Open Evals in Kiln",
+                ActionKind.OPEN,
+                url=kiln_urls.evals(host, project_id, task_id),
+            )
+        )
+    problem = (
+        Problem(
+            f"{task_name} isn't ready to tune yet",
+            (*WHY, *(f"  {line}" for line in lines)),
+            actions=tuple(actions),
+            retry_label="Check again (I've fixed it in Kiln)",
+            warnings=tuple(warnings),
+        )
+        if lines
+        else None
     )
-    return Problem(message, open_url=lines[0][1], open_label="the first link"), warnings
+    return Readiness(problem, len(run_configs), len(measurable), warnings)

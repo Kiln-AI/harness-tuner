@@ -23,7 +23,7 @@ from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriter
 from kiln_harness_tuner.model_policy import ModelPolicy, run_config_pair
 from kiln_harness_tuner.onboarding import kiln_urls
-from kiln_harness_tuner.onboarding.terminal import Problem
+from kiln_harness_tuner.onboarding.terminal import Action, ActionKind, Problem
 from kiln_harness_tuner.quarantine import task_dirs
 from kiln_harness_tuner.setup import (
     CONFIG_GONE_STATUSES,
@@ -260,12 +260,31 @@ def _policy_needs(policy: ModelPolicy | None) -> list[Need]:
     ]
 
 
+def _keyed(needs: Sequence[Need]) -> list[Need]:
+    """The needs whose provider takes a key."""
+    return [need for need in needs if need.provider not in NO_KEY_PROVIDERS]
+
+
+def provider_name(provider: str) -> str:
+    """Kiln's display name for `provider`, or the ID when it has none."""
+    return PROVIDER_NAMES.get(provider, provider)
+
+
+def keys_passed_text(needs: Sequence[Need]) -> str:
+    """The step line's text for a passed key check: the providers that
+    needed a key, in the order the run needs them."""
+    providers = dict.fromkeys(need.provider for need in _keyed(needs))
+    if not providers:
+        return "none needed (local models only)"
+    return ", ".join(provider_name(provider) for provider in providers)
+
+
 async def key_problem(
     kiln: KilnApi, *, host: str, needs: Sequence[Need]
 ) -> Problem | None:
     """The providers in `needs` that Kiln has no key for, as one problem, or
     `None` when it has them all."""
-    checked = [need for need in needs if need.provider not in NO_KEY_PROVIDERS]
+    checked = _keyed(needs)
     if not checked:
         return None
     body = await kiln.call("GET", AVAILABLE_MODELS_PATH)
@@ -280,24 +299,39 @@ async def key_problem(
             missing.setdefault(need.provider, []).append(need)
     if not missing:
         return None
-    providers, them = ("provider", "it") if len(missing) == 1 else ("providers", "them")
-    lines = "\n".join(_missing_line(p, ns) for p, ns in missing.items())
-    link = kiln_urls.providers(host)
+    if len(missing) == 1:
+        title = "Kiln is missing an API key this run needs"
+        intro = "The tuner calls this provider through Kiln, which needs a key for it:"
+        keys = "key"
+    else:
+        title = f"Kiln is missing {len(missing)} API keys this run needs"
+        intro = (
+            "The tuner calls these providers through Kiln, which needs a key for each:"
+        )
+        keys = "keys"
     return Problem(
-        f"Kiln has no API key for {len(missing)} {providers} this run needs:\n"
-        f"{lines}\n"
-        f"Add {them} in Kiln under AI Providers: {link}",
-        open_url=link,
-        open_label="AI Providers",
+        title,
+        (
+            intro,
+            *(_missing_line(p, ns) for p, ns in missing.items()),
+            f"Add the {keys} in Kiln under Settings → AI Providers.",
+        ),
+        actions=(
+            Action(
+                "p",
+                "Open AI Providers in Kiln",
+                ActionKind.OPEN,
+                url=kiln_urls.providers(host),
+            ),
+        ),
+        retry_label=f"Check again (I've added the {keys})",
     )
 
 
 def _missing_line(provider: str, needs: Sequence[Need]) -> str:
-    name = PROVIDER_NAMES.get(provider)
-    label = f"{name} ({provider})" if name else provider
     used_by = ", ".join(dict.fromkeys(need.used_by for need in needs))
     # Removing the provider from the policy fixes the line only when nothing
     # else needs it.
     from_policy_only = all(need.from_policy for need in needs)
-    fix = f", or remove it from {POLICY_FLAG}" if from_policy_only else ""
-    return f"  • {label}, used by {used_by}{fix}"
+    fix = ", or remove it from the model policy" if from_policy_only else ""
+    return f"  • {provider_name(provider)}: used by {used_by}{fix}"

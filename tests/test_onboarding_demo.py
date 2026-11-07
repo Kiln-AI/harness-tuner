@@ -161,11 +161,18 @@ def test_make_demo_copies_imports_and_says_where(tmp_path, monkeypatch):
         "trusted": "true",
         "project_path": str(folder / "project.kiln"),
     }
-    assert terminal.out == [
-        f"Demo project copied to {folder}\n"
-        f"and imported into Kiln as project {FRESH_ID} (task {DEMO_TASK_ID})."
+    assert terminal.steps == [
+        (
+            "ok",
+            "Demo",
+            f"~/Kiln Projects/Forum Moderation, imported as project {FRESH_ID}",
+        )
     ]
-    assert terminal.prompts == []
+    assert terminal.busy_texts == [
+        "Copying the demo project…",
+        "Importing it into Kiln…",
+    ]
+    assert terminal.asked == [] and terminal.out == []
     copied = json.loads((folder / "project.kiln").read_text(encoding="utf-8"))
     assert (copied["id"], copied["name"]) == (FRESH_ID, NAME)
 
@@ -209,9 +216,9 @@ def test_a_refused_import_removes_the_folder_and_says_why(tmp_path):
     with pytest.raises(OnboardingError) as error:
         demo_in(tmp_path, kiln)
     folder = projects_folder(tmp_path) / NAME
-    assert str(error.value) == (
-        "Kiln didn't import the demo project: Failed to load project.\n"
-        f"The copy at {folder} was deleted."
+    assert (error.value.title, error.value.body) == (
+        "Kiln didn't import the demo project",
+        ("Failed to load project.", f"The copy at {folder} was deleted."),
     )
     assert not folder.exists()
     assert list(projects_folder(tmp_path).iterdir()) == []
@@ -223,9 +230,7 @@ def test_a_refusal_with_no_detail_names_the_error(tmp_path):
     kiln.routes[("POST", IMPORT_PATH)] = refusal
     with pytest.raises(OnboardingError) as error:
         demo_in(tmp_path, kiln)
-    assert str(error.value).splitlines()[0] == (
-        f"Kiln didn't import the demo project: {refusal}"
-    )
+    assert error.value.body[0] == str(refusal)
 
 
 def test_an_import_that_never_answers_removes_the_folder(tmp_path):
@@ -248,10 +253,9 @@ def test_a_failed_copy_removes_the_partial_folder(tmp_path, monkeypatch):
     with pytest.raises(OnboardingError) as error:
         demo_in(tmp_path, kiln)
     folder = projects_folder(tmp_path) / NAME
-    assert str(error.value) == (
-        f"Couldn't copy the demo project to {folder}:"
-        " [Errno 28] No space left on device\n"
-        "The partial copy was deleted."
+    assert (error.value.title, error.value.body) == (
+        f"Couldn't copy the demo project to {folder}",
+        ("[Errno 28] No space left on device", "The partial copy was deleted."),
     )
     assert not folder.exists()
     assert IMPORT_PATH not in kiln.paths()
@@ -279,7 +283,7 @@ def test_a_projects_folder_that_cant_be_made_is_an_error_that_names_it(tmp_path)
     kiln = demo_kiln()
     with pytest.raises(OnboardingError) as error:
         demo_in(tmp_path, kiln)
-    assert str(error.value).startswith(
-        f"Couldn't make a folder for the demo project in {projects_folder(tmp_path)}:"
+    assert error.value.title == (
+        f"Couldn't make a folder for the demo project in {projects_folder(tmp_path)}"
     )
     assert IMPORT_PATH not in kiln.paths()

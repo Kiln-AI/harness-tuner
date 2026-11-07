@@ -28,9 +28,11 @@ from kiln_harness_tuner.onboarding.keys import (
     Need,
     judge_provider,
     key_problem,
+    keys_passed_text,
     needed_providers,
     simulated_user_providers,
 )
+from kiln_harness_tuner.onboarding.terminal import Action, ActionKind
 from kiln_harness_tuner.setup import SetupPreconditionError
 
 BASE = task_base(PROJECT_ID, TASK_ID)
@@ -378,6 +380,14 @@ async def test_every_provider_with_a_key_is_no_problem():
     assert kiln.paths() == ["/api/available_models"]
 
 
+PROVIDERS_ACTION = Action(
+    "p",
+    "Open AI Providers in Kiln",
+    ActionKind.OPEN,
+    url="http://localhost:8757/settings/providers",
+)
+
+
 async def test_the_message_names_each_missing_provider_and_what_needs_it():
     needs = [
         Need("fireworks_ai", BASELINE_RC),
@@ -385,30 +395,39 @@ async def test_the_message_names_each_missing_provider_and_what_needs_it():
         Need("openai", TONE_JUDGE),
     ]
     problem, _kiln = await problem_for(needs, available_models("anthropic"))
-    assert problem.message == (
-        "Kiln has no API key for 2 providers this run needs:\n"
-        '  • Fireworks AI (fireworks_ai), used by the task\'s run config "Baseline"\n'
-        '  • OpenAI (openai), used by eval "Tone"\'s judge\n'
-        "Add them in Kiln under AI Providers: http://localhost:8757/settings/providers"
+    assert problem.title == "Kiln is missing 2 API keys this run needs"
+    assert problem.body == (
+        "The tuner calls these providers through Kiln, which needs a key for each:",
+        '  • Fireworks AI: used by the task\'s run config "Baseline"',
+        '  • OpenAI: used by eval "Tone"\'s judge',
+        "Add the keys in Kiln under Settings → AI Providers.",
     )
-    assert problem.open_url == "http://localhost:8757/settings/providers"
-    assert problem.open_label == "AI Providers"
+    assert problem.actions == (PROVIDERS_ACTION,)
+    assert problem.retry_label == "Check again (I've added the keys)"
+    assert [a.key for a in problem.menu()] == ["r", "p", "x"]
 
 
 async def test_one_missing_provider_is_singular():
     problem, _kiln = await problem_for([Need("groq", TONE_JUDGE)], [])
-    assert problem.message == (
-        "Kiln has no API key for 1 provider this run needs:\n"
-        '  • Groq (groq), used by eval "Tone"\'s judge\n'
-        "Add it in Kiln under AI Providers: http://localhost:8757/settings/providers"
+    assert problem.title == "Kiln is missing an API key this run needs"
+    assert problem.body == (
+        "The tuner calls this provider through Kiln, which needs a key for it:",
+        '  • Groq: used by eval "Tone"\'s judge',
+        "Add the key in Kiln under Settings → AI Providers.",
+    )
+    assert problem.retry_label == "Check again (I've added the key)"
+
+
+async def test_not_guided_the_message_names_the_providers_page():
+    problem, _kiln = await problem_for([Need("groq", TONE_JUDGE)], [])
+    assert problem.error().body[-1] == (
+        "Open AI Providers in Kiln: http://localhost:8757/settings/providers"
     )
 
 
 async def test_a_provider_with_no_known_name_is_shown_by_its_id():
     problem, _kiln = await problem_for([Need("acme_ai", TONE_JUDGE)], None)
-    assert problem.message.splitlines()[1] == (
-        '  • acme_ai, used by eval "Tone"\'s judge'
-    )
+    assert problem.body[1] == '  • acme_ai: used by eval "Tone"\'s judge'
 
 
 async def test_the_uses_of_a_provider_are_grouped_and_each_named_once():
@@ -420,12 +439,11 @@ async def test_the_uses_of_a_provider_are_grouped_and_each_named_once():
         Need("ollama", 'eval "Local"\'s judge'),
     ]
     problem, _kiln = await problem_for(needs, [])
-    assert problem.message.splitlines()[1:3] == [
-        '  • OpenAI (openai), used by the task\'s run config "Baseline",'
-        ' eval "Tone"\'s judge',
-        f"  • Groq (groq), used by {SIMULATED_USER}",
-    ]
-    assert "ollama" not in problem.message
+    assert problem.body[1:3] == (
+        '  • OpenAI: used by the task\'s run config "Baseline", eval "Tone"\'s judge',
+        f"  • Groq: used by {SIMULATED_USER}",
+    )
+    assert not any("ollama" in line for line in problem.body)
 
 
 async def test_dropping_a_provider_from_the_policy_is_offered_only_if_it_fixes_it():
@@ -436,10 +454,28 @@ async def test_dropping_a_provider_from_the_policy_is_offered_only_if_it_fixes_i
         Need("anthropic", POLICY, from_policy=True),
     ]
     problem, _kiln = await problem_for(needs, [])
-    assert problem.message.splitlines()[1:3] == [
-        "  • OpenAI (openai), used by --model-policy, or remove it from --model-policy",
-        '  • Anthropic (anthropic), used by eval "Tone"\'s judge, --model-policy',
+    assert problem.body[1:3] == (
+        "  • OpenAI: used by --model-policy, or remove it from the model policy",
+        '  • Anthropic: used by eval "Tone"\'s judge, --model-policy',
+    )
+
+
+def test_the_passed_step_names_the_providers_that_take_a_key():
+    needs = [
+        Need("fireworks_ai", BASELINE_RC),
+        Need("ollama", TONE_JUDGE),
+        Need("openai", TONE_JUDGE),
+        Need("fireworks_ai", SIMULATED_USER),
+        Need("acme_ai", POLICY, from_policy=True),
     ]
+    assert keys_passed_text(needs) == "Fireworks AI, OpenAI, acme_ai"
+
+
+@pytest.mark.parametrize(
+    "needs", [[], [Need("ollama", TONE_JUDGE)]], ids=["none", "local"]
+)
+def test_the_passed_step_with_nothing_that_takes_a_key(needs):
+    assert keys_passed_text(needs) == "none needed (local models only)"
 
 
 async def test_rows_that_name_no_provider_are_ignored():

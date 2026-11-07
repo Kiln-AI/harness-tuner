@@ -1,22 +1,31 @@
-"""The shared retry prompt (`resolve_problem`) and the real terminal."""
+"""The shared problem loop (`resolve_problem`), `Problem`'s menu and plain
+error, and the display helpers."""
 
-import io
+from pathlib import Path
 
 import pytest
 from onboarding_fakes import ScriptedTerminal
 
-from kiln_harness_tuner.onboarding import terminal as terminal_module
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.terminal import (
+    Action,
+    ActionKind,
     Problem,
-    Resolution,
-    StdTerminal,
+    english_list,
+    plural,
     resolve_problem,
+    tilde,
 )
 
+DOWNLOAD = Action("d", "Open the download page", ActionKind.OPEN, url="https://k/dl")
+DEMO = Action("m", "Use the demo project", ActionKind.USE_DEMO)
 PROBLEM = Problem(
-    "Kiln isn't running.", open_url="https://kiln.tech", open_label="kiln.tech"
+    "Kiln isn't running",
+    ("Open the Kiln app.", "  1. Install it."),
+    actions=(DOWNLOAD,),
+    retry_label="Check again (Kiln is open now)",
 )
+BUSY = "Checking Kiln…"
 
 
 class Check:
@@ -31,171 +40,138 @@ class Check:
         return self.problems.pop(0) if self.problems else None
 
 
-def test_resolve_problem_returns_ok_when_the_check_passes():
+def resolve(check, terminal, **kwargs):
+    return resolve_problem(check, terminal, busy=BUSY, **kwargs)
+
+
+def test_a_passing_check_returns_none_after_its_spinner():
     terminal = ScriptedTerminal()
-    assert resolve_problem(Check(), terminal) is Resolution.OK
-    assert terminal.out == [] and terminal.prompts == []
+    assert resolve(Check(), terminal) is None
+    assert terminal.busy_texts == [BUSY]
+    assert terminal.blocks == [] and terminal.asked == []
 
 
-def test_retry_runs_the_check_again_until_it_passes():
+def test_check_again_runs_the_check_again_and_shows_the_block_each_time():
     check = Check(PROBLEM, PROBLEM)
     terminal = ScriptedTerminal(["r", "r"])
-    assert resolve_problem(check, terminal) is Resolution.OK
+    assert resolve(check, terminal) is None
     assert check.runs == 3
-    # The message is printed again after each failed retry.
-    assert terminal.out == [PROBLEM.message, PROBLEM.message]
-    assert len(terminal.prompts) == 2
+    assert terminal.busy_texts == [BUSY] * 3
+    assert terminal.blocks == [(PROBLEM.title, PROBLEM.body)] * 2
+    assert terminal.questions == ["What next?"] * 2
 
 
-def test_enter_is_retry():
+def test_open_opens_the_page_and_asks_again_without_rechecking():
     check = Check(PROBLEM)
-    assert resolve_problem(check, ScriptedTerminal([""])) is Resolution.OK
+    terminal = ScriptedTerminal(["d", "r"])
+    assert resolve(check, terminal) is None
+    assert terminal.opened == ["https://k/dl"]
     assert check.runs == 2
+    assert len(terminal.blocks) == 1
+    assert terminal.menus == [("r", "d", "x")] * 2
 
 
-def test_open_opens_the_url_and_asks_again_without_rechecking():
-    check = Check(PROBLEM)
-    terminal = ScriptedTerminal(["o", "r"])
-    assert resolve_problem(check, terminal) is Resolution.OK
-    assert terminal.opened == ["https://kiln.tech"]
-    assert check.runs == 2
-    assert terminal.out == [PROBLEM.message]
-    assert len(terminal.prompts) == 2
+def test_extra_actions_come_before_exit_and_are_returned():
+    pick_task = Action("t", "Pick a different task", ActionKind.PICK_TASK)
+    terminal = ScriptedTerminal(["t"])
+    assert resolve(Check(PROBLEM), terminal, extra=(pick_task,)) is pick_task
+    assert terminal.menus == [("r", "d", "t", "x")]
 
 
-def test_the_prompt_shows_only_the_options_that_apply():
-    def prompt_for(problem, **kwargs):
-        terminal = ScriptedTerminal(["r"])
-        resolve_problem(Check(problem), terminal, **kwargs)
-        return terminal.prompts[0]
-
-    assert prompt_for(PROBLEM) == "[r]etry  [o]pen kiln.tech  e[x]it: "
-    assert prompt_for(Problem("No URL.")) == "[r]etry  e[x]it: "
-    assert (
-        prompt_for(PROBLEM, offer_pick_task=True)
-        == "[r]etry  [o]pen kiln.tech  [t]ask: pick another  e[x]it: "
-    )
-    # With no label, the URL itself names what opens.
-    assert (
-        prompt_for(Problem("Unlabelled.", open_url="http://h/x"))
-        == "[r]etry  [o]pen http://h/x  e[x]it: "
-    )
+def test_a_problems_own_action_is_returned():
+    problem = Problem("No projects", (), actions=(DEMO,), retry_first=False)
+    terminal = ScriptedTerminal(["m"])
+    assert resolve(Check(problem), terminal) is DEMO
 
 
-def test_open_is_not_an_option_without_a_url():
-    check = Check(Problem("No URL."))
-    terminal = ScriptedTerminal(["o", "r"])
-    assert resolve_problem(check, terminal) is Resolution.OK
-    assert terminal.opened == []
-    assert len(terminal.prompts) == 2
-
-
-def test_pick_task_only_when_offered():
-    offered = ScriptedTerminal(["t"])
-    resolution = resolve_problem(Check(PROBLEM), offered, offer_pick_task=True)
-    assert resolution is Resolution.PICK_TASK
-
-    check = Check(PROBLEM)
-    not_offered = ScriptedTerminal(["t", "r"])
-    assert resolve_problem(check, not_offered) is Resolution.OK
-    assert len(not_offered.prompts) == 2 and check.runs == 2
-
-
-def test_unknown_answers_ask_again_and_answers_are_normalised():
-    check = Check(PROBLEM)
-    terminal = ScriptedTerminal(["zz", "retry", " R "])
-    assert resolve_problem(check, terminal) is Resolution.OK
-    assert len(terminal.prompts) == 3
-    assert check.runs == 2
-
-
-@pytest.mark.parametrize("inputs", [["x"], [" X "], []], ids=["x", "X", "eof"])
-def test_exit_and_end_of_input_stop_with_1(inputs):
+@pytest.mark.parametrize("answers", [["x"], []], ids=["exit", "ctrl-d"])
+def test_exit_and_ctrl_d_stop_with_1(answers):
     with pytest.raises(OnboardingStopped) as stopped:
-        resolve_problem(Check(PROBLEM), ScriptedTerminal(inputs))
+        resolve(Check(PROBLEM), ScriptedTerminal(answers))
     assert stopped.value.exit_code == 1
 
 
-def test_not_interactive_raises_the_message_without_asking():
+def test_ctrl_c_at_the_menu_stops_with_130():
+    with pytest.raises(OnboardingStopped) as stopped:
+        resolve(Check(PROBLEM), ScriptedTerminal([OnboardingStopped(130)]))
+    assert stopped.value.exit_code == 130
+
+
+def test_a_problems_warnings_follow_its_block_or_precede_its_error():
+    problem = Problem("Not ready", ("Add an eval.",), warnings=("1 eval failed",))
+    guided = ScriptedTerminal(["r"])
+    resolve(Check(problem), guided)
+    assert guided.transcript[1:4] == [
+        "block Not ready",
+        "warn 1 eval failed",
+        "act What next?",
+    ]
+    plain = ScriptedTerminal(interactive=False)
+    with pytest.raises(OnboardingError):
+        resolve(Check(problem), plain)
+    assert plain.err == ["1 eval failed"]
+
+
+def test_not_guided_raises_the_plain_problem_without_a_block_or_a_menu():
     check = Check(PROBLEM)
-    terminal = ScriptedTerminal(["r"], interactive=False)
+    terminal = ScriptedTerminal(interactive=False)
     with pytest.raises(OnboardingError) as error:
-        resolve_problem(check, terminal)
-    assert str(error.value) == PROBLEM.message
-    assert terminal.prompts == [] and terminal.out == []
+        resolve(check, terminal)
+    assert (error.value.title, error.value.body) == (
+        "Kiln isn't running",
+        (
+            "Open the Kiln app.",
+            "  1. Install it.",
+            "Open the download page: https://k/dl",
+        ),
+    )
+    assert str(error.value) == (
+        "Kiln isn't running\n"
+        "  Open the Kiln app.\n"
+        "    1. Install it.\n"
+        "  Open the download page: https://k/dl"
+    )
     assert check.runs == 1
 
 
-class FakeStream(io.StringIO):
-    def __init__(self, tty: bool):
-        super().__init__()
-        self.tty = tty
-
-    def isatty(self) -> bool:
-        return self.tty
-
-
-@pytest.mark.parametrize(
-    "stdin_tty,stdout_tty,interactive",
-    [(True, True, True), (True, False, False), (False, True, False)],
-)
-def test_std_terminal_is_interactive_only_when_both_streams_are_terminals(
-    monkeypatch, stdin_tty, stdout_tty, interactive
-):
-    monkeypatch.setattr("sys.stdin", FakeStream(stdin_tty))
-    monkeypatch.setattr("sys.stdout", FakeStream(stdout_tty))
-    assert StdTerminal("prog").interactive is interactive
+def test_the_menu_puts_check_again_first_unless_the_problem_leads():
+    extra = (Action("p", "Pick a different project", ActionKind.PICK_PROJECT),)
+    leads = Problem("No tasks", (), actions=(DOWNLOAD,), retry_first=False)
+    assert [a.key for a in PROBLEM.menu(extra)] == ["r", "d", "p", "x"]
+    assert [a.key for a in leads.menu(extra)] == ["d", "r", "p", "x"]
+    retry, *_rest, exit_action = PROBLEM.menu()
+    assert (retry.key, retry.label, retry.kind) == (
+        "r",
+        "Check again (Kiln is open now)",
+        ActionKind.RETRY,
+    )
+    assert (exit_action.key, exit_action.label, exit_action.kind) == (
+        "x",
+        "Exit",
+        ActionKind.EXIT,
+    )
 
 
-def test_std_terminal_is_not_interactive_without_stdin(monkeypatch):
-    monkeypatch.setattr("sys.stdin", None)
-    monkeypatch.setattr("sys.stdout", FakeStream(True))
-    assert StdTerminal("prog").interactive is False
+def test_the_plain_error_leaves_out_a_link_the_body_already_gives():
+    problem = Problem("Old", ("Download it from https://k/dl.",), actions=(DOWNLOAD,))
+    assert problem.error().body == ("Download it from https://k/dl.",)
+    # Actions that open nothing add nothing.
+    assert Problem("None", (), actions=(DEMO,)).error().body == ()
 
 
-def test_std_terminal_says_to_stdout_and_warns_to_stderr_with_the_prefix(capsys):
-    terminal = StdTerminal("prog")
-    terminal.say("hello")
-    terminal.warn("careful")
-    captured = capsys.readouterr()
-    assert captured.out == "hello\n"
-    assert captured.err == "prog: careful\n"
+def test_tilde_shows_the_home_folder_as_a_tilde():
+    home = Path("/home/you")
+    assert tilde(home / "Kiln Projects" / "Demo", home) == "~/Kiln Projects/Demo"
+    assert tilde(home, home) == "~"
+    assert tilde("/kiln-projects/Demo", home) == "/kiln-projects/Demo"
+    assert tilde(Path.home() / "x") == "~/x"
 
 
-def test_std_terminal_ask_returns_the_line(monkeypatch):
-    prompts = []
-
-    def fake_input(prompt):
-        prompts.append(prompt)
-        return "r"
-
-    monkeypatch.setattr("builtins.input", fake_input)
-    assert StdTerminal("prog").ask("Go? ") == "r"
-    assert prompts == ["Go? "]
-
-
-@pytest.mark.parametrize(
-    "raised,exit_code", [(EOFError, 1), (KeyboardInterrupt, 130)], ids=["eof", "ctrlc"]
-)
-def test_std_terminal_ask_stops_on_eof_and_ctrl_c(
-    monkeypatch, capsys, raised, exit_code
-):
-    def fake_input(_prompt):
-        raise raised
-
-    monkeypatch.setattr("builtins.input", fake_input)
-    with pytest.raises(OnboardingStopped) as stopped:
-        StdTerminal("prog").ask("Go? ")
-    assert stopped.value.exit_code == exit_code
-    # A newline, so the next line does not start after the prompt.
-    assert capsys.readouterr().out == "\n"
-
-
-def test_std_terminal_open_url_opens_the_browser_and_prints_the_url(
-    monkeypatch, capsys
-):
-    opened = []
-    monkeypatch.setattr(terminal_module.webbrowser, "open", opened.append)
-    StdTerminal("prog").open_url("https://kiln.tech")
-    assert opened == ["https://kiln.tech"]
-    assert capsys.readouterr().out == "https://kiln.tech\n"
+def test_english_list_and_plural():
+    assert english_list([]) == ""
+    assert english_list(["a"]) == "a"
+    assert english_list(["a", "b"]) == "a and b"
+    assert english_list(["a", "b", "c"]) == "a, b and c"
+    assert plural(1, "eval") == "1 eval"
+    assert plural(3, "eval") == "3 evals"
+    assert plural(2, "key", "keys") == "2 keys"

@@ -492,7 +492,7 @@ main(argv)
   asyncio.run(_run_with_signals(args))                (unchanged)
 ```
 
-- **New dependency:** `questionary>=2.1,<3`, which brings `prompt_toolkit` 3. It goes in `pyproject.toml` with a regenerated `uv.lock`. `rich` is already a dependency.
+- **New dependency:** `questionary>=2.1.1,<2.2`, which brings `prompt_toolkit` 3. It goes in `pyproject.toml` with a regenerated `uv.lock`. The range is one minor version because the terminal uses questionary internals (§25). `rich` is already a dependency.
 - **The flow stays synchronous,** for the reason in §1: questionary's `unsafe_ask()` runs its own prompt_toolkit loop, and each prompt runs while no asyncio loop is running. Kiln reads keep their own short `asyncio.run` through the runner.
 
 New and changed modules:
@@ -549,22 +549,27 @@ class Terminal(Protocol):
 
 **`RichTerminal`**
 - **Output:**
-  - `rich.console.Console(highlight=False)` writes stdout, and a second `Console(stderr=True)` writes `warn`.
+  - One `rich.console.Console(highlight=False)` writes stdout, every line with `soft_wrap=True`, so a long command copies out whole.
+  - `warn` prints `! text`, the `!` in yellow, to the same stdout console. The guided start is all on stdout (FS §13). A second console on stderr would also write past rich's live-display redirect and break the spinner's line.
   - `step` prints `✓` (green), `✗` (red) or `!` (yellow), then the label padded to 9 characters, then the text.
-  - `block` prints a blank line, the bold red `✗ title`, each body line indented two spaces, and a blank line.
+  - `block` prints a blank line, the bold red `✗ title`, a blank line, each body line indented two spaces, and a blank line (the FS §4 layout).
   - `header` prints bold text and a blank line.
   - `busy` returns `console.status(text, spinner="dots")`, which is transient. rich disables it and the colours on a stream that isn't a terminal, and honours `NO_COLOR`.
 - **`pick`:**
   - `questionary.select(question, choices=[questionary.Choice(title=row_i, value=i, disabled=o.disabled, description=o.description) …], use_search_filter=True, use_jk_keys=False, instruction=hint or "↑↓ move · type to filter · Enter pick", erase_when_done=True).unsafe_ask()`, then return `options[i].value`.
   - `row_i` is the label and the columns, each padded to its column's widest cell and joined by three spaces. The search filter matches the whole row text, so typing an ID works.
+  - **Its own keys, merged over questionary's.** Under a search filter, questionary 2.1.1 gets disabled rows and empty filters wrong. The bindings work on the select's `InquirerControl`, found in `question.application.layout`:
+    - **Enter:** does nothing on a disabled row, or while the filter matches nothing (questionary then shows the whole list). Otherwise it picks the highlighted row.
+    - **Up, Down, Ctrl-P, Ctrl-N:** skip disabled rows by their place in the filtered list. questionary checks the unfiltered list.
+    - **Each filter key** (the printable characters and Backspace) updates the filter, then moves the cursor to the first enabled row of the filtered list. questionary puts it on row 0 even when that row is disabled.
 - **`act`:**
   - `questionary.select(question, choices=[Choice(title=a.label, value=i, shortcut_key=a.key) …], use_shortcuts=True, use_jk_keys=False, erase_when_done=True)`.
   - Then one eager `KeyBinding` per key, merged into `question.application.key_bindings` with `merge_key_bindings`, calls `event.app.exit(result=i)`. A shortcut on its own only moves the cursor in questionary 2.1; this binding makes it act at once, which the research run confirmed.
 - **`text`:** `questionary.text(question, default=default, instruction=hint, validate=lambda s: True if (e := validate(s)) is None else e, erase_when_done=True).unsafe_ask()`. questionary shows the error under the field and keeps the typed text.
-- **Stopping:** each prompt maps `KeyboardInterrupt` to `OnboardingStopped(130)` and `EOFError` (Ctrl-D) to `OnboardingStopped(1)`.
+- **Stopping:** each prompt maps `KeyboardInterrupt` to `OnboardingStopped(130)` and `EOFError` to `OnboardingStopped(1)`. Each prompt gets an eager Ctrl-D binding that raises `EOFError`: questionary's select swallows Ctrl-D, and its text field deletes a character with it.
 - **Answer records:** the caller, not the terminal, prints the step line after `pick` and `text`. `act` leaves no record.
 - **`open_url(url)`:**
-  - When `_graphical_browser_expected()` is true (`sys.platform in ("darwin", "win32")`, or `DISPLAY` or `WAYLAND_DISPLAY` is set), it prints `Opening <url>` and calls `webbrowser.open(url)`.
+  - When `graphical_browser_expected()` is true (`sys.platform in ("darwin", "win32")`, or `DISPLAY` or `WAYLAND_DISPLAY` is set), it prints `Opening <url>` and calls `webbrowser.open(url)`.
   - Otherwise it prints `Open this link in your browser: <url>`.
   - This closes backlog item 1: no console browser is ever started.
 
@@ -572,16 +577,19 @@ class Terminal(Protocol):
 - `interactive = False`.
 - `header` and `busy` do nothing.
 - `step` prints `<label padded to 9> <text>` to stdout, with no symbol.
-- `block` is never called; `resolve_problem` raises before it.
-- `warn` prints `<prog>: text` to stderr.
-- `pick`, `act` and `text` raise `RuntimeError("not a guided start")`. The flow never calls them when not interactive, and a test enforces that.
+- `say` prints to stdout, and `warn` prints `<prog>: text` to stderr.
+- `block`, `pick`, `act`, `text` and `open_url` raise `RuntimeError("not a guided start")`. `resolve_problem` raises before a block or a menu, the flow never prompts when not interactive, and a test enforces that.
 
 **`ScriptedTerminal`** (`tests/onboarding_fakes.py`) takes `interactive` and a queue of answers:
 - for `pick`, a value, or a callable that returns one;
 - for `act`, a key;
 - for `text`, a string, or a callable that gets the `validate` function and returns the text.
 
-It records every `step`, `block`, `say`, `warn`, `busy` text and opened URL.
+It records every `step`, `block`, `say`, `warn`, `busy` text and opened URL, each prompt's question and offer, and an ordered transcript of all of them. It fails the test on:
+- a prompt in a start that isn't guided;
+- a key or value the prompt didn't offer;
+- a prompt while a spinner runs;
+- a spinner inside a spinner.
 
 ## 19. Problems and `resolve_problem`
 
@@ -592,20 +600,52 @@ class Problem:
     body: tuple[str, ...]             # explanation and numbered steps, no prompt
     actions: tuple[Action, ...] = ()  # besides Check again and Exit
     retry_label: str = "Check again"
-    def plain(self) -> str            # title + "\n" + indented body, for OnboardingError
+    retry_first: bool = True          # False: the problem's own actions lead
+    warnings: tuple[str, ...] = ()    # printed after the block
+    def menu(self, extra: Sequence[Action] = ()) -> tuple[Action, ...]
+    def error(self) -> OnboardingError
+
+class OnboardingError(Exception):     # errors.py
+    def __init__(self, title: str, body: Sequence[str] = ()): ...
+    title: str
+    body: tuple[str, ...]
+    shown: bool                       # a guided start has shown it as a block
+    # str(): the title, then each body line indented two spaces
 
 def resolve_problem(check: Callable[[], Problem | None], terminal: Terminal, *,
                     busy: str, extra: Sequence[Action] = ()) -> Action | None
 ```
 
+**`Problem.menu(extra)`**
+- `retry_first` true: `[Action("r", retry_label, RETRY), *actions, *extra, Action("x", "Exit", EXIT)]`.
+- `retry_first` false: `[*actions, r, *extra, x]`. The no-projects and no-tasks problems lead with what to do in Kiln, as FS §5.2 shows (`m, o, r, x` and `o, r, p, x`).
+
+**`Problem.error()`** is the `OnboardingError` for a start with no one to ask: the title and the body. With no menu to open a page from, it adds `"<label>: <url>"` for each Open action whose address the body doesn't already give.
+
+**`resolve_problem`**
 1. Run `check()` inside `terminal.busy(busy)`.
 2. While it returns a `Problem`:
-   - **Not interactive:** raise `OnboardingError(problem.plain())`.
+   - **Not interactive:** print the problem's `warnings` through `terminal.warn`, then raise `problem.error()`.
    - **Interactive:**
-     1. `terminal.block(problem.title, problem.body)`.
-     2. The menu is `[Action("r", retry_label, RETRY), *problem.actions, *extra, Action("x", "Exit", EXIT)]`, and the answer is `terminal.act("What next?", menu)`.
+     1. `terminal.block(problem.title, problem.body)`, then each of its `warnings`.
+     2. The answer is `terminal.act("What next?", problem.menu(extra))`.
      3. `OPEN` calls `terminal.open_url(action.url)` and asks again without re-checking. `RETRY` runs `check()` again (back to step 1). `EXIT` raises `OnboardingStopped(1)`. Any other kind (`PICK_TASK`, `PICK_PROJECT`, `USE_DEMO`) is returned to the caller.
 3. Return `None` when `check()` returns `None`.
+
+**Errors that aren't problems** (an unknown ID, a path mismatch, a failed demo copy) are `OnboardingError`s with a title and a body.
+- In a guided start, `prepare_start` shows each one with `terminal.block` and sets `shown`. `main` then prints nothing and exits 1.
+- Otherwise `main` prints `<prog>: <str(error)>` to stderr and exits 1.
+
+**Warnings.** A check that passes prints its warnings after its step line: the Kiln check's unreadable API list, and readiness's evals Kiln couldn't load. A readiness problem carries its warnings, so they come after its block.
+
+**Selection** (`choose.py`):
+- `select` returns `Selection | Literal[ActionKind.USE_DEMO]`; the flow makes the demo and selects again.
+- `Selection` also records `project_picked`, whether the user picked the project from a list.
+- `select(…, same_project=selection)` keeps an earlier selection's project, for `t) Pick a different task`. The project isn't read or announced again, and it keeps its `project_picked`, so `p) Pick a different project` is still offered if it has no tasks left.
+- `PICK_PROJECT` is handled inside `select`, which goes back to the project picker.
+- The flow writes the project, the task and the folder into `args` only once the task is ready. Until then `args` holds only what was given, so a choice made again asks for the same things.
+
+**Step lines.** A project or task given by a flag also gets its step line. The only choice gets `· the only <noun> <where>`.
 
 **The messages.**
 - **Where the text lives:** each check module builds its titles and bodies with the FS §4–§9 text.
@@ -795,7 +835,11 @@ return args
 
 ## 25. Risks (phases 6–8)
 
-- **Making a shortcut act at once** relies on `Question.application.key_bindings` being assignable. That holds in questionary 2.1.1, and a test drives it. The `<3` pin guards a breaking release.
+- **questionary internals.** The terminal relies on two things outside questionary's public API, both true in 2.1.1, and each driven by a test:
+  - Making a shortcut act at once relies on `Question.application.key_bindings` being assignable.
+  - The picker's Enter, arrow and filter keys read and move the select's `InquirerControl`: `filtered_choices`, `found_in_search`, `search_filter`, `pointed_at`, `is_answered` and `add_search_character`.
+
+  A minor release may change either, so the range is `>=2.1.1,<2.2`. `uv tool install` resolves the range afresh, without the repository's lock, so the range is what users get.
 - **Rendering on narrow terminals:** questionary's list scrolls with the cursor (confirmed with 99 items in a 20-row window), but it has no page size. A list taller than the window scrolls the lines above it out of view while it's open; the erased list then leaves the step line in their place.
 - **The rerun command is POSIX-quoted.** On Windows `cmd.exe` the line breaks and quoting differ. Windows is out of scope (FS §16).
 - **Spinners and `asyncio.run`:** rich's status runs on its own thread, and each Kiln read's `asyncio.run` runs inside the `with`. A Ctrl-C there still reaches `prepare_start`'s `KeyboardInterrupt` handler and exits 130, as in §4.

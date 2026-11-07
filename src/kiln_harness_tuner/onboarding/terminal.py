@@ -1,138 +1,216 @@
-"""The terminal the onboarding talks through, and the shared retry prompt.
+"""What the start-up checks say and ask, independent of how it is shown.
 
-Plain `print` and `input`, no `rich`: the prompts are a few lines, and plain
-I/O is what a scripted test terminal can replay.
+The `Terminal` protocol is the one surface the checks talk through:
+`console.py` has the guided terminal and the plain one, and the tests a
+scripted one. A failed check is a `Problem`, and `resolve_problem` is the
+one loop that shows it, offers what to do, and runs the check again.
 """
 
 from __future__ import annotations
 
-import sys
-import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, TextIO
+from pathlib import Path
+from typing import Generic, Literal, Protocol, TypeVar
 
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 
+T = TypeVar("T")
+
+StepStatus = Literal["ok", "fail", "warn"]
+
+WHAT_NEXT = "What next?"
+
+
+@dataclass(frozen=True)
+class Option(Generic[T]):
+    """One row of a picker. `columns` are aligned across the rows."""
+
+    value: T
+    label: str
+    columns: tuple[str, ...] = ()
+    description: str | None = None  # shown under the highlighted row
+    disabled: str | None = None  # why it can't be picked, shown dimmed
+
+
+class ActionKind(Enum):
+    RETRY = "retry"
+    OPEN = "open"
+    PICK_TASK = "pick_task"
+    PICK_PROJECT = "pick_project"
+    USE_DEMO = "use_demo"
+    EXIT = "exit"
+    START = "start"
+    CHANGE = "change"
+    KEEP = "keep"
+    CUSTOMIZE = "customize"
+
+
+@dataclass(frozen=True)
+class Action:
+    """One entry of an action menu, chosen by its single `key`."""
+
+    key: str  # one lower-case letter, unique in its menu
+    label: str
+    kind: ActionKind
+    url: str | None = None  # the page an OPEN action opens
+
 
 class Terminal(Protocol):
-    interactive: bool
+    interactive: bool  # True for a guided start
 
-    def say(self, text: str) -> None:
-        """One message to stdout."""
+    def header(self, text: str) -> None: ...
+
+    def step(self, status: StepStatus, label: str, text: str) -> None:
+        """One finished step: a symbol, the label in a fixed width, the text."""
         ...
 
-    def warn(self, text: str) -> None:
-        """One message to stderr, prefixed `<prog>: `."""
+    def block(self, title: str, body: Sequence[str]) -> None:
+        """A failed check: the ✗ title and the lines that explain it."""
         ...
 
-    def ask(self, prompt: str) -> str:
-        """One line of input. End of input raises `OnboardingStopped(1)`, and
-        Ctrl-C raises `OnboardingStopped(130)`."""
+    def say(self, text: str) -> None: ...
+
+    def warn(self, text: str) -> None: ...
+
+    def busy(self, text: str) -> AbstractContextManager[object]:
+        """A spinner saying `text` while Kiln is called. No prompt runs
+        inside it."""
         ...
 
-    def open_url(self, url: str) -> None:
-        """Open `url` in the browser, and print it too: a remote shell has
-        no browser."""
+    def pick(
+        self, question: str, options: Sequence[Option[T]], *, hint: str | None = None
+    ) -> T:
+        """One option's value. Ctrl-C raises `OnboardingStopped(130)`, and
+        Ctrl-D `OnboardingStopped(1)`, as at every prompt."""
         ...
 
+    def act(self, question: str, actions: Sequence[Action]) -> Action: ...
 
-def _is_tty(stream: TextIO | None) -> bool:
-    return stream is not None and stream.isatty()
+    def text(
+        self,
+        question: str,
+        *,
+        default: str = "",
+        hint: str | None = None,
+        validate: Callable[[str], str | None] | None = None,
+    ) -> str:
+        """A typed answer, asked again while `validate` returns an error."""
+        ...
+
+    def open_url(self, url: str) -> None: ...
 
 
-class StdTerminal:
-    """The real terminal: stdout, stderr, `input()` and the browser."""
+def _retry(label: str) -> Action:
+    return Action("r", label, ActionKind.RETRY)
 
-    def __init__(self, prog: str):
-        self.prog = prog
-        self.interactive = _is_tty(sys.stdin) and _is_tty(sys.stdout)
 
-    def say(self, text: str) -> None:
-        print(text)
-
-    def warn(self, text: str) -> None:
-        print(f"{self.prog}: {text}", file=sys.stderr)
-
-    def ask(self, prompt: str) -> str:
-        # The newline before each stop puts the next line, ours or the
-        # shell's, at the start of a line instead of after the prompt.
-        try:
-            return input(prompt)
-        except EOFError:
-            print()
-            raise OnboardingStopped(1) from None
-        except KeyboardInterrupt:
-            print()
-            raise OnboardingStopped(130) from None
-
-    def open_url(self, url: str) -> None:
-        webbrowser.open(url)
-        self.say(url)
+EXIT_ACTION = Action("x", "Exit", ActionKind.EXIT)
 
 
 @dataclass(frozen=True)
 class Problem:
-    """A failed check: what is wrong and how to fix it, with no prompt line.
-    `open_url` is the page that fixes it, offered as `[o]pen <open_label>`."""
+    """A failed check: what is wrong and how to fix it, and the actions
+    that help, besides Check again and Exit.
 
-    message: str
-    open_url: str | None = None
-    open_label: str | None = None
+    `retry_first` puts Check again at the top of the menu. A problem whose
+    fix is one of its own actions (make a project, use the demo) leads with
+    those instead. `warnings` are printed after the block, as a check that
+    passes prints its own after its step line."""
 
+    title: str
+    body: tuple[str, ...]
+    actions: tuple[Action, ...] = ()
+    retry_label: str = "Check again"
+    retry_first: bool = True
+    warnings: tuple[str, ...] = ()
 
-class Resolution(Enum):
-    OK = "ok"
-    PICK_TASK = "pick_task"
+    def menu(self, extra: Sequence[Action] = ()) -> tuple[Action, ...]:
+        """The action menu, with `extra` (the caller's own actions) last
+        before Exit."""
+        retry = _retry(self.retry_label)
+        if self.retry_first:
+            return (retry, *self.actions, *extra, EXIT_ACTION)
+        return (*self.actions, retry, *extra, EXIT_ACTION)
+
+    def error(self) -> OnboardingError:
+        """The problem for a start with no one to ask. With no menu to open
+        a page from, each page an Open action would open is named, unless
+        the body already gives its address."""
+        links = tuple(
+            f"{action.label}: {action.url}"
+            for action in self.actions
+            if action.kind is ActionKind.OPEN
+            and action.url is not None
+            and not any(action.url in line for line in self.body)
+        )
+        return OnboardingError(self.title, (*self.body, *links))
 
 
 def resolve_problem(
     check: Callable[[], Problem | None],
     terminal: Terminal,
     *,
-    offer_pick_task: bool = False,
-) -> Resolution:
-    """Run `check` until it finds no problem.
+    busy: str,
+    extra: Sequence[Action] = (),
+) -> Action | None:
+    """Run `check`, with a spinner saying `busy`, until it finds no problem,
+    and return `None`.
 
-    Not interactive, the first problem raises `OnboardingError`. Interactive,
-    each problem is printed, then the prompt asks what to do: retry, open the
-    fix page, pick another task (only when `offer_pick_task`), or exit. A
-    retry runs `check` again; nothing polls."""
-    problem = check()
-    while problem is not None:
-        if not terminal.interactive:
-            raise OnboardingError(problem.message)
-        terminal.say(problem.message)
-        if _ask_what_next(problem, terminal, offer_pick_task) is Resolution.PICK_TASK:
-            return Resolution.PICK_TASK
-        problem = check()
-    return Resolution.OK
-
-
-def _ask_what_next(
-    problem: Problem, terminal: Terminal, offer_pick_task: bool
-) -> Resolution | None:
-    """Ask until the answer is a retry (None) or a task pick. `o` opens the
-    fix page and asks again without re-checking; `x` stops."""
-    prompt = _prompt(problem, offer_pick_task)
+    A start that isn't guided prints the first problem's warnings, then
+    raises the problem as an `OnboardingError`. A guided start shows each
+    problem as a block, with its warnings, then asks what next: Check again
+    runs `check` again (nothing polls), an Open action opens its page and
+    asks again, and Exit stops with exit 1. Any other action, the problem's
+    own or one of `extra`, is returned for the caller to act on."""
     while True:
-        answer = terminal.ask(prompt).strip().lower()
-        if answer in ("", "r"):
+        with terminal.busy(busy):
+            problem = check()
+        if problem is None:
             return None
-        if answer == "o" and problem.open_url is not None:
-            terminal.open_url(problem.open_url)
-        elif answer == "t" and offer_pick_task:
-            return Resolution.PICK_TASK
-        elif answer == "x":
+        if not terminal.interactive:
+            for warning in problem.warnings:
+                terminal.warn(warning)
+            raise problem.error()
+        terminal.block(problem.title, problem.body)
+        for warning in problem.warnings:
+            terminal.warn(warning)
+        action = _ask_what_next(terminal, problem.menu(extra))
+        if action.kind is not ActionKind.RETRY:
+            return action
+
+
+def _ask_what_next(terminal: Terminal, menu: Sequence[Action]) -> Action:
+    """The chosen action, after opening any pages asked for on the way."""
+    while True:
+        action = terminal.act(WHAT_NEXT, menu)
+        if action.kind is ActionKind.EXIT:
             raise OnboardingStopped(1)
+        if action.kind is not ActionKind.OPEN:
+            return action
+        assert action.url is not None
+        terminal.open_url(action.url)
 
 
-def _prompt(problem: Problem, offer_pick_task: bool) -> str:
-    options = ["[r]etry"]
-    if problem.open_url is not None:
-        options.append(f"[o]pen {problem.open_label or problem.open_url}")
-    if offer_pick_task:
-        options.append("[t]ask: pick another")
-    options.append("e[x]it")
-    return "  ".join(options) + ": "
+def tilde(path: str | Path, home: Path | None = None) -> str:
+    """`path` with the home folder shown as `~`."""
+    home = Path.home() if home is None else home
+    try:
+        rest = Path(path).relative_to(home)
+    except ValueError:
+        return str(path)
+    return "~" if rest == Path() else f"~/{rest}"
+
+
+def english_list(items: Sequence[str]) -> str:
+    """`a`, `a and b`, `a, b and c`."""
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def plural(count: int, noun: str, nouns: str | None = None) -> str:
+    """`1 eval`, `2 evals`."""
+    return f"{count} {noun if count == 1 else nouns or noun + 's'}"

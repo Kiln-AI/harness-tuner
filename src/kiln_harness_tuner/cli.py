@@ -220,6 +220,12 @@ def build_parser() -> _Parser:
         " --project-id, --task-id or --project-path)",
     )
     parser.add_argument(
+        "--no-interaction",
+        action="store_true",
+        help="never ask a question or wait: checks fail fast, a missing project"
+        " or task is an error, and every option not given takes its default",
+    )
+    parser.add_argument(
         "--kiln-host",
         default=DEFAULT_KILN_HOST,
         help=f"running Kiln app (default {DEFAULT_KILN_HOST})",
@@ -1358,6 +1364,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except OnboardingStopped as stop:
         print(f"{PROG}: stopped.", file=sys.stderr)
         return stop.exit_code
+    except OnboardingError as exc:
+        # A guided start has already shown it, as a block on the terminal.
+        if not exc.shown:
+            print(f"{PROG}: {exc}", file=sys.stderr)
+        return 1
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
         print(
@@ -1378,7 +1389,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         RecordKindError,  # an agent-supplied id of the wrong record kind
         QuarantineError,  # the splits could not be decided
         TrainSetError,  # the train boundary is unclear: no agent may start
-        OnboardingError,  # a start-up check failed with no one to ask
     ) as exc:
         # The hard errors carry instructive messages — land them instead
         # of a traceback. Anything else is a genuine bug and may raise raw.

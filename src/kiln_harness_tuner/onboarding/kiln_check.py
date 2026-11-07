@@ -11,14 +11,22 @@ from typing import Any
 
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
-from kiln_harness_tuner.onboarding.terminal import Problem
+from kiln_harness_tuner.onboarding import kiln_urls
+from kiln_harness_tuner.onboarding.terminal import (
+    Action,
+    ActionKind,
+    Problem,
+    english_list,
+)
 
-KILN_DOWNLOAD_URL = "https://kiln.tech"
 PING_TIMEOUT_SECS = 5.0
 OPENAPI_TIMEOUT_SECS = 10.0
 
 UNREADABLE_API_LIST_WARNING = (
-    "couldn't read Kiln's API list, so its version wasn't checked."
+    "Couldn't read Kiln's API list, so its version wasn't checked."
+)
+DOWNLOAD_ACTION = Action(
+    "d", "Open the download page", ActionKind.OPEN, url=kiln_urls.KILN_DOWNLOAD_URL
 )
 
 
@@ -45,10 +53,17 @@ REQUIRED_APIS = (
 @dataclass(frozen=True)
 class KilnCheck:
     """The check's outcome. `warning` is set only when the check passed but
-    could not read the API list."""
+    could not read the API list. `version` is what Kiln reports, when it
+    says something."""
 
     problem: Problem | None = None
     warning: str | None = None
+    version: str | None = None
+
+
+def kiln_passed_text(version: str | None, host: str) -> str:
+    """The step line's text for a Kiln that passed."""
+    return f"{version} at {host}" if version else f"running at {host}"
 
 
 def _dict_at(node: Any, *keys: str) -> dict[str, Any]:
@@ -73,52 +88,69 @@ def missing_apis(openapi: dict[str, Any]) -> list[str]:
     return [api.label for api in REQUIRED_APIS if not _is_present(api, openapi)]
 
 
-def _version_note(openapi: dict[str, Any]) -> str:
+def _version(openapi: dict[str, Any]) -> str | None:
     # Packaged Kiln builds can report `unknown`, which says nothing.
     version = _dict_at(openapi, "info").get("version")
     if not isinstance(version, str) or version.strip().lower() in ("", "unknown"):
-        return ""
-    return f" (version {version.strip()})"
-
-
-def _kiln_problem(message: str) -> Problem:
-    return Problem(message, open_url=KILN_DOWNLOAD_URL, open_label="kiln.tech")
+        return None
+    return version.strip()
 
 
 def _not_running(host: str) -> Problem:
-    return _kiln_problem(
-        f"Kiln isn't running at {host}.\n"
-        "Start the Kiln app. If you don't have it, download it from"
-        f" {KILN_DOWNLOAD_URL}.\n"
-        "If Kiln runs on another port, pass --kiln-host."
+    return Problem(
+        f"Kiln isn't running at {host}",
+        (
+            "The tuner works through the Kiln app, so Kiln has to be open on this"
+            " computer.",
+            f"  1. Install Kiln if you don't have it: {kiln_urls.KILN_DOWNLOAD_URL}",
+            "  2. Open the Kiln app and wait for its window to appear.",
+            "Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.",
+        ),
+        actions=(DOWNLOAD_ACTION,),
+        retry_label="Check again (Kiln is open now)",
     )
 
 
 def _not_kiln(host: str, answer: str) -> Problem:
-    return _kiln_problem(
-        f"Something answered at {host}, but it isn't Kiln"
-        f" (GET /ping returned {answer}).\n"
-        "Check --kiln-host, or start the Kiln app."
+    return Problem(
+        f"Something other than Kiln is answering at {host}",
+        (
+            f"GET /ping returned {answer}, so this isn't the Kiln app.",
+            "  1. If Kiln is running on another port, exit and pass --kiln-host"
+            " with its address.",
+            "  2. Otherwise close the program using this port, then open the Kiln app.",
+        ),
+        actions=(DOWNLOAD_ACTION,),
     )
 
 
-def _too_old(
-    host: str, openapi: dict[str, Any], missing: list[str], prog: str
-) -> Problem:
-    return _kiln_problem(
-        f"Kiln at {host}{_version_note(openapi)} is too old for {prog}.\n"
-        f"It's missing: {', '.join(missing)}.\n"
-        "Update Kiln: in the app, open Settings → Check for update, or download"
-        f" the latest from {KILN_DOWNLOAD_URL}.\n"
-        "Then restart it."
+def _too_old(host: str, version: str | None, missing: list[str]) -> Problem:
+    kiln = f"Kiln {version}" if version else "This Kiln"
+    return Problem(
+        f"{kiln} is too old for the tuner",
+        (
+            f"The tuner needs {english_list(missing)}, which this Kiln doesn't have.",
+            "  1. Update Kiln: in the app, open Settings → Check for update,",
+            f"     or download the latest version from {kiln_urls.KILN_DOWNLOAD_URL}.",
+            "  2. Quit and reopen Kiln so the update takes effect.",
+        ),
+        actions=(
+            Action(
+                "u",
+                "Open Kiln's update page",
+                ActionKind.OPEN,
+                url=kiln_urls.check_for_update(host),
+            ),
+            DOWNLOAD_ACTION,
+        ),
+        retry_label="Check again (I've updated and reopened Kiln)",
     )
 
 
-async def check_kiln(kiln: KilnApi, host: str, *, prog: str) -> KilnCheck:
+async def check_kiln(kiln: KilnApi, host: str) -> KilnCheck:
     """Ping Kiln once, then check its API list for `REQUIRED_APIS`. An API
     list that can't be read is a warning, not a problem: a later call to a
-    missing API fails with its own error. `prog` names the command in the
-    too-old message."""
+    missing API fails with its own error."""
     try:
         pong = await kiln.call(
             "GET", "/ping", timeout_secs=PING_TIMEOUT_SECS, retries=False
@@ -138,7 +170,8 @@ async def check_kiln(kiln: KilnApi, host: str, *, prog: str) -> KilnCheck:
         openapi = None
     if not isinstance(openapi, dict):
         return KilnCheck(warning=UNREADABLE_API_LIST_WARNING)
+    version = _version(openapi)
     missing = missing_apis(openapi)
     if missing:
-        return KilnCheck(problem=_too_old(host, openapi, missing, prog))
-    return KilnCheck()
+        return KilnCheck(problem=_too_old(host, version, missing), version=version)
+    return KilnCheck(version=version)

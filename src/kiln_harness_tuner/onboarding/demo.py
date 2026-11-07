@@ -23,7 +23,7 @@ from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.onboarding.choose import fetch_projects
 from kiln_harness_tuner.onboarding.errors import OnboardingError
-from kiln_harness_tuner.onboarding.terminal import Terminal
+from kiln_harness_tuner.onboarding.terminal import Terminal, tilde
 
 if TYPE_CHECKING:  # flow.py imports this module; a runtime import would cycle.
     from kiln_harness_tuner.onboarding.flow import KilnRunner
@@ -132,13 +132,36 @@ def make_demo(*, terminal: Terminal, run: KilnRunner, home: Path) -> DemoProject
     projects folder, and import the copy into Kiln. Raises
     `OnboardingError` when the copy or the import fails, after deleting the
     folder this call made: it holds nothing but the copy."""
+    with terminal.busy("Copying the demo project…"):
+        folder, project_id = _copy_demo(run, home)
+    try:
+        with terminal.busy("Importing it into Kiln…"):
+            imported = run(lambda kiln: _import(kiln, folder))
+    except KilnError as exc:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise OnboardingError(
+            "Kiln didn't import the demo project",
+            (_kiln_says(exc), f"The copy at {folder} was deleted."),
+        ) from exc
+    kiln_id = imported.get("id") if isinstance(imported, dict) else None
+    if isinstance(kiln_id, str) and kiln_id.strip():
+        project_id = kiln_id.strip()
+    terminal.step(
+        "ok", "Demo", f"{tilde(folder, home)}, imported as project {project_id}"
+    )
+    return DemoProject(folder=folder, project_id=project_id, task_id=DEMO_TASK_ID)
+
+
+def _copy_demo(run: KilnRunner, home: Path) -> tuple[Path, str]:
+    """A new folder holding a copy of the demo, and the copy's project ID,
+    which no project in Kiln has."""
     taken = {project.id for project in run(fetch_projects)}
     parent = home / KILN_PROJECTS_DIR
     try:
         folder = claim_folder(parent, DEMO_PROJECT)
     except OSError as exc:
         raise OnboardingError(
-            f"Couldn't make a folder for the demo project in {parent}: {exc}"
+            f"Couldn't make a folder for the demo project in {parent}", (str(exc),)
         ) from exc
     project_id = new_project_id(taken)
     try:
@@ -146,27 +169,12 @@ def make_demo(*, terminal: Terminal, run: KilnRunner, home: Path) -> DemoProject
     except OSError as exc:
         shutil.rmtree(folder, ignore_errors=True)
         raise OnboardingError(
-            f"Couldn't copy the demo project to {folder}: {exc}\n"
-            "The partial copy was deleted."
+            f"Couldn't copy the demo project to {folder}",
+            (str(exc), "The partial copy was deleted."),
         ) from exc
     except BaseException:
         # Ctrl-C mid-copy. A copy stopped before `project.kiln` is rewritten
         # is a whole project that still has the packaged demo's ID and name.
         shutil.rmtree(folder, ignore_errors=True)
         raise
-    try:
-        imported = run(lambda kiln: _import(kiln, folder))
-    except KilnError as exc:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise OnboardingError(
-            f"Kiln didn't import the demo project: {_kiln_says(exc)}\n"
-            f"The copy at {folder} was deleted."
-        ) from exc
-    kiln_id = imported.get("id") if isinstance(imported, dict) else None
-    if isinstance(kiln_id, str) and kiln_id.strip():
-        project_id = kiln_id.strip()
-    terminal.say(
-        f"Demo project copied to {folder}\n"
-        f"and imported into Kiln as project {project_id} (task {DEMO_TASK_ID})."
-    )
-    return DemoProject(folder=folder, project_id=project_id, task_id=DEMO_TASK_ID)
+    return folder, project_id

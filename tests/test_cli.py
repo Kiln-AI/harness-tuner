@@ -197,6 +197,11 @@ def test_the_ids_and_the_path_are_optional():
     assert (args.project_id, args.task_id) == (None, "424242613304")
 
 
+def test_no_interaction_parses_and_defaults_off():
+    assert build_parser().parse_args([]).no_interaction is False
+    assert build_parser().parse_args(["--no-interaction"]).no_interaction is True
+
+
 def test_demo_project_parses_and_defaults_off():
     assert build_parser().parse_args([]).demo_project is False
     assert build_parser().parse_args(["--demo-project"]).demo_project is True
@@ -309,6 +314,31 @@ def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
         "kiln-harness-tuner: Kiln isn't running at http://localhost:8757.\n"
     )
     assert ran == []
+
+
+def test_main_prints_nothing_for_an_error_the_guided_start_showed(monkeypatch, capsys):
+    def shown(args, _argv, **_kwargs):
+        error = OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])
+        error.shown = True
+        raise error
+
+    ran: list = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", shown)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == ""
+    assert ran == []
+
+
+def test_main_prints_a_titled_error_with_its_body(monkeypatch, capsys):
+    def fails(args, _argv, **_kwargs):
+        raise OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fails)
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "kiln-harness-tuner: Kiln has no project 999\n  Projects in Kiln:\n"
+    )
 
 
 @pytest.mark.parametrize("exit_code", [1, 130])

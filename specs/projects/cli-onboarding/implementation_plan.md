@@ -37,8 +37,8 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
 - [x] Phase 5: Docs.
   - `docs/install.md` §4 and §6, with the two corrections, and the new "Try the demo" section (§14).
   - `docs/your-own-task.md` §1, §5 and the flag table rows for the optional flags (§14).
-- [ ] Phase 6: The terminal layer and the messages (guided start, part 1).
-  - `questionary>=2.1,<3` in `pyproject.toml`, and a regenerated `uv.lock` (§17).
+- [x] Phase 6: The terminal layer and the messages (guided start, part 1).
+  - `questionary>=2.1.1,<2.2` in `pyproject.toml`, and a regenerated `uv.lock` (§17).
   - `Option`, `Action`, `ActionKind`, the new `Terminal` protocol, `Problem` with title, body and actions, and the new `resolve_problem` (§18, §19).
   - `onboarding/console.py`: `RichTerminal` (step lines, blocks, spinners, pickers with filter, single-key action menus, text questions) and `PlainTerminal`, plus the `open_url` browser rule. This closes backlog item 1: mark it closed in `backlog.md`.
   - The FS §4–§9 messages and actions in `kiln_check.py`, `choose.py` (no projects → use the demo, no tasks → pick another project), `readiness.py` (one action per link), `keys.py` and `demo.py`. `kiln_urls.py` gains the download and update links.
@@ -61,7 +61,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `docs/install.md`:
     - §4 and §6 and "Try the demo" rewritten for the new messages and actions;
     - a section on guided and not guided, with the `--no-interaction` and `--no-progress` table (FS §14).
-  - `docs/your-own-task.md` §5: the questions, the summary and the rerun command.
+  - `docs/your-own-task.md` §1 and §5: §1's readiness prompt example, and the questions, the summary and the rerun command.
   - `docs/costs.md`: any statement of the old budget or timeout default.
   - `examples/moderation/README.md`: what `--demo-project` asks.
 - [ ] **Phase 9: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.

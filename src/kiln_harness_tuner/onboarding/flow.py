@@ -1,11 +1,11 @@
 """`prepare_start`: the start-up checks, run before the run itself.
 
 The flow is synchronous on purpose. `asyncio.run` installs its own SIGINT
-handler, and while the event loop's thread is blocked in `input()` that
-handler only cancels the main task: the first Ctrl-C at a prompt would do
-nothing visible. So prompts use plain `input()`, and each batch of Kiln reads
-runs in its own short `asyncio.run` through a `KilnRunner`, with no prompt
-inside it.
+handler, and while the event loop's thread waits at a prompt that handler
+only cancels the main task: the first Ctrl-C at a prompt would do nothing
+visible. So each prompt runs its own prompt_toolkit loop with no asyncio
+loop running, and each batch of Kiln reads runs in its own short
+`asyncio.run` through a `KilnRunner`, with no prompt inside it.
 """
 
 from __future__ import annotations
@@ -17,19 +17,30 @@ from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Protocol, TypeVar
 
+from kiln_harness_tuner import __version__
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.onboarding.choose import Selection, select
+from kiln_harness_tuner.onboarding.console import default_terminal
 from kiln_harness_tuner.onboarding.demo import make_demo
-from kiln_harness_tuner.onboarding.errors import OnboardingStopped
-from kiln_harness_tuner.onboarding.keys import key_problem, needed_providers
-from kiln_harness_tuner.onboarding.kiln_check import check_kiln
-from kiln_harness_tuner.onboarding.readiness import readiness_problem
+from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.keys import (
+    Need,
+    key_problem,
+    keys_passed_text,
+    needed_providers,
+)
+from kiln_harness_tuner.onboarding.kiln_check import (
+    KilnCheck,
+    check_kiln,
+    kiln_passed_text,
+)
+from kiln_harness_tuner.onboarding.readiness import Readiness, readiness_problem
 from kiln_harness_tuner.onboarding.terminal import (
+    Action,
+    ActionKind,
     Problem,
-    Resolution,
-    StdTerminal,
     Terminal,
     resolve_problem,
 )
@@ -40,6 +51,8 @@ T = TypeVar("T")
 # Only `--demo-project` takes no value.
 FILLED_FLAGS = frozenset({"--project-id", "--task-id", "--project-path"})
 DROPPED_FLAGS = FILLED_FLAGS | {"--demo-project"}
+
+PICK_ANOTHER_TASK = Action("t", "Pick a different task", ActionKind.PICK_TASK)
 
 
 class KilnRunner(Protocol):
@@ -132,6 +145,9 @@ def prepare_start(
     problem when they can. Returns `args` with `project_id`, `task_id` and
     `project_path` filled in.
 
+    The start is guided when stdin and stdout are terminals and
+    `args.no_interaction` is false; `terminal` overrides that choice.
+
     `argv` is the command line as typed, and `parser_long_options` the
     parser's long option strings: they rebuild the command printed when
     anything was filled in. `policy_loader` loads `--model-policy`, whose
@@ -140,23 +156,19 @@ def prepare_start(
     `home`'s `Kiln Projects/` folder; `home` is `Path.home()` by default.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
-    interactive, or an unknown ID), and `OnboardingStopped` when the user
-    stops, Ctrl-C included."""
+    guided, or an unknown ID); a guided start has shown it already, and
+    marks it `shown`. Raises `OnboardingStopped` when the user stops,
+    Ctrl-C included."""
     if terminal is None:
-        terminal = StdTerminal(prog)
+        terminal = default_terminal(prog, no_interaction=args.no_interaction)
     host = args.kiln_host.rstrip("/")
     run = runner if runner is not None else kiln_runner(host)
+    home = home if home is not None else Path.home()
     try:
-        resolve_problem(lambda: _run_kiln_check(run, terminal, host, prog), terminal)
+        terminal.header(f"Kiln Harness Tuner {__version__}")
+        _check_kiln(run, terminal, host)
         if args.demo_project:
-            demo = make_demo(
-                terminal=terminal,
-                run=run,
-                home=home if home is not None else Path.home(),
-            )
-            args.project_id = demo.project_id
-            args.task_id = demo.task_id
-            args.project_path = str(demo.folder)
+            _use_demo(args, terminal=terminal, run=run, home=home)
         selection = _choose_a_ready_task(
             args,
             argv,
@@ -165,9 +177,9 @@ def prepare_start(
             host=host,
             prog=prog,
             parser_long_options=parser_long_options,
-            demo=args.demo_project,
+            home=home,
         )
-        _wait_for_keys(
+        _check_keys(
             run,
             terminal,
             host,
@@ -176,10 +188,27 @@ def prepare_start(
             policy_loader=policy_loader,
         )
         return args
+    except OnboardingError as error:
+        if terminal.interactive:
+            terminal.block(error.title, error.body)
+            error.shown = True
+        raise
     except KeyboardInterrupt:
         # A Ctrl-C during a Kiln read: since Python 3.11, `asyncio.run`
         # cancels the read and re-raises KeyboardInterrupt here.
         raise OnboardingStopped(130) from None
+
+
+def _use_demo(
+    args: argparse.Namespace, *, terminal: Terminal, run: KilnRunner, home: Path
+) -> None:
+    """Make and import a copy of the demo, and point `args` at it: what
+    `--demo-project` does, and what `m` does when Kiln has no projects."""
+    demo = make_demo(terminal=terminal, run=run, home=home)
+    args.project_id = demo.project_id
+    args.task_id = demo.task_id
+    args.project_path = str(demo.folder)
+    args.demo_project = True
 
 
 def _choose_a_ready_task(
@@ -191,53 +220,73 @@ def _choose_a_ready_task(
     host: str,
     prog: str,
     parser_long_options: Sequence[str],
-    demo: bool,
+    home: Path,
 ) -> Selection:
-    """Choose the project and the task, writing them into `args`, until the
-    task is ready to tune. `[t]` at the readiness prompt goes back to the
-    task picker. `demo`: the demo filled in every flag before the choice, so
-    the rerun line is printed although nothing is left to fill in here."""
+    """Choose the project and the task until the task is ready to tune,
+    then write them into `args`. Until then `args` holds only what was
+    given, so a choice made again asks for the same things. `t` at the
+    readiness menu goes back to the task picker in the same project. A demo
+    fills in every flag before the choice, so the rerun line is printed for
+    it although nothing is left to fill in here."""
+    same_project: Selection | None = None
     while True:
-        selection = select(args, terminal=terminal, run=run, host=host, prog=prog)
-        args.project_id = selection.project.id
-        args.task_id = selection.task.id
-        args.project_path = str(selection.project_path)
-        # A `[t]` pass has no task ID, so it is always filled in, and the
+        selection = select(
+            args,
+            terminal=terminal,
+            run=run,
+            host=host,
+            prog=prog,
+            same_project=same_project,
+        )
+        if selection is ActionKind.USE_DEMO:
+            _use_demo(args, terminal=terminal, run=run, home=home)
+            same_project = None
+            continue
+        # A `t` pass has no task ID, so it is always filled in, and the
         # line is printed again with the new task.
-        if selection.filled or demo:
+        if selection.filled or args.demo_project:
             command = rerun_command(
                 prog,
                 argv,
                 parser_long_options=parser_long_options,
-                project_path=args.project_path,
-                project_id=args.project_id,
-                task_id=args.task_id,
+                project_path=str(selection.project_path),
+                project_id=selection.project.id,
+                task_id=selection.task.id,
             )
             terminal.say(f"To run this again without the questions:\n  {command}")
-        if _wait_until_ready(run, terminal, host, selection) is Resolution.OK:
+        if _check_ready(run, terminal, host, selection) is None:
+            args.project_id = selection.project.id
+            args.task_id = selection.task.id
+            args.project_path = str(selection.project_path)
             return selection
-        # `[t]`: back to the task picker. The project and its folder
-        # stay chosen.
-        args.task_id = None
+        same_project = selection  # `t`
 
 
-def _run_kiln_check(
-    run: KilnRunner, terminal: Terminal, host: str, prog: str
-) -> Problem | None:
-    result = run(lambda kiln: check_kiln(kiln, host, prog=prog))
-    if result.warning is not None:
-        terminal.warn(result.warning)
-    return result.problem
-
-
-def _wait_until_ready(
-    run: KilnRunner, terminal: Terminal, host: str, selection: Selection
-) -> Resolution:
-    """The readiness check, through the retry prompt. `[t]` is offered only
-    for a task the user picked from a list."""
+def _check_kiln(run: KilnRunner, terminal: Terminal, host: str) -> None:
+    result = KilnCheck()
 
     def check() -> Problem | None:
-        problem, warnings = run(
+        nonlocal result
+        result = run(lambda kiln: check_kiln(kiln, host))
+        return result.problem
+
+    resolve_problem(check, terminal, busy=f"Checking Kiln at {host}…")
+    terminal.step("ok", "Kiln", kiln_passed_text(result.version, host))
+    if result.warning is not None:
+        terminal.warn(result.warning)
+
+
+def _check_ready(
+    run: KilnRunner, terminal: Terminal, host: str, selection: Selection
+) -> Action | None:
+    """The readiness check, through the action menu. `None` once the task
+    is ready, or the `t` action: another task is offered only for a task
+    the user picked from a list."""
+    readiness: Readiness | None = None
+
+    def check() -> Problem | None:
+        nonlocal readiness
+        readiness = run(
             lambda kiln: readiness_problem(
                 kiln,
                 host=host,
@@ -246,14 +295,21 @@ def _wait_until_ready(
                 task_name=selection.task.name,
             )
         )
-        for warning in warnings:
+        return readiness.problem
+
+    extra = (PICK_ANOTHER_TASK,) if selection.task_picked else ()
+    action = resolve_problem(
+        check, terminal, busy="Checking the task is ready…", extra=extra
+    )
+    if action is None:
+        assert readiness is not None
+        terminal.step("ok", "Ready", readiness.step_text)
+        for warning in readiness.warnings:
             terminal.warn(warning)
-        return problem
-
-    return resolve_problem(check, terminal, offer_pick_task=selection.task_picked)
+    return action
 
 
-def _wait_for_keys(
+def _check_keys(
     run: KilnRunner,
     terminal: Terminal,
     host: str,
@@ -262,14 +318,16 @@ def _wait_for_keys(
     policy_path: str | None,
     policy_loader: Callable[[str | None], ModelPolicy | None],
 ) -> None:
-    """The API-key check, through the retry prompt. Each run of the check,
+    """The API-key check, through the action menu. Each run of the check,
     the first and every retry, loads the policy and works out again what the
     run needs, so a fix made in Kiln or in the policy file counts on `r`."""
+    needs: list[Need] = []
 
     def check() -> Problem | None:
         policy = policy_loader(policy_path)
 
         async def problem(kiln: KilnApi) -> Problem | None:
+            nonlocal needs
             needs = await needed_providers(
                 kiln,
                 project_id=selection.project.id,
@@ -281,4 +339,5 @@ def _wait_for_keys(
 
         return run(problem)
 
-    resolve_problem(check, terminal)
+    resolve_problem(check, terminal, busy="Checking API keys…")
+    terminal.step("ok", "API keys", keys_passed_text(needs))

@@ -1,5 +1,5 @@
 """Choosing the project and the task: from the flags, from the only choice,
-or from a numbered list in the terminal. Then the project's folder, from
+or from a picker in a guided start. Then the project's folder, from
 `--project-path` or from Kiln."""
 
 from __future__ import annotations
@@ -10,18 +10,31 @@ import shlex
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.onboarding import kiln_urls
-from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
-from kiln_harness_tuner.onboarding.terminal import Terminal
+from kiln_harness_tuner.onboarding.errors import OnboardingError
+from kiln_harness_tuner.onboarding.terminal import (
+    Action,
+    ActionKind,
+    Option,
+    Problem,
+    Terminal,
+    resolve_problem,
+    tilde,
+)
 from kiln_harness_tuner.setup import _require_rows
 
 if TYPE_CHECKING:  # flow.py imports this module; a runtime import would cycle.
     from kiln_harness_tuner.onboarding.flow import KilnRunner
 
 PROJECTS_PATH = "/api/projects"
+PROJECT_QUESTION = "Which project do you want to tune?"
+READING_PROJECTS = "Reading projects…"
+USE_DEMO = ActionKind.USE_DEMO
+PICK_PROJECT = ActionKind.PICK_PROJECT
+PICK_ANOTHER_PROJECT = Action("p", "Pick a different project", PICK_PROJECT)
 
 
 @dataclass(frozen=True)
@@ -35,6 +48,7 @@ class ProjectRow:
 class TaskRow:
     id: str
     name: str
+    description: str | None = None
 
 
 Row = TypeVar("Row", ProjectRow, TaskRow)
@@ -46,7 +60,15 @@ class Selection:
     task: TaskRow
     project_path: Path
     filled: bool  # any of the three flags was filled in here
+    project_picked: bool  # the user chose the project from two or more
     task_picked: bool  # the user chose the task from two or more
+
+
+@dataclass(frozen=True)
+class _ProjectChoice:
+    project: ProjectRow
+    tasks: list[TaskRow] | None  # when finding the project read them
+    picked: bool  # the user chose it from two or more
 
 
 def _tasks_path(project_id: str) -> str:
@@ -88,7 +110,7 @@ async def fetch_tasks(kiln: KilnApi, project_id: str) -> list[TaskRow]:
     path = _tasks_path(project_id)
     body = await kiln.call("GET", path)
     return [
-        TaskRow(row_id, _text(row, "name") or row_id)
+        TaskRow(row_id, _text(row, "name") or row_id, _text(row, "description") or None)
         for row_id, row in _identified(path, body)
     ]
 
@@ -99,77 +121,133 @@ async def _fetch_tasks_of_each(
     return await asyncio.gather(*(fetch_tasks(kiln, p.id) for p in projects))
 
 
-def _listing(heading: str, rows: Sequence[ProjectRow | TaskRow]) -> str:
-    return f"{heading}:\n" + "\n".join(f"  {row.id}  {row.name}" for row in rows)
+def _listing(heading: str, rows: Sequence[ProjectRow | TaskRow]) -> tuple[str, ...]:
+    return (f"{heading}:", *(f"  {row.id}  {row.name}" for row in rows))
+
+
+def _kiln_folder(project: ProjectRow) -> Path | None:
+    """The project's folder: the parent of the `project.kiln` Kiln names."""
+    return Path(project.path).expanduser().parent if project.path else None
+
+
+def _option(row: ProjectRow | TaskRow) -> Option[str]:
+    """A picker row: a project with its ID and folder, a task with its ID
+    and, under the highlighted row, its description."""
+    if isinstance(row, ProjectRow):
+        folder = _kiln_folder(row)
+        return Option(row.id, row.name, (row.id, tilde(folder) if folder else ""))
+    return Option(row.id, row.name, (row.id,), description=row.description)
 
 
 def choose_one(
     rows: Sequence[Row],
     *,
-    noun: str,
+    label: str,
+    question: str,
     heading: str,
     flag: str,
     where: str,
     terminal: Terminal,
 ) -> tuple[Row, bool]:
     """One of `rows`, which must not be empty, and whether the user picked
-    it from two or more.
+    it from two or more. Its step line is printed under `label`.
 
-    One row is used without a question. With more, an interactive user
-    picks by number; otherwise it is an error that lists them, since `flag`
-    is the only way to choose."""
+    One row is used without a question. With more, a guided start picks;
+    otherwise it is an error that lists them, since `flag` is the only way
+    to choose."""
     if len(rows) == 1:
         (row,) = rows
-        terminal.say(f"Using {noun} {row.name} ({row.id}), the only {noun} {where}.")
+        _step(terminal, label, row, note=f"the only {label.lower()} {where}")
         return row, False
     if not terminal.interactive:
         raise OnboardingError(
-            f"{flag} is needed when not run interactively. {_listing(heading, rows)}"
+            f"{flag} is needed when the start isn't guided", _listing(heading, rows)
         )
-    numbered = "\n".join(
-        f"  {n}. {row.name}  ({row.id})" for n, row in enumerate(rows, start=1)
-    )
-    terminal.say(f"{heading}:\n{numbered}")
-    prompt = f"{noun.capitalize()} [1-{len(rows)}, x to exit]: "
-    while True:
-        answer = terminal.ask(prompt).strip().lower()
-        if answer == "x":
-            raise OnboardingStopped(1)
-        if answer.isdecimal() and 1 <= int(answer) <= len(rows):
-            return rows[int(answer) - 1], True
+    chosen = terminal.pick(question, [_option(row) for row in rows])
+    row = next(row for row in rows if row.id == chosen)
+    _step(terminal, label, row)
+    return row, True
 
 
-def _no_projects(host: str, prog: str) -> str:
+def _step(
+    terminal: Terminal, label: str, row: ProjectRow | TaskRow, *, note: str = ""
+) -> None:
+    """The step line of a chosen project or task: picked, the only one, or
+    named by a flag."""
+    text = f"{row.name} ({row.id})"
+    terminal.step("ok", label, f"{text} · {note}" if note else text)
+
+
+def _no_projects_lines(host: str, prog: str) -> tuple[str, ...]:
+    """What to do about a Kiln with no projects, for an error message."""
     return (
-        "Kiln has no projects. Create one in the Kiln app"
-        f" ({kiln_urls.create_project(host)}), or try the demo:"
-        f" {prog} --demo-project"
+        "Kiln has no projects yet. Create one in Kiln:"
+        f" {kiln_urls.create_project(host)}",
+        f"Or start with the demo: {prog} --demo-project",
     )
 
 
-def _no_tasks(host: str, project: ProjectRow) -> str:
-    return (
-        f"Project {project.name} has no tasks. Create one in Kiln:"
-        f" {kiln_urls.create_task(host, project.id)}"
+def _no_projects(host: str, prog: str, *, guided: bool) -> Problem:
+    demo = (
+        "the demo: a small moderation task with its evals and data already set up."
+        if guided
+        else f"the demo: {prog} --demo-project"
+    )
+    return Problem(
+        "Kiln has no projects yet",
+        (
+            "The tuner works on a task in a Kiln project. Create one in Kiln, or"
+            " start with",
+            demo,
+        ),
+        actions=(
+            Action("m", "Use the demo project", USE_DEMO),
+            Action(
+                "o",
+                "Open Kiln to create a project",
+                ActionKind.OPEN,
+                url=kiln_urls.create_project(host),
+            ),
+        ),
+        retry_first=False,
     )
 
 
-def _with_projects(
-    headline: str, projects: Sequence[ProjectRow], host: str, prog: str
-) -> str:
-    """`headline`, then the projects Kiln has, or how to make one."""
+def _no_tasks(host: str, project: ProjectRow) -> Problem:
+    return Problem(
+        f"{project.name} has no tasks yet",
+        (
+            "The tuner works on one task of a Kiln project, and this project has none.",
+            "Create one in Kiln.",
+        ),
+        actions=(
+            Action(
+                "o",
+                "Open Kiln to create a task",
+                ActionKind.OPEN,
+                url=kiln_urls.create_task(host, project.id),
+            ),
+        ),
+        retry_first=False,
+    )
+
+
+def _projects_in_kiln(
+    projects: Sequence[ProjectRow], host: str, prog: str
+) -> tuple[str, ...]:
+    """The projects Kiln has, or how to make one."""
     if not projects:
-        return f"{headline} {_no_projects(host, prog)}"
-    return f"{headline} {_listing('Projects in Kiln', projects)}"
+        return _no_projects_lines(host, prog)
+    return _listing("Projects in Kiln", projects)
 
 
 def _folder(path: str | Path) -> Path:
     return Path(path).expanduser().resolve()
 
 
-def _kiln_folder(project: ProjectRow) -> Path | None:
-    """The project's folder: the parent of the `project.kiln` Kiln names."""
-    return Path(project.path).expanduser().parent if project.path else None
+def _read_projects(terminal: Terminal, run: KilnRunner) -> list[ProjectRow]:
+    with terminal.busy(READING_PROJECTS):
+        return run(fetch_projects)
 
 
 def _choose_project(
@@ -179,44 +257,65 @@ def _choose_project(
     run: KilnRunner,
     host: str,
     prog: str,
-) -> tuple[ProjectRow, list[TaskRow] | None]:
-    """The project, and its tasks when finding the project read them."""
-    projects = run(fetch_projects)
+) -> _ProjectChoice | Literal[ActionKind.USE_DEMO]:
+    """The project, or USE_DEMO when the user chose the demo because Kiln
+    has no projects."""
     if args.project_id is not None:
+        projects = _read_projects(terminal, run)
         for project in projects:
             if project.id == args.project_id:
-                return project, None
+                _step(terminal, "Project", project)
+                return _ProjectChoice(project, None, picked=False)
         raise OnboardingError(
-            _with_projects(
-                f"Kiln has no project {args.project_id}.", projects, host, prog
-            )
+            f"Kiln has no project {args.project_id}",
+            _projects_in_kiln(projects, host, prog),
         )
     if args.project_path is not None:
+        projects = _read_projects(terminal, run)
         wanted = _folder(args.project_path)
         for project in projects:
             kiln_folder = _kiln_folder(project)
             if kiln_folder is not None and kiln_folder.resolve() == wanted:
-                return project, None
-        headline = f"--project-path {wanted} isn't a project in Kiln."
+                _step(terminal, "Project", project)
+                return _ProjectChoice(project, None, picked=False)
         raise OnboardingError(
-            _with_projects(headline, projects, host, prog)
-            + "\nImport it into Kiln first."
+            f"--project-path {wanted} isn't a project in Kiln",
+            (*_projects_in_kiln(projects, host, prog), "Import it into Kiln first."),
         )
     if args.task_id is not None:
+        projects = _read_projects(terminal, run)
         return _choose_project_by_task(
             args.task_id, projects, terminal, run, host, prog
         )
-    if not projects:
-        raise OnboardingError(_no_projects(host, prog))
-    project, _picked = choose_one(
+    return _pick_project(terminal=terminal, run=run, host=host, prog=prog)
+
+
+def _pick_project(
+    *, terminal: Terminal, run: KilnRunner, host: str, prog: str
+) -> _ProjectChoice | Literal[ActionKind.USE_DEMO]:
+    """The project when no flag names one. A Kiln with no projects is a
+    problem to fix in Kiln, or a reason to use the demo."""
+    projects: list[ProjectRow] = []
+
+    def check() -> Problem | None:
+        nonlocal projects
+        projects = run(fetch_projects)
+        if projects:
+            return None
+        return _no_projects(host, prog, guided=terminal.interactive)
+
+    if resolve_problem(check, terminal, busy=READING_PROJECTS) is not None:
+        return USE_DEMO  # the problem's one action besides Open
+    project, picked = choose_one(
         projects,
-        noun="project",
+        label="Project",
+        question=PROJECT_QUESTION,
         heading="Projects in Kiln",
         flag="--project-id",
         where="in Kiln",
         terminal=terminal,
     )
-    return project, None
+    return _ProjectChoice(project, None, picked)
 
 
 def _choose_project_by_task(
@@ -226,10 +325,11 @@ def _choose_project_by_task(
     run: KilnRunner,
     host: str,
     prog: str,
-) -> tuple[ProjectRow, list[TaskRow]]:
+) -> _ProjectChoice:
     """The project that has task `task_id`, chosen among them when several
     do: copies of one project share their task IDs."""
-    tasks_of_each = run(lambda kiln: _fetch_tasks_of_each(kiln, projects))
+    with terminal.busy("Reading every project's tasks…"):
+        tasks_of_each = run(lambda kiln: _fetch_tasks_of_each(kiln, projects))
     holders = [
         (project, tasks)
         for project, tasks in zip(projects, tasks_of_each, strict=True)
@@ -237,49 +337,88 @@ def _choose_project_by_task(
     ]
     if not holders:
         raise OnboardingError(
-            _with_projects(
-                f"No project in Kiln has task {task_id}.", projects, host, prog
-            )
+            f"No project in Kiln has task {task_id}",
+            _projects_in_kiln(projects, host, prog),
         )
-    project, _picked = choose_one(
+    project, picked = choose_one(
         [project for project, _tasks in holders],
-        noun="project",
+        label="Project",
+        question=f"Which project with task {task_id}?",
         heading=f"Projects with task {task_id}",
         flag="--project-id",
         where=f"with task {task_id}",
         terminal=terminal,
     )
     tasks = next(tasks for holder, tasks in holders if holder is project)
-    return project, tasks
+    return _ProjectChoice(project, tasks, picked)
 
 
 def _choose_task(
     task_id: str | None,
-    project: ProjectRow,
-    tasks: list[TaskRow],
+    found: _ProjectChoice,
+    *,
     terminal: Terminal,
+    run: KilnRunner,
     host: str,
-) -> tuple[TaskRow, bool]:
+) -> tuple[TaskRow, bool] | Literal[ActionKind.PICK_PROJECT]:
+    """The task and whether the user picked it, or PICK_PROJECT when the
+    project has no tasks and the user asked to pick another project."""
     if task_id is not None:
-        for task in tasks:
-            if task.id == task_id:
-                return task, False
-        headline = f"Project {project.name} has no task {task_id}."
-        if not tasks:
-            raise OnboardingError(f"{headline} {_no_tasks(host, project)}")
-        raise OnboardingError(
-            f"{headline} {_listing(f'Tasks in {project.name}', tasks)}"
-        )
-    if not tasks:
-        raise OnboardingError(_no_tasks(host, project))
+        return _given_task(task_id, found, terminal=terminal, run=run, host=host), False
+    project = found.project
+    tasks: list[TaskRow] = []
+
+    def check() -> Problem | None:
+        nonlocal tasks
+        tasks = run(lambda kiln: fetch_tasks(kiln, project.id))
+        return None if tasks else _no_tasks(host, project)
+
+    # Another project is offered only when this one was picked from a list.
+    extra = (PICK_ANOTHER_PROJECT,) if found.picked else ()
+    busy = _reading_tasks(project)
+    if resolve_problem(check, terminal, busy=busy, extra=extra) is not None:
+        return PICK_PROJECT  # the only action the problem returns
     return choose_one(
         tasks,
-        noun="task",
+        label="Task",
+        question=f"Which task in {project.name}?",
         heading=f"Tasks in {project.name}",
         flag="--task-id",
-        where=f"in {project.name}",
+        where="in this project",
         terminal=terminal,
     )
+
+
+def _reading_tasks(project: ProjectRow) -> str:
+    return f"Reading {project.name}'s tasks…"
+
+
+def _given_task(
+    task_id: str,
+    found: _ProjectChoice,
+    *,
+    terminal: Terminal,
+    run: KilnRunner,
+    host: str,
+) -> TaskRow:
+    """The task `--task-id` names, which must be one of the project's."""
+    project = found.project
+    tasks = found.tasks
+    if tasks is None:
+        with terminal.busy(_reading_tasks(project)):
+            tasks = run(lambda kiln: fetch_tasks(kiln, project.id))
+    for task in tasks:
+        if task.id == task_id:
+            _step(terminal, "Task", task)
+            return task
+    if tasks:
+        listing = _listing(f"Tasks in {project.name}", tasks)
+    else:
+        listing = (
+            f"It has no tasks yet. Create one in Kiln:"
+            f" {kiln_urls.create_task(host, project.id)}",
+        )
+    raise OnboardingError(f"{project.name} has no task {task_id}", listing)
 
 
 def _project_path(project_path: str | None, project: ProjectRow) -> Path:
@@ -291,16 +430,19 @@ def _project_path(project_path: str | None, project: ProjectRow) -> Path:
     if project_path is None:
         if kiln_folder is None:
             raise OnboardingError(
-                f"Kiln has no folder for project {project.name} ({project.id})."
-                "\nfix: pass --project-path with the project's folder."
+                f"Kiln has no folder for project {project.name} ({project.id})",
+                ("Pass --project-path with the project's folder.",),
             )
         return kiln_folder
     if kiln_folder is not None and _folder(project_path) != kiln_folder.resolve():
         theirs = kiln_folder.resolve()
         raise OnboardingError(
-            f"--project-path is {_folder(project_path)}, but Kiln has project"
-            f" {project.id} at {theirs}.\n"
-            f"fix: drop --project-path, or pass {shlex.quote(str(theirs))}."
+            f"--project-path isn't Kiln's folder for project {project.name}",
+            (
+                f"--project-path is {_folder(project_path)},",
+                f"but Kiln has project {project.id} at {theirs}.",
+                f"Drop --project-path, or pass {shlex.quote(str(theirs))}.",
+            ),
         )
     # Expanded here: a quoted `~` reaches us unexpanded, and the readers of
     # the project's files downstream take the path as it is.
@@ -314,25 +456,48 @@ def select(
     run: KilnRunner,
     host: str,
     prog: str,
-) -> Selection:
+    same_project: Selection | None = None,
+) -> Selection | Literal[ActionKind.USE_DEMO]:
     """The project, the task and the project's folder, from
     `args.project_id`, `args.task_id` and `args.project_path` (each `None`
-    when not given), asking for what is missing. Raises `OnboardingError`
-    for a choice that can't be made: an unknown ID, nothing to choose from,
-    a missing ID when not interactive, or a path that isn't Kiln's."""
-    project, tasks = _choose_project(
-        args, terminal=terminal, run=run, host=host, prog=prog
+    when not given), asking for what is missing in a guided start.
+
+    `same_project` keeps the project of an earlier selection, for picking
+    another task in it: the project isn't read or announced again, and it
+    still counts as picked from a list if it was.
+
+    Returns USE_DEMO when Kiln has no projects and the user chose the demo;
+    the caller makes it and selects again. Raises `OnboardingError` for a
+    choice that can't be made: an unknown ID, nothing to choose from when
+    not guided, a missing ID when not guided, or a path that isn't Kiln's."""
+    found = (
+        _ProjectChoice(same_project.project, None, same_project.project_picked)
+        if same_project is not None
+        else None
     )
-    # Before the task: a project with no folder is an error whichever task
-    # the user would pick.
-    project_path = _project_path(args.project_path, project)
-    if tasks is None:
-        tasks = run(lambda kiln: fetch_tasks(kiln, project.id))
-    task, task_picked = _choose_task(args.task_id, project, tasks, terminal, host)
-    return Selection(
-        project=project,
-        task=task,
-        project_path=project_path,
-        filled=None in (args.project_id, args.task_id, args.project_path),
-        task_picked=task_picked,
-    )
+    while True:
+        if found is None:
+            chosen_project = _choose_project(
+                args, terminal=terminal, run=run, host=host, prog=prog
+            )
+            if chosen_project is USE_DEMO:
+                return USE_DEMO
+            found = chosen_project
+        # Before the task: a project with no folder is an error whichever
+        # task the user would pick.
+        project_path = _project_path(args.project_path, found.project)
+        chosen = _choose_task(
+            args.task_id, found, terminal=terminal, run=run, host=host
+        )
+        if chosen is PICK_PROJECT:
+            found = None
+            continue
+        task, task_picked = chosen
+        return Selection(
+            project=found.project,
+            task=task,
+            project_path=project_path,
+            filled=None in (args.project_id, args.task_id, args.project_path),
+            project_picked=found.picked,
+            task_picked=task_picked,
+        )

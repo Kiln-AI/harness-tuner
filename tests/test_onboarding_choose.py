@@ -10,11 +10,13 @@ from onboarding_fakes import (
     PROG,
     PROJECT_ID,
     TASK_ID,
+    Asked,
     RouteKiln,
     ScriptedTerminal,
     flags,
     kiln_routes,
     project,
+    responses,
     runner_for,
     task,
 )
@@ -29,6 +31,7 @@ from kiln_harness_tuner.onboarding.choose import (
     select,
 )
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.terminal import ActionKind, Option
 from kiln_harness_tuner.setup import SetupPreconditionError
 
 FORUM = project()
@@ -43,27 +46,25 @@ MODERATE_ROW = TaskRow(TASK_ID, "Moderate posts")
 SUMMARISE_ROW = TaskRow("424242100001", "Summarise threads")
 
 PROJECTS_LISTING = (
-    "Projects in Kiln:\n"
-    "  424242975950  Forum Moderation\n"
-    "  118230554411  Support Triage"
+    "Projects in Kiln:",
+    "  424242975950  Forum Moderation",
+    "  118230554411  Support Triage",
 )
 TASKS_LISTING = (
-    "Tasks in Forum Moderation:\n"
-    "  424242783061  Moderate posts\n"
-    "  424242100001  Summarise threads"
+    "Tasks in Forum Moderation:",
+    "  424242783061  Moderate posts",
+    "  424242100001  Summarise threads",
 )
-NO_PROJECTS = (
-    "Kiln has no projects. Create one in the Kiln app"
-    " (http://localhost:8757/settings/create_project), or try the demo:"
-    " kiln-harness-tuner --demo-project"
+NO_PROJECTS_LINES = (
+    "Kiln has no projects yet. Create one in Kiln:"
+    " http://localhost:8757/settings/create_project",
+    "Or start with the demo: kiln-harness-tuner --demo-project",
 )
-NO_TASKS = (
-    "Project Forum Moderation has no tasks. Create one in Kiln:"
-    " http://localhost:8757/settings/create_task/424242975950"
-)
+CREATE_TASK = f"http://localhost:8757/settings/create_task/{PROJECT_ID}"
+READING_FORUM_TASKS = "Reading Forum Moderation's tasks…"
 
 
-def choose(kiln: RouteKiln, terminal: ScriptedTerminal, **given) -> Selection:
+def choose(kiln: RouteKiln, terminal: ScriptedTerminal, **given):
     return select(
         flags(**given), terminal=terminal, run=runner_for(kiln), host=HOST, prog=PROG
     )
@@ -71,6 +72,12 @@ def choose(kiln: RouteKiln, terminal: ScriptedTerminal, **given) -> Selection:
 
 def two_projects() -> RouteKiln:
     return RouteKiln(kiln_routes((FORUM, [MODERATE, SUMMARISE]), (SUPPORT, [TRIAGE])))
+
+
+def raised(call) -> OnboardingError:
+    with pytest.raises(OnboardingError) as error:
+        call()
+    return error.value
 
 
 # ---- fetch_projects and fetch_tasks ----
@@ -93,11 +100,16 @@ async def test_fetch_projects_reads_kilns_list_in_order():
     ]
 
 
-async def test_fetch_tasks_reads_the_projects_tasks():
-    rows = [task(), {"id": "424242100001"}, ["odd"], {"name": "no id"}]
+async def test_fetch_tasks_reads_the_projects_tasks_and_descriptions():
+    rows = [
+        {**task(), "description": " Keep or remove one post. "},
+        {"id": "424242100001", "description": ""},
+        ["odd"],
+        {"name": "no id"},
+    ]
     kiln = RouteKiln({("GET", f"/api/projects/{PROJECT_ID}/tasks"): rows})
     assert await fetch_tasks(kiln, PROJECT_ID) == [
-        MODERATE_ROW,
+        TaskRow(TASK_ID, "Moderate posts", "Keep or remove one post."),
         TaskRow("424242100001", "424242100001"),
     ]
 
@@ -129,7 +141,7 @@ async def test_a_drifted_list_raises_setup_precondition_error():
 # ---- choose_one ----
 
 ROWS = [
-    TaskRow("t1", "First"),
+    TaskRow("t1", "First", "The first task."),
     TaskRow("t2", "Second"),
     TaskRow("t3", "Third"),
 ]
@@ -138,79 +150,105 @@ ROWS = [
 def pick(rows, terminal):
     return choose_one(
         rows,
-        noun="task",
+        label="Task",
+        question="Which task in Forum Moderation?",
         heading="Tasks in Forum Moderation",
         flag="--task-id",
-        where="in Forum Moderation",
+        where="in this project",
         terminal=terminal,
     )
 
 
-def test_one_row_is_used_without_a_question():
-    terminal = ScriptedTerminal(interactive=False)
+@pytest.mark.parametrize("interactive", [True, False])
+def test_one_row_is_used_without_a_question(interactive):
+    terminal = ScriptedTerminal(interactive=interactive)
     assert pick(ROWS[:1], terminal) == (ROWS[0], False)
-    assert terminal.out == ["Using task First (t1), the only task in Forum Moderation."]
-    assert terminal.prompts == []
-
-
-def test_several_rows_are_numbered_and_picked_by_number():
-    terminal = ScriptedTerminal(["2"])
-    assert pick(ROWS, terminal) == (ROWS[1], True)
-    assert terminal.out == [
-        "Tasks in Forum Moderation:\n"
-        "  1. First  (t1)\n"
-        "  2. Second  (t2)\n"
-        "  3. Third  (t3)"
+    assert terminal.steps == [
+        ("ok", "Task", "First (t1) · the only task in this project")
     ]
-    assert terminal.prompts == ["Task [1-3, x to exit]: "]
+    assert terminal.asked == []
 
 
-def test_an_answer_out_of_range_or_not_a_number_asks_again():
-    terminal = ScriptedTerminal(["0", "4", "abc", "", "-1", "²", " 3 "])
-    assert pick(ROWS, terminal) == (ROWS[2], True)
-    assert len(terminal.prompts) == 7
-    assert len(terminal.out) == 1  # the list is shown once
+def test_several_rows_are_picked_and_the_step_line_follows():
+    terminal = ScriptedTerminal(["t2"])
+    assert pick(ROWS, terminal) == (ROWS[1], True)
+    assert terminal.asked == [
+        Asked("pick", "Which task in Forum Moderation?", ("t1", "t2", "t3"))
+    ]
+    assert terminal.steps == [("ok", "Task", "Second (t2)")]
 
 
-@pytest.mark.parametrize("answers", [["x"], [" X "], ["9"], []])
-def test_x_or_end_of_input_stops_with_1(answers):
-    with pytest.raises(OnboardingStopped) as stopped:
-        pick(ROWS, ScriptedTerminal(answers))
-    assert stopped.value.exit_code == 1
-
-
-def test_ctrl_c_at_the_picker_stops_with_130():
-    with pytest.raises(OnboardingStopped) as stopped:
-        pick(ROWS, ScriptedTerminal([OnboardingStopped(130)]))
-    assert stopped.value.exit_code == 130
-
-
-def test_several_rows_when_not_interactive_is_an_error_that_lists_them():
-    terminal = ScriptedTerminal(["1"], interactive=False)
-    with pytest.raises(OnboardingError) as error:
-        pick(ROWS, terminal)
-    assert str(error.value) == (
-        "--task-id is needed when not run interactively. Tasks in Forum Moderation:\n"
-        "  t1  First\n"
-        "  t2  Second\n"
-        "  t3  Third"
+def test_a_task_option_shows_its_id_and_its_description():
+    terminal = ScriptedTerminal(["t1"])
+    pick(ROWS, terminal)
+    assert terminal.options[0][:2] == (
+        Option("t1", "First", ("t1",), description="The first task."),
+        Option("t2", "Second", ("t2",)),
     )
-    assert terminal.prompts == [] and terminal.out == []
+
+
+@pytest.mark.parametrize("answers", [[], [OnboardingStopped(130)]])
+def test_a_stop_at_the_picker_propagates(answers):
+    with pytest.raises(OnboardingStopped):
+        pick(ROWS, ScriptedTerminal(answers))
+
+
+def test_several_rows_when_not_guided_is_an_error_that_lists_them():
+    error = raised(lambda: pick(ROWS, ScriptedTerminal(interactive=False)))
+    assert str(error) == (
+        "--task-id is needed when the start isn't guided\n"
+        "  Tasks in Forum Moderation:\n"
+        "    t1  First\n"
+        "    t2  Second\n"
+        "    t3  Third"
+    )
 
 
 # ---- select: the project ----
 
 
-@pytest.mark.parametrize("interactive", [True, False])
-def test_no_projects_is_an_error_in_both_modes(interactive):
+def test_no_projects_offers_the_demo_first():
     kiln = RouteKiln(kiln_routes())
-    with pytest.raises(OnboardingError) as error:
-        choose(kiln, ScriptedTerminal(interactive=interactive))
-    assert str(error.value) == NO_PROJECTS
+    terminal = ScriptedTerminal(["m"])
+    assert choose(kiln, terminal) is ActionKind.USE_DEMO
+    ((title, body),) = terminal.blocks
+    assert title == "Kiln has no projects yet"
+    assert body == (
+        "The tuner works on a task in a Kiln project. Create one in Kiln, or start"
+        " with",
+        "the demo: a small moderation task with its evals and data already set up.",
+    )
+    assert terminal.menus == [("m", "o", "r", "x")]
+    assert terminal.busy_texts == ["Reading projects…"]
+
+
+def test_no_projects_o_opens_kiln_and_r_reads_the_list_again():
+    kiln = RouteKiln(kiln_routes((FORUM, [MODERATE])))
+    kiln.routes[("GET", "/api/projects")] = responses([], [FORUM])
+    terminal = ScriptedTerminal(["o", "r"])
+    selection = choose(kiln, terminal)
+    assert selection.project == FORUM_ROW
+    assert terminal.opened == ["http://localhost:8757/settings/create_project"]
+    assert terminal.busy_texts[:2] == ["Reading projects…"] * 2
+    assert kiln.paths().count("/api/projects") == 2
+
+
+def test_no_projects_when_not_guided_names_the_demo_command_and_the_link():
+    error = raised(
+        lambda: choose(RouteKiln(kiln_routes()), ScriptedTerminal(interactive=False))
+    )
+    assert str(error) == (
+        "Kiln has no projects yet\n"
+        "  The tuner works on a task in a Kiln project. Create one in Kiln, or"
+        " start with\n"
+        "  the demo: kiln-harness-tuner --demo-project\n"
+        "  Open Kiln to create a project:"
+        " http://localhost:8757/settings/create_project"
+    )
 
 
 @pytest.mark.parametrize("interactive", [True, False])
-def test_the_only_project_and_task_are_used_in_both_modes(interactive):
+def test_the_only_project_and_task_are_used_in_both_kinds_of_start(interactive):
     kiln = RouteKiln(kiln_routes((FORUM, [MODERATE])))
     terminal = ScriptedTerminal(interactive=interactive)
     selection = choose(kiln, terminal)
@@ -219,111 +257,209 @@ def test_the_only_project_and_task_are_used_in_both_modes(interactive):
         task=MODERATE_ROW,
         project_path=Path(FOLDER),
         filled=True,
+        project_picked=False,
         task_picked=False,
     )
-    assert terminal.out == [
-        "Using project Forum Moderation (424242975950), the only project in Kiln.",
-        "Using task Moderate posts (424242783061), the only task in Forum Moderation.",
+    assert terminal.step_lines() == [
+        "Project: Forum Moderation (424242975950) · the only project in Kiln",
+        "Task: Moderate posts (424242783061) · the only task in this project",
     ]
-    assert terminal.prompts == []
+    assert terminal.asked == []
+    assert terminal.busy_texts == ["Reading projects…", READING_FORUM_TASKS]
 
 
 def test_several_projects_are_picked_then_their_tasks():
-    terminal = ScriptedTerminal(["1", "2"])
+    terminal = ScriptedTerminal([PROJECT_ID, "424242100001"])
     selection = choose(two_projects(), terminal)
     assert (selection.project, selection.task) == (FORUM_ROW, SUMMARISE_ROW)
-    assert selection.task_picked is True
-    assert terminal.out == [
-        "Projects in Kiln:\n"
-        "  1. Forum Moderation  (424242975950)\n"
-        "  2. Support Triage  (118230554411)",
-        "Tasks in Forum Moderation:\n"
-        "  1. Moderate posts  (424242783061)\n"
-        "  2. Summarise threads  (424242100001)",
+    assert (selection.project_picked, selection.task_picked) == (True, True)
+    assert terminal.asked == [
+        Asked(
+            "pick", "Which project do you want to tune?", (PROJECT_ID, "118230554411")
+        ),
+        Asked("pick", "Which task in Forum Moderation?", (TASK_ID, "424242100001")),
     ]
-    assert terminal.prompts == [
-        "Project [1-2, x to exit]: ",
-        "Task [1-2, x to exit]: ",
+    assert terminal.step_lines() == [
+        "Project: Forum Moderation (424242975950)",
+        "Task: Summarise threads (424242100001)",
     ]
 
 
-def test_a_picked_project_with_one_task_uses_it():
-    terminal = ScriptedTerminal(["2"])
-    selection = choose(two_projects(), terminal)
-    assert selection.task == TaskRow("118230000001", "Triage tickets")
-    assert selection.task_picked is False
-    assert terminal.out[-1] == (
-        "Using task Triage tickets (118230000001), the only task in Support Triage."
+def test_a_project_option_shows_its_id_and_kilns_folder(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    mine = project("118230554411", "Mine", str(tmp_path / "Kiln Projects" / "Mine"))
+    odd = project("1", "Odd", None)
+    kiln = RouteKiln(kiln_routes((FORUM, [MODERATE]), (mine, [TRIAGE]), (odd, [])))
+    terminal = ScriptedTerminal([PROJECT_ID])
+    choose(kiln, terminal)
+    assert terminal.options[0] == (
+        Option(PROJECT_ID, "Forum Moderation", (PROJECT_ID, FOLDER)),
+        Option("118230554411", "Mine", ("118230554411", "~/Kiln Projects/Mine")),
+        Option("1", "Odd", ("1", "")),
     )
 
 
-def test_several_projects_when_not_interactive_lists_them():
-    with pytest.raises(OnboardingError) as error:
-        choose(two_projects(), ScriptedTerminal(interactive=False))
-    assert str(error.value) == (
-        f"--project-id is needed when not run interactively. {PROJECTS_LISTING}"
+def test_a_picked_project_with_one_task_uses_it():
+    terminal = ScriptedTerminal(["118230554411"])
+    selection = choose(two_projects(), terminal)
+    assert selection.task == TaskRow("118230000001", "Triage tickets")
+    assert selection.task_picked is False
+    assert terminal.step_lines()[-1] == (
+        "Task: Triage tickets (118230000001) · the only task in this project"
+    )
+
+
+def test_several_projects_when_not_guided_lists_them():
+    error = raised(lambda: choose(two_projects(), ScriptedTerminal(interactive=False)))
+    assert (error.title, error.body) == (
+        "--project-id is needed when the start isn't guided",
+        PROJECTS_LISTING,
     )
 
 
 @pytest.mark.parametrize("interactive", [True, False])
 def test_an_unknown_project_id_lists_the_projects(interactive):
-    terminal = ScriptedTerminal(["1"], interactive=interactive)
-    with pytest.raises(OnboardingError) as error:
-        choose(two_projects(), terminal, project_id="999")
-    assert str(error.value) == f"Kiln has no project 999. {PROJECTS_LISTING}"
-    assert terminal.prompts == []
+    terminal = ScriptedTerminal(interactive=interactive)
+    error = raised(lambda: choose(two_projects(), terminal, project_id="999"))
+    assert (error.title, error.body) == ("Kiln has no project 999", PROJECTS_LISTING)
+    assert terminal.asked == []
 
 
 def test_an_unknown_project_id_when_kiln_has_none():
-    with pytest.raises(OnboardingError) as error:
-        choose(RouteKiln(kiln_routes()), ScriptedTerminal(), project_id="999")
-    assert str(error.value) == f"Kiln has no project 999. {NO_PROJECTS}"
+    error = raised(
+        lambda: choose(RouteKiln(kiln_routes()), ScriptedTerminal(), project_id="999")
+    )
+    assert (error.title, error.body) == ("Kiln has no project 999", NO_PROJECTS_LINES)
 
 
 def test_a_given_project_id_asks_only_for_the_task():
-    terminal = ScriptedTerminal(["1"])
+    terminal = ScriptedTerminal([TASK_ID])
     selection = choose(two_projects(), terminal, project_id=PROJECT_ID)
     assert (selection.project, selection.task) == (FORUM_ROW, MODERATE_ROW)
-    assert terminal.prompts == ["Task [1-2, x to exit]: "]
+    assert terminal.questions == ["Which task in Forum Moderation?"]
+    assert terminal.step_lines() == [
+        "Project: Forum Moderation (424242975950)",
+        "Task: Moderate posts (424242783061)",
+    ]
+
+
+def test_the_same_project_is_kept_without_reading_or_announcing_it_again():
+    kiln = two_projects()
+    first = choose(kiln, ScriptedTerminal([PROJECT_ID, TASK_ID]))
+    terminal = ScriptedTerminal(["424242100001"])
+    selection = select(
+        flags(),
+        terminal=terminal,
+        run=runner_for(kiln),
+        host=HOST,
+        prog=PROG,
+        same_project=first,
+    )
+    assert (selection.project, selection.task) == (FORUM_ROW, SUMMARISE_ROW)
+    assert (selection.project_picked, selection.task_picked) == (True, True)
+    assert terminal.questions == ["Which task in Forum Moderation?"]
+    assert terminal.step_lines() == ["Task: Summarise threads (424242100001)"]
+    assert kiln.paths().count("/api/projects") == 1  # the first selection's
+
+
+def test_the_same_project_with_no_tasks_left_still_offers_another_project():
+    kiln = two_projects()
+    first = choose(kiln, ScriptedTerminal([PROJECT_ID, TASK_ID]))
+    kiln.routes[("GET", f"/api/projects/{PROJECT_ID}/tasks")] = []
+    terminal = ScriptedTerminal(["p", "118230554411"])
+    selection = select(
+        flags(),
+        terminal=terminal,
+        run=runner_for(kiln),
+        host=HOST,
+        prog=PROG,
+        same_project=first,
+    )
+    assert selection.project.id == "118230554411"
+    assert terminal.menus == [("o", "r", "p", "x")]
+    assert terminal.questions == ["What next?", "Which project do you want to tune?"]
 
 
 # ---- select: the task ----
 
 
-@pytest.mark.parametrize("interactive", [True, False])
-def test_no_tasks_is_an_error_in_both_modes(interactive):
+def test_no_tasks_offers_to_create_one_and_checks_again():
+    kiln = RouteKiln(kiln_routes((FORUM, [MODERATE])))
+    kiln.routes[("GET", f"/api/projects/{PROJECT_ID}/tasks")] = responses([], [task()])
+    terminal = ScriptedTerminal(["o", "r"])
+    selection = choose(kiln, terminal)
+    assert selection.task == MODERATE_ROW
+    ((title, body),) = terminal.blocks
+    assert title == "Forum Moderation has no tasks yet"
+    assert body == (
+        "The tuner works on one task of a Kiln project, and this project has none.",
+        "Create one in Kiln.",
+    )
+    # The only project, so there is no other project to pick.
+    assert terminal.menus == [("o", "r", "x")] * 2
+    assert terminal.opened == [CREATE_TASK]
+    assert terminal.busy_texts.count(READING_FORUM_TASKS) == 2
+
+
+def test_no_tasks_in_a_picked_project_offers_another_project():
+    kiln = RouteKiln(kiln_routes((FORUM, []), (SUPPORT, [TRIAGE])))
+    terminal = ScriptedTerminal([PROJECT_ID, "p", "118230554411"])
+    selection = choose(kiln, terminal)
+    assert selection.project.id == "118230554411"
+    assert terminal.menus == [("o", "r", "p", "x")]
+    assert terminal.questions == [
+        "Which project do you want to tune?",
+        "What next?",
+        "Which project do you want to tune?",
+    ]
+    assert terminal.step_lines() == [
+        "Project: Forum Moderation (424242975950)",
+        "Project: Support Triage (118230554411)",
+        "Task: Triage tickets (118230000001) · the only task in this project",
+    ]
+
+
+def test_no_tasks_when_not_guided_fails_with_the_link():
     kiln = RouteKiln(kiln_routes((FORUM, [])))
-    with pytest.raises(OnboardingError) as error:
-        choose(kiln, ScriptedTerminal(interactive=interactive))
-    assert str(error.value) == NO_TASKS
+    error = raised(lambda: choose(kiln, ScriptedTerminal(interactive=False)))
+    assert error.title == "Forum Moderation has no tasks yet"
+    assert error.body[-1] == f"Open Kiln to create a task: {CREATE_TASK}"
 
 
-def test_several_tasks_when_not_interactive_lists_them():
-    with pytest.raises(OnboardingError) as error:
-        choose(
+def test_several_tasks_when_not_guided_lists_them():
+    error = raised(
+        lambda: choose(
             two_projects(), ScriptedTerminal(interactive=False), project_id=PROJECT_ID
         )
-    assert str(error.value) == (
-        f"--task-id is needed when not run interactively. {TASKS_LISTING}"
+    )
+    assert (error.title, error.body) == (
+        "--task-id is needed when the start isn't guided",
+        TASKS_LISTING,
     )
 
 
 @pytest.mark.parametrize("interactive", [True, False])
 def test_an_unknown_task_id_lists_the_projects_tasks(interactive):
-    terminal = ScriptedTerminal(["1"], interactive=interactive)
-    with pytest.raises(OnboardingError) as error:
-        choose(two_projects(), terminal, project_id=PROJECT_ID, task_id="999")
-    assert str(error.value) == (
-        f"Project Forum Moderation has no task 999. {TASKS_LISTING}"
+    terminal = ScriptedTerminal(interactive=interactive)
+    error = raised(
+        lambda: choose(two_projects(), terminal, project_id=PROJECT_ID, task_id="999")
     )
-    assert terminal.prompts == []
+    assert (error.title, error.body) == (
+        "Forum Moderation has no task 999",
+        TASKS_LISTING,
+    )
+    assert terminal.asked == []
 
 
 def test_an_unknown_task_id_in_a_project_with_no_tasks():
     kiln = RouteKiln(kiln_routes((FORUM, [])))
-    with pytest.raises(OnboardingError) as error:
-        choose(kiln, ScriptedTerminal(), project_id=PROJECT_ID, task_id="999")
-    assert str(error.value) == f"Project Forum Moderation has no task 999. {NO_TASKS}"
+    error = raised(
+        lambda: choose(kiln, ScriptedTerminal(), project_id=PROJECT_ID, task_id="999")
+    )
+    assert (error.title, error.body) == (
+        "Forum Moderation has no task 999",
+        (f"It has no tasks yet. Create one in Kiln: {CREATE_TASK}",),
+    )
 
 
 # ---- select: a task ID alone finds its project ----
@@ -334,9 +470,14 @@ def test_a_task_id_in_one_project_finds_it():
     terminal = ScriptedTerminal(interactive=False)
     selection = choose(kiln, terminal, task_id="424242100001")
     assert (selection.project, selection.task) == (FORUM_ROW, SUMMARISE_ROW)
-    assert terminal.out == [
-        "Using project Forum Moderation (424242975950), the only project with"
-        " task 424242100001."
+    assert terminal.step_lines() == [
+        "Project: Forum Moderation (424242975950) · the only project with"
+        " task 424242100001",
+        "Task: Summarise threads (424242100001)",
+    ]
+    assert terminal.busy_texts == [
+        "Reading projects…",
+        "Reading every project's tasks…",
     ]
     # Each project's tasks are read once: the found project's are reused.
     assert sorted(kiln.paths()) == [
@@ -355,55 +496,64 @@ def copies_of_the_demo() -> RouteKiln:
 
 
 def test_a_task_id_in_two_projects_is_picked_among_them():
-    terminal = ScriptedTerminal(["2"])
+    terminal = ScriptedTerminal(["731954460212"])
     selection = choose(copies_of_the_demo(), terminal, task_id=TASK_ID)
     assert selection.project.id == "731954460212"
     assert selection.task == MODERATE_ROW
     assert selection.task_picked is False
-    assert terminal.out == [
-        "Projects with task 424242783061:\n"
-        "  1. Forum Moderation  (424242975950)\n"
-        "  2. Forum Moderation-1  (731954460212)"
+    assert terminal.asked == [
+        Asked(
+            "pick",
+            "Which project with task 424242783061?",
+            (PROJECT_ID, "731954460212"),
+        )
     ]
 
 
-def test_a_task_id_in_two_projects_when_not_interactive_lists_those_two():
-    with pytest.raises(OnboardingError) as error:
-        choose(
+def test_a_task_id_in_two_projects_when_not_guided_lists_those_two():
+    error = raised(
+        lambda: choose(
             copies_of_the_demo(), ScriptedTerminal(interactive=False), task_id=TASK_ID
         )
-    assert str(error.value) == (
-        "--project-id is needed when not run interactively."
-        " Projects with task 424242783061:\n"
-        "  424242975950  Forum Moderation\n"
-        "  731954460212  Forum Moderation-1"
+    )
+    assert (error.title, error.body) == (
+        "--project-id is needed when the start isn't guided",
+        (
+            "Projects with task 424242783061:",
+            "  424242975950  Forum Moderation",
+            "  731954460212  Forum Moderation-1",
+        ),
     )
 
 
 def test_a_task_id_in_no_project_is_an_error():
-    with pytest.raises(OnboardingError) as error:
-        choose(two_projects(), ScriptedTerminal(), task_id="999")
-    assert str(error.value) == f"No project in Kiln has task 999. {PROJECTS_LISTING}"
+    error = raised(lambda: choose(two_projects(), ScriptedTerminal(), task_id="999"))
+    assert (error.title, error.body) == (
+        "No project in Kiln has task 999",
+        PROJECTS_LISTING,
+    )
 
 
 # ---- select: --project-path alone finds its project ----
 
 
 def test_a_project_path_finds_its_project():
-    terminal = ScriptedTerminal(["2"])
+    terminal = ScriptedTerminal(["424242100001"])
     selection = choose(two_projects(), terminal, project_path=f"{FOLDER}/")
     assert selection.project == FORUM_ROW
     assert selection.task == SUMMARISE_ROW
     assert selection.project_path == Path(FOLDER)
     assert selection.filled is True
+    assert terminal.step_lines()[0] == "Project: Forum Moderation (424242975950)"
 
 
 def test_a_project_path_kiln_doesnt_have_is_an_error():
-    with pytest.raises(OnboardingError) as error:
-        choose(two_projects(), ScriptedTerminal(), project_path="/elsewhere/Proj")
-    assert str(error.value) == (
-        f"--project-path /elsewhere/Proj isn't a project in Kiln. {PROJECTS_LISTING}\n"
-        "Import it into Kiln first."
+    error = raised(
+        lambda: choose(two_projects(), ScriptedTerminal(), project_path="/elsewhere/P")
+    )
+    assert (error.title, error.body) == (
+        "--project-path /elsewhere/P isn't a project in Kiln",
+        (*PROJECTS_LISTING, "Import it into Kiln first."),
     )
 
 
@@ -419,18 +569,20 @@ def test_kilns_folder_is_used_when_the_flag_is_missing():
 
 
 def test_a_project_path_that_isnt_kilns_is_an_error():
-    with pytest.raises(OnboardingError) as error:
-        choose(
+    error = raised(
+        lambda: choose(
             two_projects(),
             ScriptedTerminal(),
             project_id=PROJECT_ID,
             task_id=TASK_ID,
             project_path="/a/b",
         )
-    assert str(error.value) == (
-        "--project-path is /a/b, but Kiln has project 424242975950 at"
-        " /kiln-projects/Forum Moderation.\n"
-        "fix: drop --project-path, or pass '/kiln-projects/Forum Moderation'."
+    )
+    assert str(error) == (
+        "--project-path isn't Kiln's folder for project Forum Moderation\n"
+        "  --project-path is /a/b,\n"
+        "  but Kiln has project 424242975950 at /kiln-projects/Forum Moderation.\n"
+        "  Drop --project-path, or pass '/kiln-projects/Forum Moderation'."
     )
 
 
@@ -493,15 +645,14 @@ def test_a_project_kiln_has_no_folder_for_uses_the_flag():
 
 def test_a_project_kiln_has_no_folder_for_needs_the_flag():
     kiln = RouteKiln(kiln_routes((project(folder=None), [MODERATE, SUMMARISE])))
-    terminal = ScriptedTerminal(["1"])
-    with pytest.raises(OnboardingError) as error:
-        choose(kiln, terminal)
-    assert str(error.value) == (
-        "Kiln has no folder for project Forum Moderation (424242975950).\n"
-        "fix: pass --project-path with the project's folder."
+    terminal = ScriptedTerminal()
+    error = raised(lambda: choose(kiln, terminal))
+    assert (error.title, error.body) == (
+        "Kiln has no folder for project Forum Moderation (424242975950)",
+        ("Pass --project-path with the project's folder.",),
     )
     # Found before the task is asked for.
-    assert terminal.prompts == []
+    assert terminal.asked == []
 
 
 def test_every_flag_given_fills_nothing_and_picks_nothing():
@@ -518,6 +669,11 @@ def test_every_flag_given_fills_nothing_and_picks_nothing():
         task=SUMMARISE_ROW,
         project_path=Path(FOLDER),
         filled=False,
+        project_picked=False,
         task_picked=False,
     )
-    assert terminal.out == [] and terminal.prompts == []
+    assert terminal.step_lines() == [
+        "Project: Forum Moderation (424242975950)",
+        "Task: Summarise threads (424242100001)",
+    ]
+    assert terminal.asked == []

@@ -268,7 +268,7 @@ The providers and the rule are unchanged from phases 1–5:
 **Missing:**
 
 ```
-✗ Kiln is missing an API key this run needs
+✗ Kiln is missing 2 API keys this run needs
 
   The tuner calls these providers through Kiln, which needs a key for each:
     • Fireworks AI: used by the task's run config "Baseline"
@@ -282,7 +282,10 @@ The providers and the rule are unchanged from phases 1–5:
 ```
 
 - `p` opens `<host>/settings/providers`.
-- The title is singular or plural to match the count.
+- The title is singular or plural to match the count. With one provider:
+  - the title reads `Kiln is missing an API key this run needs`;
+  - the body says `this provider`, `a key for it` and `Add the key`;
+  - the retry label says `I've added the key`.
 - A provider needed only because `--model-policy` names it adds `, or remove it from the model policy`.
 
 **The baseline for the summary.** The check also records the baseline run config's name, model and provider, for the summary (§11).

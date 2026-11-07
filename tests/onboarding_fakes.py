@@ -7,7 +7,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -16,46 +17,147 @@ from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import KilnRunner
+from kiln_harness_tuner.onboarding.terminal import Action, Option, StepStatus
 
 T = TypeVar("T")
 
+Answer = Any  # a value, a key, a text, a callable, or an exception to raise
+
+
+@dataclass(frozen=True)
+class Asked:
+    """One prompt: its kind (`pick`, `act` or `text`), its question, and
+    what it offered: the options' values, or the actions' keys."""
+
+    kind: str
+    question: str
+    offered: tuple[Any, ...] = ()
+
 
 class ScriptedTerminal:
-    """A terminal that answers prompts from `inputs`, in order. An input that
-    is an exception is raised instead, and one that is a callable is called
-    for the answer, so a test can change things while the prompt waits. When
-    the inputs run out, `ask` stops the way end of input does."""
+    """A terminal that answers prompts from `answers`, in order: `pick` with
+    an option's value, `act` with an action's key, and `text` with the text.
+    An answer that is an exception is raised instead. A callable answer is
+    called first, so a test can change Kiln while the prompt waits: with no
+    arguments for `pick` and `act`, and with the `validate` function for
+    `text`. When the answers run out, the prompt stops the way Ctrl-D does.
 
-    def __init__(
-        self,
-        inputs: Sequence[str | BaseException | Callable[[], str]] = (),
-        *,
-        interactive: bool = True,
-    ):
-        self.inputs = list(inputs)
+    Everything the start shows is recorded. A test fails at once on a
+    prompt in a start that isn't guided, a key or value the prompt didn't
+    offer, a prompt while a spinner runs, and a spinner inside a spinner."""
+
+    def __init__(self, answers: Sequence[Answer] = (), *, interactive: bool = True):
+        self.answers = list(answers)
         self.interactive = interactive
+        self.headers: list[str] = []
+        self.steps: list[tuple[StepStatus, str, str]] = []
+        self.blocks: list[tuple[str, tuple[str, ...]]] = []
         self.out: list[str] = []
         self.err: list[str] = []
-        self.prompts: list[str] = []
+        self.busy_texts: list[str] = []
         self.opened: list[str] = []
+        self.asked: list[Asked] = []
+        self.options: list[tuple[Option[Any], ...]] = []  # each pick's options
+        # Everything above, in order, one short line each: `step Kiln: …`,
+        # `block <title>`, `say <first line>`, `warn …`, `busy …`, `pick …`,
+        # `act …`, `text …`, `open …`.
+        self.transcript: list[str] = []
+        self._spinning = False
+
+    def header(self, text: str) -> None:
+        self.headers.append(text)
+        self.transcript.append(f"header {text}")
+
+    def step(self, status: StepStatus, label: str, text: str) -> None:
+        self.steps.append((status, label, text))
+        self.transcript.append(f"step {label}: {text}")
+
+    def block(self, title: str, body: Sequence[str]) -> None:
+        assert self.interactive, "a block in a start that isn't guided"
+        self.blocks.append((title, tuple(body)))
+        self.transcript.append(f"block {title}")
 
     def say(self, text: str) -> None:
         self.out.append(text)
+        self.transcript.append(f"say {text.splitlines()[0]}")
 
     def warn(self, text: str) -> None:
         self.err.append(text)
+        self.transcript.append(f"warn {text}")
 
-    def ask(self, prompt: str) -> str:
-        self.prompts.append(prompt)
-        if not self.inputs:
+    @contextmanager
+    def busy(self, text: str) -> Iterator[None]:
+        assert not self._spinning, f"a spinner inside a spinner: {text}"
+        self.busy_texts.append(text)
+        self.transcript.append(f"busy {text}")
+        self._spinning = True
+        try:
+            yield
+        finally:
+            self._spinning = False
+
+    def _answer(self, asked: Asked) -> Answer:
+        assert self.interactive, (
+            f"asked {asked.question!r} in a start that isn't guided"
+        )
+        assert not self._spinning, f"asked {asked.question!r} while a spinner runs"
+        self.asked.append(asked)
+        self.transcript.append(f"{asked.kind} {asked.question}")
+        if not self.answers:
             raise OnboardingStopped(1)
-        answer = self.inputs.pop(0)
+        answer = self.answers.pop(0)
         if isinstance(answer, BaseException):
             raise answer
-        return answer() if callable(answer) else answer
+        return answer
+
+    def pick(
+        self, question: str, options: Sequence[Option[T]], *, hint: str | None = None
+    ) -> T:
+        offered = tuple(o.value for o in options)
+        self.options.append(tuple(options))
+        answer = self._answer(Asked("pick", question, offered))
+        value: Any = answer() if callable(answer) else answer
+        pickable = [o.value for o in options if o.disabled is None]
+        assert value in pickable, f"{value!r} isn't a pickable option of {offered}"
+        return value
+
+    def act(self, question: str, actions: Sequence[Action]) -> Action:
+        offered = tuple(a.key for a in actions)
+        answer = self._answer(Asked("act", question, offered))
+        key = answer() if callable(answer) else answer
+        for action in actions:
+            if action.key == key:
+                return action
+        raise AssertionError(f"no {key!r} in the menu {offered}")
+
+    def text(
+        self,
+        question: str,
+        *,
+        default: str = "",
+        hint: str | None = None,
+        validate: Callable[[str], str | None] | None = None,
+    ) -> str:
+        answer = self._answer(Asked("text", question, (default,)))
+        text: Any = answer(validate) if callable(answer) else answer
+        return text
 
     def open_url(self, url: str) -> None:
         self.opened.append(url)
+        self.transcript.append(f"open {url}")
+
+    @property
+    def menus(self) -> list[tuple[str, ...]]:
+        """The keys of each action menu, in order."""
+        return [asked.offered for asked in self.asked if asked.kind == "act"]
+
+    @property
+    def questions(self) -> list[str]:
+        return [asked.question for asked in self.asked]
+
+    def step_lines(self) -> list[str]:
+        """The step lines as `label: text`, for short assertions."""
+        return [f"{label}: {text}" for _status, label, text in self.steps]
 
 
 @dataclass(frozen=True)
@@ -315,6 +417,7 @@ def flags(
     kiln_host: str = HOST,
     model_policy: str | None = None,
     demo_project: bool = False,
+    no_interaction: bool = False,
 ) -> argparse.Namespace:
     """The flags the start-up reads, each `None` when not given."""
     return argparse.Namespace(
@@ -324,4 +427,5 @@ def flags(
         project_path=project_path,
         model_policy=model_policy,
         demo_project=demo_project,
+        no_interaction=no_interaction,
     )

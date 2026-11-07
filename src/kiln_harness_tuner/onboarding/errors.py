@@ -2,14 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+
+def plain_text(title: str, body: Sequence[str]) -> str:
+    """A titled message as plain lines: the title, then the body indented."""
+    return "\n".join([title, *(f"  {line}" for line in body)])
+
 
 class OnboardingError(Exception):
-    """A start-up problem the user must fix. The message is complete; `main`
-    prints `<prog>: <message>` to stderr and exits 1."""
+    """A start-up problem the user must fix, as a title and the lines that
+    explain it. `str()` is the plain message, which `main` prints as
+    `<prog>: <message>` to stderr before exiting 1. A guided start shows the
+    error as a ✗ block instead, and sets `shown` so `main` doesn't print it
+    again."""
+
+    def __init__(self, title: str, body: Sequence[str] = ()):
+        self.title = title
+        self.body = tuple(body)
+        self.shown = False
+        super().__init__(plain_text(title, self.body))
 
 
 class OnboardingStopped(Exception):
-    """The user stopped at a prompt: `x` or end of input (exit 1), or Ctrl-C
+    """The user stopped at a prompt: Exit or Ctrl-D (exit 1), or Ctrl-C
     (exit 130). `main` prints `<prog>: stopped.` and exits with `exit_code`."""
 
     def __init__(self, exit_code: int):

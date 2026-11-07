@@ -11,7 +11,8 @@ from onboarding_fakes import (
     task_base,
 )
 
-from kiln_harness_tuner.onboarding.readiness import readiness_problem
+from kiln_harness_tuner.onboarding.readiness import Readiness, readiness_problem
+from kiln_harness_tuner.onboarding.terminal import Action, ActionKind
 from kiln_harness_tuner.setup import (
     SetupPreconditionError,
     active_eval_rows,
@@ -21,9 +22,17 @@ from kiln_harness_tuner.setup import (
 BASE = task_base(PROJECT_ID, TASK_ID)
 RUN_CONFIGS_LINK = f"{HOST}/optimize/{PROJECT_ID}/{TASK_ID}"
 EVALS_LINK = f"{HOST}/specs/{PROJECT_ID}/{TASK_ID}"
-HEADLINE = "Task Moderate posts (424242783061) isn't ready to tune:"
-NO_RUN_CONFIGS = f"  • It has no run configs. Create one in Kiln: {RUN_CONFIGS_LINK}"
-NO_EVAL = f"  • It has no eval the loop can measure. Add one in Kiln: {EVALS_LINK}"
+TITLE = "Moderate posts isn't ready to tune yet"
+WHY = (
+    "The tuner starts from one of the task's run configs and measures every change",
+    "with its evals. This task is missing:",
+)
+NO_RUN_CONFIGS = "  • A run config: the model and prompt the tuner starts from."
+NO_EVAL = "  • An eval it can measure: an active eval with a default judge set."
+RUN_CONFIGS_ACTION = Action(
+    "c", "Open Run configs in Kiln", ActionKind.OPEN, url=RUN_CONFIGS_LINK
+)
+EVALS_ACTION = Action("e", "Open Evals in Kiln", ActionKind.OPEN, url=EVALS_LINK)
 
 
 def an_eval(eval_id: str, name: str | None = None, config_id: str | None = "ec_1"):
@@ -95,9 +104,14 @@ async def check(kiln: RouteKiln):
     )
 
 
-async def test_a_ready_task_has_no_problem():
-    kiln = kiln_with()
-    assert await check(kiln) == (None, [])
+async def test_a_ready_task_has_no_problem_and_counts_what_it_has():
+    kiln = kiln_with(
+        run_configs=[{"id": "rc_1"}, {"id": "rc_2"}],
+        evals=[an_eval("a"), an_eval("b"), an_eval("c", config_id=None)],
+    )
+    readiness = await check(kiln)
+    assert readiness == Readiness(None, run_configs=2, measurable=2, warnings=[])
+    assert readiness.step_text == "2 run configs · 2 evals the tuner can measure"
     assert sorted(kiln.paths()) == [
         f"{BASE}/evals",
         f"{BASE}/run_configs",
@@ -105,16 +119,23 @@ async def test_a_ready_task_has_no_problem():
     ]
 
 
+def test_the_step_text_is_singular_for_one():
+    assert Readiness(None, 1, 1).step_text == (
+        "1 run config · 1 eval the tuner can measure"
+    )
+
+
 @pytest.mark.parametrize(
     "run_configs", [None, [], [{"name": "no id"}, {"id": ""}, "oops"]]
 )
 async def test_no_run_configs(run_configs):
-    problem, warnings = await check(kiln_with(run_configs=run_configs))
+    readiness = await check(kiln_with(run_configs=run_configs))
+    problem = readiness.problem
     assert problem is not None
-    assert problem.message == f"{HEADLINE}\n{NO_RUN_CONFIGS}"
-    assert problem.open_url == RUN_CONFIGS_LINK
-    assert problem.open_label == "the first link"
-    assert warnings == []
+    assert (problem.title, problem.body) == (TITLE, (*WHY, NO_RUN_CONFIGS))
+    assert problem.actions == (RUN_CONFIGS_ACTION,)
+    assert problem.retry_label == "Check again (I've fixed it in Kiln)"
+    assert readiness.warnings == []
 
 
 @pytest.mark.parametrize(
@@ -128,10 +149,10 @@ async def test_no_run_configs(run_configs):
     ids=["no evals", "empty bodies", "inactive spec", "inactive, no config"],
 )
 async def test_no_eval_the_loop_can_measure(evals, specs):
-    problem, _warnings = await check(kiln_with(evals=evals, specs=specs))
+    problem = (await check(kiln_with(evals=evals, specs=specs))).problem
     assert problem is not None
-    assert problem.message == f"{HEADLINE}\n{NO_EVAL}"
-    assert problem.open_url == EVALS_LINK
+    assert problem.body == (*WHY, NO_EVAL)
+    assert problem.actions == (EVALS_ACTION,)
 
 
 async def test_active_evals_without_a_default_config_are_named():
@@ -141,22 +162,40 @@ async def test_active_evals_without_a_default_config_are_named():
         an_eval("c", "Old", config_id=None),
         {"id": "d", "current_config_id": None},
     ]
-    problem, _warnings = await check(
-        kiln_with(evals=evals, specs=[a_spec("c", "archived")])
-    )
+    problem = (
+        await check(kiln_with(evals=evals, specs=[a_spec("c", "archived")]))
+    ).problem
     assert problem is not None
-    assert problem.message == (
-        f"{HEADLINE}\n"
-        '  • Its active evals have no default eval config: "Tone", "Accuracy", "d".'
-        f" Set one on each eval's page in Kiln: {EVALS_LINK}"
+    assert problem.body[-1] == (
+        '  • A default judge on its active evals: "Tone", "Accuracy" and "d"'
+        " have none set."
+    )
+    assert problem.actions == (EVALS_ACTION,)
+
+
+async def test_one_active_eval_without_a_default_config_has_none_set():
+    evals = [an_eval("a", "Tone", config_id=None)]
+    problem = (await check(kiln_with(evals=evals))).problem
+    assert problem is not None
+    assert problem.body[-1] == (
+        '  • A default judge on its active evals: "Tone" has none set.'
     )
 
 
-async def test_both_problems_are_listed_at_once_and_the_first_link_opens():
-    problem, _warnings = await check(kiln_with(run_configs=[], evals=[]))
+async def test_both_problems_are_listed_with_one_action_for_each_link():
+    problem = (await check(kiln_with(run_configs=[], evals=[]))).problem
     assert problem is not None
-    assert problem.message == f"{HEADLINE}\n{NO_RUN_CONFIGS}\n{NO_EVAL}"
-    assert problem.open_url == RUN_CONFIGS_LINK
+    assert problem.body == (*WHY, NO_RUN_CONFIGS, NO_EVAL)
+    assert [a.key for a in problem.menu()] == ["r", "c", "e", "x"]
+
+
+async def test_not_guided_the_message_names_each_link():
+    problem = (await check(kiln_with(run_configs=[], evals=[]))).problem
+    assert problem is not None
+    assert problem.error().body[-2:] == (
+        f"Open Run configs in Kiln: {RUN_CONFIGS_LINK}",
+        f"Open Evals in Kiln: {EVALS_LINK}",
+    )
 
 
 @pytest.mark.parametrize(
@@ -166,18 +205,19 @@ async def test_both_problems_are_listed_at_once_and_the_first_link_opens():
 )
 async def test_the_eval_envelope_is_read_and_load_errors_warn(count, text, them):
     envelope = {"evals": [an_eval("a")], "load_error_count": count}
-    problem, warnings = await check(kiln_with(evals=envelope))
-    assert problem is None
-    assert warnings == [
-        f"Kiln couldn't load {text} of task Moderate posts, so the run can't"
-        f" measure {them}."
+    readiness = await check(kiln_with(evals=envelope))
+    assert readiness.problem is None
+    assert readiness.warnings == [
+        f"Kiln couldn't load {text} of this task, so the run can't measure {them}."
     ]
 
 
 async def test_load_errors_warn_alongside_a_problem():
     envelope = {"evals": [], "load_error_count": 3}
-    problem, warnings = await check(kiln_with(evals=envelope))
-    assert problem is not None and len(warnings) == 1
+    readiness = await check(kiln_with(evals=envelope))
+    assert readiness.problem is not None and len(readiness.warnings) == 1
+    # The problem carries them too, to print after its block.
+    assert readiness.problem.warnings == tuple(readiness.warnings)
 
 
 @pytest.mark.parametrize(
