@@ -1,109 +1,170 @@
 ---
-status: complete
+status: draft
 ---
 
 # Functional Spec: CLI onboarding
 
-A new user runs `kiln-harness-tuner`, with no flags or with `--demo-project`. The command either starts a run or says exactly what to fix and where. Four checks run first, in plain code: Kiln is up, it is new enough, the task is ready, and the keys are there. No agent session, model call or run folder happens before they pass.
+A new user runs `kiln-harness-tuner`, with no flags or with `--demo-project`. In a terminal it is a **guided start**, which:
 
-The command name stays `kiln-harness-tuner`, as on `main`. Every message, every printed command and the docs use the name from one constant (the parser's `prog`). When the install branch renames the command, that is a one-line change here.
+1. checks that Kiln is up and new enough;
+2. picks the project and the task;
+3. checks the task is ready and the keys are there;
+4. asks the questions that matter for a run;
+5. shows a summary and starts on Enter.
 
-## 1. Startup order
+Without a terminal, or with `--no-interaction`, it asks nothing. It runs the same checks, fails fast with the same messages, and uses defaults for everything not given.
+
+No agent session, model call or run folder happens before the checks pass.
+
+The command name stays `kiln-harness-tuner`, as on `main`. Every message, every printed command and the docs use the name from one constant (the parser's `prog`). When the install branch renames the command, that is a one-line change.
+
+**Build history.** Phases 1–5 built the checks, the picker, `--demo-project` and the docs with plain `print`/`input` prompts. Phases 6–8 rebuild the terminal side as described here:
+- the look and feel (§3);
+- every message (§4–§9);
+- the questions (§10);
+- the summary and the rerun command (§11);
+- the new defaults (§12).
+
+The check logic from phases 1–5 stays: which API, which rule, which provider.
+
+## 1. Start-up order
 
 1. Parse flags. Argparse errors work as today.
-2. **Kiln check** (§4): Kiln answers, and it has the APIs the tuner needs.
-3. **`--demo-project` only:** copy and import the demo (§9). That gives the project ID, the task ID and the path.
-4. **Choose the project, then the task** (§5), from flags, the picker, or the only choice.
-5. **Find the project folder** (§5.4) when `--project-path` isn't given.
-6. **Print the full command** (§6) if anything was filled in.
-7. **Readiness check** (§7): a run config and an eval the loop can measure.
-8. **API-key check** (§8): a key for every provider the run will call.
-9. The existing start-up, unchanged: install the agent files, check the agent CLI, take the run lock, and so on.
+2. **Header:** `Kiln Harness Tuner <version>` (guided start only).
+3. **Kiln check** (§4).
+4. **`--demo-project` only:** copy and import the demo (§9).
+5. **Project, task and folder** (§5).
+6. **Readiness check** (§6).
+7. **API-key check** (§7): the baseline's provider, the judges' providers, a multi-turn task's simulated user, and the providers a `--model-policy` given on the command line names.
+8. **The questions** (§10), guided start only.
+9. **The key check again**, only when §10 set or changed the model policy, so the policy's providers are covered.
+10. **The summary** (§11). In a guided start it ends with the rerun command and the start prompt. Without a guided start it is printed and the run starts.
+11. The existing start-up, unchanged: install the agent files, check the agent CLI, take the run lock, and so on.
 
-Step 8 loads `--model-policy` itself, so a bad policy file is reported before the key check. The existing start-up still loads it too, unchanged; nothing in it moves.
+## 2. Guided or not
 
-## 2. Interactive or not
+- The start is **guided** when both stdin and stdout are terminals (`isatty()`) and `--no-interaction` is not given.
+- Without a terminal (CI, a script, a pipe, another agent), the start is never guided, flag or not.
 
-The CLI is **interactive** when both stdin and stdout are terminals (`isatty()`). Otherwise it is **not interactive**: CI, a script, a pipe, or another agent running it.
+**A flag on the command line answers its question.** A guided start asks only what the flags didn't answer. A flag counts as given when it appears on the command line, even with its default value spelled out.
 
-- Interactive: a failed check shows a prompt (§3) and waits.
-- Not interactive: a failed check prints the same message to stderr and exits with code 1. A missing ID is an error that lists what Kiln has (§5.3). The CLI never waits for input.
+**Not guided:**
+- A failed check prints its message to stderr and exits 1.
+- A missing project or task ID, with more than one choice, is an error that lists what Kiln has (§5.3).
+- Every option not given takes its default (§12). Nothing waits for input.
 
-## 3. Prompts
+**`--no-interaction` and `--no-progress` are independent.** Both are documented side by side (§14):
 
-Every check that can fail and be fixed outside the tuner ends with the same prompt:
+| Flag | Controls | Effect |
+|---|---|---|
+| `--no-interaction` | the start, before the run | Never asks a question or waits. |
+| `--no-progress` | the run itself | Plain log lines instead of the live progress display. Renamed from `--no-ui` (§12). |
 
-```
-[r]etry  [o]pen <what>  e[x]it:
-```
+## 3. Look and feel
 
-- `r` or Enter: run the check again. There is no polling; it re-checks only when asked.
-- `o`: open the fix page in the browser (`webbrowser.open`), print its URL too (a remote shell has no browser), and show the prompt again. This option appears only when the check has a page to open.
-- `x`, or end of input (Ctrl-D): stop. The CLI exits with code 1 and prints `kiln-harness-tuner: stopped.`
-- Ctrl-C: stop with exit code 130 and no traceback.
-- Anything else: show the prompt again.
+**Output** (rich, already a dependency):
+- One header line, then one **step line** per finished step:
+  - `✓` in green for a step that passed, with a fixed-width label: `Kiln`, `Project`, `Task`, `Ready`, `API keys`, and one per answered question.
+  - `✗` in red for a failed check, followed by its explanation.
+  - `!` in yellow for a warning.
+- A blank line separates each failed check, each question and the summary from what comes before.
+- **Spinners:** every call to Kiln shows a spinner with what it is doing, for example `Checking Kiln…` or `Reading the task's evals…`. The spinner disappears when the call ends.
+- **Colour** turns off when `NO_COLOR` is set or stdout isn't a terminal (rich's own rules).
+- A start that isn't guided prints plain text: no colour, no spinners, no step symbols beyond the words.
 
-After a failed retry, the CLI prints the message again, so the user can see what is still wrong.
+**Input** (questionary, on prompt_toolkit):
+- **Pickers** (project, task, objective, agent CLI):
+  - arrow keys move, typing filters (on name or ID), and Enter picks;
+  - long lists scroll;
+  - after the pick, the list is erased and replaced by the step line.
+- **Action menus** (what to do after a failed check, and the start prompt):
+  - each action has a single key that acts at once, with no Enter;
+  - arrow keys plus Enter work too;
+  - the menu is erased after the choice.
+- **Text questions** (guidance, budget, time limit, model, the advanced values):
+  - the default is pre-filled, Enter accepts it, and the hint line says what the value means;
+  - an invalid answer shows the reason under the field and asks again, without clearing what was typed.
+- **Stopping:** Ctrl-C at any prompt stops with exit 130, and Ctrl-D with exit 1. Both print `kiln-harness-tuner: stopped.`
 
-The picker (§5.2) has its own prompt.
+**Opening a page:**
+1. The action prints `Opening <url>` first.
+2. It then opens the browser only where a graphical one can be expected: macOS, Windows, or Linux with `DISPLAY` or `WAYLAND_DISPLAY` set.
+3. Otherwise it prints `Open this link in your browser: <url>`.
+
+This keeps an SSH session from dropping into a console browser (backlog item 1).
+
+**After a failed check**, a retry runs the check again with its spinner. If it still fails, the ✗ block is printed again, so the user sees what is still wrong. Nothing polls.
 
 ## 4. Kiln check
 
-### 4.1 Kiln answers
+The checks themselves are unchanged from phases 1–5:
+- `GET /ping`: one try, 5 seconds, and the answer must be `"pong"`.
+- `GET /openapi.json`: it must list the memory API, the eval-job API, and `provenance` on `CreateTaskRunConfigRequest`.
 
-`GET <kiln-host>/ping`, one try, 5-second timeout. Kiln answers `"pong"`.
-
-| Result | Meaning |
-|---|---|
-| HTTP 200 with body `"pong"` | Kiln is up. Go on to §4.2. |
-| No connection, timeout, or another transport error | Kiln isn't running. |
-| Any other answer | Something else is listening on that port. |
+**Passed:** `✓ Kiln      1.2.0 at http://localhost:8757`. The version is left out when Kiln reports none or `unknown`.
 
 **Not running:**
 
 ```
-Kiln isn't running at http://localhost:8757.
-Start the Kiln app. If you don't have it, download it from https://kiln.tech.
-If Kiln runs on another port, pass --kiln-host.
-[r]etry  [o]pen kiln.tech  e[x]it:
+✗ Kiln isn't running at http://localhost:8757
+
+  The tuner works through the Kiln app, so Kiln has to be open on this computer.
+    1. Install Kiln if you don't have it: https://kiln.tech/download
+    2. Open the Kiln app and wait for its window to appear.
+  Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.
+
+? What next?
+ » r) Check again (Kiln is open now)
+   d) Open the download page
+   x) Exit
 ```
 
 **Something else on the port:**
 
 ```
-Something answered at http://localhost:8757, but it isn't Kiln (GET /ping returned HTTP 404).
-Check --kiln-host, or start the Kiln app.
-[r]etry  [o]pen kiln.tech  e[x]it:
+✗ Something other than Kiln is answering at http://localhost:8757
+
+  GET /ping returned HTTP 404, so this isn't the Kiln app.
+    1. If Kiln is running on another port, exit and pass --kiln-host with its address.
+    2. Otherwise close the program using this port, then open the Kiln app.
+
+? What next?
+ » r) Check again
+   d) Open the download page
+   x) Exit
 ```
 
-### 4.2 Kiln is new enough
+When the answer is a 200 that isn't `"pong"`, the second line reads "returned an unexpected answer".
 
-Kiln has no version endpoint. The tuner reads `GET <kiln-host>/openapi.json` once and checks that three APIs are there:
-
-| API the tuner needs | Present when |
-|---|---|
-| Memory API | `paths` has `/api/projects/{project_id}/memories` |
-| Eval-job API | `paths` has `/api/jobs/evals/run` |
-| Run-config provenance | the `CreateTaskRunConfigRequest` schema has a `provenance` property |
-
-When any is missing:
+**Too old:**
 
 ```
-Kiln at http://localhost:8757 (version 1.0.3) is too old for kiln-harness-tuner.
-It's missing: the memory API, run-config provenance.
-Update Kiln: in the app, open Settings → Check for update, or download the latest from https://kiln.tech.
-Then restart it.
-[r]etry  [o]pen kiln.tech  e[x]it:
+✗ Kiln 1.0.3 is too old for the tuner
+
+  The tuner needs the memory API and run-config provenance, which this Kiln doesn't have.
+    1. Update Kiln: in the app, open Settings → Check for update,
+       or download the latest version from https://kiln.tech/download.
+    2. Quit and reopen Kiln so the update takes effect.
+
+? What next?
+ » r) Check again (I've updated and reopened Kiln)
+   u) Open Kiln's update page
+   d) Open the download page
+   x) Exit
 ```
 
-- `(version …)` comes from the document's `info.version`. It is left out when that reads `unknown`, which packaged Kiln builds can report.
-- If `/openapi.json` can't be read (non-200, or not JSON), the CLI prints one warning line and goes on: `kiln-harness-tuner: couldn't read Kiln's API list, so its version wasn't checked.` A later call to a missing API fails with its own error.
+- `u` opens `<host>/settings/check_for_update`.
+- The list in the first line names only the missing APIs.
 
-## 5. Choosing the project and the task
+**API list unreadable:** `! Couldn't read Kiln's API list, so its version wasn't checked.` Then the start goes on.
 
-### 5.1 Flags
+**Not guided:** each ✗ title and its explanation go to stderr, prefixed `kiln-harness-tuner:`, without the menu. Then exit 1.
 
-`--project-id`, `--task-id` and `--project-path` become optional. Each combination resolves as follows:
+## 5. Project, task and folder
+
+### 5.1 Which flags decide what
+
+Unchanged from phases 1–5:
 
 | Given | What happens |
 |---|---|
@@ -113,216 +174,381 @@ Then restart it.
 | `--project-path` only | Find the project whose Kiln path is that folder. If none is, it's an error: the folder isn't imported in Kiln. Then pick the task. |
 | nothing | Pick the project, then the task. |
 
-The lists come from `GET /api/projects` and `GET /api/projects/{project_id}/tasks`.
-
-### 5.2 The picker
-
-Rows are numbered from 1, in the order Kiln returns them. Each shows the name and the ID:
+### 5.2 The pickers
 
 ```
-Projects in Kiln:
-  1. Forum Moderation  (424242975950)
-  2. Support Triage  (118230554411)
-Project [1-2, x to exit]:
+? Which project do you want to tune?   ↑↓ move · type to filter · Enter pick
+ » Forum Moderation      424242975950   ~/Kiln Projects/Forum Moderation
+   Support Triage        118230554411   ~/Kiln Projects/Support Triage
 ```
 
-- A number in range picks that row. Anything else asks again. `x` or end of input stops (exit 1), and Ctrl-C exits 130.
-- The task picker looks the same, under `Tasks in Forum Moderation:`.
-- **One choice:** no question. The CLI uses it and prints, for example, `Using project Forum Moderation (424242975950), the only project in Kiln.` This applies in both modes, since nothing needs to be asked.
-- **No choices:** an error, the same in both modes:
-  - No projects: `Kiln has no projects. Create one in the Kiln app (http://localhost:8757/settings/create_project), or try the demo: kiln-harness-tuner --demo-project`
-  - No tasks: `Project Forum Moderation has no tasks. Create one in Kiln: http://localhost:8757/settings/create_task/<project_id>`
-
-### 5.3 Errors
-
-The CLI exits 1, printing to stderr, when:
-
-- **An ID is missing, there's more than one choice, and the CLI isn't interactive:**
+- Rows appear in Kiln's order, in aligned columns. The home folder is shown as `~`.
+- The task picker reads `? Which task in Forum Moderation?` and shows each task's name and ID, with the task's description (from Kiln) under the highlighted row when there is one.
+- **After the pick:** `✓ Project   Forum Moderation (424242975950)`, then likewise for the task.
+- **One choice:** no question. The step line adds `· the only project in Kiln` (or `· the only task in this project`). This applies to both kinds of start.
+- **No projects** (guided):
 
   ```
-  kiln-harness-tuner: --project-id is needed when not run interactively. Projects in Kiln:
-    424242975950  Forum Moderation
-    118230554411  Support Triage
+  ✗ Kiln has no projects yet
+
+    The tuner works on a task in a Kiln project. Create one in Kiln, or start with
+    the demo: a small moderation task with its evals and data already set up.
+
+  ? What next?
+   » m) Use the demo project
+     o) Open Kiln to create a project
+     r) Check again
+     x) Exit
   ```
 
-  Tasks are listed the same way under `--task-id is needed …`. With a task ID that matches several projects, the projects that contain it are listed.
-- **An unknown project or task ID is passed:** the same list, headed `Kiln has no project 999.` or `Project Forum Moderation has no task 999.` This applies in both modes: a wrong ID is a typo to fix, not a question to ask.
+  - `m` does exactly what `--demo-project` does (§9), then the start goes on.
+  - `o` opens `<host>/settings/create_project`.
+- **No tasks** (guided): `✗ Forum Moderation has no tasks yet`, with the actions:
+  - `o) Open Kiln to create a task`, which opens `<host>/settings/create_task/<project_id>`;
+  - `r) Check again`;
+  - `p) Pick a different project`, only when the project was picked from a list;
+  - `x) Exit`.
+- **Not guided:** the same titles and explanations go to stderr, then exit 1. The no-projects text names `kiln-harness-tuner --demo-project`.
+
+### 5.3 Errors in both kinds of start
+
+These are unchanged in substance, restyled as ✗ blocks:
+- An ID is missing, there are several choices, and the start isn't guided. The error names the flag and lists what Kiln has: one line per row, ID then name.
+- An unknown project or task ID, or a task ID that no project has. The error lists what Kiln has. A wrong ID is a typo to fix, not a question to ask.
+- `--project-path` doesn't match Kiln's folder for the project. The error names both folders and the fix. This keeps the read fence on the real project.
+- A project Kiln has no folder for, when `--project-path` isn't given.
 
 ### 5.4 The project folder
 
-- When `--project-path` isn't given, the folder is the parent of the project's `path` in Kiln, which names its `project.kiln`. If Kiln gives no path, that's an error asking for `--project-path`.
-- When `--project-path` is given, its resolved folder must match Kiln's resolved path for the project. If they differ, it's an error:
+Unchanged:
+- The folder is Kiln's (the parent of the project's `project.kiln` path).
+- A given `--project-path` must match it.
+- `~` is expanded.
+
+## 6. Readiness check
+
+The rule is unchanged: at least one run config with an ID, and at least one active eval with a default eval config. Splits are not checked here.
+
+**Passed:** `✓ Ready     2 run configs · 3 evals the tuner can measure`.
+
+**Not ready:**
+
+```
+✗ Forum Moderation isn't ready to tune yet
+
+  The tuner starts from one of the task's run configs and measures every change
+  with its evals. This task is missing:
+    • A run config: the model and prompt the tuner starts from.
+    • An eval it can measure: an active eval with a default judge set.
+
+? What next?
+ » r) Check again (I've fixed it in Kiln)
+   c) Open Run configs in Kiln
+   e) Open Evals in Kiln
+   t) Pick a different task
+   x) Exit
+```
+
+- **One action per link:** `c` opens `<host>/optimize/<project_id>/<task_id>`, and `e` opens `<host>/specs/<project_id>/<task_id>`. Each appears only when its line does.
+- **Active evals with no default eval config:** the eval line reads `• A default judge on its active evals: "Tone" and "Accuracy" have none set.`, with the same `e` action.
+- **`t) Pick a different task`** appears only when the task was picked from a list.
+- **Evals Kiln couldn't load** (`load_error_count`): `! Kiln couldn't load 1 eval of this task, so the run can't measure it.` This doesn't fail the check.
+
+## 7. API-key check
+
+The providers and the rule are unchanged from phases 1–5:
+- **What is checked:** the baseline's provider, each measured eval's judge, a multi-turn task's simulated user, and every provider `--model-policy` names exactly.
+- **What is skipped:** providers that take no key.
+- **The source:** `GET /api/available_models`.
+- **Display names:** Kiln's own (`provider_name_from_id`), kept in the tuner.
+- **Retries:** every try reloads the policy and works out the needs again.
+
+**Passed:** `✓ API keys  Fireworks AI, OpenAI`. When nothing needs a key, it reads `✓ API keys  none needed (local models only)`.
+
+**Missing:**
+
+```
+✗ Kiln is missing an API key this run needs
+
+  The tuner calls these providers through Kiln, which needs a key for each:
+    • Fireworks AI: used by the task's run config "Baseline"
+    • OpenAI: used by eval "Tone"'s judge
+  Add the keys in Kiln under Settings → AI Providers.
+
+? What next?
+ » r) Check again (I've added the keys)
+   p) Open AI Providers in Kiln
+   x) Exit
+```
+
+- `p` opens `<host>/settings/providers`.
+- The title is singular or plural to match the count.
+- A provider needed only because `--model-policy` names it adds `, or remove it from the model policy`.
+
+**The baseline for the summary.** The check also records the baseline run config's name, model and provider, for the summary (§11).
+
+## 8. Agent CLI detection
+
+In a guided start, the agent CLI question (§10) lists Claude Code (`claude`), Codex (`codex`) and OpenCode (`opencode`).
+- A CLI not found on `PATH` is shown dimmed as `not installed` and can't be picked.
+- **One installed:** no question. The step line reads `✓ Agents    Claude Code (claude -p) · the only agent CLI installed`.
+- **None installed:**
 
   ```
-  kiln-harness-tuner: --project-path is /a/b, but Kiln has project 424242975950 at /c/d.
-  fix: drop --project-path, or pass /c/d.
+  ✗ No agent CLI is installed
+
+    The tuner's agents run through an agent CLI, signed in with its own account:
+    Claude Code (claude), Codex (codex) or OpenCode (opencode).
+    docs/install.md section 5 has the install and sign-in steps for each.
+
+  ? What next?
+   » r) Check again (I've installed one)
+     x) Exit
   ```
 
-  The read fence denies the folder it's given. A wrong path would leave the real project, with its val and test data, open to the agents.
-
-## 6. The full command
-
-When the tuner filled in any of `--project-id`, `--task-id` or `--project-path` (by picking, by the only choice, by looking up the folder, or through `--demo-project`), it prints a command that re-runs the same thing with no questions:
-
-```
-To run this again without the questions:
-  kiln-harness-tuner --project-path '/Users/me/Kiln Projects/Forum Moderation' --project-id 424242975950 --task-id 424242783061 --guidance 'Keep the output format.'
-```
-
-- It is built from the arguments the user typed, with `--demo-project` removed and the three flags added or replaced. It is quoted with `shlex.join`.
-- It is printed before the readiness and key checks, so a user who stops there can re-run on the same project without picking again, and without making another demo copy.
-
-## 7. Readiness check
-
-There are three GETs: the task's run configs, its evals and its specs. The task is ready when both of these hold:
-
-1. **At least one run config.** This is the same rule setup uses to seed the baseline: a row with an ID.
-2. **At least one eval the loop can measure:** an active eval with a default eval config. This is the loop's measurement rule (`_active_evals`): active means no spec, or a spec whose status is `active`.
-
-Splits are not checked here. Setup's existing split audit stays where it is and keeps its own message.
-
-When it fails, every problem is listed at once:
-
-```
-Task Forum Moderation (424242783061) isn't ready to tune:
-  • It has no run configs. Create one in Kiln: http://localhost:8757/optimize/<project_id>/<task_id>
-  • It has no eval the loop can measure. Add one in Kiln: http://localhost:8757/specs/<project_id>/<task_id>
-[r]etry  [o]pen the first link  [t]ask: pick another  e[x]it:
-```
-
-- If there are active evals but none has a default eval config, the eval line says that instead: `Its active evals have no default eval config: "Tone", "Accuracy". Set one on each eval's page in Kiln: <link>`.
-- `[t]` appears only when the task came from the picker. It goes back to the task picker for the same project.
-- If Kiln reports evals it couldn't load (`load_error_count`), one warning line names the count. That doesn't fail the check.
-- The check runs on every start, including when IDs are passed, and including the demo, which passes.
-
-## 8. API-key check
-
-### 8.1 Which providers
-
-The run needs a provider for each of these:
-
-| Source | Blocks with the fix line |
-|---|---|
-| The baseline run config's `model_provider_name` | "the task's run config <name>" |
-| Each measurable eval's default eval config: its judge's `model_provider` (a legacy judge, or a V2 `llm_judge`). A code eval names none | "eval <name>'s judge" |
-| A multi-turn task's simulated user: each eval input's `drive_config.model_provider`, read from the task's eval inputs on disk (Kiln stores it per item, not on the eval). Only `drive_config` is read, never the input text or labels | "the simulated user in the task's eval inputs" |
-| Each provider that `--model-policy` names exactly in an allow rule or an exception | "--model-policy" |
-
-- **The baseline** is the run config the run will start from, by the rule setup already uses: the one the tuner recorded for this task in Kiln's memory, else the task's default run config, else the most recent one. The check reads that rule; it doesn't write the record.
-- **A policy rule whose provider is `*`** names no provider, so it adds none. Without a policy, the planner only sees models Kiln already offers, which by definition have keys.
-- **Providers that don't take an API key** are not checked: `ollama`, `docker_model_runner`, `openai_compatible`, `kiln_custom_registry` and `kiln_fine_tune`. The model preflight still tests their models, as today.
-
-### 8.2 The check
-
-`GET /api/available_models` lists only the providers whose keys Kiln has (Kiln's `get_available_models` adds a key provider only when every required key is set). A provider is missing when its ID isn't in that list.
-
-```
-Kiln has no API key for 2 providers this run needs:
-  • Fireworks AI (fireworks_ai), used by the task's run config "Baseline"
-  • OpenAI (openai), used by eval "Tone"'s judge
-Add them in Kiln under AI Providers: http://localhost:8757/settings/providers
-[r]etry  [o]pen AI Providers  e[x]it:
-```
-
-- The display name is Kiln's own (`provider_name_from_id`), kept in the tuner, because `GET /api/settings/available_providers` lists only the providers whose keys are set and so never names a missing one. An ID with no known name is shown alone.
-- For a `--model-policy` provider, the line adds: `or remove it from --model-policy`.
-- This check never reads `/api/settings`, which holds the stored keys.
+- **Not guided,** or with `--agent-cli` given: no detection. The existing start-up check of the agent CLI covers it, unchanged.
 
 ## 9. `--demo-project`
 
-### 9.1 The flag
+The copy is unchanged from phase 4:
+1. It goes into `~/Kiln Projects/`, as `Forum Moderation`, then `-1`, `-2`, and so on. Nothing is overwritten.
+2. The copy gets a fresh project ID, and its name matches the folder.
+3. It is imported with `trusted=true`.
+4. A failed copy, a refused import, or a Ctrl-C during the copy deletes the folder.
 
-`--demo-project` makes a fresh copy of the demo project, imports it into Kiln, and runs on it. Every other flag works as usual (`--guidance`, `--timeout-mins`, `--budget-usd`, and the rest), with the usual defaults.
+**Output:**
+- spinners for `Copying the demo project…` and `Importing it into Kiln…`;
+- then `✓ Demo      ~/Kiln Projects/Forum Moderation-1, imported as project 731954460212`.
 
-It can't be combined with `--project-id`, `--task-id` or `--project-path`; argparse reports that with its usual error.
+**Guided start with the demo:**
+- the project and task questions are skipped;
+- the guidance question is pre-filled with the demo's own text: `Improve the moderation decisions. Keep the output format.`;
+- every other question works as usual.
 
-### 9.2 The copy
+**Rerun command:** the copy's own IDs and folder, so a rerun uses the same copy instead of making a new one.
 
-1. **Folder.** `~/Kiln Projects/`, the folder Kiln's own "create project" uses (`default_project_path()` in `kiln_server/project_api.py`). It is created if it's missing.
-2. **Name.** `Forum Moderation`. If anything already exists with that name (a folder, a file or a link), the CLI tries `Forum Moderation-1`, then `-2`, and so on. A name is claimed by creating its folder (`mkdir`, failing if it exists), so two runs started together can't share a folder. Nothing is ever overwritten.
-3. **Files.** The packaged project folder (§10) is copied into it.
-4. **Fresh project ID.** The copy's `project.kiln` gets a new 12-digit ID that no project in Kiln already has. Its `name` becomes the folder name (e.g. `Forum Moderation-1`), so copies can be told apart in Kiln. The task ID stays `424242783061`.
-5. **Import.** `POST /api/import_project?trusted=true&project_path=<folder>/project.kiln`, the call the README's `curl` makes today. `trusted=true` is needed because the eval runs code: the scorer that ships with the demo.
-6. **Output:**
+`--demo-project` still can't be combined with `--project-id`, `--task-id` or `--project-path` (exit 2).
+
+## 10. The questions
+
+These are asked in a guided start only. Each is skipped when its flag is on the command line.
+
+### 10.1 Core questions, in order
+
+| # | Question | Flag | Kind | Pre-filled | Step line |
+|---|---|---|---|---|---|
+| 1 | What should the tuner improve? | `--objective` | picker | Quality | `✓ Improve   Quality` |
+| 2 | Guidance for the tuner's planner (optional) | `--guidance` | text | empty; the demo's text with `--demo-project` | `✓ Guidance  "…"` or `✓ Guidance  none` |
+| 3 | Which agent CLI should run the tuner's agents? | `--agent-cli` | picker (§8) | Claude Code | `✓ Agents    Claude Code (claude -p)` |
+| 4 | Model for the agents | `--agent-cli` (its `--model`/`-m`) | text | `opus` for Claude Code; empty (the CLI's own default) for Codex and OpenCode | added to the Agents line: `· opus` |
+| 5 | Budget for this run | `--budget-usd` | text | `50` | `✓ Budget    $50.00` or `✓ Budget    no cap` |
+| 6 | Time limit | `--timeout-mins` | text | `12h` | `✓ Time      12 hours` |
+| 7 | Advanced options | the flags in §10.2 | action menu | Keep these | `✓ Advanced  defaults` or a list of what changed |
+
+Each question's text, hint and validation:
+
+1. **Objective.** The rows:
+   - `Quality: higher eval scores`
+   - `Speed: lower latency per request, without losing quality`
+   - `Cost: lower cost per request, without losing quality`
+
+   Hint: `One objective per run. Speed and cost only promote a change that keeps quality equal or better.`
+2. **Guidance.** Hint: `What to try first and what not to touch, in your own words. For example: "Keep the output format. Don't switch models." Enter to skip.` Any text is valid, and empty means none.
+3. **Agent CLI.** Each row shows the command it will run: `Claude Code: claude -p`, `Codex: codex exec`, `OpenCode: opencode run`. Hint: `The tuner's own agents (planner, builders, reviewers) run through this CLI and are billed to its account, not to your Kiln provider keys.`
+4. **Model.**
+   - Hint for Claude Code: `Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.`
+   - Hint for Codex and OpenCode: `Enter uses the CLI's own default model. OpenCode models are PROVIDER/MODEL.`
+   - The answer becomes part of `--agent-cli`: `claude -p --model sonnet`, `codex exec -m <model>`, `opencode run -m <model>`.
+   - It is asked only when question 3 was asked or skipped by detection, not when `--agent-cli` was given.
+5. **Budget.**
+   - Hint: `The most this run may spend, in USD: the tuner's agents and the task's model calls together. No wave starts past it. Type none for no cap.`
+   - When the agent CLI is Codex or OpenCode, the hint adds `<CLI> doesn't report its cost, so this caps the task's model calls only.`
+   - **Valid answers:** a number above 0, with an optional leading `$` (`50`, `$12.50`), or `none`.
+   - An invalid answer shows `Enter an amount in USD, like 50, or none`.
+6. **Time limit.**
+   - Hint: `No wave starts after this, and work still running at the limit is cancelled, so leave room for a whole wave.`
+   - **Valid answers:** minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), at least 1 minute. The flag takes whole minutes, so the answer is rounded to the nearest minute.
+   - An invalid answer shows `Enter a time like 90m or 12h`.
+7. **Advanced.** One action menu, with the current values on one line:
 
    ```
-   Demo project copied to /Users/me/Kiln Projects/Forum Moderation-1
-   and imported into Kiln as project 731954460212 (task 424242783061).
+   ? Advanced options: any model · 4 evals and 4 agents at once · no minimum effect · no noise check
+    » Enter) Keep these
+      c) Customize
    ```
 
-Then the run goes on from step 6 of §1. The full command is printed, so the same copy can be run again.
+   `c` asks each §10.2 question in turn, with the current value pre-filled. Values given by flags are shown and skipped.
 
-### 9.3 Failures
+### 10.2 Advanced questions (after `c`)
 
-- **Import refused by Kiln:** Kiln's message is printed, the folder this call created is deleted (it holds nothing but the fresh copy), and the CLI exits 1.
-- **Copy failed** (disk full, permissions): the error names the folder. The partial folder is deleted, and the CLI exits 1.
-- **The demo's model needs a Fireworks key.** The API-key check (§8) covers it like any task. A user who stops there keeps the imported copy and the printed command.
+| Question | Flag | Pre-filled | Valid answers |
+|---|---|---|---|
+| Model policy file | `--model-policy` | empty: any model Kiln offers | a path to a policy file, which is loaded at once (a bad file shows the loader's message under the field), or empty |
+| Smallest improvement worth acting on | `--min-effect` | empty: not set | a fraction above 0 and at most 1 (`0.1` = 10%), or empty |
+| Eval jobs at once | `--max-concurrent-evals` | `4` | a whole number of 0 or more (0 = no limit) |
+| Agent sessions at once | `--max-concurrent-agents` | `4` | a whole number of 0 or more (0 = no limit) |
+| Noise check: items per eval re-run before wave 1 | `--noise-check` | `0` (off) | a whole number of 0 or more |
 
-## 10. The demo in the package
+Hints:
+- **Model policy:** `Which models the tuner may move the task to. examples/model-policy.json shows the format.`
+- **Minimum effect:** `The run stops before spending when no eval can show this change on val.`
+- **Concurrency:** `Lower these if your provider rate-limits you.`
+- **Noise check:** `Measures how often the same config scores differently. Costs extra; it is estimated first.`
 
-- `examples/moderation/Forum Moderation/` moves into the package as package data, for example `src/kiln_harness_tuner/demo_project/Forum Moderation/`. Git keeps one copy, and a clone and an installed wheel read the same files through `importlib.resources`.
-- Only the Kiln project moves. `examples/moderation/posts.jsonl`, `scorer.py` and `README.md` stay in `examples/`, out of the package, because they hold every split's labels and the house rules.
-- **Read fence.** The packaged copy holds the eval inputs and labels of every split, test included. Every run's read fence denies the packaged demo folder by path. Today the fence catches it only because it sits under the repository; the install branch moves agents out of the repository, and an installed wheel puts it in site-packages.
-- `examples/moderation/README.md` replaces its copy, import and run steps with `kiln-harness-tuner --demo-project`. The tests that read the example's files follow the move.
-- The root README's quickstart still copies from `examples/moderation/Forum Moderation`, so it breaks with the move. Steve is updating the README in parallel and covers this; this project doesn't touch it.
+### 10.3 Never asked
 
-## 11. Flags and behavior summary
+These are flags only, documented in `docs/your-own-task.md`:
+- `--kiln-host`
+- `--coverage-floor`
+- `--agent-model`
+- `--agent-effort`
+- `--max-turns`
+- `--gate-agent`
+- `--reference-check`
+- `--no-recon`
+- `--no-baseline-audit`
+- `--allow-underpowered`
+- `--skip-model-preflight`
+- `--no-progress`
 
-| Flag | Change |
-|---|---|
-| `--project-id` | Optional. Picked, or taken from the only choice, when missing. |
-| `--task-id` | Optional, the same way. Can find its project on its own. |
-| `--project-path` | Optional. Taken from Kiln when missing. When given, it must match Kiln's path for the project. |
-| `--demo-project` | New. Copies, imports and runs the demo. Can't be combined with the three flags above. |
-| `--kiln-host` | Unchanged. All the checks and links use it. |
-| `--model-policy` | Unchanged, except that it is loaded earlier. Its providers are part of the key check. |
+## 11. The summary and the start
 
-New start-up behavior: the Kiln check, the version check, the picker, the full command, the readiness check, the API-key check, and the shared retry prompt.
+**Guided:**
 
-## 12. Output and exit codes
+```
+Ready to start
+  Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950)
+  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on Fireworks AI
+  Improve      Quality
+  Guidance     "Improve the moderation decisions. Keep the output format."
+  Agents       Claude Code (claude -p) · opus
+  Limits       $50.00 · 12 hours
+  Advanced     defaults
 
-- Prompts, picker lists, "Using project …" lines and the full command go to stdout.
-- Errors and warnings go to stderr, prefixed `kiln-harness-tuner:`, as today.
-- Exit codes:
-  - 1: a failed check when not interactive, `x` or end of input at a prompt, an unknown ID, an import or copy failure.
-  - 130: Ctrl-C at a prompt.
+To run this again with the same answers and no questions:
+  kiln-harness-tuner \
+    --project-id 424242975950 --task-id 424242783061 \
+    --project-path '/Users/you/Kiln Projects/Forum Moderation' \
+    --objective quality \
+    --guidance 'Improve the moderation decisions. Keep the output format.' \
+    --agent-cli 'claude -p' \
+    --budget-usd 50 --timeout-mins 720 \
+    --no-interaction
+
+? Start the run?
+ » s) Start the run
+   e) Change an answer
+   x) Exit
+```
+
+- **Starts from** names the baseline run config the key check found (§7), with its model and provider. If the check couldn't name one (a memory record with no run config), the line is left out.
+- **Advanced** lists only what differs from the defaults, for example `model policy ./policy.json · 2 evals at once`. With nothing changed it reads `defaults`.
+- **The rerun command** is printed here and nowhere else:
+  - It is built from the command line as typed, with every flag the start fills in removed, plus every answer as an explicit flag, plus `--no-interaction`.
+  - Flags the start never sets, such as `--no-progress` or `--agent-model`, are kept as typed.
+  - It is split over lines with `\`, each value quoted with `shlex.quote`, so it pastes into a POSIX shell as is.
+  - A guidance of none is `--guidance ''`, and a budget of no cap is `--budget-usd none`.
+- **`e) Change an answer`** picks one of the answered questions (core or advanced), asks it again, and shows the summary again. Changing the model policy runs the key check again (§1 step 9).
+- **`x) Exit`** stops with exit 1.
+
+**Not guided:** the `Ready to start` block is printed (plain text, to stdout), with no rerun command and no prompt, and the run starts.
+
+## 12. Defaults
+
+The flag defaults change, and the questions pre-fill the same values:
+
+| Flag | Before | Now |
+|---|---|---|
+| `--budget-usd` | no cap | `50`. Accepts `none` for no cap. |
+| `--timeout-mins` | `180` | `720` (12 hours) |
+
+Every other default is unchanged.
+
+**`--no-ui` is renamed `--no-progress`**, which says what it turns off: the live progress display during the run. The old name joins `REMOVED_FLAGS` in `cli.py`, so `--no-ui` exits 2 with `--no-ui was renamed --no-progress: plain log lines instead of the live progress display`, instead of argparse's "unrecognized arguments".
+
+## 13. Output and exit codes
+
+- **stdout:** the guided start (header, step lines, prompts, summary). A start that isn't guided prints its summary there too.
+- **stderr:** errors and warnings when the start isn't guided, prefixed `kiln-harness-tuner:`.
+- **Exit codes:**
+  - 1: a failed check when not guided; `x`, Exit or Ctrl-D at a prompt; an unknown ID; an import or copy failure.
+  - 2: argparse errors, including `--demo-project` with a project flag.
+  - 130: Ctrl-C.
   - Every existing exit path is unchanged.
 
-## 13. Docs
+## 14. Docs
 
 - **`docs/install.md`:**
-  - Section 4: the Kiln check and the version check, what each message means, and that the CLI waits or fails fast.
-  - Section 6: the API-key check. Also correct two claims there: `/api/settings` returns `[hidden]`, not the keys; and `/api/available_models` lists only providers with a key, so it is the check, not "not a substitute".
-  - A short `--demo-project` section.
-  - Step zero and the verify block stay; the install branch owns them.
-- **`docs/your-own-task.md`:** the optional IDs, the picker and its non-interactive error, the full-command line, what the readiness check needs and where to fix it in Kiln, `--demo-project`, and the flag table.
-- **Not changed:** the root `README.md`, which belongs to Steve.
+  - §4 and §6 and "Try the demo" are rewritten for the guided start's messages and actions.
+  - A short section explains guided and not guided, with the `--no-interaction` and `--no-progress` table from §2.
+- **`docs/your-own-task.md`:**
+  - §5 describes the guided start: the questions, the summary and the rerun command.
+  - The flag table gains `--no-interaction`, renames `--no-ui` to `--no-progress`, and gives the new defaults for `--budget-usd` (with `none`) and `--timeout-mins`.
+- **`docs/costs.md`:** any statement of the old budget or timeout default.
+- **`examples/moderation/README.md`:** `kiln-harness-tuner --demo-project` stays the one step. It notes the questions it asks.
+- **Not changed:** the root `README.md`, which belongs to Steve. The summary flags the new defaults, `--no-interaction` and the `--no-progress` rename for him.
 
-## 14. Tests
+## 15. Tests
 
-All offline, through a fake Kiln and a scripted terminal (input lines plus the `isatty` answers):
+All offline, through a fake Kiln and a scripted terminal. The new behavior:
 
-- Kiln unreachable, interactive: the message, then `r` succeeds on the second try, and `x` exits 1.
-- Kiln unreachable, not interactive: the message on stderr and exit 1, with no input read.
-- Something other than Kiln on the port, too-old Kiln (each missing API named), and an unreadable `openapi.json` (a warning, then it goes on).
-- The picker with 0, 1 and several projects. The same for tasks. Invalid input asks again.
-- Missing IDs when not interactive: the error lists the projects or tasks. Unknown IDs. A task ID matching several projects. A `--project-path` mismatch.
-- The full command: the right flags, quoted, and printed only when something was filled in.
-- Readiness: no run config, no measurable eval, active evals without a default config, and `[t]` back to the task picker.
-- API key missing: the baseline's provider, a judge's provider, a policy provider, and the skipped no-key providers. Interactive retry, and not-interactive exit.
-- The demo folder name: the first copy is `Forum Moderation`, then `-1`, then `-2`, and an existing file of that name also counts as taken. The fresh ID is unique, the name matches the folder, the import call is right, and a failed import removes the folder.
-- The read fence denies the packaged demo folder.
+- **Guided or not:**
+  - A terminal with `--no-interaction` asks nothing.
+  - No terminal asks nothing.
+  - A flag on the command line skips its question.
+- **Each core question:**
+  - the pre-filled value accepted;
+  - a typed value;
+  - each invalid answer rejected with its message;
+  - the demo's pre-filled guidance.
+- **Agent CLI detection:** none, one or several CLIs installed. The model question for each CLI, and how the answer becomes `--agent-cli`.
+- **Advanced:**
+  - Keep these.
+  - Customize, with each value.
+  - A bad policy file re-asks.
+  - A policy set here runs the key check again.
+- **The summary:**
+  - each line, including the Starts-from line and its absence;
+  - Advanced listing only changes;
+  - Change an answer;
+  - Exit;
+  - the not-guided summary block.
+- **The rerun command:**
+  - every answer present;
+  - flags it fills replaced, others kept;
+  - `--no-interaction` added;
+  - `none` values;
+  - it parses back to the same answers.
+- **The defaults:** `--budget-usd` defaults to 50 and accepts `none`; `--timeout-mins` defaults to 720.
+- **The rename:** `--no-progress` gives the plain display, and `--no-ui` exits 2 with the renamed message.
+- **Action menus:** one action per link, `m) Use the demo project` with no projects, and `p) Pick a different project` with no tasks.
+- **Opening a page:** the URL is printed first, and the browser opens only where a graphical one can be expected.
+- **The real terminal:**
+  - its pickers, action menus and text questions, driven with prompt_toolkit's piped input;
+  - its colour-off and spinner-off behavior when not a terminal.
 
-## 15. Out of scope
+The phase 1–5 tests keep passing, with their expected text updated to the new messages.
+
+## 16. Out of scope
 
 - Building evals.
-- Windows.
-- State paths: where runs, traces and reports live, which the install branch owns.
+- Windows. The chosen libraries support it, but this project doesn't test it.
+- State paths, which the install branch owns.
 - Starting Kiln for the user.
-- Checking that a split has enough items (the detectability check does that later), and checking that a split exists (setup's audit).
+- Checking split sizes (the detectability check) and split presence (setup's audit).
+- A combined objective ("better and cheaper"). One objective per run, as today.
 
-## 16. Coordination
+## 17. Coordination
 
 - The work starts from `main`. PR #1 has merged and the install branch hasn't.
-- The new code lives in its own modules. `cli.py` changes only in argument parsing, one call at the top of `_run`, and moving the `--model-policy` load earlier. The fence change is one deny entry in `read_fence_for`.
-- When the install branch merges, the demo folder's deny moves with the fence code. The rename to `harness-tuner` is the one constant from the opening section.
+- `cli.py` changes in argument parsing:
+  - `--no-interaction`;
+  - `--no-ui` renamed `--no-progress`;
+  - the two new defaults;
+  - `--budget-usd none`;
+  - recording which flags were given.
+
+  It also gets the `prepare_start` call. The fence change from phase 4 is one deny entry in `read_fence_for`.
+- When the install branch merges:
+  - the demo folder's deny moves with the fence code;
+  - the rename to `harness-tuner` is the one `PROG` constant.

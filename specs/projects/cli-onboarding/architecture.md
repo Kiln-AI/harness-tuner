@@ -1,10 +1,15 @@
 ---
-status: complete
+status: draft
 ---
 
 # Architecture: CLI onboarding
 
 The functional spec (FS) says what the user sees. This document says how it is built. Section numbers like "FS §5" point into `functional_spec.md`.
+
+**Two parts.**
+- §1–§16 are the design phases 1–5 built.
+- §17–§25 are the guided start that phases 6–8 build on top of it. Where they disagree, Part 2 wins.
+- §3 (the terminal), §5 (`prepare_start`) and §8 (`rerun_command`) are replaced by §18, §22 and §21.
 
 ## 1. Shape
 
@@ -58,6 +63,8 @@ Changes outside the package:
 `onboarding/` never imports `cli.py`, so there is no import cycle. `prog` comes in as an argument.
 
 ## 3. Terminal and prompts
+
+*Replaced by §18 in phase 6.*
 
 ```
 class Terminal(Protocol):
@@ -123,6 +130,8 @@ class OnboardingStopped(Exception):
 Other exceptions keep today's handling. An unexpected `KilnAPIError` (HTTP 500 from `/api/projects`, say) or a `SetupPreconditionError` from a drifted response shape is already in `main`'s except tuple, so it prints one line and no traceback.
 
 ## 5. `prepare_start`
+
+*Replaced by §22 in phase 7.*
 
 ```
 def prepare_start(
@@ -266,6 +275,8 @@ def choose_one(rows, *, noun, heading, flag, where, terminal, prog) -> tuple[row
 `filled` is True when any of the three flags was None before `select` ran. `task_picked` is the flag that `choose_one` returned for the task.
 
 ## 8. `rerun_command`
+
+*Replaced by §21 in phase 7.*
 
 ```
 def rerun_command(prog, argv, *, parser_long_options, project_path, project_id, task_id) -> str:
@@ -467,3 +478,324 @@ All of these run offline under `uv run pytest`, with ruff clean.
   - `read_fence_for`'s signature changes there; the demo deny entry has to be re-added in its new body.
   - `PROG` becomes `harness-tuner`.
   - `.agents/AGENTS.md` moves to `agent_files/`. Git's rename detection carries the one-line edit.
+
+# Part 2: The guided start (phases 6–8)
+
+## 17. Shape
+
+```
+main(argv)
+  parse flags, then validate_args                     (cli.py)
+  prepare_start(args, raw_argv, prog, option_dests)   (onboarding/flow.py)
+      header → Kiln check → demo → project/task/folder → readiness → keys
+      → questions (guided) → keys again (policy changed) → summary → start prompt
+  asyncio.run(_run_with_signals(args))                (unchanged)
+```
+
+- **New dependency:** `questionary>=2.1,<3`, which brings `prompt_toolkit` 3. It goes in `pyproject.toml` with a regenerated `uv.lock`. `rich` is already a dependency.
+- **The flow stays synchronous,** for the reason in §1: questionary's `unsafe_ask()` runs its own prompt_toolkit loop, and each prompt runs while no asyncio loop is running. Kiln reads keep their own short `asyncio.run` through the runner.
+
+New and changed modules:
+
+| Module | Contents |
+|---|---|
+| `onboarding/terminal.py` | The `Terminal` protocol, `Option`, `Action`, `ActionKind`, `Problem`, `resolve_problem` (§18, §19). |
+| `onboarding/console.py` (new) | `RichTerminal` (guided) and `PlainTerminal` (not guided), and `open_url`'s browser rule (§18). |
+| `onboarding/questions.py` (new) | `Answers`, the question registry, the value parsers, and agent CLI detection (§20). |
+| `onboarding/summary.py` (new) | `Baseline`, the summary lines, `given_dests`, and the rerun command (§21). Replaces `flow.rerun_command`. |
+| `onboarding/flow.py` | The new order (§22). |
+| `onboarding/kiln_check.py`, `readiness.py`, `keys.py`, `choose.py`, `demo.py` | Their messages become `Problem`s with titles, bodies and actions (FS §4–§9). `keys.needed_providers` also returns the `Baseline`. `choose` turns no projects or no tasks into `Problem`s. |
+| `cli.py` | `--no-interaction`; `--no-progress` (with `--no-ui` in `REMOVED_FLAGS`); the `--budget-usd` parser and the two new defaults; `option_dests` (§23). |
+
+## 18. The terminal
+
+```
+StepStatus = Literal["ok", "fail", "warn"]
+
+@dataclass(frozen=True)
+class Option(Generic[T]):
+    value: T
+    label: str                        # first column
+    columns: tuple[str, ...] = ()     # more columns, aligned across rows
+    description: str | None = None    # shown under the highlighted row
+    disabled: str | None = None       # why it can't be picked, shown dimmed
+
+class ActionKind(Enum):
+    RETRY, OPEN, PICK_TASK, PICK_PROJECT, USE_DEMO, EXIT, START, CHANGE, KEEP, CUSTOMIZE
+
+@dataclass(frozen=True)
+class Action:
+    key: str                          # one lower-case letter, unique in its menu
+    label: str
+    kind: ActionKind
+    url: str | None = None            # for OPEN
+
+class Terminal(Protocol):
+    interactive: bool                 # True = a guided start
+    def header(self, text: str) -> None
+    def step(self, status: StepStatus, label: str, text: str) -> None
+    def block(self, title: str, body: Sequence[str]) -> None       # a failed check, ✗ title + body
+    def say(self, text: str) -> None
+    def warn(self, text: str) -> None
+    def busy(self, text: str) -> AbstractContextManager[None]      # a spinner while Kiln is called
+    def pick(self, question: str, options: Sequence[Option[T]], *, hint: str | None = None) -> T
+    def act(self, question: str, actions: Sequence[Action]) -> Action
+    def text(self, question: str, *, default: str = "", hint: str | None = None,
+             validate: Callable[[str], str | None] | None = None) -> str   # validate → error or None
+    def open_url(self, url: str) -> None
+```
+
+**Choosing the terminal.** `prepare_start` builds `RichTerminal(prog)` when `sys.stdin.isatty() and sys.stdout.isatty() and not args.no_interaction`, and `PlainTerminal(prog)` otherwise. Tests pass their own terminal.
+
+**`RichTerminal`**
+- **Output:**
+  - `rich.console.Console(highlight=False)` writes stdout, and a second `Console(stderr=True)` writes `warn`.
+  - `step` prints `✓` (green), `✗` (red) or `!` (yellow), then the label padded to 9 characters, then the text.
+  - `block` prints a blank line, the bold red `✗ title`, each body line indented two spaces, and a blank line.
+  - `header` prints bold text and a blank line.
+  - `busy` returns `console.status(text, spinner="dots")`, which is transient. rich disables it and the colours on a stream that isn't a terminal, and honours `NO_COLOR`.
+- **`pick`:**
+  - `questionary.select(question, choices=[questionary.Choice(title=row_i, value=i, disabled=o.disabled, description=o.description) …], use_search_filter=True, use_jk_keys=False, instruction=hint or "↑↓ move · type to filter · Enter pick", erase_when_done=True).unsafe_ask()`, then return `options[i].value`.
+  - `row_i` is the label and the columns, each padded to its column's widest cell and joined by three spaces. The search filter matches the whole row text, so typing an ID works.
+- **`act`:**
+  - `questionary.select(question, choices=[Choice(title=a.label, value=i, shortcut_key=a.key) …], use_shortcuts=True, use_jk_keys=False, erase_when_done=True)`.
+  - Then one eager `KeyBinding` per key, merged into `question.application.key_bindings` with `merge_key_bindings`, calls `event.app.exit(result=i)`. A shortcut on its own only moves the cursor in questionary 2.1; this binding makes it act at once, which the research run confirmed.
+- **`text`:** `questionary.text(question, default=default, instruction=hint, validate=lambda s: True if (e := validate(s)) is None else e, erase_when_done=True).unsafe_ask()`. questionary shows the error under the field and keeps the typed text.
+- **Stopping:** each prompt maps `KeyboardInterrupt` to `OnboardingStopped(130)` and `EOFError` (Ctrl-D) to `OnboardingStopped(1)`.
+- **Answer records:** the caller, not the terminal, prints the step line after `pick` and `text`. `act` leaves no record.
+- **`open_url(url)`:**
+  - When `_graphical_browser_expected()` is true (`sys.platform in ("darwin", "win32")`, or `DISPLAY` or `WAYLAND_DISPLAY` is set), it prints `Opening <url>` and calls `webbrowser.open(url)`.
+  - Otherwise it prints `Open this link in your browser: <url>`.
+  - This closes backlog item 1: no console browser is ever started.
+
+**`PlainTerminal`**
+- `interactive = False`.
+- `header` and `busy` do nothing.
+- `step` prints `<label padded to 9> <text>` to stdout, with no symbol.
+- `block` is never called; `resolve_problem` raises before it.
+- `warn` prints `<prog>: text` to stderr.
+- `pick`, `act` and `text` raise `RuntimeError("not a guided start")`. The flow never calls them when not interactive, and a test enforces that.
+
+**`ScriptedTerminal`** (`tests/onboarding_fakes.py`) takes `interactive` and a queue of answers:
+- for `pick`, a value, or a callable that returns one;
+- for `act`, a key;
+- for `text`, a string, or a callable that gets the `validate` function and returns the text.
+
+It records every `step`, `block`, `say`, `warn`, `busy` text and opened URL.
+
+## 19. Problems and `resolve_problem`
+
+```
+@dataclass(frozen=True)
+class Problem:
+    title: str                        # "Kiln isn't running at http://localhost:8757"
+    body: tuple[str, ...]             # explanation and numbered steps, no prompt
+    actions: tuple[Action, ...] = ()  # besides Check again and Exit
+    retry_label: str = "Check again"
+    def plain(self) -> str            # title + "\n" + indented body, for OnboardingError
+
+def resolve_problem(check: Callable[[], Problem | None], terminal: Terminal, *,
+                    busy: str, extra: Sequence[Action] = ()) -> Action | None
+```
+
+1. Run `check()` inside `terminal.busy(busy)`.
+2. While it returns a `Problem`:
+   - **Not interactive:** raise `OnboardingError(problem.plain())`.
+   - **Interactive:**
+     1. `terminal.block(problem.title, problem.body)`.
+     2. The menu is `[Action("r", retry_label, RETRY), *problem.actions, *extra, Action("x", "Exit", EXIT)]`, and the answer is `terminal.act("What next?", menu)`.
+     3. `OPEN` calls `terminal.open_url(action.url)` and asks again without re-checking. `RETRY` runs `check()` again (back to step 1). `EXIT` raises `OnboardingStopped(1)`. Any other kind (`PICK_TASK`, `PICK_PROJECT`, `USE_DEMO`) is returned to the caller.
+3. Return `None` when `check()` returns `None`.
+
+**The messages.**
+- **Where the text lives:** each check module builds its titles and bodies with the FS §4–§9 text.
+- **The links:** `kiln_urls.py` gains `check_for_update(host)`, and the download link `KILN_DOWNLOAD_URL = "https://kiln.tech/download"`.
+- **Readiness:** each problem line carries its own `Action` (`c` for run configs, `e` for evals), and duplicates are dropped.
+- **Keys:** one `p` action.
+- **Kiln check:** `d` always, plus `u` when Kiln is too old.
+
+## 20. The questions (`questions.py`)
+
+```
+@dataclass
+class Answers:
+    objective: str
+    guidance: str
+    agent_cli: str                    # the whole command, e.g. "claude -p --model sonnet"
+    budget_usd: float | None
+    timeout_mins: int
+    model_policy: str | None
+    min_effect: float | None
+    max_concurrent_evals: int
+    max_concurrent_agents: int
+    noise_check: int
+
+    @classmethod
+    def from_args(cls, args) -> Answers
+    def apply(self, args) -> None     # writes every field back into the Namespace
+
+@dataclass(frozen=True)
+class Question:
+    name: str                         # "objective", "guidance", ...
+    dests: frozenset[str]             # the argparse dests that answer it
+    advanced: bool
+    ask: Callable[[Answers, QuestionContext], None]   # asks, sets the field, prints its step line
+    show: Callable[[Answers], str]    # the step-line / summary text
+
+QUESTIONS: tuple[Question, ...]       # the order in FS §10.1, then §10.2
+
+@dataclass(frozen=True)
+class QuestionContext:
+    terminal: Terminal
+    demo: bool
+    policy_loader: Callable[[str | None], ModelPolicy | None]
+    installed: tuple[str, ...]        # agent CLI kinds on PATH, in the order claude, codex, opencode
+
+def ask_all(answers: Answers, ctx: QuestionContext, *, given: frozenset[str]) -> Answers
+def ask_one(name: str, answers: Answers, ctx: QuestionContext) -> Answers
+def installed_agent_clis(which: Callable[[str], str | None] = shutil.which) -> tuple[str, ...]
+```
+
+**`ask_all`**
+- It asks every core `Question` whose `dests` don't meet `given`, then the Advanced action.
+- `KEEP` leaves the advanced values alone.
+- `CUSTOMIZE` asks each advanced `Question` whose `dests` don't meet `given`.
+
+**The agent questions**
+- **The agent CLI** is skipped when `agent_cli` is in `given`. With one CLI installed, it records that one and prints its step line. With none installed, it goes through `resolve_problem` with the "No agent CLI is installed" `Problem`, whose check re-runs detection.
+- **The model** is asked whenever the CLI question was not skipped by the flag.
+- **The command** is built as follows:
+  - `claude` → `claude -p`, plus `--model <m>` when `m` isn't `AGENT_MODEL` (`opus`);
+  - `codex` → `codex exec`, plus `-m <m>` when `m` isn't empty;
+  - `opencode` → `opencode run`, plus `-m <m>` when `m` isn't empty.
+
+  The result goes through `parse_agent_cli`, so a bad model name with a space in it is caught as the CLI would see it.
+
+**The guidance** default is `DEMO_GUIDANCE` with `ctx.demo`, else `answers.guidance`.
+
+**The value parsers** are pure functions, shared with `cli.py`. Each returns the value, or raises `ValueError` with the FS message:
+
+| Function | Accepts | Returns |
+|---|---|---|
+| `parse_budget(text)` | a number above 0, an optional leading `$`, or `none` (any case) | `float \| None` |
+| `parse_duration(text)` | minutes, or a number with `m` or `h` | whole minutes ≥ 1, rounded |
+| `parse_fraction(text)` | above 0, at most 1 | `float` |
+| `parse_count(text)` | a whole number ≥ 0 | `int` |
+
+- **The model policy question:** its validate callback runs `ctx.policy_loader(path)` and returns the loader's message on `ConfigRenderError`.
+- **The step lines** use each question's `show`: `$50.00`, `no cap`, `12 hours`, `90 minutes`, `"…"` or `none`.
+
+## 21. The summary and the rerun command (`summary.py`)
+
+```
+@dataclass(frozen=True)
+class Baseline:
+    name: str
+    model: str | None
+    provider: str | None              # display name
+
+def given_dests(argv: Sequence[str], option_dests: Mapping[str, OptionInfo]) -> frozenset[str]
+def summary_lines(selection: Selection, answers: Answers, baseline: Baseline | None) -> list[tuple[str, str]]
+def rerun_command(prog: str, argv: Sequence[str], *, option_dests: Mapping[str, OptionInfo],
+                  selection: Selection, answers: Answers) -> str
+
+@dataclass(frozen=True)
+class OptionInfo:
+    dest: str
+    takes_value: bool
+
+SET_BY_START = frozenset({"project_id", "task_id", "project_path", "demo_project", "objective",
+    "guidance", "agent_cli", "budget_usd", "timeout_mins", "model_policy", "min_effect",
+    "max_concurrent_evals", "max_concurrent_agents", "noise_check", "no_interaction"})
+```
+
+**`given_dests`** reads `argv` with the abbreviation rule of §8 (`_long_option`, moved here) and returns the dests of the options found. It stops at `--`.
+
+**`rerun_command`** is built in three steps:
+1. **Kept tokens:** `argv` minus every option whose dest is in `SET_BY_START`, plus the next token when the option takes a value and the token has no `=`.
+2. **Lines:** `prog`, then
+   - `--project-id P --task-id T`
+   - `--project-path PATH`
+   - `--objective O`
+   - `--guidance G`
+   - `--agent-cli A`
+   - `--budget-usd B --timeout-mins M`
+   - one line of the advanced flags whose values differ from the parser defaults
+   - one line of the kept tokens, when there are any
+   - `--no-interaction`
+3. **Joining:** each line is `" ".join(shlex.quote(t) for t in tokens)`, indented two spaces after the first, and joined with ` \` and a newline.
+
+Special values: no cap is `none`, empty guidance is `''`, and `B` is printed without a trailing `.0`.
+
+**`summary_lines`** returns the FS §11 rows in order. "Starts from" is left out when `baseline` is `None`. "Advanced" lists only the fields that differ from the parser defaults, or reads `defaults`.
+
+**The baseline.** `keys.needed_providers` returns `tuple[list[Need], Baseline | None]`. The `Baseline` is built from the baseline row it already finds: the row's `name`, `run_config_properties.model_name`, and the display name of `model_provider_name`. `key_problem` is unchanged.
+
+## 22. `prepare_start` (replaces §5)
+
+```
+def prepare_start(args, argv, *, prog, option_dests, policy_loader,
+                  terminal=None, runner=None, home=None, which=shutil.which) -> argparse.Namespace
+```
+
+```
+terminal = terminal or (RichTerminal(prog) if both ttys and not args.no_interaction else PlainTerminal(prog))
+given = given_dests(argv, option_dests)
+terminal.header(f"Kiln Harness Tuner {__version__}")
+resolve_problem(kiln check, busy="Checking Kiln at <host>…")       → step ok "Kiln"
+if args.demo_project: demo = make_demo(...)                          → step ok "Demo"
+loop:
+    selection = select(...)        # pickers; no projects / no tasks → Problem with USE_DEMO / PICK_PROJECT
+        USE_DEMO → make_demo, fill args, continue the loop
+    resolve readiness              → step ok "Ready"; PICK_TASK → args.task_id = None, continue
+    break
+needs, baseline = keys check with the flag policy                    → step ok "API keys"
+answers = Answers.from_args(args)
+if terminal.interactive:
+    answers = ask_all(answers, ctx, given=given)
+    if answers.model_policy != args.model_policy: keys check again (with answers.model_policy)
+    loop:
+        print the summary and the rerun command
+        act Start / Change an answer / Exit
+            START  → break
+            CHANGE → pick a question (only those asked or answerable), ask_one,
+                     keys check again if the policy changed, continue
+            EXIT   → OnboardingStopped(1)
+else:
+    print the summary
+answers.apply(args)
+return args
+```
+
+- **Spinner texts:** `Checking Kiln at <host>…`, `Reading projects…`, `Reading <project>'s tasks…`, `Checking the task is ready…`, `Checking API keys…`, `Copying the demo project…` and `Importing it into Kiln…`.
+- **`USE_DEMO`** runs exactly what `--demo-project` runs and sets `args.demo_project = True`. The demo guidance default and the rerun command then follow it.
+- **The version** in the header is `kiln_harness_tuner.__version__`.
+
+## 23. `cli.py` changes
+
+- **`--no-interaction`** (`store_true`). Help: `never ask a question or wait: checks fail fast, a missing project or task is an error, and every option not given takes its default`.
+- **`--no-progress`** (`store_true`, dest `no_progress`) replaces `--no-ui`.
+  - `REMOVED_FLAGS["--no-ui"] = "--no-ui was renamed --no-progress: plain log lines instead of the live progress display"`.
+  - `_run` reads `args.no_progress`.
+  - The docstrings in `cli.py` and `ui.py` that name `--no-ui` follow.
+- **`--budget-usd`:** `type=_budget` (wrapping `parse_budget`, and raising `argparse.ArgumentTypeError`), `default=DEFAULT_BUDGET_USD = 50.0`. Help says `none` is no cap.
+- **`--timeout-mins`:** `DEFAULT_TIMEOUT_MINS = 720`.
+- **`_Parser.add_argument`** also records `option_dests[option] = OptionInfo(action.dest, takes_value=action.nargs != 0)` for each long option. `main` passes `option_dests=parser.option_dests` instead of `parser_long_options`.
+
+## 24. Tests (phases 6–7)
+
+| File | Cases |
+|---|---|
+| `tests/test_onboarding_console.py` (new) | `RichTerminal` driven through `prompt_toolkit.input.create_pipe_input()` and `prompt_toolkit.output.DummyOutput()`, passed to questionary as `input=` and `output=`: a pick by arrow keys, a pick by filter text, a disabled option skipped, an action by its single key with no Enter, an action by arrows and Enter, a text with its default accepted, an invalid text then a valid one, Ctrl-C → 130, Ctrl-D → 1. Step and block text through a `Console(file=StringIO(), force_terminal=True, color_system=None)`; no ANSI with `NO_COLOR`. `busy` prints nothing on a non-terminal console. `open_url` with and without `DISPLAY`. `PlainTerminal` raises on prompts. |
+| `tests/test_onboarding_questions.py` (new) | Each parser's valid and invalid cases. `ask_all` with nothing given, and with each flag given. The demo guidance default. Agent CLI detection with 0, 1 and 3 installed. The model question per CLI and the command it builds. Keep, and Customize with each value. A bad policy file re-asked. `ask_one`. |
+| `tests/test_onboarding_summary.py` (new) | `given_dests` with abbreviations and `=`. The rerun command: answers present, set flags replaced, kept tokens kept, `none` and `''`, advanced only when not default, `--no-interaction` last. It parses back (`build_parser().parse_args(shlex.split(...))`) to the same `Answers`. `summary_lines` with and without a baseline. |
+| `tests/test_onboarding_flow.py` | The whole guided flow on fakes, from no flags to the returned `Namespace`. The policy re-check. Change an answer. Exit at the summary. `USE_DEMO` with no projects. `PICK_PROJECT` with no tasks. Not guided: no prompt called, the summary printed, defaults applied. |
+| The existing onboarding tests | Expected text updated to the FS §4–§9 messages. `ScriptedTerminal` answers by key. |
+| `tests/test_cli.py` | `--no-interaction`. `--no-progress`, and `--no-ui`'s removal message (exit 2). `--budget-usd` default 50, `none`, `$12.50`, and an invalid value (exit 2). `--timeout-mins` default 720. `option_dests`. |
+
+## 25. Risks (phases 6–8)
+
+- **Making a shortcut act at once** relies on `Question.application.key_bindings` being assignable. That holds in questionary 2.1.1, and a test drives it. The `<3` pin guards a breaking release.
+- **Rendering on narrow terminals:** questionary's list scrolls with the cursor (confirmed with 99 items in a 20-row window), but it has no page size. A list taller than the window scrolls the lines above it out of view while it's open; the erased list then leaves the step line in their place.
+- **The rerun command is POSIX-quoted.** On Windows `cmd.exe` the line breaks and quoting differ. Windows is out of scope (FS §16).
+- **Spinners and `asyncio.run`:** rich's status runs on its own thread, and each Kiln read's `asyncio.run` runs inside the `with`. A Ctrl-C there still reaches `prepare_start`'s `KeyboardInterrupt` handler and exits 130, as in §4.

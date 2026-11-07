@@ -1,5 +1,5 @@
 ---
-status: complete
+status: draft
 ---
 
 # Implementation Plan: CLI onboarding
@@ -37,4 +37,31 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
 - [x] Phase 5: Docs.
   - `docs/install.md` §4 and §6, with the two corrections, and the new "Try the demo" section (§14).
   - `docs/your-own-task.md` §1, §5 and the flag table rows for the optional flags (§14).
-- [ ] **Phase 6: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.
+- [ ] Phase 6: The terminal layer and the messages (guided start, part 1).
+  - `questionary>=2.1,<3` in `pyproject.toml`, and a regenerated `uv.lock` (§17).
+  - `Option`, `Action`, `ActionKind`, the new `Terminal` protocol, `Problem` with title, body and actions, and the new `resolve_problem` (§18, §19).
+  - `onboarding/console.py`: `RichTerminal` (step lines, blocks, spinners, pickers with filter, single-key action menus, text questions) and `PlainTerminal`, plus the `open_url` browser rule. This closes backlog item 1: mark it closed in `backlog.md`.
+  - The FS §4–§9 messages and actions in `kiln_check.py`, `choose.py` (no projects → use the demo, no tasks → pick another project), `readiness.py` (one action per link), `keys.py` and `demo.py`. `kiln_urls.py` gains the download and update links.
+  - `flow.py`: the header, step lines and spinners. The terminal is chosen by the guided rule, and `--no-interaction` is added in `cli.py` with its row in the flag table of `docs/your-own-task.md` (`tests/test_docs.py` requires one row per flag). The rerun line stays where it is until phase 7.
+  - Tests: `test_onboarding_console.py`, `ScriptedTerminal` by key, and the existing onboarding tests updated to the new messages (§24).
+- [ ] Phase 7: The questions and the summary (guided start, part 2).
+  - `questions.py`: `Answers`, the question registry, the value parsers, agent CLI detection, the Advanced menu and `ask_one` (§20).
+  - `summary.py`: `OptionInfo`, `given_dests`, `summary_lines` and the multi-line rerun command with `--no-interaction`. `flow.rerun_command` and the early rerun line go (§21).
+  - `keys.needed_providers` returns the `Baseline` (§21).
+  - `prepare_start` in its new order: questions, the policy re-check, the summary, Start / Change an answer / Exit, and the plain summary when not guided (§22).
+  - `cli.py`:
+    - `option_dests`;
+    - `--budget-usd` with `parse_budget` and a default of 50;
+    - `--timeout-mins` with a default of 720;
+    - `--no-ui` renamed `--no-progress`, with the old name in `REMOVED_FLAGS`.
+
+    Also the flag table rows for these in `docs/your-own-task.md` (§23).
+  - Tests: `test_onboarding_questions.py`, `test_onboarding_summary.py`, and the flow and `test_cli.py` cases of §24.
+- [ ] Phase 8: Docs for the guided start.
+  - `docs/install.md`:
+    - §4 and §6 and "Try the demo" rewritten for the new messages and actions;
+    - a section on guided and not guided, with the `--no-interaction` and `--no-progress` table (FS §14).
+  - `docs/your-own-task.md` §5: the questions, the summary and the rerun command.
+  - `docs/costs.md`: any statement of the old budget or timeout default.
+  - `examples/moderation/README.md`: what `--demo-project` asks.
+- [ ] **Phase 9: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.
