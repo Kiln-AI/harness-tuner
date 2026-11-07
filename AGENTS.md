@@ -1,10 +1,14 @@
 # Kiln Harness Tuner
 
-An agentic optimize loop for Kiln tasks: it plans experiments against a task's
-baseline run config, builds and measures each one on the train split, and
-promotes a candidate only when the val split agrees. Every agent in it is an
-agent-CLI session (`claude -p` by default), every measurement is a Kiln eval
-job, and test is never read.
+Automatically improves an AI agent by tuning its harness: the prompt, model,
+tools, skills and settings around it. Agents propose and build each change,
+and your evals measure it. A change becomes the new baseline only when
+held-out data confirms it, and the test set is never read, so your test score
+stays a true measure.
+
+In the code, the agent is a Kiln task and its harness is the task's run
+config. Every agent in the loop is an agent-CLI session (`claude -p` by
+default), and every measurement is a Kiln eval job on the train or val split.
 
 This file is the contributor guide. `CLAUDE.md` loads it for Claude Code.
 Loop agents do not read it: they read

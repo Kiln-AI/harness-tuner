@@ -182,7 +182,17 @@ class _Parser(argparse.ArgumentParser):
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
         prog="harness-tuner",
-        description="Kiln Harness Tuner — an agentic optimize loop for Kiln tasks.",
+        description=(
+            "Kiln Harness Tuner\n"
+            "\n"
+            "Automatically improves an AI agent by tuning its harness: the prompt,\n"
+            "model, tools, skills and settings around it. Agents propose and build\n"
+            "each change, and your evals measure it. A change becomes the new\n"
+            "baseline only when held-out data confirms it, and the test set is\n"
+            "never read, so your test score stays a true measure."
+        ),
+        # Keep the title on its own line and the description as wrapped above.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--project-path",

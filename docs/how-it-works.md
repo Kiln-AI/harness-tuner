@@ -9,7 +9,9 @@ details, the constants and the reasons for each decision are in
 
 ## What the loop is
 
-The loop is an automated experimenter for one Kiln task. You give it:
+The loop automatically improves an AI agent by tuning its harness: the
+prompt, model, tools, skills and settings around it. In Kiln, the agent is a
+task, and its harness is the task's run config. You give the loop:
 
 - a **baseline**: the task's current run config (a model, a prompt, tools,
   skills and model settings such as the thinking level);
