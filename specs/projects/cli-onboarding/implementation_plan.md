@@ -57,7 +57,7 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
 
     Also the flag table rows for these in `docs/your-own-task.md` (§23).
   - Tests: `test_onboarding_questions.py`, `test_onboarding_summary.py`, and the flow and `test_cli.py` cases of §24.
-- [ ] Phase 8: Docs for the guided start.
+- [x] Phase 8: Docs for the guided start.
   - `docs/install.md`:
     - §4 and §6 and "Try the demo" rewritten for the new messages and actions;
     - a section on guided and not guided, with the `--no-interaction` and `--no-progress` table (FS §14).

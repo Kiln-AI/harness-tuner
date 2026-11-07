@@ -101,9 +101,13 @@ estimate and is luck.
 The only price that transfers to your run is one measured on your task, your
 model and your corpus. So make the first run the measurement:
 
-- Bound it with both knobs, and leave headroom for a whole wave — they do not
-  end a run the same way. `--budget-usd` is a pure wave-boundary check: the wave
-  in flight when the ceiling is crossed runs to completion, and you pay for it.
+- Bound it with both knobs, and leave headroom for a whole wave. Both have
+  defaults, `--budget-usd 50` and `--timeout-mins 720` (12 hours), which a
+  guided start pre-fills as its answers, and `--budget-usd none` runs with no
+  cap. For the smoke run, answer or pass the bounds you want it to stay under.
+  The two do not end a run the same way. `--budget-usd` is a pure
+  wave-boundary check: the wave in flight when the ceiling is crossed runs to
+  completion, and you pay for it.
   `--timeout-mins` is a deadline, and no wave *starts* past it, but at the
   deadline itself an item that is already *analyzing* is given
   `ANALYSIS_GRACE_SECS` to finish and **every other in-flight item is cancelled
@@ -226,10 +230,11 @@ passes, each over N train items per eval:
 So its cost is about (distinct sampled items × one drive) + (N × one
 judgment × evals) + (N × one judgment × V2-judged evals). Before any spend
 one line prints that estimate, priced from the baseline's own stored rows
-(the median drive and the median judgment per eval). With `--budget-usd`,
-an estimate that does not fit the remaining budget skips the check with the
-reason. What it spent is booked as source `noise_check` in the Kiln lane,
-and it counts against the budget like every other line.
+(the median drive and the median judgment per eval). With a budget (any
+`--budget-usd` but `none`), an estimate that does not fit the remaining
+budget skips the check with the reason. What it spent is booked as source
+`noise_check` in the Kiln lane, and it counts against the budget like every
+other line.
 
 ## How spend is booked
 

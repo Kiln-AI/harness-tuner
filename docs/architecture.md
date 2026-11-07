@@ -186,8 +186,9 @@ Per wave, in order:
    stopping. Otherwise compute `should_wrap`.
 2. **The budget check.** First the ledger is reconciled with the records
    this run created (`kiln_harness_tuner.reconcile`; [costs.md](costs.md)), so
-   the check reads the true spend. With `--budget-usd` set: at or past the
-   ceiling, exit `budget_exhausted`; within one mean wave's cost of it, this wave is the
+   the check reads the true spend. With a budget (any `--budget-usd` but
+   `none`; the default is 50): at or past the ceiling, exit
+   `budget_exhausted`; within one mean wave's cost of it, this wave is the
    wrap-up. This check is a wave boundary and nothing else — **a wave already
    running is never killed for the budget**, so the wave that crosses the
    ceiling runs to completion and is paid for. The clock does not work this way
@@ -492,9 +493,9 @@ two ways, and neither edits anything the loop measures with:
   re-judged, and the row says why.
 
 **Spend.** Before any spend, one line gives an estimate from the baseline's
-stored rows. With `--budget-usd`, an estimate that does not fit the
-remaining run budget skips the check with the reason. The spend is booked as
-`spend` source `noise_check`, in the provider lane.
+stored rows. With a budget (any `--budget-usd` but `none`), an estimate that
+does not fit the remaining run budget skips the check with the reason. The
+spend is booked as `spend` source `noise_check`, in the provider lane.
 
 **The result.** Per (eval, score): how many sampled items changed on the
 re-drive and on the re-judge (a pass/fail outcome, or a rating value with

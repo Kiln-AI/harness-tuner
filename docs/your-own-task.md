@@ -14,33 +14,57 @@ each failure is designed to arrive **before** any paid work, in pre-flight.
 
 **The first two are checked at start-up**, by the readiness check, before the
 run itself starts. It runs on every start, IDs passed or not, and lists every
-problem at once, each with a link to the page in the Kiln app that fixes it:
+problem at once. In a guided start ([install.md](install.md#guided-or-not)) a
+task missing both reads:
 
 ```
-Task Forum Moderation (424242783061) isn't ready to tune:
-  • It has no run configs. Create one in Kiln: http://localhost:8757/optimize/<project_id>/<task_id>
-  • It has no eval the loop can measure. Add one in Kiln: http://localhost:8757/specs/<project_id>/<task_id>
-[r]etry  [o]pen the first link  [t]ask: pick another  e[x]it:
+✗ Forum Moderation isn't ready to tune yet
+
+  The tuner starts from one of the task's run configs and measures every change
+  with its evals. This task is missing:
+    • A run config: the model and prompt the tuner starts from.
+    • An eval it can measure: an active eval with a default judge set.
+
+? What next?
+ » r) Check again (I've fixed it in Kiln)
+   c) Open Run configs in Kiln
+   e) Open Evals in Kiln
+   t) Pick a different task
+   x) Exit
 ```
 
-`[t]` appears only when you picked the task from a list (section 5). It goes
-back to the task list of the same project. The prompt otherwise works like the
-Kiln check's: it waits when run interactively, and fails fast with exit code 1
-when not ([install.md](install.md) section 4). When Kiln reports evals it
-couldn't load, one warning line says how many. The check doesn't fail on it,
-and the run can't measure those evals. Right after it, the start checks that
-Kiln has a key for every provider the run will call
-([install.md](install.md) section 6).
+- **One action per link.** `c` opens the task's run configs in Kiln
+  (`http://localhost:8757/optimize/<project_id>/<task_id>`), and `e` its evals
+  (`http://localhost:8757/specs/<project_id>/<task_id>`). Each appears only
+  when its line does.
+- **`t) Pick a different task`** appears only when you picked the task from a
+  list (section 5). It goes back to the task list of the same project.
+- **`r`** checks again once you've fixed the task in Kiln, and `x` exits 1.
+- **Not guided,** the title and the lines go to stderr with the address of
+  each page, and the CLI exits 1.
+
+A ready task gets one step line, with what the run will start from and
+measure:
+
+```
+✓ Ready     2 run configs · 3 evals the tuner can measure
+```
+
+When Kiln reports evals it couldn't load, a warning says how many, for example
+`! Kiln couldn't load 1 eval of this task, so the run can't measure it.` The
+check doesn't fail on it. Right after it, the start checks that Kiln has a key
+for every provider the run will call ([install.md](install.md) section 6).
 
 ### 1.1 At least one run config
 
 A run config is a complete, runnable configuration of the task: a model, a
 prompt, tools and skills. It is what experiments branch from.
 
-With none, the start stops at the readiness check:
+With none, the start stops at the readiness check, with this line and the `c`
+action that opens the task's run configs in Kiln:
 
 ```
-  • It has no run configs. Create one in Kiln: http://localhost:8757/optimize/<project_id>/<task_id>
+    • A run config: the model and prompt the tuner starts from.
 ```
 
 The loop measures every experiment against a baseline run config and will not
@@ -57,18 +81,22 @@ An eval is **active** when it has no spec, or its spec's status says active.
 Specs marked future, deprecated or archived are skipped — so an eval you do not
 want the loop spending on is deactivated through its spec, not deleted.
 
-The readiness check needs at least one active eval with a default eval config:
-the loop's own rule for an eval it can measure. With no active eval:
+The readiness check needs at least one active eval with a default eval config
+— the default judge, as the message calls it: the loop's own rule for an eval
+it can measure. With no active eval:
 
 ```
-  • It has no eval the loop can measure. Add one in Kiln: http://localhost:8757/specs/<project_id>/<task_id>
+    • An eval it can measure: an active eval with a default judge set.
 ```
 
 With active evals and no default config on any of them, the line names them:
 
 ```
-  • Its active evals have no default eval config: "Tone", "Accuracy". Set one on each eval's page in Kiln: http://localhost:8757/specs/<project_id>/<task_id>
+    • A default judge on its active evals: "Tone" and "Accuracy" have none set.
 ```
+
+Either line comes with the `e` action, which opens the task's evals in Kiln,
+where each eval's page sets its default.
 
 **Set a default eval config on every eval you want measured.** Each eval always
 runs its default config, never one the loop chose, which is how a promotion
@@ -151,11 +179,14 @@ Test is never read by the loop. Size it for yourself.
 start takes it from Kiln: the folder that holds the project's `project.kiln`.
 When Kiln has no folder for the project, the start stops and asks for the
 flag. When you pass it, it must be the folder Kiln has, after `~` and links are
-resolved, or the start stops:
+resolved, or the start stops, in a guided start as a `✗` block and otherwise on
+stderr:
 
 ```
-kiln-harness-tuner: --project-path is /a/b, but Kiln has project 424242975950 at /c/d.
-fix: drop --project-path, or pass /c/d.
+kiln-harness-tuner: --project-path isn't Kiln's folder for project Forum Moderation
+  --project-path is /a/b,
+  but Kiln has project 424242975950 at /c/d.
+  Drop --project-path, or pass /c/d.
 ```
 
 The read fence denies the folder it is given, so a wrong path would leave the
@@ -322,48 +353,68 @@ the loop, not the task.
 ## 5. The first run
 
 ```
-kiln-harness-tuner --guidance "…" --timeout-mins 60
+kiln-harness-tuner
 ```
 
-With no project flags, the start asks for what it needs. Before any agent
-session, model call or run folder, in this order:
+In a terminal this is a **guided start** ([install.md](install.md#guided-or-not)):
+it asks for what the flags don't give. Without a terminal, or with
+`--no-interaction`, it asks nothing and takes the defaults. Either way, these
+steps come before any agent session, model call or run folder, in this order:
 
 1. The Kiln check ([install.md](install.md) section 4).
-2. The project: from the flags, from the only choice, or from a list you pick
-   from.
-3. The project's folder, from Kiln, when `--project-path` isn't given
+2. With `--demo-project` only, the demo's copy and import
+   ([install.md](install.md#try-the-demo)).
+3. The project and the task (section 5.1), and the project's folder
    (section 1.5).
-4. The task, the same way as the project.
-5. The command that runs the same thing again with no questions, when the
-   start filled anything in.
-6. The readiness check (section 1).
-7. The API-key check ([install.md](install.md) section 6).
+4. The readiness check (section 1).
+5. The API-key check ([install.md](install.md) section 6).
+6. The questions, guided start only.
+7. The API-key check again, only when an answer set or changed the model
+   policy.
+8. The summary. A guided start then shows the command that runs it again, and
+   asks whether to start.
 
 Then the run itself starts. The loop shows its progress in the terminal, runs
-waves until the budget or the planner ends it, and writes a report.
+waves until the budget, the clock or the planner ends it, and writes a report.
+
+Each finished step leaves one line, so a guided start that has picked its
+project and task reads:
+
+```
+Kiln Harness Tuner 0.1.0
+
+✓ Kiln      1.2.0 at http://localhost:8757
+✓ Project   Forum Moderation (424242975950)
+✓ Task      Forum Moderation (424242783061)
+✓ Ready     1 run config · 1 eval the tuner can measure
+✓ API keys  Fireworks AI
+```
 
 To watch a run on a task that is known to be ready first, `--demo-project`
 copies the demo project, imports it into Kiln and runs on it
 ([install.md](install.md#try-the-demo)). Its start goes through the same
-checks, with the project, the task and the folder already filled in.
+steps, with the project, the task and the folder already filled in.
 
-**Picking the project and the task.** The projects are listed in the order Kiln
-returns them, numbered from 1:
+### 5.1 Picking the project and the task
 
-```
-Projects in Kiln:
-  1. Forum Moderation  (424242975950)
-  2. Support Triage  (118230554411)
-Project [1-2, x to exit]:
-```
-
-Type a number. Anything else asks again. `x` or Ctrl-D stops (exit code 1),
-and Ctrl-C exits 130. The tasks are listed the same way, under
-`Tasks in Forum Moderation:`. With only one choice there is no question, and
-the start says what it used:
+The projects are listed in the order Kiln returns them, with their IDs and
+folders in aligned columns:
 
 ```
-Using project Forum Moderation (424242975950), the only project in Kiln.
+? Which project do you want to tune? ↑↓ move · type to filter · Enter pick
+ » Forum Moderation   424242975950   ~/Kiln Projects/Forum Moderation
+   Support Triage     118230554411   ~/Kiln Projects/Support Triage
+```
+
+The arrow keys move, typing filters the rows on their name or ID, and Enter
+picks; a long list scrolls. After the pick the list is erased, and a step line
+takes its place: `✓ Project   Forum Moderation (424242975950)`. The task
+picker works the same way, under `? Which task in Forum Moderation?`, and
+shows the task's description from Kiln under the highlighted row. With only
+one choice there is no question, and the step line says why:
+
+```
+✓ Project   Forum Moderation (424242975950) · the only project in Kiln
 ```
 
 The flags you pass decide what is left to ask:
@@ -376,57 +427,197 @@ The flags you pass decide what is left to ask:
 | `--project-path` alone | uses the project Kiln has in that folder, then asks for the task |
 | none of them | asks for the project, then the task |
 
-**When it can't choose**, it stops with exit code 1 and says why, the same way
-whether it is run interactively or not:
+A project or task given by a flag gets its step line too.
 
-- Kiln has no projects: `Kiln has no projects. Create one in the Kiln app
-  (http://localhost:8757/settings/create_project), or try the demo:
-  kiln-harness-tuner --demo-project`.
-- The project has no tasks: `Project Forum Moderation has no tasks. Create one
-  in Kiln: http://localhost:8757/settings/create_task/<project_id>`.
-- An ID Kiln doesn't have: `Kiln has no project 999.`,
-  `Project Forum Moderation has no task 999.` or
-  `No project in Kiln has task 999.`, followed by the list of what it has. A
-  wrong ID is a typo to fix, not a question to ask.
-- A `--project-path` that isn't a project in Kiln, followed by the list of
-  projects. Import the folder into Kiln first.
-
-**Not run interactively** (CI, a script, another agent), the start never asks.
-One choice is still used. Two or more is an error that lists them:
+**When there is nothing to pick.** A Kiln with no projects is a problem to fix,
+or a reason to use the demo:
 
 ```
-kiln-harness-tuner: --project-id is needed when not run interactively. Projects in Kiln:
-  424242975950  Forum Moderation
-  118230554411  Support Triage
+✗ Kiln has no projects yet
+
+  The tuner works on a task in a Kiln project. Create one in Kiln, or start with
+  the demo: a small moderation task with its evals and data already set up.
+
+? What next?
+ » m) Use the demo project
+   o) Open Kiln to create a project
+   r) Check again
+   x) Exit
+```
+
+`m` does exactly what `--demo-project` does, then the start goes on. `o` opens
+Kiln's page for a new project (`http://localhost:8757/settings/create_project`).
+A project with no tasks reads `✗ Forum Moderation has no tasks yet`, with
+`o) Open Kiln to create a task`
+(`http://localhost:8757/settings/create_task/<project_id>`), `r) Check again`,
+`p) Pick a different project` when you picked the project from a list, and
+`x) Exit`.
+
+**When it can't choose**, it stops with exit code 1 and says why, in a guided
+start as a `✗` block and otherwise on stderr. A wrong ID is a typo to fix, not
+a question to ask:
+
+- An ID Kiln doesn't have: `Kiln has no project 999`,
+  `Forum Moderation has no task 999` or `No project in Kiln has task 999`,
+  followed by the list of what it has.
+- A `--project-path` that isn't a project in Kiln, followed by the list of
+  projects. Import the folder into Kiln first.
+- A `--project-path` that isn't Kiln's folder for the project (section 1.5).
+
+**Not guided** (CI, a script, another agent, or `--no-interaction`), the start
+never asks. One choice is still used. Two or more is an error that lists them,
+one line each, ID then name:
+
+```
+kiln-harness-tuner: --project-id is needed when the start isn't guided
+  Projects in Kiln:
+    424242975950  Forum Moderation
+    118230554411  Support Triage
 ```
 
 Tasks are listed the same way, under `--task-id is needed …`. For a `--task-id`
-that several projects have, the list is of those projects.
+that several projects have, the list is of those projects. With no projects,
+or a project with no tasks, the same titles and explanations go to stderr, with
+the Kiln page to open; the no-projects one names
+`kiln-harness-tuner --demo-project`.
 
-**The command to run it again.** When the start filled in any of
-`--project-id`, `--task-id` or `--project-path`, it prints a command that runs
-the same thing with no questions:
+### 5.2 The questions
+
+Once the checks pass, a guided start asks what matters for the run. **A flag on
+the command line answers its question**: the question is skipped, even when the
+flag spells out the default value. Each question starts pre-filled, Enter
+accepts it, and a step line records the answer. An answer that isn't valid
+shows why under the field and asks again, keeping what you typed.
+
+| Question | Flag | Pre-filled | What you can answer |
+|---|---|---|---|
+| What should the tuner improve? | `--objective` | Quality | Quality (higher eval scores), Speed (lower latency per request) or Cost (lower cost per request). Speed and cost only promote a change that keeps quality equal or better. |
+| Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. |
+| Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
+| Model for the agents | `--agent-cli` | `opus` for Claude Code; empty, the CLI's own default, for Codex and OpenCode | One model name. OpenCode models are `PROVIDER/MODEL`. |
+| Budget for this run | `--budget-usd` | `50` | An amount in USD above 0, with or without a leading `$` (`50`, `$12.50`), or `none` for no cap. |
+| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), at least 1 minute, rounded to the nearest minute. |
+| Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
+
+- **The agent CLI and its model** make one `--agent-cli` command: the model
+  becomes `claude -p --model sonnet`, `codex exec -m <model>` or
+  `opencode run -m <model>`, and is left out when it is the default. The
+  tuner's agents (planner, builders, reviewers) run through that CLI and are
+  billed to its account, not to your Kiln provider keys. With only one CLI
+  installed there is no CLI question, and with none the start stops until you
+  install one ([install.md](install.md) section 5). The model is asked unless
+  `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
+  cheaper, with weaker plans.
+- **The budget** is the most this run may spend: the tuner's agents and the
+  task's model calls together, and no wave starts past it. Codex doesn't report
+  its cost, so with Codex the budget caps the task's model calls only, and the
+  question says so.
+- **The time limit**: no wave starts after it, and work still running at the
+  limit is cancelled, so leave room for a whole wave.
+
+The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
+`✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or
+`no cap`) and `✓ Time      12 hours`.
+
+**Advanced options** are one menu, with their current values on its line:
 
 ```
-To run this again without the questions:
-  kiln-harness-tuner --project-path '/Users/me/Kiln Projects/Forum Moderation' --project-id 424242975950 --task-id 424242783061 --guidance '…' --timeout-mins 60
+? Advanced options: any model · 4 evals and 4 agents at once · no minimum effect · no noise check
+ » Enter) Keep these
+   c) Customize
 ```
 
-It is your command line with the three flags added (or replaced, when you gave
-them) and `--demo-project` removed, quoted for the shell. It is printed before
-the readiness and key checks, so a start that stops at one of them can be run
-again on the same task without picking again. The lists, the questions and this
-command go to stdout; the errors and warnings go to stderr.
+`c` asks each of these in turn, pre-filled with its current value. One given by
+a flag is skipped.
 
-Or pass all three yourself, and the start asks nothing:
+| Question | Flag | Pre-filled | What you can answer |
+|---|---|---|---|
+| Model policy file | `--model-policy` | empty: any model Kiln offers | A path to a policy file, loaded at once, so a bad file shows the loader's message under the field; or nothing. |
+| Smallest improvement worth acting on | `--min-effect` | empty: not set | A fraction above 0 and at most 1 (`0.1` is 10%), or nothing. |
+| Eval jobs at once | `--max-concurrent-evals` | `4` | A whole number, 0 or more (0 is no limit). |
+| Agent sessions at once | `--max-concurrent-agents` | `4` | A whole number, 0 or more (0 is no limit). |
+| Noise check: items per eval re-run before wave 1 | `--noise-check` | `0`, off | A whole number, 0 or more. |
+
+The `Advanced` step line reads `defaults`, or lists what changed, such as
+`model policy ./policy.json · 2 evals at once`. A model policy set here gets
+the API-key check again, for the providers it names.
+
+**Never asked**, and set only by their flags ("Every flag" below):
+`--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,
+`--max-turns`, `--gate-agent`, `--reference-check`, `--no-recon`,
+`--no-baseline-audit`, `--allow-underpowered`, `--skip-model-preflight` and
+`--no-progress`.
+
+### 5.3 The summary and the start
+
+A guided start ends with a summary, the command that runs the same start
+again, and one last question:
+
+```
+Ready to start
+  Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950)
+  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on Fireworks AI
+  Improve      Quality
+  Guidance     "Improve the moderation decisions. Keep the output format."
+  Agents       Claude Code (claude -p) · opus
+  Limits       $50.00 · 12 hours
+  Advanced     defaults
+
+To run this again with the same answers and no questions:
+  kiln-harness-tuner \
+    --project-id 424242975950 --task-id 424242783061 \
+    --project-path '/Users/you/Kiln Projects/Forum Moderation' \
+    --objective quality \
+    --guidance 'Improve the moderation decisions. Keep the output format.' \
+    --agent-cli 'claude -p' \
+    --budget-usd 50 --timeout-mins 720 \
+    --no-interaction
+
+? Start the run?
+ » s) Start the run
+   e) Change an answer
+   x) Exit
+```
+
+- **Starts from** is the run config the run starts from (section 2.1), with
+  its model and provider, as the key check found it. It is left out when the
+  check couldn't name one.
+- **Advanced** lists only what differs from the defaults, or reads
+  `defaults`.
+- **`s`** starts the run. **`e`** lists every question no flag answered,
+  advanced ones included, with its current answer, asks the one you pick
+  again, and shows the summary again; a new model policy gets the API-key
+  check first. It is offered when there is such a question. **`x`** stops with
+  exit code 1.
+
+**The command to run it again** is printed here and nowhere else. It is your
+command line with every flag the start fills in replaced by its answer
+(`--demo-project` by the copy's IDs and folder), every other flag kept as typed
+(`--no-progress`, `--agent-model`, …), and `--no-interaction` added, so it asks
+nothing. Each value is quoted for a POSIX shell and the lines end in `\`, so
+it pastes as is. Empty guidance is `--guidance ''`, and no cap is
+`--budget-usd none`. The advanced flags appear only when they differ from
+their defaults.
+
+**Not guided**, the start prints the `Ready to start` block to stdout, with no
+command and no question, and the run starts. Every option not given takes its
+default.
+
+### 5.4 Without the questions, and stopping
+
+Or pass the flags yourself. Each one answers its question, and with
+`--no-interaction` the start asks nothing at all, even in a terminal:
 
 ```
 kiln-harness-tuner --project-path "/path/to/Your Project" \
           --project-id <id> --task-id <id> \
-          --guidance "…" --timeout-mins 60
+          --guidance "…" --timeout-mins 60 --budget-usd 20 \
+          --no-interaction
 ```
 
-**Start it bounded, with headroom for a whole wave.** No wave ever *starts* past
+**Start it bounded, with headroom for a whole wave.** The defaults are $50
+and 12 hours (`--budget-usd 50`, `--timeout-mins 720`), which the questions
+pre-fill; `--budget-usd none` runs with no cap. No wave ever *starts* past
 `--timeout-mins` or `--budget-usd`, but the two do not end a run the same way:
 at the budget ceiling the wave in flight runs to completion, while at the
 deadline every in-flight item except one that is already analyzing is cancelled,
@@ -441,23 +632,25 @@ model it is not trivial. Price it with [costs.md](costs.md) and the
 [`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md) skill
 behind it, rather than against a figure from somebody else's task.
 
-**Stopping a run.** In the foreground, Ctrl-C. A run started in the
-background (`kiln-harness-tuner … &`, `nohup`) does not receive the terminal's
-Ctrl-C, and a shell without job control — a script, an agent's shell —
-starts it with SIGINT ignored, so `kill -INT` does nothing either. Send
-SIGTERM instead: `kill <pid>`. The loop also
-stops cleanly on SIGHUP, which a closing terminal sends. On either signal it
-cancels the run the way Ctrl-C does: every `claude -p` child is killed, the
-server's eval jobs are cancelled, the run lock is released and the report is
-written; the exit code is 143 for SIGTERM and 129 for SIGHUP. `kill -9`
-skips all of that and leaves the children running to their own time caps.
+**Stopping a run.** In the foreground, Ctrl-C. Start a run in the background
+with `--no-interaction`, as the printed command does: in the background, a
+guided start stops at its first question, waiting for the terminal. A run
+started in the background (`kiln-harness-tuner … &`, `nohup`) does not
+receive the terminal's Ctrl-C, and a shell without job control — a script, an
+agent's shell — starts it with SIGINT ignored, so `kill -INT` does nothing
+either. Send SIGTERM instead: `kill <pid>`. The loop also stops cleanly on
+SIGHUP, which a closing terminal sends. On either signal it cancels the run
+the way Ctrl-C does: every `claude -p` child is killed, the server's eval jobs
+are cancelled, the run lock is released and the report is written; the exit
+code is 143 for SIGTERM and 129 for SIGHUP. `kill -9` skips all of that and
+leaves the children running to their own time caps.
 
 ### Every flag
 
 | Flag | What it does |
 |---|---|
 | `--project-path` | The on-disk Kiln project directory. Default: the folder Kiln has for the project. When given, it must be that folder, or the start stops; given alone, it also finds the project. The orchestrator's code reads it; no agent can — the read fence denies the whole tree, because it holds the eval inputs and results of every split. Section 1.5. |
-| `--project-id` | The Kiln project id. Default: the only project in Kiln, or the one you pick from a list; found from `--project-path` or `--task-id` when either is given. Not run interactively, two or more projects to choose from is an error that lists them. Section 5. |
+| `--project-id` | The Kiln project id. Default: the only project in Kiln, or the one you pick from a list; found from `--project-path` or `--task-id` when either is given. When the start isn't guided, two or more projects to choose from is an error that lists them. Section 5. |
 | `--task-id` | The Kiln task id. Default: the only task in the project, or the one you pick from a list. Given without `--project-id` or `--project-path`, it finds the project that has it. The loop optimizes exactly one task and never touches another. Section 5. |
 | `--demo-project` | Copy the demo project (the moderation task of [examples/moderation](../examples/moderation/README.md)) into a new folder, `~/Kiln Projects/Forum Moderation`, import the copy into Kiln, and run on it. When that folder is taken, the copy goes to `Forum Moderation-1`, then `-2`, and so on; nothing is overwritten. Each copy has its own project id. A guided start prints the command that runs on the same copy again. It can't be combined with `--project-id`, `--task-id` or `--project-path`. [install.md](install.md#try-the-demo) has the details. |
 | `--no-interaction` | Never ask a question or wait. The start runs the same checks and stops at the first failed one with its message on stderr (exit 1), a missing `--project-id` or `--task-id` with more than one choice is an error that lists them, and every option not given takes its default. Without a terminal (CI, a script, a pipe, another agent) the start never asks anyway, flag or not. It changes only the start, not the display during the run, which `--no-progress` controls. |

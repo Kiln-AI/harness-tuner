@@ -2,9 +2,10 @@
 
 Six things have to be true before a run starts. Each of the six **numbered**
 sections below has the same four parts: what it is for, the command that checks
-it, what a failure looks like, and the command that fixes it. The three
-unnumbered sections — platform support, trying the demo, and the verification
-block at the end — are not requirements and do not have that shape.
+it, what a failure looks like, and the command that fixes it. Section 5 also
+says how to install the agent CLI. The four unnumbered sections — platform
+support, guided or not, trying the demo, and the verification block at the end
+— are not requirements and do not have that shape.
 
 The order is dependency-first. A reader who stops halfway has a working subset
 rather than a half-configured machine.
@@ -159,10 +160,11 @@ Issues, https://github.com/Kiln-AI/kiln/issues
 ```
 
 Get Kiln from there and start it. A run needs a project with a task in it:
-make one in Kiln, or let `--demo-project` copy and import one (see
+make one in Kiln, or let the tuner copy and import the demo project
+(`--demo-project`, or `m` when Kiln has no projects; see
 [Try the demo](#try-the-demo) below). You don't have to look the IDs up: when
-`--project-id` or `--task-id` is left out, `kiln-harness-tuner` lists what Kiln
-has and asks ([your-own-task.md](your-own-task.md) section 5). Everything
+`--project-id` or `--task-id` is left out, `kiln-harness-tuner` lists what
+Kiln has and asks ([your-own-task.md](your-own-task.md) section 5). Everything
 after this section assumes a server you can reach.
 
 **Check.**
@@ -193,29 +195,45 @@ and the MCP server all have to agree on one host.
 
 `kiln-harness-tuner` makes this check itself, first, on the host it was given
 (`--kiln-host`, default `http://localhost:8757`). It runs before any agent
-session, model call or run folder, and it costs nothing.
+session, model call or run folder, and it costs nothing. What it prints, and
+how its menu works, depend on whether the start is guided
+([Guided or not](#guided-or-not) below); the examples here are a guided start.
 
 **Kiln answers.** One `GET /ping`, with a 5-second timeout. When nothing
 answers:
 
 ```
-Kiln isn't running at http://localhost:8757.
-Start the Kiln app. If you don't have it, download it from https://kiln.tech.
-If Kiln runs on another port, pass --kiln-host.
-[r]etry  [o]pen kiln.tech  e[x]it:
+✗ Kiln isn't running at http://localhost:8757
+
+  The tuner works through the Kiln app, so Kiln has to be open on this computer.
+    1. Install Kiln if you don't have it: https://kiln.tech/download
+    2. Open the Kiln app and wait for its window to appear.
+  Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.
+
+? What next?
+ » r) Check again (Kiln is open now)
+   d) Open the download page
+   x) Exit
 ```
 
 When something answers but not with Kiln's `"pong"` (another program on the
 port, or the wrong `--kiln-host`):
 
 ```
-Something answered at http://localhost:8757, but it isn't Kiln (GET /ping returned HTTP 404).
-Check --kiln-host, or start the Kiln app.
-[r]etry  [o]pen kiln.tech  e[x]it:
+✗ Something other than Kiln is answering at http://localhost:8757
+
+  GET /ping returned HTTP 404, so this isn't the Kiln app.
+    1. If Kiln is running on another port, exit and pass --kiln-host with its address.
+    2. Otherwise close the program using this port, then open the Kiln app.
+
+? What next?
+ » r) Check again
+   d) Open the download page
+   x) Exit
 ```
 
-The part in parentheses names the HTTP status, or says `an unexpected answer`
-for a 200 that isn't `"pong"`.
+The explanation names the HTTP status, or says `returned an unexpected
+answer` for a 200 that isn't `"pong"`.
 
 **Kiln is new enough.** Kiln has no version endpoint, so the CLI reads Kiln's
 API list once (`GET /openapi.json`) and checks that three APIs the loop calls
@@ -223,40 +241,56 @@ are there: the memory API, the eval-job API and run-config provenance. When any
 is missing:
 
 ```
-Kiln at http://localhost:8757 (version 1.0.3) is too old for kiln-harness-tuner.
-It's missing: the memory API, run-config provenance.
-Update Kiln: in the app, open Settings → Check for update, or download the latest from https://kiln.tech.
-Then restart it.
-[r]etry  [o]pen kiln.tech  e[x]it:
+✗ Kiln 1.0.3 is too old for the tuner
+
+  The tuner needs the memory API and run-config provenance, which this Kiln doesn't have.
+    1. Update Kiln: in the app, open Settings → Check for update,
+       or download the latest version from https://kiln.tech/download.
+    2. Quit and reopen Kiln so the update takes effect.
+
+? What next?
+ » r) Check again (I've updated and reopened Kiln)
+   u) Open Kiln's update page
+   d) Open the download page
+   x) Exit
 ```
 
-The version is left out when Kiln reports none, or reports `unknown`, as
-packaged builds can. When the API list can't be read at all, the CLI prints one
-warning and goes on, and a later call to a missing API fails with its own
-error:
+The explanation names only the APIs that are missing. `u` opens Kiln's own
+update page, `http://localhost:8757/settings/check_for_update` on the default
+host. When Kiln reports no version, or reports `unknown` as packaged builds
+can, the title reads `This Kiln is too old for the tuner`.
+
+**When it passes**, one step line says so, and the start goes on:
 
 ```
-kiln-harness-tuner: couldn't read Kiln's API list, so its version wasn't checked.
+✓ Kiln      1.2.0 at http://localhost:8757
 ```
 
-**It waits, or it fails fast.** The CLI is interactive when its stdin and its
-stdout are both terminals.
+Without a version to show, it reads `running at http://localhost:8757`. When
+the API list can't be read at all, the check can't tell the version, so it
+warns and goes on, and a later call to a missing API fails with its own error:
 
-- **Interactive:** it prints the message and waits at the prompt.
-  - Enter or `r` checks again. It never polls; it checks only when you ask.
-  - `o` opens the page the prompt names in your browser, and prints its
-    address too, for a shell with no browser.
-  - `x` or Ctrl-D stops, with exit code 1 and `kiln-harness-tuner: stopped.`
-  - Ctrl-C stops with exit code 130.
-- **Not interactive** (CI, a script, a pipe, another agent): there is no one
-  to answer. The same message goes to stderr, prefixed `kiln-harness-tuner:`,
-  and the CLI exits 1 without reading any input.
+```
+! Couldn't read Kiln's API list, so its version wasn't checked.
+```
 
-The later start-up checks follow the same rules. The readiness of the task
-([your-own-task.md](your-own-task.md) section 1) and the API keys (section 6 below)
-use the same prompt. Picking the project and the task has its own prompt
-([your-own-task.md](your-own-task.md) section 5), and it never asks when not
-run interactively.
+**Not guided** (CI, a script, a pipe, another agent, or `--no-interaction`),
+there is no menu. The title and the explanation go to stderr, prefixed
+`kiln-harness-tuner:`, with the address of each page the menu would have
+opened when the explanation doesn't already give it, and the CLI exits 1
+without reading any input:
+
+```
+kiln-harness-tuner: Kiln isn't running at http://localhost:8757
+  The tuner works through the Kiln app, so Kiln has to be open on this computer.
+    1. Install Kiln if you don't have it: https://kiln.tech/download
+    2. Open the Kiln app and wait for its window to appear.
+  Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.
+```
+
+The later start-up checks — the project and the task, the readiness of the
+task ([your-own-task.md](your-own-task.md) sections 1 and 5) and the API keys
+(section 6 below) — show their problems the same way.
 
 **Inside a run**, the once-per-run pre-flight checks the server again, this
 time from where the agents stand: it dispatches one small agent session whose
@@ -268,7 +302,23 @@ this document.
 
 By default every agent the loop dispatches is a `claude -p` subprocess, billed
 to your Claude Code account. The loop takes no API key. `--agent-cli` selects
-Codex or OpenCode instead (the subsection at the end of this section).
+Codex or OpenCode instead (the first subsection below), and a guided start asks
+which of the installed ones to use (the second).
+
+**Install.** With Anthropic's installer, on macOS, Linux or WSL:
+
+```
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+Or as an npm package, with Node.js 22 or later (not with `sudo`):
+
+```
+npm install -g @anthropic-ai/claude-code
+```
+
+`command -v claude` then prints where it is. A guided start looks for it on
+`PATH` the same way.
 
 **Check.**
 
@@ -322,6 +372,18 @@ every agent is a `codex exec` subprocess, and with
 `opencode run` subprocess. This section's Claude Code check then does not
 apply.
 
+**Install.** Each is an npm package:
+
+```
+npm install -g @openai/codex
+npm install -g opencode-ai
+```
+
+`opencode-ai` is OpenCode's 1.x line, which the tuner's OpenCode support was
+built against (OpenCode 1.19.3). OpenCode's own docs now point at
+`@opencode/cli`, a separate 2.x line whose output changed; the tuner hasn't
+been tested with it.
+
 **Check.** Send the CLI one prompt, the way the loop does at start-up:
 
 ```
@@ -347,6 +409,37 @@ Codex's sandbox is Seatbelt on macOS and bubblewrap on Linux; the fence every
 Codex session runs under depends on it. OpenCode has no OS sandbox; its fence
 is its own permission rules ([agent-cli.md](agent-cli.md) sections 10 and 11).
 
+### The agent CLI question
+
+When `--agent-cli` isn't given, a guided start asks which agent CLI runs the
+tuner's agents ([your-own-task.md](your-own-task.md) section 5). It lists
+Claude Code (`claude`), Codex (`codex`) and OpenCode (`opencode`), and shows a
+CLI it can't find on `PATH` dimmed, as `not installed`, which can't be picked.
+With only one installed, that one is used without the question (its model is
+still asked), and the step line says so:
+
+```
+✓ Agents    Claude Code (claude -p) · opus · the only agent CLI installed
+```
+
+With none installed:
+
+```
+✗ No agent CLI is installed
+
+  The tuner's agents run through an agent CLI, signed in with its own account:
+  Claude Code (claude), Codex (codex) or OpenCode (opencode).
+  docs/install.md section 5 has the install and sign-in steps for each.
+
+? What next?
+ » r) Check again (I've installed one)
+   x) Exit
+```
+
+The question finds a CLI, not its sign-in. Whichever CLI the start ends with,
+the run's own start-up sends it the test prompt above. Not guided, or with
+`--agent-cli` given, nothing is detected and that test prompt is the check.
+
 ## 6. A model provider key in Kiln
 
 Your task's run configs name a model, and Kiln needs a key for that model's
@@ -371,8 +464,9 @@ will call:
 - **The simulated user's provider, for a multi-turn task.** Kiln stores it on
   each eval input, so it is read from the `drive_config` of the task's eval
   inputs on disk. Nothing else in those files is read.
-- **Each provider `--model-policy` names exactly**, in an allow rule or an
-  exception. A rule whose provider is `*` names none.
+- **Each provider the model policy names exactly**, in an allow rule or an
+  exception: the policy of `--model-policy`, or the one a guided start's
+  advanced options set. A rule whose provider is `*` names none.
 
 Providers that take no key are not checked: `ollama`, `docker_model_runner`,
 `openai_compatible`, `kiln_custom_registry` and `kiln_fine_tune`. The model
@@ -380,21 +474,47 @@ preflight still tests their models.
 
 The check reads `GET /api/available_models`. Kiln lists a provider that takes a
 key there only when every key it needs is set, so a provider missing from that
-list has no key. The check never reads `/api/settings`. When a key is missing:
+list has no key. The check never reads `/api/settings`. When every key is
+there, the step line names the providers, in the order the run needs them:
 
 ```
-Kiln has no API key for 2 providers this run needs:
-  • Fireworks AI (fireworks_ai), used by the task's run config "Baseline"
-  • OpenAI (openai), used by eval "Tone"'s judge
-Add them in Kiln under AI Providers: http://localhost:8757/settings/providers
-[r]etry  [o]pen AI Providers  e[x]it:
+✓ API keys  Fireworks AI, OpenAI
 ```
 
-A provider that only `--model-policy` names ends its line with
-`, or remove it from --model-policy`. Each retry reads the policy file again
-and works out again what the run needs, so a fix in Kiln or in the policy
-counts on `r`. It waits, or it fails fast, the same way as the Kiln check
-(section 4).
+When nothing the run calls takes a key, it reads `none needed (local models
+only)`. When keys are missing, a guided start shows:
+
+```
+✗ Kiln is missing 2 API keys this run needs
+
+  The tuner calls these providers through Kiln, which needs a key for each:
+    • Fireworks AI: used by the task's run config "Baseline"
+    • OpenAI: used by eval "Tone"'s judge
+  Add the keys in Kiln under Settings → AI Providers.
+
+? What next?
+ » r) Check again (I've added the keys)
+   p) Open AI Providers in Kiln
+   x) Exit
+```
+
+- `p` opens the AI Providers page, `http://localhost:8757/settings/providers`
+  on the default host.
+- With one provider missing, the title reads `Kiln is missing an API key this
+  run needs`, and the rest says `this provider`, `a key for it`, `Add the key`
+  and `I've added the key`.
+- A provider that only the model policy names ends its line with
+  `, or remove it from the model policy`.
+- Each `r` reads the policy file again and works out again what the run
+  needs, so a fix in Kiln or in the policy counts.
+- When an answer to the start's questions sets or changes the model policy,
+  the check runs again with that policy before the summary
+  ([your-own-task.md](your-own-task.md) section 5).
+- Not guided, the same title and lines go to stderr with the AI Providers
+  address, and the CLI exits 1, as for the Kiln check (section 4).
+
+The check also notes the baseline run config's name, model and provider, which
+the summary before the run shows as its "Starts from" line.
 
 **Check by hand.** Ask Kiln whether it lists the provider:
 
@@ -403,8 +523,13 @@ curl -sS http://localhost:8757/api/available_models \
   | python3 -c "import json,sys; print(any(p.get('provider_id') == 'fireworks_ai' for p in json.load(sys.stdin)))"
 ```
 
-`True` means Kiln has the key. Substitute your task's provider ID (for example
-`openai`, `anthropic` or `openrouter`) for `fireworks_ai`.
+`True` means Kiln has the key. Substitute your provider's ID for
+`fireworks_ai`. The message names providers as Kiln's UI does, and
+`PROVIDER_NAMES` in
+[`onboarding/keys.py`](../src/kiln_harness_tuner/onboarding/keys.py) maps
+each ID to that name: `gemini_api` is "Gemini API", `together_ai` is
+"Together AI". A run config names its provider's ID in
+`run_config_properties.model_provider_name`.
 
 If the server is not running, `curl -sS` prints its `(7)` line and `python3`
 then raises `JSONDecodeError` on the empty input. That is section 4, not this
@@ -435,6 +560,73 @@ retried. So the symptom to watch for is not one
 message but a run that gets no eval job to complete. Check this section first
 when that happens.
 
+## Guided or not
+
+Not a requirement: how the start behaves, which sections 4 to 6 refer to. The
+start is **guided** when its stdin and its stdout are both terminals and
+`--no-interaction` isn't given. Without a terminal (CI, a script, a pipe,
+another agent) it is never guided, flag or not.
+
+**A guided start** prints a header line, then one step line per finished step:
+`✓` in green for a step that passed, `✗` in red for a check that failed, and
+`!` in yellow for a warning, each with a fixed-width label. While it calls
+Kiln, a spinner says what it is doing, such as `Reading projects…` or
+`Checking Kiln at http://localhost:8757…`, and it disappears when the call
+ends. Colour is off when `NO_COLOR` is set or stdout isn't a terminal.
+
+A failed check is a `✗` block: the title, what to do, and a `What next?` menu.
+
+- Each action has one key that acts at once, with no Enter. Arrow keys and
+  Enter work too. The menu is erased after the choice.
+- `r` runs the check again, with its spinner. If it still fails, the block is
+  printed again, so you see what is still wrong. Nothing polls: it checks only
+  when you ask.
+- An Open action opens your browser only where a graphical one can be
+  expected: macOS, Windows, or Linux with `DISPLAY` or `WAYLAND_DISPLAY` set.
+  There it prints `Opening <url>` and opens the page. Elsewhere, such as over
+  SSH, it prints `Open this link in your browser: <url>` and starts no
+  browser. Then the menu asks again.
+- `x` stops with exit code 1.
+- At any prompt, Ctrl-C stops with exit code 130 and Ctrl-D with exit code 1.
+  Both print `kiln-harness-tuner: stopped.`
+
+Once the checks pass, a guided start asks the questions its flags didn't
+answer, and shows a summary before it starts the run
+([your-own-task.md](your-own-task.md) section 5).
+
+**A start that isn't guided** asks nothing and waits for nothing. It runs the
+same checks in the same order, and prints the step lines as plain text, with no
+symbols, colour or spinners.
+
+- A failed check prints its title and explanation to stderr, prefixed
+  `kiln-harness-tuner:`, and the CLI exits 1.
+- A missing `--project-id` or `--task-id`, when Kiln has more than one to
+  choose from, is an error that lists them
+  ([your-own-task.md](your-own-task.md) section 5).
+- Every option not given takes its default. The summary is printed, and the
+  run starts.
+
+A guided start writes its steps, its prompts and its summary to stdout. A
+start that isn't guided writes its step lines and summary to stdout, and its
+errors and warnings to stderr. The exit code is 1 for a failed check (not
+guided), `x` or Ctrl-D at a prompt, an unknown ID, or a failed demo copy or
+import; 2 for an argparse error, such as `--demo-project` with a project flag;
+and 130 for Ctrl-C.
+
+Two flags control the two parts, the start and the run, and they are
+independent:
+
+| Controls | Flag | Effect |
+|---|---|---|
+| The start, before the run | `--no-interaction` | Never asks a question or waits. |
+| The run itself | `--no-progress` | Plain log lines instead of the live progress display. |
+
+In a terminal, `--no-interaction` alone gives a start that asks nothing and
+then the live display; `--no-progress` alone gives a guided start and then
+plain log lines. Without a terminal you need neither: the start isn't guided,
+and the run falls back to plain log lines on its own. `--no-progress` was
+called `--no-ui`; the old name now stops with exit code 2 and says so.
+
 ## Try the demo
 
 Not a requirement: a first run on a task that is known to be ready.
@@ -445,32 +637,79 @@ a Fireworks key in Kiln, because the demo's baseline calls its model through
 Fireworks. Section 6's check says so if the key is missing.
 
 ```
-kiln-harness-tuner --demo-project --timeout-mins 60 --budget-usd 20
+kiln-harness-tuner --demo-project
 ```
 
+In a terminal, the start checks Kiln, makes the copy, checks it, and asks its
+questions. With each pre-filled answer accepted, the screen ends like this:
+
 ```
-Demo project copied to /Users/me/Kiln Projects/Forum Moderation
-and imported into Kiln as project 731954460212 (task 424242783061).
-To run this again without the questions:
-  kiln-harness-tuner --project-path '/Users/me/Kiln Projects/Forum Moderation' --project-id 731954460212 --task-id 424242783061 --timeout-mins 60 --budget-usd 20
+Kiln Harness Tuner 0.1.0
+
+✓ Kiln      1.2.0 at http://localhost:8757
+✓ Demo      ~/Kiln Projects/Forum Moderation, imported as project 731954460212
+✓ Project   Forum Moderation (731954460212)
+✓ Task      Forum Moderation (424242783061)
+✓ Ready     1 run config · 1 eval the tuner can measure
+✓ API keys  Fireworks AI
+✓ Improve   Quality
+✓ Guidance  "Improve the moderation decisions. Keep the output format."
+✓ Agents    Claude Code (claude -p) · opus
+✓ Budget    $50.00
+✓ Time      12 hours
+✓ Advanced  defaults
+
+Ready to start
+  Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212)
+  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on Fireworks AI
+  Improve      Quality
+  Guidance     "Improve the moderation decisions. Keep the output format."
+  Agents       Claude Code (claude -p) · opus
+  Limits       $50.00 · 12 hours
+  Advanced     defaults
+
+To run this again with the same answers and no questions:
+  kiln-harness-tuner \
+    --project-id 731954460212 --task-id 424242783061 \
+    --project-path '/Users/you/Kiln Projects/Forum Moderation' \
+    --objective quality \
+    --guidance 'Improve the moderation decisions. Keep the output format.' \
+    --agent-cli 'claude -p' \
+    --budget-usd 50 --timeout-mins 720 \
+    --no-interaction
+
+? Start the run?
+ » s) Start the run
+   e) Change an answer
+   x) Exit
 ```
 
+- **The questions.** The project and the task are the copy's, so they aren't
+  asked. The guidance is pre-filled with the demo's own text. Every other
+  question works as usual ([your-own-task.md](your-own-task.md) section 5), and
+  a flag answers its question, so
+  `kiln-harness-tuner --demo-project --budget-usd 20 --timeout-mins 60` asks
+  neither the budget nor the time limit. Not guided, nothing is asked, and the
+  guidance is empty unless `--guidance` gives it.
 - **Where the copy goes.** `~/Kiln Projects/`, the folder Kiln's own "create
   project" uses, made if it is missing. The first copy is `Forum Moderation`.
   When that name is taken (by a folder, a file or a link), the copy goes to
-  `Forum Moderation-1`, then `-2`, and so on. Nothing is overwritten.
+  `Forum Moderation-1`, then `-2`, and so on. Nothing is overwritten. While it
+  copies and imports, a spinner says which.
 - **Each copy is its own project.** It gets a new project ID, and its name in
   Kiln is its folder's name, so copies can be told apart. The task ID is always
   `424242783061`.
 - **The import is trusted** (`trusted=true`), because the demo's eval runs
   code: the scorer that ships with it.
-- **The printed command runs on the same copy again.** `--demo-project` again
-  makes another copy. If the start stops at the key check, the imported copy
-  stays: add the key, then run the printed command.
-- **Every other flag works as usual** (`--guidance`, `--timeout-mins`,
-  `--budget-usd` and the rest). `--demo-project` can't be combined with
-  `--project-id`, `--task-id` or `--project-path`: argparse says so, and the
-  exit code is 2.
+- **The printed command runs on the same copy again**, with the copy's IDs and
+  folder. `--demo-project` again makes another copy. A start that stops before
+  the summary, at the key check say, keeps its copy in Kiln: the next
+  `kiln-harness-tuner` offers it in the project list, or uses it when it is
+  the only project.
+- **Kiln with no projects.** A guided start that finds none offers
+  `m) Use the demo project`, which does exactly what `--demo-project` does.
+- **`--demo-project` can't be combined** with `--project-id`, `--task-id` or
+  `--project-path`: argparse says so, and the exit code is 2.
 - **When Kiln refuses the import, or the copy fails** (a full disk,
   permissions), the folder this start made is deleted, the message says why,
   and the CLI exits 1.
