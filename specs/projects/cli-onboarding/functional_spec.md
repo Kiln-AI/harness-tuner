@@ -1,5 +1,5 @@
 ---
-status: complete
+status: draft
 ---
 
 # Functional Spec: CLI onboarding
@@ -30,7 +30,7 @@ The check logic from phases 1–5 stays: which API, which rule, which provider.
 ## 1. Start-up order
 
 1. Parse flags. Argparse errors work as today.
-2. **Header:** `Kiln Harness Tuner <version>` (guided start only).
+2. **Welcome box** (guided start only, §18).
 3. **Kiln check** (§4).
 4. **`--demo-project` only:** copy and import the demo (§9).
 5. **Project, task and folder** (§5).
@@ -555,3 +555,162 @@ The phase 1–5 tests keep passing, with their expected text updated to the new 
 - When the install branch merges:
   - the demo folder's deny moves with the fence code;
   - the rename to `harness-tuner` is the one `PROG` constant.
+
+# Part 3: Polish and robustness (phases 9–10)
+
+## 18. The welcome box
+
+A guided start opens with a rounded box instead of the plain header line:
+
+```
+╭────────────────────────────────────────────────────────────────╮
+│ Kiln Harness Tuner                                      v0.1.0 │
+│                                                                │
+│ Automatically improves an AI agent by tuning its harness: the  │
+│ prompt, model, tools, skills and settings around it.           │
+╰────────────────────────────────────────────────────────────────╯
+```
+
+- **Title:** `Kiln Harness Tuner`, in bold Kiln blue (`#415CF5`, the `primary` colour of Kiln's web UI).
+- **Version:** `v<version>`, dimmed and right-aligned on the title row.
+- **Description,** exactly: `Automatically improves an AI agent by tuning its harness: the prompt, model, tools, skills and settings around it.` It wraps inside the box.
+- **Width:** the terminal's width, capped at 68 columns. With `NO_COLOR`, the box and the text stay and the colour goes.
+- A blank line follows the box. A start that isn't guided prints no box, as before.
+
+## 19. Error screens
+
+Every error that stops the start or the run is shown the same way. This covers each error `main` catches:
+- `OnboardingError`;
+- `KilnError` and its subclasses;
+- `SetupError` and its subclasses;
+- `PreflightError`, `ConfigRenderError`, `RunLockError`, `AnalysisError`, `BaselineRecordMissingError`, `MemoryWriteRefused`, `RecordKindError`, `QuarantineError` and `TrainSetError`.
+
+**On a terminal** (stderr is a terminal):
+
+```
+✗ Kiln returned an error
+
+  GET /api/projects/189194447825/tasks/920784333097/evals/136270422521/eval_config/913607815753
+  HTTP 422: Invalid Jinja2 template: No filter named 'trace_overview'
+
+  The run stopped. Spent $3.20 so far (agents and the task's model calls).
+  Run folder: /Users/you/harness-tuner/runs/20261107-1412
+  Report: /Users/you/harness-tuner/reports/kiln-harness-tuner-20261107-1412.md
+
+kiln-harness-tuner stopped with an error (exit 1)
+```
+
+**Without a terminal,** the same lines go to stderr in plain text, with the first line `kiln-harness-tuner: error: <title>` and no symbol or colour.
+
+### 19.1 Titles
+
+The title is red and bold, one short line per kind of error. The most specific class wins.
+
+| Error | Title |
+|---|---|
+| `KilnTransportError` | Lost the connection to Kiln |
+| `KilnAPIError` | Kiln returned an error |
+| `RunLockError` | Another run is already using this task |
+| `PreflightError` | The tuner's agents couldn't start |
+| `ConfigRenderError` | A start-up option needs fixing |
+| `EvalSplitAuditError` | Some evals have no train or val split |
+| `SetupDescribeError` | The tuner couldn't describe an eval |
+| `UnderpoweredEvalsError` | No eval can show a win on val |
+| `ModelPreflightError` | The task's model failed its test call |
+| `SetupPreconditionError` | The task isn't set up the way the tuner needs |
+| any other `SetupError` | Setup stopped the run |
+| `BaselineRecordMissingError` | The task has no baseline the tuner can use |
+| `AnalysisError` | Measuring a candidate failed |
+| `MemoryWriteRefused` | Kiln refused a memory write |
+| `RecordKindError` | An agent named the wrong kind of record |
+| `QuarantineError` | The tuner couldn't tell the splits apart |
+| `TrainSetError` | The train split isn't clear |
+| `OnboardingError` | its own title |
+| anything else in the list | The run stopped |
+
+### 19.2 The body
+
+- **The body is the error's own message**, wrapped to the terminal and indented two spaces. A line starting `fix:` is kept on its own line.
+- **A `KilnAPIError`** becomes two lines:
+  - `<METHOD> <path>`;
+  - `HTTP <status>: <message>`. The message is Kiln's own text, taken from the body's `error_messages` (joined with `; `) or `detail` (a string, or each item's `msg` joined with `; `), else the body as text. A leading `: ` and `Value error, ` are dropped, and the message is cut to 500 characters with `…`.
+- **A `KilnTransportError`** keeps its message and adds `Is Kiln still running at <host>?`.
+
+### 19.3 The ending
+
+The ending says what state things were left in:
+
+| How far the start got | Ending |
+|---|---|
+| Before the agent CLI check | `Nothing was spent and no run folder was created.` |
+| After the agent CLI check, before the run folder | `The only spend was the agent CLI's one test prompt. No run folder was created.` |
+| After the run folder was made | `The run stopped. Spent $<total> so far (agents and the task's model calls).`, then `Run folder: <path>`, then `Report: <path>` when the report file exists |
+
+`<total>` is the run's spend meter total, with two decimals.
+
+The last line is `kiln-harness-tuner stopped with an error (exit 1)`, dimmed. The exit code is unchanged (1).
+
+**A guided start's own failures.** These are an `OnboardingError` that the guided start has already shown as a ✗ block. Only the last line is printed after them; the block is not shown twice. Nothing has been spent at that point.
+
+**Unchanged:**
+- `stopped.` after `x`, Ctrl-C or Ctrl-D at a prompt;
+- the interrupted line after a signal;
+- the clean-finish line.
+
+## 20. Evals Kiln can't load
+
+**A problem that belongs to one eval leaves that eval out of the run,** with a warning. A problem with Kiln itself still stops the start: Kiln unreachable, an auth or rate-limit error, a 5xx, or a response whose shape has changed.
+
+**What counts:**
+- An eval whose default eval config Kiln answers with **HTTP 400 or 422** is *an eval Kiln can't load*. The reason is Kiln's message, extracted as in §19.2.
+- 404 and 410 stay as before: the config is gone.
+- 401, 403, 429 and 5xx still stop the start with the §19 screen.
+
+**Readiness** (§6) reads each measurable eval's default config, under the readiness spinner. For each eval Kiln can't load, it prints:
+
+```
+! Kiln can't load eval "Tone": Invalid Jinja2 template: No filter named 'trace_overview'.
+  The run leaves it out. To use it, fix its judge in Kiln, or update Kiln if
+  the eval was made with a newer version: http://localhost:8757/specs/<project>/<task>/<spec>/<eval>
+```
+
+- The link is the eval's own page when its spec is known, and the evals list otherwise.
+- The passed step line counts only the evals that load, and adds `(N left out)`: `✓ Ready     2 run configs · 2 evals the tuner can measure (1 left out)`.
+- **When every measurable eval is one Kiln can't load,** readiness fails. Its eval line reads `• An eval it can measure: Kiln can't load any of this task's evals (see above).`, with the `e) Open Evals in Kiln` action.
+- **Not guided,** the warnings go to stderr as `kiln-harness-tuner: …` lines, and the run goes on.
+
+**The key check** (§7) skips an eval Kiln can't load, because its judge's provider can't be read.
+
+**The run** leaves the same evals out, decided by the same rule from its own reads:
+- **Setup** neither describes nor syncs them. Their existing issue memories are left exactly as they are.
+- **The measurement set** (`_active_evals`) excludes them for the whole run, so they are never measured or gated.
+- **The wave log** gets one `eval_unloadable` event per eval (id, name, reason).
+- **The report** lists them under the evals it measured: `Left out: "Tone" (Kiln can't load it: …)`.
+- **An eval that becomes unloadable mid-run** (someone edits it in Kiln) is handled by the existing per-item error handling. No new rule applies.
+
+**Why not degrade them to an empty rubric,** as a 404 does in setup? An empty rubric changes the eval's fingerprint, so a paid re-describe would follow on every invocation while the eval stays broken. Leaving the eval out instead costs nothing and changes no stored record.
+
+## 21. Tests (phases 9–10)
+
+- **The welcome box:**
+  - its text and the version;
+  - the width cap on wide terminals, and wrapping on narrow ones;
+  - no colour codes with `NO_COLOR`;
+  - none when the start isn't guided.
+- **The error screen:**
+  - the title for each error class in §19.1;
+  - the two-line `KilnAPIError` body for an `error_messages` body, a `detail` string, a `detail` list, and a plain body, with the 500-character cut;
+  - the transport hint;
+  - each ending row of §19.3, with spend, folder and report;
+  - the plain stderr form without a terminal;
+  - a guided start's shown `OnboardingError`, which gets the last line only.
+- **Evals Kiln can't load:**
+  - a 422 and a 400 leave the eval out;
+  - 401, 403, 429 and 5xx still stop the start;
+  - the readiness warning text and its link (with and without a spec);
+  - the `(N left out)` step line;
+  - every eval unloadable fails readiness;
+  - the key check skips them;
+  - setup neither describes nor syncs them, and leaves their memories untouched;
+  - `_active_evals` excludes them;
+  - the `eval_unloadable` event and the report's Left out line.

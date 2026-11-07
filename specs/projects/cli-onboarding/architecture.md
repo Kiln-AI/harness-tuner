@@ -1,5 +1,5 @@
 ---
-status: complete
+status: draft
 ---
 
 # Architecture: CLI onboarding
@@ -843,3 +843,147 @@ return args
 - **Rendering on narrow terminals:** questionary's list scrolls with the cursor (confirmed with 99 items in a 20-row window), but it has no page size. A list taller than the window scrolls the lines above it out of view while it's open; the erased list then leaves the step line in their place.
 - **The rerun command is POSIX-quoted.** On Windows `cmd.exe` the line breaks and quoting differ. Windows is out of scope (FS §16).
 - **Spinners and `asyncio.run`:** rich's status runs on its own thread, and each Kiln read's `asyncio.run` runs inside the `with`. A Ctrl-C there still reaches `prepare_start`'s `KeyboardInterrupt` handler and exits 130, as in §4.
+
+
+# Part 3: Polish and robustness (phases 9–10)
+
+## 26. The welcome box (FS §18)
+
+- `Terminal.header(text)` becomes `Terminal.welcome(title: str, version: str, description: str)`.
+  - `PlainTerminal.welcome` does nothing.
+  - `ScriptedTerminal` records `(title, version, description)`.
+  - The flow calls `terminal.welcome("Kiln Harness Tuner", __version__, WELCOME_DESCRIPTION)`.
+- `WELCOME_DESCRIPTION` is a constant in `onboarding/flow.py`, holding the FS §18 text.
+- **`RichTerminal.welcome`** prints a `rich.panel.Panel` with `box=ROUNDED`, `padding=(0, 1)`, `width=min(console.width, 68)` and `border_style="#415CF5"`.
+  - Its content is a `Group` of three parts:
+    1. a `Table.grid(expand=True)` row with the title (`bold #415CF5`) on the left and `v<version>` (`dim`, right-justified) on the right;
+    2. a blank line;
+    3. the description as `Text(description)`, which wraps inside the panel.
+  - A blank line follows the panel.
+  - `KILN_BLUE = "#415CF5"` is a constant in `console.py`.
+
+## 27. The error screen (FS §19)
+
+**`kiln.py`.** `KilnAPIError` gains a `kiln_message` property, and the extraction is a pure function: `kiln_error_text(body: Any) -> str`. It reads, in order:
+1. `error_messages` (a list of strings, joined with `; `);
+2. `detail` (a string, or a list of dicts whose `msg` values are joined with `; `);
+3. a string body;
+4. `repr(body)`.
+
+It then strips a leading `": "` and `"Value error, "` and cuts the result to 500 characters with `…`. Phase 10's readiness warning uses it too.
+
+**`onboarding/error_screen.py` (new).**
+
+```
+@dataclass
+class RunProgress:                    # how far the start got, for the ending
+    cli_checked: bool = False
+    run_dir: Path | None = None
+    spend: SpendMeter | None = None   # typed as a Protocol with `.total: float`, to keep orchestrator out
+    report_path: Path | None = None
+
+def error_body(exc: BaseException, *, host: str) -> list[str]
+def ending_lines(progress: RunProgress) -> list[str]
+def show_error(title: str, body: Sequence[str], ending: Sequence[str], *, prog: str,
+               stream: TextIO = sys.stderr) -> None
+def show_closing_line(prog: str, *, stream: TextIO = sys.stderr) -> None
+```
+
+**`error_body`**
+- **`KilnAPIError`:** `[f"{exc.method} {exc.url_path}", f"HTTP {exc.status_code}: {exc.kiln_message}"]`.
+- **`KilnTransportError`:** the message, plus `Is Kiln still running at <host>?`.
+- **Anything else:** `str(exc).splitlines()`, with blank lines kept as paragraph breaks.
+
+**`show_error`** builds a `Console(file=stream, highlight=False, soft_wrap=False, emoji=False)`.
+
+- **When `console.is_terminal`,** it prints:
+  1. a blank line;
+  2. `✗ ` + the title, in `bold red`;
+  3. a blank line;
+  4. each body line through `Padding(Text(line), (0, 0, 0, 2))`, which wraps;
+  5. a blank line;
+  6. the ending lines, indented the same way;
+  7. a blank line;
+  8. the dimmed closing line.
+
+  Every `Text` is built without markup.
+- **Otherwise** it writes plain lines:
+  - `f"{prog}: error: {title}"`;
+  - the body and the ending, indented two spaces;
+  - `f"{prog} stopped with an error (exit 1)"`.
+
+**`cli.py`**
+- **The titles:** `ERROR_TITLES: tuple[tuple[type[BaseException], str], ...]` holds the FS §19.1 table, most specific first. `title_for(exc)` returns the first `isinstance` match. An `OnboardingError` uses its own `title`. Anything else is `The run stopped`.
+
+  This table lives in `cli.py` because it names `PreflightError` from `dispatch/claude_cli.py`, and only `cli.py` may import the dispatchers (`tests/test_dispatch_boundary.py`).
+- **`_RUN_PROGRESS = RunProgress()`** is module-level and reset at the top of `main`, like `_stopped_by`. `_run` sets it as it goes:
+  - `cli_checked = True` after `check_agent_cli`;
+  - `run_dir` after `_unique_run_id`;
+  - `spend = ctx.spend` after `build_ctx`;
+  - `report_path = REPO_ROOT / "reports" / f"kiln-harness-tuner-{run_id}.md"` (the `ReportWriter` path).
+- **`ending_lines`**
+  - It picks the FS §19.3 row from those fields.
+  - The report line appears only when `report_path.exists()`.
+  - Spend is formatted `f"${total:.2f}"`.
+- **The `main` handlers**
+  - `OnboardingError` with `shown`: `show_closing_line`.
+  - `OnboardingError` without `shown`: `show_error(exc.title, exc.body, ending_lines(...))`.
+  - The handled-errors tuple: `show_error(title_for(exc), error_body(exc, host=args.kiln_host), ending_lines(_RUN_PROGRESS))`.
+  - Return codes are unchanged.
+
+## 28. Evals Kiln can't load (FS §20)
+
+**One shared reader, in `setup.py`.**
+
+```
+UNLOADABLE_STATUSES = frozenset({400, 422})
+
+@dataclass(frozen=True)
+class EvalConfigRead:
+    config: dict[str, Any] | None     # None when gone or unloadable
+    unloadable: str | None = None     # Kiln's reason (kiln_error_text), for 400/422
+
+async def read_eval_config(kiln, base: str, eval_id: str, config_id: str) -> EvalConfigRead
+```
+
+- A status in `CONFIG_GONE_STATUSES` gives `EvalConfigRead(None)`.
+- A status in `UNLOADABLE_STATUSES` gives `EvalConfigRead(None, unloadable=exc.kiln_message)`.
+- Any other `KilnAPIError` propagates.
+- A body that isn't a dict gives `EvalConfigRead(None)`, as `_read_config_properties` does today.
+
+**Setup**
+- `_read_config_properties` is rebuilt on `read_eval_config`.
+- `EvalView` gains `unloadable: str | None`.
+- `read_eval_views` fills it.
+- **Skipped for an unloadable view:** `build_sync_plan`, `describe_all` and `audit_splits`. They act as if the eval weren't active; the plan's existing records for it are neither refreshed nor repaired.
+- **`run_setup`**
+  - sets `ctx.unloadable_evals = {view.id: (view.name, reason)}`;
+  - logs one `eval_unloadable` event per eval (`eval_id`, `name`, `reason`, `line`), whose `line` is the FS §20 warning text without the link.
+- `Ctx` gains `unloadable_evals: dict[str, tuple[str, str]] = field(default_factory=dict)`.
+
+**The measurement set.** `orchestrator._active_evals` drops rows whose id is in `ctx.unloadable_evals`, next to its `_new_eval_refused` filter. Every run-time reader of the active set (analysis, job drives, noise, judge copy, the detectability check) follows it.
+
+**Onboarding**
+- **`readiness.readiness_problem`**
+  - After `measurable_evals`, it runs `read_eval_config` for each pair through `asyncio.gather`, bounded like setup's `SETUP_CONFIG_READ_CONCURRENCY`.
+  - Unloadable pairs become warnings, with the FS text and the eval's link. The link uses the spec row whose `eval_id` matches, else the evals list.
+  - Unloadable pairs are left out of the measurable count, and `Readiness` gains `left_out: int` for the step line.
+  - When none load, the eval problem line is the FS §20 one.
+- **`keys`:** `_eval_config` is replaced by `read_eval_config`. An unloadable read adds no `Need`.
+
+**The report.**
+- `RunStatusTracker` records `eval_unloadable` events into `RunStatus.unloadable_evals`.
+- `ReportWriter` adds one `Left out:` line to its evals section when there are any, as `"<name>" (Kiln can't load it: <reason>)`, joined with `; `.
+- `PlainUi` and `LiveUi` print the event's `line` as they do other warnings.
+
+## 29. Tests (phases 9–10)
+
+| File | Cases |
+|---|---|
+| `tests/test_onboarding_console.py` | The welcome panel's title, version and description; the width cap at 68 and wrapping at 40; no colour codes with `NO_COLOR`. |
+| `tests/test_error_screen.py` (new) | `kiln_error_text` for each body shape and the cut; `error_body` per error kind; `ending_lines` for each FS §19.3 row; `show_error` on a terminal console (title, indentation, closing line) and to a plain stream. |
+| `tests/test_cli.py` | `title_for` for each class in `ERROR_TITLES`, most specific first; `main` with a `KilnAPIError` raised from `_run` before and after the run folder (spend, folder, report); the shown `OnboardingError` closing line. |
+| `tests/test_setup.py` | `read_eval_config` per status; an unloadable view skipped by sync, describe and audit with its memories untouched; `ctx.unloadable_evals` and the event. |
+| `tests/test_orchestrator.py` | `_active_evals` drops unloadable evals. |
+| `tests/test_onboarding_readiness.py`, `test_onboarding_keys.py`, `test_onboarding_flow.py` | The warning and link, `(N left out)`, every eval unloadable, the key check's skip, and 401/429/500 still stopping the start. |
+| `tests/test_report.py` | The Left out line. |

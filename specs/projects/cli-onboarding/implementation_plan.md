@@ -1,5 +1,5 @@
 ---
-status: complete
+status: draft
 ---
 
 # Implementation Plan: CLI onboarding
@@ -64,4 +64,16 @@ Each phase leaves the suite green (`uv run pytest`, `uv run ruff check`, `uv run
   - `docs/your-own-task.md` §1 and §5: §1's readiness prompt example, and the questions, the summary and the rerun command.
   - `docs/costs.md`: any statement of the old budget or timeout default.
   - `examples/moderation/README.md`: what `--demo-project` asks.
-- [ ] **Phase 9: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.
+- [ ] Phase 9: The welcome box and the error screens.
+  - `Terminal.welcome` and `RichTerminal`'s panel, replacing `header` (§26).
+  - `kiln_error_text` and `KilnAPIError.kiln_message` in `kiln.py`. `onboarding/error_screen.py` with `RunProgress`, `error_body`, `ending_lines`, `show_error` and `show_closing_line` (§27).
+  - `cli.py`: `ERROR_TITLES` and `title_for`, `_RUN_PROGRESS` set through `_run`, and `main`'s handlers (§27).
+  - Tests: §29's console, error-screen and cli rows.
+- [ ] Phase 10: Evals Kiln can't load.
+  - `read_eval_config` and `EvalConfigRead` in `setup.py`, and setup skipping unloadable evals, with `ctx.unloadable_evals` and the `eval_unloadable` event (§28).
+  - `_active_evals` excluding them (§28).
+  - Readiness warnings, links and `(N left out)`; the key check's skip (§28).
+  - The report's Left out line, and the UIs printing the event (§28).
+  - Docs: the readiness warning in `docs/your-own-task.md` §1, and a line in `docs/install.md`'s error section if it has one.
+  - Tests: §29's setup, orchestrator, onboarding and report rows.
+- [ ] **Phase 11: Backlog.** Review open backlog items with the user, then close or dismiss each through the standard phase flow.
