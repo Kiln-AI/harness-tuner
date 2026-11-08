@@ -97,8 +97,6 @@ Tuning an agent takes more than a loop. [Kiln](https://github.com/Kiln-AI/Kiln) 
 
 ## FAQ
 
-<!-- Draft answers (2026-11-08). Steve's wording where he gave it, polished. -->
-
 <details>
 <summary><b>How is this different from prompt optimization (DSPy, GEPA, etc.)?</b></summary>
 
