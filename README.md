@@ -3,7 +3,7 @@
         <picture>
             <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d813a09e-3dc7-4423-aa6b-bcb8c19a2c5e">
             <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/13cd1e73-8b58-4c95-870f-e8fc7235fe09">
-            <img width="360" alt="Kiln AI Logo" src="https://github.com/user-attachments/assets/13cd1e73-8b58-4c95-870f-e8fc7235fe09">
+            <img width="360" alt="Kiln Harness Tuner Logo" src="https://github.com/user-attachments/assets/13cd1e73-8b58-4c95-870f-e8fc7235fe09">
         </picture>
     </a>
 </p>
@@ -14,9 +14,9 @@
 </h3>
 
 <p align="center">
-  <a href="https://github.com/Kiln-AI/kiln/actions/workflows/build_and_test.yml"><img src="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml/badge.svg" alt="Build and Test"></a>
+  <a href="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml"><img src="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml/badge.svg" alt="CI: Build and Test"></a>
   <a href="https://pypi.org/project/harness-tuner/"><img src="https://img.shields.io/pypi/v/harness-tuner" alt="PyPI"></a>
-  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT"></a>          
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT">          
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@ It tries different methods, not just different words: one big prompt or skills, 
 - **Runs on the coding agent you already use:** Claude Code, Codex or OpenCode, on your existing subscription.
 - **Works with [Kiln](https://github.com/Kiln-AI/Kiln).** Our free app tracks every experiment and shows the trade-offs side by side.
 
-<!-- TODO(img): two screenshots from a real project (Steve): the experiment graph, and the radar compare view. -->
+<img width="861"  alt="Screenshot of Experiment Graph" src="https://github.com/user-attachments/assets/e93e24f6-d964-4ae8-acaf-015b7de37ac6" />
 
 ## Optimize the demo project
 
