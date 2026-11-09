@@ -215,3 +215,5 @@ See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 ## License
 
 Harness Tuner is [MIT licensed](LICENSE).
+
+The Kiln name and logos are trademarks of Chesterfield Laboratories Inc.

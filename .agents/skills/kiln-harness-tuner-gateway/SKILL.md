@@ -144,7 +144,7 @@ row changed is written again; the others are left as they are.
 
 There is no free-text drive: to drive a variant, create its run config
 first (`create_run_config`), then `run_task` it on train items. A tag that
-names a held-out split (`val…`, `test…`, `holdout…`) is refused.
+names a held-out split (`val`, `test`, `val_…`, `test_…`, `holdout…`, `heldout…`, any case) is refused.
 
 ### Memory
 

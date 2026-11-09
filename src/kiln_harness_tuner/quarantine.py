@@ -28,9 +28,9 @@ OVERLAP: it counts as train (never hide train), and is counted in the report so
 the operator can fix the split design.
 
 A held-out item = in some eval's val or test split and in no eval's train
-split — or carrying a split-like tag (`val`, `test`, `val_*`,
-`test_*`, any case) and in no eval's train split, even when no current eval
-uses that tag: a deleted eval's test items are still test items.
+split — or carrying a split-like tag (`val`, `test`, `val_*`, `test_*`,
+`holdout*`, `heldout*`, any case) and in no eval's train split, even when no
+current eval uses that tag: a deleted eval's test items are still test items.
 
 `QuarantineError` refuses the start with a fix line when the split
 membership cannot be decided (a filter this module does not evaluate, an

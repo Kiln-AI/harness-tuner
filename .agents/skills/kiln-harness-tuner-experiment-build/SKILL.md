@@ -49,7 +49,9 @@ going looking.
    version under a new name, attach it and detach the old one on the new
    run config (`references/skill-authoring.md`, "Rewriting an inherited
    skill"). The same holds for the parent's tools: re-describe, wrap,
-   consolidate or drop them on the new config. `run_config_properties` are immutable
+   consolidate or drop them on the new config. A new description is a new
+   tool: a clone of a code tool with the new `tool_description`, or a
+   wrapper of any tool. `run_config_properties` are immutable
    post-create (`PATCH` silently drops them — known bug): compose the whole
    config in one `POST`; a mistake means another new config, noted in
    `build_notes`.

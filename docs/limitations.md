@@ -290,8 +290,8 @@ train item that repeats a val item's text.
   fences close (a listing, a file, the report).
 - **Held-out items with no split-like tag.** The split check decides "held
   out" from the evals' split filters and from any
-  `val`/`test`/`val_*`/`test_*` tag even when no eval uses it. An item held
-  out under a tag with another name that no current eval uses (`holdout`,
+  `val`/`test`/`val_*`/`test_*`/`holdout*`/`heldout*` tag (any case) even when no eval uses it. An item held
+  out under a tag with another name that no current eval uses (`held_out`,
   `eval_set`) is not recognised. The fences still keep agents off it: the
   project files are denied and the task-run listing is blocked.
 - **A task run fetched by its id — the ones the split check did not see.**
