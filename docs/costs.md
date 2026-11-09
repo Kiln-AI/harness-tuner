@@ -22,7 +22,7 @@ appendix.
 
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|
-| Claude Code | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. A Codex session reports tokens, not cost, and so does an OpenCode session on a plan that prices nothing: their tokens are booked as unmeasured ([harness-seam.md](harness-seam.md) sections 10 and 11). |
+| Claude Code | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. A Codex session reports tokens, not cost, and so does an OpenCode session on a plan that prices nothing: their tokens are booked as unmeasured ([agent-cli.md](agent-cli.md) sections 10 and 11). |
 | Kiln | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
 
 They are separate invoices, on separate accounts. `--budget-usd` is a ceiling on

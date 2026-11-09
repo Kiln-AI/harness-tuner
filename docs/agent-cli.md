@@ -1,7 +1,7 @@
-# The harness seam
+# The agent CLI seam
 
-The loop dispatches every judgment to an agent. **Which harness runs that agent
-is a seam**, and this document is its contract.
+The loop dispatches every judgment to an agent. **Which agent CLI runs that
+agent is a seam**, and this document is its contract.
 
 Three implementations ship, chosen with `--agent-cli` (section 9):
 
@@ -15,8 +15,8 @@ Three implementations ship, chosen with `--agent-cli` (section 9):
 
 The second and the third are subclasses of the first. The prompt, the
 envelope, the repair retry, the error routing, the step records and the
-start-up check are shared; the four harness-specific steps are methods each
-overrides — `_argv` (the command), `_cwd` (where it runs),
+start-up check are shared; the four steps that differ by agent CLI are methods
+each overrides — `_argv` (the command), `_cwd` (where it runs),
 `_parse_cli_output` (what it printed) and `_transcript_source` (where its
 transcript is).
 
@@ -90,7 +90,7 @@ Three things, and they are the whole of an agent's context.
 Everything else the agent reads for itself, through its gateway operations.
 A trace is the one exception to "in the answer": the gateway
 writes it to a file in `runs/<run_id>/scratch/traces/` and answers with the
-path, so a harness must let the roles that read traces read that folder.
+path, so a dispatcher must let the roles that read traces read that folder.
 Every gateway answer stays under 40,000 characters, below the limit at
 which Claude Code moves an MCP answer to a file the fence denies
 ([architecture.md](architecture.md) section 12).
@@ -128,9 +128,10 @@ never open a candidate, and it refuses to fall back to an earlier complete
 block when the final opener has no complete block after it — a result truncated
 mid-JSON is a failure, not a reason to return a stale one.
 
-**A different harness does not have to use this mechanism.** The contract is
-the typed return, not the fence. A harness with structured output at the tool
-layer should use it, which removes the `parse_failure` class entirely.
+**A different dispatcher does not have to use this mechanism.** The contract
+is the typed return, not the fence. A dispatcher whose agent CLI has
+structured output at the tool layer should use it, which removes the
+`parse_failure` class entirely.
 
 ## 4. Error classes
 
@@ -175,8 +176,8 @@ and a fresh retry duplicates every artifact the timed-out session had already
 created. The instruction is explicit that the artifacts exist and are to be
 reused.
 
-*A harness without resume*: re-run from scratch and accept the duplicates. The
-loop still works; the cost is spend and litter.
+*An agent CLI without resume*: re-run from scratch and accept the duplicates.
+The loop still works; the cost is spend and litter.
 
 **A non-zero exit.** Always `agent_crash`, and it rides the ladder. The message
 is not read: a process that died returned no envelope, and taking a terminal
@@ -185,7 +186,7 @@ to match. The tail of stderr reaches the run log, bounded, so one wedged session
 cannot bury the file — the diagnosis lives there, not in the class.
 
 Message classification belongs to the **other** failure path: a session that
-exits **zero** and returns a result marked `is_error`. There the harness has
+exits **zero** and returns a result marked `is_error`. There the agent CLI has
 handed back a structured result, so `_classify_cli_error` reads it — a
 recognisable quota or authentication wording becomes one of the two terminal
 classes, a throttling wording becomes `rate_limit`, and everything else is
@@ -203,15 +204,15 @@ session that produced a bad shape twice.
 a crashed *wave* is not resumed, and [limitations.md](limitations.md) says what
 that costs.
 
-## 6. Capabilities a harness may or may not have
+## 6. Capabilities an agent CLI may or may not have
 
 `ClaudeCliDispatcher` uses five capabilities that are not in the protocol. Four
 are optional. Each row says what is lost.
 
-| Capability | If the harness lacks it |
+| Capability | If the agent CLI lacks it |
 |---|---|
 | **A read fence over the filesystem** | The loop runs. Measurement integrity now rests on the operator. What an agent could read to recall an answer instead of measuring it: the run's own project — every split's eval inputs and results — another run's scratch and transcripts, this run's wave log and step records (they carry val tables), the reports, and the memory store on disk. Stored val and test results stay in the project too, so without this fence an agent can read them. |
-| **Per-run MCP configuration** | The harness must expose each role's loop-gateway operations (and no generic Kiln tool), pinned to *this run's* Kiln host and train set, by some other means. The loop cannot verify that it did, and says so at pre-flight rather than pretending. |
+| **Per-run MCP configuration** | The dispatcher must expose each role's loop-gateway operations (and no generic Kiln tool), pinned to *this run's* Kiln host and train set, by some other means. The loop cannot verify that it did, and says so at pre-flight rather than pretending. |
 | **A pre-tool hook on MCP tools** | An agent could call an MCP tool outside its role's gateway operations if one were in its session's config. The gateway itself still serves only the role it was started for, answers from train records only, and validates every write; this hook is the third check, not the first. |
 | **Session resume** | A session that hits its wall-clock cap is re-run from scratch instead of resumed, and may duplicate artifacts it had already created. Three roles create artifacts as they go and are the ones this costs: the builder, the eval builder and the probe. |
 | **Structured result return** | **Not optional.** A dispatcher that cannot return the agent's final structured output cannot drive the loop. |
@@ -224,8 +225,8 @@ The hook is **one** row because `cli.py` renders **one** hook per role, with
 one matcher on MCP tools: the role's gateway operations pass, every other
 MCP tool is refused. The other rules — this run's project and task, memory
 scopes, train only, the model policy — are the gateway's own, in code
-(`kiln_harness_tuner.gateway`), so a harness that serves the gateway per role
-inherits them.
+(`kiln_harness_tuner.gateway`), so a dispatcher that serves the gateway per
+role inherits them.
 
 ## 7. What `ClaudeCliDispatcher` does beyond the protocol
 
@@ -271,7 +272,7 @@ The short version:
    on success.
 2. Make `preflight` prove the agents' Kiln lane and raise with an actionable
    message when it cannot.
-3. Map your harness's failures onto the `ErrorClass` union. Do not add a
+3. Map your agent CLI's failures onto the `ErrorClass` union. Do not add a
    literal without changing the loop that routes on it.
 4. Pass the agent's own `failed_expected` through. Do not convert a measured
    negative into an infrastructure failure.

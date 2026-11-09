@@ -171,7 +171,7 @@ def make_dispatcher(script, **kwargs) -> tuple[ClaudeCliDispatcher, FakeRunner]:
 def make_wired_dispatcher(
     tmp_path: Path, script, run_id: str = "260731-0900"
 ) -> tuple[ClaudeCliDispatcher, FakeRunner]:
-    """A dispatcher with the full harness wiring: run dir, rendered
+    """A dispatcher with the full run wiring: run dir, rendered
     config paths, traces root, and a fake Claude projects dir."""
     runner = FakeRunner(script=list(script))
     dispatcher = ClaudeCliDispatcher(
@@ -797,7 +797,7 @@ async def test_experiment_result_output_model():
     assert result.data.per_ingredient_outcomes is None
 
 
-class TestHarnessArgv:
+class TestCliArgv:
     async def test_model_and_effort_pinned(self):
         # Smoke-test issue 8: one pin for every machine.
         dispatcher, runner = make_dispatcher(

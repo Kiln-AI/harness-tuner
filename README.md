@@ -1,269 +1,219 @@
-# Kiln Harness Tuner
+<p align="center">
+    <a href="https://kiln.tech">
+        <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/d813a09e-3dc7-4423-aa6b-bcb8c19a2c5e">
+            <source media="(prefers-color-scheme: light)" srcset="https://github.com/user-attachments/assets/13cd1e73-8b58-4c95-870f-e8fc7235fe09">
+            <img width="360" alt="Kiln Harness Tuner Logo" src="https://github.com/user-attachments/assets/13cd1e73-8b58-4c95-870f-e8fc7235fe09">
+        </picture>
+    </a>
+</p>
 
-[![CI](https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml)
 
-An agentic optimize loop for Kiln tasks. You give it a task that already has
-evals and a train/val/test split; it plans experiments against your baseline,
-builds each one as a new run config, and measures them on the train split. It
-promotes a candidate to baseline only when the val split agrees, and it never
-reads test — so the number you ship on is one the loop never optimized against.
+<h3 align="center">
+  Tune your agent's harness: tools, prompts, skills, model and hyperparams
+</h3>
 
-## Requirements
+<p align="center">
+  <a href="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml"><img src="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml/badge.svg" alt="CI: Build and Test"></a>
+  <a href="https://pypi.org/project/harness-tuner/"><img src="https://img.shields.io/pypi/v/harness-tuner" alt="PyPI"></a>
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT">          
+</p>
 
-| What | Why |
-|---|---|
-| Python 3.11+ and `uv` | The package. |
-| A running Kiln studio server, **v1.3 or later**, with your project in it | Every measurement is a Kiln eval job. This repository does not ship it: Kiln is at `https://kiln.tech`, the address `kiln-ai` declares in its own distribution metadata. An earlier version does not have the APIs the loop needs. |
-| An agent CLI, signed in: Claude Code, Codex or OpenCode | Every agent is a `claude -p` subprocess by default. `--agent-cli 'codex exec …'` or `--agent-cli 'opencode run …'` selects another one. |
-| A model provider key in Kiln | Your task's run configs call it. |
-| `uv` on the `PATH` that `claude -p` inherits | Each agent session starts the loop gateway, its only Kiln access, with `uv run`. |
+<p align="center">
+  <a href="https://youtu.be/ocmgJF-4xRE"><img width="420" alt="Kiln Harness Tuner: watch the demo" src="https://github.com/user-attachments/assets/1edd32c9-dd09-421e-bb23-b3dec18d3d92" /></a>
+</p>
 
-[docs/install.md](docs/install.md) has the check command, the failure message
-and the fix for each one.
+**A real production agent, after tuning:** 2.5x fewer failures, 6x cheaper, 2x lower latency. Measured on held-out data, on a smaller model. It's a multi-turn agent with over 200 tools.
 
-**Supported: Linux (x86_64 and arm64) and macOS on Apple silicon.**
+Better models move the frontier. A tuned harness gets you above it.
 
-- **Not on Windows.** `kiln-harness-tuner` imports `fcntl`, which is Unix
-  only, so it cannot start. The agent sandbox fences are macOS and Linux
-  mechanisms.
-- **Not on macOS x86_64.** Two locked dependencies publish no wheel for it and no
-  source distribution, so `uv sync` stops.
-  [docs/install.md](docs/install.md) has the measurement and what a fix would
-  take.
+## What it tunes
 
-## Install
+Most optimizers tune the prompt. Harness Tuner tunes everything around the model.
 
-Clone the repository and run everything below from its root. It has to be a
-real checkout rather than an installed wheel: a run reads the agents' skills
-and instructions (`.agents/`) out of that directory.
+- **Tools.** The biggest win we see. Your tools probably wrap APIs written for code, not for agents. It rewrites them for the agent: smaller responses, better descriptions, no repeated calls. When a script should do the job, it writes a new code tool.
+- **Prompts and skills.** It cuts contradictions, adds the requirements nobody wrote down, and moves long instructions into skills that load only when needed.
+- **Model and settings.** It searches models and providers, then tunes thinking level, temperature and the rest for the one it picks.
+- **RAG, fine-tunes and sub-agents.** It attaches, swaps or drops the ones in your project.
 
-```
-git clone https://github.com/Kiln-AI/kiln-harness-tuner.git
-cd kiln-harness-tuner
-uv sync
-uv tool install .
-```
+It tries different methods, not just different words: one big prompt or skills, RAG or a skill, many small tools or one general one.
 
-`uv sync` builds the development environment. `uv tool install .` puts the
-console scripts on your `PATH`; `kiln_api_mcp` among them is for interactive
-Claude Code sessions (loop agents reach Kiln through the loop gateway, which
-each session starts with `uv run`).
+## How it works
 
-Verify:
+<!-- TODO(img): loop diagram. Start from the mermaid flowchart in docs/how-it-works.md. -->
 
-```
-kiln-harness-tuner --help
-kiln_api_mcp --help
-```
+- **You set the goal and steer.** Optimize for quality, cost or speed. When it cuts cost or latency, it holds quality. Tell it what to focus on and what not to touch, in plain English.
+- **Many goals, not one number.** Bring all your evals. It tracks every one.
+- **Fix one thing at a time.** Each experiment runs only the evals it targets, so trying an idea is cheap. Before anything is promoted, it's checked against every eval. Nothing regresses quietly.
+- **A graph, not a line.** Experiments branch from any earlier version, often from several parents, and the winners merge back.
+- **Train, val and test, enforced in code.** Agents only ever see train. Val decides promotions. Test is never read, so the number you report is one it never optimized against.
+- **Several winners, your pick.** It finds the best quality, the cheapest at good quality, a balanced option and the fastest. Compare them side by side in [Kiln](https://github.com/Kiln-AI/Kiln).
+- **Runs on the coding agent you already use:** Claude Code, Codex or OpenCode, on your existing subscription.
+- **Works with [Kiln](https://github.com/Kiln-AI/Kiln).** Our free app tracks every experiment and shows the trade-offs side by side.
 
-Both print usage. If either says `command not found`, read
-[docs/install.md](docs/install.md).
+<img width="861"  alt="Screenshot of Experiment Graph" src="https://github.com/user-attachments/assets/e93e24f6-d964-4ae8-acaf-015b7de37ac6" />
 
-## Install the agents' skills for your agent CLI
+## Optimize the demo project
 
-The loop's agents follow skills and one instructions file. The repository
-keeps one copy of each in `.agents/`: the skills in `.agents/skills/` and the
-instructions in `.agents/AGENTS.md`. Each agent CLI reads them from its own
-place, and `kiln-harness-tuner-install-agents` copies them there:
-
-| `--harness` | Agent CLI | Skills | Instructions |
-|---|---|---|---|
-| `claude` | Claude Code | `.claude/skills/` | `CLAUDE.md`, plus the `kiln_api_mcp` server in `.mcp.json` and `.claude/settings.json` |
-| `codex` | Codex | `.agents/skills/` | `AGENTS.md` |
-| `opencode` | OpenCode | `.agents/skills/` | `AGENTS.md` |
-
-A run installs for its own agent CLI (the one `--agent-cli` names) before the
-first session, so you do not need to do it by hand to run the loop. Run it
-yourself to work on this repository in an agent CLI, or to use the skills in
-another project:
+Downloads a small moderation task into a new folder, adds it to Kiln, and tunes it: 624 labelled forum posts, and an eval. The baseline prompt doesn't know the forum's house rules, so there's plenty to find and fix.
 
 ```
-kiln-harness-tuner-install-agents --harness claude
-kiln-harness-tuner-install-agents --harness codex
-kiln-harness-tuner-install-agents --harness opencode
-kiln-harness-tuner-install-agents --harness all
-kiln-harness-tuner-install-agents --harness claude --dest ~/my-kiln-project
+uv tool install harness-tuner
+harness-tuner --demo-project \
+    --guidance "Improve the moderation decisions. Keep the output format." \
+    --timeout-mins 60 --budget-usd 20
 ```
 
-`--dest` installs into another directory. The `kiln-api`, `kiln-task-setup`
-and `memory` skills are useful in any project that works with Kiln. A skill
-of the same name is replaced; other skills there are left alone. An
-instructions file that the command did not write is never replaced, unless
-you pass `--force`.
-
-## Quickstart: the moderation example
-
-[`examples/moderation/`](examples/moderation/README.md) is a small task to run
-the loop on first. It moderates posts on an invented gardening forum: one post
-in, `{"action": "keep" | "remove", "rule": ...}` out. It has no tools and no
-state, 624 labelled posts split into train, val and test, and one code eval
-that costs nothing to score. The forum's house rules are stricter than common
-sense, and the baseline is a short prompt that does not state them, so it
-makes mistakes the loop can find and fix.
-
-After [Install](#install), with Kiln running and a Fireworks key in Kiln:
+## Quickstart
 
 ```
-mkdir -p ~/kiln-projects
-cp -R "examples/moderation/Forum Moderation" ~/kiln-projects/
-curl -X POST "http://localhost:8757/api/import_project?trusted=true&project_path=$HOME/kiln-projects/Forum%20Moderation/project.kiln"
-kiln-harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
-          --project-id 424242975950 --task-id 424242783061 \
-          --guidance "Improve the moderation decisions. Keep the output format." \
-          --timeout-mins 60 --budget-usd 20
+uv tool install harness-tuner
+harness-tuner
 ```
 
-The loop shows its progress in the terminal and writes its report to
-`reports/`. The example's README explains each step, the labelling
-guidelines, and how to check the result on test yourself.
+It walks you through the rest: starting [Kiln](https://github.com/Kiln-AI/Kiln) (or getting it from [kiln.tech](https://kiln.tech)), then picking the project and task to tune. Your agent needs to be a task in Kiln, with evals. Kiln can walk you through creating both.
 
-This README quotes no result yet. A score belongs to one task, one model and
-one corpus, so a number from another task would not tell you what the loop
-does on yours.
+It works in waves until the budget or the clock runs out, then writes a report and prints where it is. Details: [docs/your-own-task.md](docs/your-own-task.md).
 
-## Run it on your own task
+## What you need
 
-```
-kiln-harness-tuner --project-path "/path/to/Your Kiln Project" \
-          --project-id <id> --task-id <id> \
-          --guidance "what to work on, and what not to touch" \
-          --timeout-mins 60 --budget-usd <your ceiling>
-```
+- **[Kiln](https://github.com/Kiln-AI/Kiln),** on the same machine. The CLI walks you through installing and starting it.
+- **An agent, with evals.** Kiln can walk you through creating both.
+- **A coding agent you already use:** Claude Code (the default), Codex or OpenCode. The tuner's agents run on your subscription.
+- **Your model provider keys,** stored in Kiln. Used for running the agent being tuned, and evals.
+- **[uv](https://docs.astral.sh/uv/),** to install it.
 
-The loop shows its progress in the terminal, works in waves until the budget,
-the clock or its own planner ends it, and writes a report under `reports/`.
+Missing something? [docs/install.md](docs/install.md) has a check and a fix for each requirement.
 
-**Start it bounded, with headroom for a whole wave.** No wave ever *starts*
-past either limit, but they end a run differently: at the budget ceiling the
-wave in flight runs to completion, while at the deadline every in-flight item
-except one that is already analyzing is cancelled — drives paid for, no verdict
-stored. A first run on an unfamiliar task is the wrong place to find out how
-long a wave takes. Estimate before you start: [docs/costs.md](docs/costs.md).
+Harness Tuner is free and open source, but it needs LLM API calls. See [docs/costs.md](docs/costs.md) for details.
 
-What your task needs before any of this works — a run config, at least one eval,
-train and val split tags, and enough inputs in each — is
-[docs/your-own-task.md](docs/your-own-task.md). Setup seeds what it can and
-refuses to guess the rest.
+## Works with Kiln and Seahaven
 
-## What to optimize: `--objective`
+Tuning an agent takes more than a loop. [Kiln](https://github.com/Kiln-AI/Kiln) and [Seahaven](https://github.com/Kiln-AI/Seahaven) have the rest:
 
-One objective per run. Every candidate is measured on train, and the
-promotion gate decides on val.
+- **[Evals](https://kiln.tech/features/evals)** that say what good looks like, as many as your product needs.
+- **Synthetic users** that hold multi-turn conversations, the same for every candidate.
+- **[Synthetic worlds](https://github.com/Kiln-AI/Seahaven)** for agents that change data. Every run gets a fresh copy of the world, and evals grade what the agent actually did, not what it said it did.
 
-| Objective | The goal | A candidate is promoted when, on val |
-|---|---|---|
-| `quality` (default) | Higher eval scores. | No eval goes down beyond doubt, and at least one eval it targets goes up beyond doubt. |
-| `speed` | Lower latency per request, with quality held. | It is clearly faster (a sign test on paired requests, a median ratio below 1, no significant p90 regression), and quality is equal or better. |
-| `cost` | Lower provider cost per request, with quality held. | It is clearly cheaper, by the same test, and quality is equal or better. |
+## FAQ
 
-"Quality is equal or better" means: no eval score down significantly, net
-items over all evals at zero or above, and no single eval down by more than a
-few items.
+<details>
+<summary><b>How is this different from prompt optimization (DSPy, GEPA, etc.)?</b></summary>
 
-- **`quality`** works on issues: one failure class of one eval. The planner
-  builds a fix for an issue, such as a prompt change, a skill, a tool or a
-  model change, and the fix must show on the items the baseline fails. When no
-  eval can measure an issue, the loop builds that eval first.
-- **`speed`** measures the sum of the LLM call latencies of one task run. A
-  simulated user's calls are not counted. Before wave 1 it tries each lower
-  thinking level of the baseline's model. It judges the items the baseline
-  already passes first, because the question is whether a faster candidate
-  keeps them.
-- **`cost`** measures the task run's own `usage.cost`, and otherwise works as
-  `speed` does. A model with no price in Kiln reports no cost and counts as
-  $0, so check that every model the planner may try has a price. The levers
-  that keep quality are fewer tokens: fewer turns, a shorter prompt, fewer
-  attached tools and skills. A cheaper model usually loses some quality.
+Prompt optimizers tune the prompts inside a program. Harness Tuner tunes the whole agent you already have: its tools, skills, prompts, model and settings, against every eval you care about.
 
-Under every objective, each experiment also reports its latency and cost
-against its parent, read from the stored runs at no extra cost.
-[docs/how-it-works.md](docs/how-it-works.md#the-objectives) has the stop rules
-and the promotion rules in full.
+</details>
 
-## Which models a run may use: `--model-policy`
+<details>
+<summary><b>How does it compare to asking Claude Code or Codex to optimize your agent?</b></summary>
 
-By default the planner may move the task to any model Kiln offers. A model
-policy limits that. It is a JSON file of `allow`, `deny` and `exceptions`
-rules over Kiln's (provider, model) ids, with `*` wildcards:
+In a way, that's what it does, with the rigor and scale built in:
 
-```
-{
-  "description": "Direct providers only. No Groq or Cerebras.",
-  "allow": [
-    {"provider": "fireworks_ai", "model": "*"},
-    {"provider": "anthropic", "model": "*"},
-    {"provider": "openrouter", "model": "claude_*"}
-  ],
-  "deny": [
-    {"provider": "groq", "model": "*", "reason": "provider not allowed"}
-  ],
-  "exceptions": []
-}
-```
+- a code loop runs the process, so it can't get off track
+- real experiments, each one tracked
+- batches of experiments planned and run in parallel
+- many evals, each tracked on its own
+- cost control: experiments run only the evals they target, winners merge, and ideas that aren't working stop early
+- val and test sets withheld from the agents
+- skills that guide your coding agent through each step
 
-An exception (one exact pair) allows a model. Otherwise a `deny` match refuses
-it, an `allow` match allows it, and anything else is refused.
-[`examples/model-policy.json`](examples/model-policy.json) is a complete one.
+</details>
 
-- **Code enforces it**, not the agents: on every run config an agent creates
-  or drives, before any run config is measured, and before a candidate is
-  promoted.
-- **The baseline is exempt.** It is your starting point. A baseline outside
-  the policy is named once at start-up.
-- **Judges are not covered.** An eval's judge model is part of the eval, and
-  the loop does not change evals.
-- **Every allowed model is tested at start-up.** One short call goes to the
-  baseline's model and to each allowed model the planner may pick (at most
-  12). A model that fails is left out of the run. `--skip-model-preflight`
-  skips this.
+<details>
+<summary><b>How does it compare to fine-tuning?</b></summary>
 
-The policy covers the task's models. The agents that run the loop are set
-apart, with `--agent-cli` and `--agent-model`, and are billed to the agent
-CLI's own account.
+A tuned harness is easier to deploy (no GPUs, off-the-shelf models), easier to update when new product requirements come up, quicker to move to the latest model releases, and cheaper. Kiln supports fine-tuning too, and the tuner can use your fine-tuned models in advanced cases.
 
-## Common flags
+</details>
 
-| Flag | What it does |
-|---|---|
-| `--guidance TEXT` | Free text for the planner: what to try first, what not to touch. |
-| `--budget-usd N` | The money for the run: agent sessions and the task's model calls together. No wave starts past it. |
-| `--timeout-mins N` | The time for the run. No wave starts past it, and in-flight items are cancelled at it. |
-| `--objective` | `quality`, `speed` or `cost`, as above. |
-| `--model-policy PATH` | The models the task may move to, as above. |
-| `--agent-cli COMMAND` | The agent CLI and its model, for example `'claude -p --model haiku'` for a cheaper run. The default is `claude -p`, on Opus. `codex exec` and `opencode run` also work. |
-| `--agent-model ROLE=MODEL` | One agent role on another model. Repeatable. |
-| `--min-effect FRACTION` | The smallest improvement you would act on. The run stops before it spends money when no eval can show that change on val. |
+<details>
+<summary><b>How does it compare to model routers?</b></summary>
 
-[docs/your-own-task.md](docs/your-own-task.md) lists every flag.
+A model router picks a model for each request, based on how hard it guesses the request is. Harness Tuner makes the task easier for the model, by giving your agent the tools and instructions it needs. That often lets every request go to a cheaper model, and it improves quality in ways a bigger model doesn't.
 
-## Where to go next
+</details>
 
-- [docs/how-it-works.md](docs/how-it-works.md) — the whole loop for a
-  first-time reader, with a diagram and one section for each objective.
-- [docs/install.md](docs/install.md) — every requirement, each with its check,
-  its failure message and its fix.
-- [docs/concepts.md](docs/concepts.md) — wave, experiment, arm, lever, split,
-  promotion gate, memory, probe. Read this before the report of your first run.
-- [docs/your-own-task.md](docs/your-own-task.md) — what a task needs, what setup
-  does for you, what it refuses to guess, and every CLI flag.
-- [docs/costs.md](docs/costs.md) — how to estimate a run before starting it.
-- [docs/architecture.md](docs/architecture.md) — the wave loop, the promotion
-  gate, measurement, memory, errors, the sandbox.
-- [docs/agents.md](docs/agents.md) — the ten agent roles: what each is given,
-  what each must return, and which one to blame when a run goes wrong.
-- [docs/harness-seam.md](docs/harness-seam.md) — the dispatcher protocol,
-  `--agent-cli`, the Codex and OpenCode dispatchers and how each fences a
-  session, and what another agent CLI would need.
-- [docs/limitations.md](docs/limitations.md) — what the loop does not do and
-  what its guards cannot see. Read this before planning a long run.
+<details>
+<summary><b>How does it rewrite tools without changing your code?</b></summary>
+
+It doesn't touch your original tools. It writes wrappers: small code tools that call your existing tools and reshape what goes in and out. A wrapper can trim a response to the fields that matter, loop over a set of results, fold many calls into one, or do the math so the model doesn't have to. Your tools keep their current signature, so nothing outside Kiln changes.
+
+</details>
+
+<details>
+<summary><b>How does it run experiments on multi-turn conversations?</b></summary>
+
+Kiln builds you evals that use synthetic users. Each eval item sets a persona, a goal and a number of turns, and a model plays the user. The simulated user is the same for every candidate, so comparisons are fair, and its cost is tracked separately from your agent's.
+
+</details>
+
+<details>
+<summary><b>Do the experiments need to run against production or staging?</b></summary>
+
+Experiments call your agent's tools, so they need an environment where those tools can run. The best option is a synthetic world for your evals, built with [Kiln Seahaven](https://github.com/Kiln-AI/Seahaven). It gives you a safe, reproducible and highly parallel place to run them.
+
+</details>
+
+<details>
+<summary><b>How do train, val and test keep the results honest?</b></summary>
+
+The tuner's agents only ever see the train split. Val is used only to decide which candidates get promoted. Test is never read by the tuner: you run it for your final report, so the number you quote is one it never optimized against. This is enforced in code, not asked for in a prompt.
+
+</details>
+
+<details>
+<summary><b>What about new model releases?</b></summary>
+
+Run the tuner again with the new model available. It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
+
+</details>
+
+<details>
+<summary><b>How does Harness Tuner use the Kiln app?</b></summary>
+
+Harness Tuner runs on [Kiln](https://github.com/Kiln-AI/Kiln), our free app. Kiln provides:
+
+- **Evals:** creating and running them ([Kiln evals](https://kiln.tech/features/evals)).
+- **Experiment tracking:** the provenance of every experiment: what it changed, and which experiments it came from.
+- **Views of the results:** a Compare view to compare experiments on evals, cost and speed, and an Experiment Lineage view to see how the tuning progressed.
+- **Harness history:** every experiment's harness is kept, for future experiments and comparisons.
+
+</details>
+
+<details>
+<summary><b>What does a run cost, and how long does it take?</b></summary>
+
+It depends on the scope of the project. A small agent with a small eval can cost a few dollars. A large agent with hundreds of tools can cost several hundred. You set a budget and a time limit, and it stops starting new work when either runs out.
+
+Harness Tuner does several things to keep costs down:
+
+- **Targeted experiments:** each experiment runs only the evals it's trying to improve, and stops early when an idea isn't working.
+- **No wasted runs:** if your evals can't detect a real win, it says so before spending anything.
+- **Subscription agents:** the tuner's own agents run on your existing Claude Code, Codex or OpenCode subscription. It uses some of your quota, but that's usually much cheaper than per-token billing.
+
+Evals need direct API access and can't run on a coding agent subscription, so their tokens bill to your provider keys in Kiln. Details: [docs/costs.md](docs/costs.md).
+
+</details>
+
+## Docs
+
+- [How it works](docs/how-it-works.md): the whole loop, with a diagram.
+- [Install](docs/install.md): every requirement, with a check and a fix for each.
+- [Concepts](docs/concepts.md): waves, experiments, splits and the promotion gate. Read it before your first run's report.
+- [Your own task](docs/your-own-task.md): what your task needs, and every CLI flag.
+- [Objectives and model policy](docs/objectives.md): what to optimize, and which models it may use.
+- [Costs](docs/costs.md): estimate a run before you start it.
+- [Limitations](docs/limitations.md): what it doesn't do. Read it before planning a long run.
+- [Architecture](docs/architecture.md): the wave loop, the gate, measurement, memory and the sandbox.
+- [Agents](docs/agents.md): the ten agent roles and what each one does.
+- [Agent CLIs](docs/agent-cli.md): how it runs on Claude Code, Codex and OpenCode.
 
 ## Contributing
 
-[.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) says how to set up, test and change the
-repository.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
 ## License
 
-Kiln Harness Tuner is under the MIT License. See [LICENSE](LICENSE).
+Harness Tuner is [MIT licensed](LICENSE).
 
 The Kiln name and logos are trademarks of Chesterfield Laboratories Inc.

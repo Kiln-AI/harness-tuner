@@ -5,7 +5,7 @@ The repository keeps one copy of each, in `.agents/`: the skills in
 `.agents/skills/` and the instructions in `.agents/AGENTS.md`. Each agent
 CLI reads them from its own place:
 
-| Harness | Skills | Instructions |
+| Agent CLI | Skills | Instructions |
 |---|---|---|
 | `claude` (Claude Code) | `.claude/skills/` | `CLAUDE.md` |
 | `codex` (Codex) | `.agents/skills/` | `AGENTS.md` |
@@ -21,7 +21,7 @@ what is there. Loop sessions never use them: each gets its own MCP config. No
 MCP config is written for OpenCode, because its loop sessions run inside the
 repository and would load a project config, and the gateway must stay their
 only way to reach Kiln. A run installs for its own
-harness before the first session; this command does the same by hand, or
+agent CLI before the first session; this command does the same by hand, or
 into another directory with `--dest`.
 """
 
@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import shutil
 import sys
 from dataclasses import dataclass
@@ -54,7 +55,7 @@ class Layout:
     instructions: str
 
 
-HARNESSES: dict[str, Layout] = {
+AGENT_CLIS: dict[str, Layout] = {
     "claude": Layout(skills=".claude/skills", instructions="CLAUDE.md"),
     "codex": Layout(skills=".agents/skills", instructions="AGENTS.md"),
     "opencode": Layout(skills=".agents/skills", instructions="AGENTS.md"),
@@ -106,16 +107,16 @@ def _install_claude_mcp(source: Path, dest: Path) -> list[Path]:
 
 
 def install(
-    harness: str,
+    agent_cli: str,
     dest: Path = REPO_ROOT,
     *,
     source: Path = SOURCE,
     force: bool = False,
 ) -> list[Path]:
-    """Install the skills and the instructions for `harness` under `dest`.
+    """Install the skills and the instructions for `agent_cli` under `dest`.
     Returns what was written. A skill directory of the same name is replaced;
     other skills under `dest` are left alone."""
-    layout = HARNESSES[harness]
+    layout = AGENT_CLIS[agent_cli]
     written: list[Path] = []
     skills_source = (source / "skills").resolve()
     skills_dest = dest / layout.skills
@@ -140,9 +141,24 @@ def install(
             )
     target.write_text(f"{MARKER}\n\n{text}", encoding="utf-8")
     written.append(target)
-    if harness == "claude":
+    if agent_cli == "claude":
         written += _install_claude_mcp(source, dest)
     return written
+
+
+def agent_cli_name(text: str) -> str:
+    """An `--agent-cli` value as the name of the agent CLI it installs for.
+
+    A name (`codex`, `all`) is itself. A whole command, as the run command's
+    `--agent-cli` takes it (`'codex exec -m gpt-6.1-sol'`), is named by its
+    first word, a path's last part. argparse's `choices` then accepts or
+    refuses the name. The first word is taken here rather than through
+    `dispatch.agent_cli`, whose package import loads every dispatcher."""
+    try:
+        words = shlex.split(text)
+    except ValueError:  # unbalanced quotes: `choices` refuses it as written
+        return text
+    return Path(words[0]).name if words else text
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -154,10 +170,13 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--harness",
-        choices=[*HARNESSES, "all"],
+        "--agent-cli",
+        type=agent_cli_name,
+        choices=[*AGENT_CLIS, "all"],
         required=True,
-        help="the agent CLI to install for: claude, codex, opencode, or all",
+        help="the agent CLI to install for, by name: claude, codex, opencode,"
+        " or all. The whole command a run takes ('codex exec -m MODEL') also"
+        " works: its first word names the CLI",
     )
     parser.add_argument(
         "--dest",
@@ -171,14 +190,14 @@ def main(argv: list[str] | None = None) -> int:
         help="replace an instructions file this command did not write",
     )
     args = parser.parse_args(argv)
-    harnesses = list(HARNESSES) if args.harness == "all" else [args.harness]
+    agent_clis = list(AGENT_CLIS) if args.agent_cli == "all" else [args.agent_cli]
     dest = args.dest.expanduser().resolve()
     try:
-        for harness in harnesses:
-            install(harness, dest, force=args.force)
-            layout = HARNESSES[harness]
+        for agent_cli in agent_clis:
+            install(agent_cli, dest, force=args.force)
+            layout = AGENT_CLIS[agent_cli]
             print(
-                f"{harness}: skills in {dest / layout.skills},"
+                f"{agent_cli}: skills in {dest / layout.skills},"
                 f" instructions in {dest / layout.instructions}"
             )
     except InstallError as exc:
