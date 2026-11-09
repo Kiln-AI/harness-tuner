@@ -480,7 +480,9 @@ async def test_the_written_report_carries_both_appendices(tmp_path):
 
     await writer(ctx, "wrap_up")
 
-    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
+    text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text(
+        encoding="utf-8"
+    )
     assert text.index(SPEND_APPENDIX_HEADING) < text.index(STOP_APPENDIX_HEADING)
     assert text.index(STOP_APPENDIX_HEADING) < text.index(TRADEOFF_APPENDIX_HEADING)
     assert "| `s1-2` depot-s1-2 | 24 | lost 7 of 24, fixed 0 | 0.57× |" in text

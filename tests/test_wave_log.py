@@ -12,7 +12,7 @@ FIXED = datetime(2026, 7, 23, 14, 2, 0)
 
 
 def read_lines(path):
-    return [json.loads(line) for line in path.read_text().splitlines()]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_one_json_line_per_event_with_ts_and_fields(tmp_path):

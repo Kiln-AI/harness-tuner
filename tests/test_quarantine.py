@@ -25,7 +25,7 @@ TASK = "424242300001"
 
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+    path.write_text(json.dumps(data), encoding="utf-8")
 
 
 class Project:
@@ -203,7 +203,9 @@ class TestPlan:
 
     def test_an_unreadable_record_refuses_the_start(self, project):
         (project.task / "eval_inputs" / "bad").mkdir()
-        (project.task / "eval_inputs" / "bad" / "eval_input.kiln").write_text("{")
+        (project.task / "eval_inputs" / "bad" / "eval_input.kiln").write_text(
+            "{", encoding="utf-8"
+        )
         with pytest.raises(QuarantineError, match="fix: "):
             plan_quarantine(project.task)
 
@@ -238,7 +240,9 @@ def test_the_orchestrator_checks_the_splits_before_any_dispatch(project, tmp_pat
     assert dispatcher.preflight_calls == 0
     assert list(project.task.rglob("er_te1"))
     assert ctx.analyzer.heldout_ids == {"va1", "te1"}
-    train = json.loads(ctx.train_set_path.read_text())  # for the gateway
+    train = json.loads(
+        ctx.train_set_path.read_text(encoding="utf-8")
+    )  # for the gateway
     assert train["eval_inputs"] == ["tr1"]
     assert {"val_a", "test_a"} <= set(train["heldout_tags"])
     (event,) = [e for e in ctx.log.events if e[0] == "quarantine"]

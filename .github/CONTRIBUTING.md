@@ -16,8 +16,8 @@ This makes the development environment in `.venv`.
 
 ## Running the checks
 
-CI runs these on Python 3.11 and 3.13, and all of them must pass before you
-open a pull request:
+CI runs these on Linux, macOS (Apple silicon) and Windows, on Python 3.11
+and 3.13, and all of them must pass before you open a pull request:
 
 ```
 uv run ruff format --check
@@ -50,6 +50,10 @@ full.
 - Keep a pull request to one change. Unrelated fixes go in their own.
 - Write tests with the code. The suite stays offline: use the fakes in
   `tests/`, not a live server or a model.
+- **The suite runs on every OS.** A test that cannot run on one OS gets a
+  mark from `tests/platform_marks.py`, with the reason. Open text files with
+  an explicit `encoding="utf-8"`: Windows does not default to UTF-8, and
+  `tests/test_platforms.py` checks the source for it.
 - **Loop agents read `.agents/AGENTS.md` and every skill in `.agents/skills/`.** Do
   not put measured results, lever advice or the outcome of an earlier run in
   them. An agent that reads the answer invalidates the measurement it is asked

@@ -49,6 +49,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     ClaudeCliDispatcher,
     CliRound,
     child_env,
+    spawn_argv,
 )
 from kiln_harness_tuner.dispatch.codex_cli import mcp_tool_names
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, TRACE_READER_ROLES
@@ -248,7 +249,7 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
         role_path = path.parent / f"mcp_config.{agent}.json"
         if role_path.exists():
             path = role_path
-        servers = json.loads(path.read_text()).get("mcpServers", {})
+        servers = json.loads(path.read_text(encoding="utf-8")).get("mcpServers", {})
         return {
             name: {
                 "type": "local",
@@ -288,7 +289,9 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
         )
         path = self._session_root() / "opencode" / f"{label or agent}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+        path.write_text(
+            json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         return path
 
     def _argv(
@@ -330,9 +333,10 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
         dest = self._session_root() / "opencode" / f"export-{session_id}.json"
         try:
             proc = subprocess.run(
-                [self._opencode_bin, "export", session_id],
+                spawn_argv([self._opencode_bin, "export", session_id]),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=EXPORT_TIMEOUT_SECS,
                 env=child_env()[0],
                 check=False,
@@ -344,7 +348,7 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
             logger.warning("opencode export %s exited %d", session_id, proc.returncode)
             return None
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(proc.stdout)
+        dest.write_text(proc.stdout, encoding="utf-8")
         return dest
 
     def _recover_timed_out_usage(

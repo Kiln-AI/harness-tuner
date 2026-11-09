@@ -136,7 +136,7 @@ class State:
         path = self._registry()
         if path is None or not path.exists():
             return
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             try:
                 row = json.loads(line)
             except ValueError:
@@ -1167,7 +1167,7 @@ class Gateway:
         path = self.s.run_dir / VAL_SUMMARY_FILE if self.s.run_dir else None
         if path is None or not path.exists():
             return m.ValSummary(note="no promotion gate has run yet")
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         from kiln_harness_tuner.schemas import CandidateValTable
 
         tables = [

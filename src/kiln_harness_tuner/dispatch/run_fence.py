@@ -21,17 +21,30 @@ import json
 import logging
 import os
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePath, PureWindowsPath
+
+from kiln_harness_tuner.path_order import path_key
 
 logger = logging.getLogger(__name__)
 
 SCRATCH = "scratch"
 
 
+def rule_path(path: PurePath) -> str:
+    """An absolute path as a Claude Code permission rule names it: `//`, then
+    the path in POSIX form. Claude Code matches a Windows path in that form,
+    with the drive as a lower-case first segment: `C:\\Users\\alice` is
+    `//c/Users/alice`."""
+    if isinstance(path, PureWindowsPath):
+        drive = path.drive.rstrip(":").lower()
+        return "//" + "/".join([drive, *path.parts[1:]])
+    return "//" + str(path).lstrip("/")
+
+
 def read_rule(path: Path) -> str:
     """The `Read(...)` deny rule for one path (a tree for a directory)."""
-    body = str(path).lstrip("/")
-    return f"Read(//{body}/**)" if path.is_dir() else f"Read(//{body})"
+    body = rule_path(path)
+    return f"Read({body}/**)" if path.is_dir() else f"Read({body})"
 
 
 def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> list[str]:
@@ -44,12 +57,14 @@ def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> li
         return []
     root = run_dir.resolve()
     wanted = [
-        read_rule(child) for child in sorted(root.iterdir()) if child.name != SCRATCH
+        read_rule(child)
+        for child in sorted(root.iterdir(), key=path_key)
+        if child.name != SCRATCH
     ]
     added: set[str] = set()
     for settings_path in settings_paths:
         try:
-            settings = json.loads(settings_path.read_text())
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue  # a missing file is a session without a fence file
         deny = settings.setdefault("permissions", {}).setdefault("deny", [])
@@ -59,7 +74,9 @@ def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> li
         deny.extend(new)
         added.update(new)
         tmp = settings_path.with_name(settings_path.name + ".tmp")
-        tmp.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+        tmp.write_text(
+            json.dumps(settings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
         os.replace(tmp, settings_path)
     if added:
         logger.warning(

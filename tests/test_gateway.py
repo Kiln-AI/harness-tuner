@@ -106,7 +106,7 @@ class TestTheTrainSet:
         path = tmp_path / "train_set.json"
         train.write(path)
         assert TrainSet.load(path) == train
-        path.write_text('{"version": 2}')
+        path.write_text('{"version": 2}', encoding="utf-8")
         with pytest.raises(TrainSetError, match="fix: "):
             TrainSet.load(path)
 
@@ -287,7 +287,7 @@ class TestReads:
         assert first["clipped"] is True
         assert len(first["reference"]) == gw.EXPECTED_MAX_CHARS
         # The whole reference is in a file under the trace folder.
-        whole = json.loads(Path(first["reference_path"]).read_text())
+        whole = json.loads(Path(first["reference_path"]).read_text(encoding="utf-8"))
         assert whole == {"x": "y" * 30_000}
         assert Path(first["reference_path"]).is_relative_to(gateway.s.trace_root)
 
@@ -473,7 +473,7 @@ class TestWrites:
         assert out["item_id"] == "tr1"
         # The drive is now a record this run created on a train item.
         assert gateway.s.created["424242600010"] == ("task_run", "train", "tr1")
-        registry = (tmp_path / "run" / gw.CREATED_FILE).read_text()
+        registry = (tmp_path / "run" / gw.CREATED_FILE).read_text(encoding="utf-8")
         assert "424242600010" in registry
         for refused in ("va1", "cross", "orphan", "nope"):
             with pytest.raises(gw.GatewayError, match="not a train item"):
@@ -838,7 +838,8 @@ def test_the_val_readers_get_the_code_assembled_tables(tmp_path):
     assert _run(gateway, "get_val_summary")["candidates"] == []
     table = CandidateValTable(rc_id="rc1", experiment_memory_id="m1", per_eval=[])
     (tmp_path / "run" / gw.VAL_SUMMARY_FILE).write_text(
-        json.dumps({"candidates": [table.model_dump(mode="json")], "note": "n"})
+        json.dumps({"candidates": [table.model_dump(mode="json")], "note": "n"}),
+        encoding="utf-8",
     )
     out = _run(gateway, "get_val_summary")
     assert out["candidates"][0]["rc_id"] == "rc1"
@@ -939,7 +940,7 @@ def _held_out_row(item: str, run_id: str) -> dict:
 
 def _all_files(root: Path) -> dict[str, str]:
     return {
-        str(p.relative_to(root)): p.read_text()
+        str(p.relative_to(root)): p.read_text(encoding="utf-8")
         for p in sorted(root.rglob("*"))
         if p.is_file()
     }
@@ -1012,7 +1013,7 @@ class TestTraceFiles:
     def test_a_trace_file_moves_the_system_prompt_and_tools_out(self, tmp_path):
         gateway, _ = _gateway(tmp_path, self._routes(self._rows()))
         out = _run(gateway, "get_train_results", eval_id="e1", run_config_id=self.RC)
-        trace = Path(out["rows"][0]["trace_path"]).read_text()
+        trace = Path(out["rows"][0]["trace_path"]).read_text(encoding="utf-8")
         # The header.
         for line in (
             "item_id: tr1",
@@ -1046,17 +1047,17 @@ class TestTraceFiles:
         assert "Rule. Rule." not in trace and "tool_89" not in trace
         (system,) = (gateway.s.trace_root / self.RC / "_system").glob("*.md")
         assert f"system: {system} (" in trace
-        shared = system.read_text()
+        shared = system.read_text(encoding="utf-8")
         assert SYSTEM_PROMPT in shared and '"tool_89"' in shared
         # Both items share the one system file.
-        second = Path(out["rows"][1]["trace_path"]).read_text()
+        second = Path(out["rows"][1]["trace_path"]).read_text(encoding="utf-8")
         assert f"system: {system} (" in second
 
     def test_the_stats_file(self, tmp_path):
         gateway, _ = _gateway(tmp_path, self._routes(self._rows()))
         _run(gateway, "get_train_results", eval_id="e1", run_config_id=self.RC)
         folder = gateway.s.trace_root / self.RC
-        data = json.loads((folder / "_stats.json").read_text())
+        data = json.loads((folder / "_stats.json").read_text(encoding="utf-8"))
         by_item = {i["item_id"]: i for i in data["items"]}
         assert set(by_item) == {"tr1", "tr2"}
         tr1, tr2 = by_item["tr1"], by_item["tr2"]
@@ -1073,7 +1074,7 @@ class TestTraceFiles:
         # No per-turn usage stored: the run's usage, and it says so.
         assert tr2["usage_source"] == "per_run_only" and tr2["turn_usage"] == []
         assert data["tools"]["kestrel_api"]["calls"] == 4
-        md = (folder / "_stats.md").read_text()
+        md = (folder / "_stats.md").read_text(encoding="utf-8")
         assert "| e1 | tr1 | 3 | 2 | 1 | 2700 | 120 | 2400 |" in md
         assert "per_run_only" in md and "| kestrel_api | 4 | 1 |" in md
 
@@ -1083,15 +1084,15 @@ class TestTraceFiles:
         gateway, _ = _gateway(tmp_path, routes)
         args = {"eval_id": "e1", "run_config_id": self.RC}
         path = Path(_run(gateway, "get_train_results", **args)["rows"][0]["trace_path"])
-        first = path.read_text()
+        first = path.read_text(encoding="utf-8")
         mtime = path.stat().st_mtime_ns
         _run(gateway, "get_train_results", **args)
         assert path.stat().st_mtime_ns == mtime  # unchanged: not written again
         rows[0] = _result_row("tr1", "er9", _agent_trace("tr1"), output="better")
         routes[("GET", RESULTS)] = {"results": rows}
         _run(gateway, "get_train_results", **args)
-        assert path.read_text() != first
-        assert "eval_run_id: er9" in path.read_text()
+        assert path.read_text(encoding="utf-8") != first
+        assert "eval_run_id: er9" in path.read_text(encoding="utf-8")
         assert not [p for p in path.parent.iterdir() if p.name.endswith(".tmp")]
 
     def test_an_id_cannot_climb_out_of_the_folder(self, tmp_path):
@@ -1133,8 +1134,8 @@ class TestTraceFiles:
         assert out["trace_summary"].startswith("3 assistant turns")
         path = Path(out["trace_path"])
         assert path == gateway.s.trace_root / "task_runs" / "424242600002.md"
-        assert BIG_RESULT in path.read_text()
-        assert SYSTEM_PROMPT not in path.read_text()
+        assert BIG_RESULT in path.read_text(encoding="utf-8")
+        assert SYSTEM_PROMPT not in path.read_text(encoding="utf-8")
         for name, text in _all_files(gateway.s.trace_root).items():
             assert "SECRET" not in text and "424242600001" not in name
 

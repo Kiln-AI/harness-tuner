@@ -109,6 +109,7 @@ from kiln_harness_tuner.model_policy import (
 from kiln_harness_tuner.model_preflight import flagged_reason, run_model_preflight
 from kiln_harness_tuner.noise import run_noise_check
 from kiln_harness_tuner.objective import better_word, decisive, is_efficiency
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.probes import (
     ProbeSetupError,
     _parent_props,
@@ -1870,7 +1871,9 @@ def write_val_summary(ctx: Ctx, tables: list[CandidateValTable]) -> None:
         "candidates": [t.model_dump(mode="json") for t in tables],
         "note": "the latest promotion gate's tables, candidate vs baseline on val",
     }
-    (ctx.run_dir / VAL_SUMMARY_FILE).write_text(json.dumps(data, indent=1) + "\n")
+    (ctx.run_dir / VAL_SUMMARY_FILE).write_text(
+        json.dumps(data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 async def _speed_val_pass(
@@ -2808,7 +2811,9 @@ def _measured_rc_ids(project_root: Path, task_id: str) -> set[str]:
     for task_dir in task_dirs(project_root, task_id):
         for path in task_dir.glob("evals/*/configs/*/runs/*/eval_run.kiln"):
             try:
-                rc = json.loads(path.read_text()).get("task_run_config_id")
+                rc = json.loads(path.read_text(encoding="utf-8")).get(
+                    "task_run_config_id"
+                )
             except (OSError, ValueError):
                 continue
             if rc:
@@ -2843,9 +2848,9 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
     dirs = task_dirs(project_root, ctx.target.task_id)
     for task_dir in dirs:
         try:
-            default = json.loads((task_dir / "task.kiln").read_text()).get(
-                "default_run_config_id"
-            )
+            default = json.loads(
+                (task_dir / "task.kiln").read_text(encoding="utf-8")
+            ).get("default_run_config_id")
         except (OSError, ValueError):
             default = None
         if default:
@@ -2853,9 +2858,11 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     moved: list[str] = []
     for task_dir in dirs:
-        for folder in sorted((task_dir / "run_configs").glob("*")):
+        for folder in sorted((task_dir / "run_configs").glob("*"), key=path_key):
             try:
-                data = json.loads((folder / "task_run_config.kiln").read_text())
+                data = json.loads(
+                    (folder / "task_run_config.kiln").read_text(encoding="utf-8")
+                )
             except (OSError, ValueError):
                 continue
             rc_id = str(data.get("id"))

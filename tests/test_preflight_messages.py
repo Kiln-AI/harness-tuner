@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 import kiln_harness_tuner
-from kiln_harness_tuner.cli import RunLockError, _acquire_run_lock
+from kiln_harness_tuner.run_lock import RunLockError, acquire_run_lock
 
 PACKAGE_ROOT = Path(kiln_harness_tuner.__file__).resolve().parent
 
@@ -32,6 +32,8 @@ PACKAGE_ROOT = Path(kiln_harness_tuner.__file__).resolve().parent
 # is no operator command that resolves them.
 PREFLIGHT_MODULES = (
     "cli.py",
+    "run_lock.py",
+    "os_sandbox.py",
     "dispatch/claude_cli.py",
     "quarantine.py",
     "gateway/trainset.py",
@@ -42,6 +44,7 @@ PREFLIGHT_ERRORS = {
     "PreflightError",
     "QuarantineError",
     "TrainSetError",
+    "NoSandboxRefused",
 }
 
 FIX_MARKER = "\nfix: "
@@ -49,7 +52,7 @@ FIX_MARKER = "\nfix: "
 # Measured from the tree, and stated so the guard cannot narrow in silence: a
 # raise site that is deleted or renamed out of the set fails here instead of
 # quietly leaving this test asserting less than it did.
-EXPECTED_SITES = 20
+EXPECTED_SITES = 22
 
 
 def _message_literals(source: str) -> list[tuple[str, str]]:
@@ -93,7 +96,7 @@ def _literal_text(node: ast.expr) -> str:
 def _sites() -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
     for module in PREFLIGHT_MODULES:
-        source = (PACKAGE_ROOT / module).read_text()
+        source = (PACKAGE_ROOT / module).read_text(encoding="utf-8")
         out += [(module, error, text) for error, text in _message_literals(source)]
     return out
 
@@ -149,10 +152,10 @@ def test_every_preflight_message_carries_a_fix_line(module, error, text):
 def test_the_run_lock_message_carries_its_fix_line(tmp_path):
     # The live message, not the source: a second run against the same task is
     # the failure a user meets when they forget one is running.
-    lock = _acquire_run_lock(tmp_path, task_id="42", project_id="9")
+    lock = acquire_run_lock(tmp_path, task_id="42", project_id="9")
     try:
         with pytest.raises(RunLockError) as raised:
-            _acquire_run_lock(tmp_path, task_id="42", project_id="9")
+            acquire_run_lock(tmp_path, task_id="42", project_id="9")
     finally:
         lock.release()
     message = str(raised.value)
@@ -170,7 +173,8 @@ def test_an_unclear_train_boundary_names_the_fix(tmp_path):
                 "id": "e1",
                 "splits": {"train": {"source": "eval_input", "filter_id": "all"}},
             }
-        )
+        ),
+        encoding="utf-8",
     )
     with pytest.raises(TrainSetError) as raised:
         compute(tmp_path / "project", "42")

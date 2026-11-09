@@ -54,7 +54,8 @@ def write_input(root: Path, item_id: str, text: str, tags: list[str]) -> None:
                 ),
                 "tags": tags,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
 
@@ -370,7 +371,9 @@ async def test_the_probe_agent_is_handed_train_inputs_and_nothing_else(tmp_path)
         n: {"source": "eval_input", "filter_id": f"tag::{n}"}
         for n in ("train", "val", "test")
     }
-    (evals / "eval.kiln").write_text(json.dumps({"id": "eval_1", "splits": splits}))
+    (evals / "eval.kiln").write_text(
+        json.dumps({"id": "eval_1", "splits": splits}), encoding="utf-8"
+    )
     item = code_probe(ProbeCheck(count="json_valid")).model_copy(
         update={"check": None, "method": "agent reads the traces"}
     )

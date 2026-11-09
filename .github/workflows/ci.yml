@@ -7,10 +7,14 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} · Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        # macOS on Apple silicon: `macos-13` is Intel, where the lock's
+        # `lancedb` and `pylance` publish no wheel (docs/install.md).
+        os: [ubuntu-latest, windows-latest, macos-15]
         # 3.11 is the floor in `pyproject.toml` and 3.13 is what we develop on.
         python-version: ["3.11", "3.13"]
     steps:
@@ -32,6 +36,10 @@ jobs:
 
       - name: Lint
         run: uv run ruff check
+
+      # The installed console script, as a user starts it.
+      - name: CLI starts
+        run: uv run kiln-harness-tuner --help
 
       # The suite is offline: no Kiln server, no agent CLI, no model spend.
       - name: Tests

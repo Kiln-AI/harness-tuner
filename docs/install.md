@@ -22,10 +22,35 @@ interpreter that was refused.
 
 ## Platform support
 
+The tuner runs on Linux (x86_64 and arm64), on macOS on Apple silicon and on
+Windows (x86_64). CI runs the test suite on all three.
+
 > **macOS on Intel (x86_64) is not supported.** Section 2's `uv sync` fails
 > there. The lock pins `lancedb` and `pylance` versions that publish no macOS
-> x86_64 wheel and no source distribution. Linux (x86_64 and arm64), Windows
-> (x86_64) and macOS on Apple silicon work.
+> x86_64 wheel and no source distribution.
+
+**On Windows, use WSL (Windows Subsystem for Linux).** On macOS and Linux,
+Claude Code and Codex run each agent's shell commands inside an OS sandbox
+(OpenCode has none on any OS: [agent-cli.md](agent-cli.md) section 11). The sandbox is what
+keeps an agent away from your withheld test set. Native Windows has no such
+sandbox. There, only the agent CLI's own permission rules limit what an agent
+reads, and they cannot see into every command that a shell runs. So on native
+Windows, a start prints this question before any agent starts:
+
+```
+Windows has no OS sandbox for the tuner's agents, so we can't guarantee they
+won't read your withheld test set. For that guarantee, run it in WSL (Windows
+Subsystem for Linux). Continue? [y/N]
+```
+
+The default answer is No. With no terminal attached, the start stops, unless
+you pass `--allow-no-sandbox`. The report of a run without an OS sandbox says
+so at its top.
+
+Inside WSL 2, the tuner is on Linux and has the sandbox. WSL 1 has no
+sandbox, and a start there stops (`wsl -l -v` in PowerShell shows the
+version). Clone the repository
+inside the WSL distribution, and do every step of this document there.
 
 ## 1. Python 3.11+ and `uv`
 

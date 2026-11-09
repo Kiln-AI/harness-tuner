@@ -370,8 +370,8 @@ async def test_an_inherited_dangling_reference_is_clean_on_disk(tmp_path):
 def test_project_skills_reads_archived_skills(tmp_path):
     install_skill(tmp_path, "sk1", "dock-schedule", skill_md("dock-schedule", "x"))
     sidecar = tmp_path / "skills" / "sk1 - dock-schedule" / "skill.kiln"
-    record = json.loads(sidecar.read_text())
-    sidecar.write_text(json.dumps({**record, "is_archived": True}))
+    record = json.loads(sidecar.read_text(encoding="utf-8"))
+    sidecar.write_text(json.dumps({**record, "is_archived": True}), encoding="utf-8")
     install_skill(tmp_path, "sk2", "pallet-flow", skill_md("pallet-flow", "x"))
     found = project_skills(tmp_path)
     assert found.names == {"sk1": "dock-schedule", "sk2": "pallet-flow"}

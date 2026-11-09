@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
+from typing import Any
 
 from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
 
@@ -51,17 +53,36 @@ def decide(tool_name: str, role: str) -> str | None:
     )
 
 
-def hook_command(role: str, python: str | None = None) -> str:
-    import shlex
-
-    parts = [
+def hook_argv(role: str, python: str | None = None) -> list[str]:
+    return [
         python or sys.executable,
         "-m",
         "kiln_harness_tuner.gateway.hook",
         "--role",
         role,
     ]
-    return " ".join(shlex.quote(p) for p in parts)
+
+
+def hook_command(role: str, python: str | None = None) -> str:
+    return " ".join(shlex.quote(p) for p in hook_argv(role, python))
+
+
+def hook_entry(role: str, *, timeout: int) -> dict[str, Any]:
+    """The settings `hooks` entry that runs this hook for `role`.
+
+    A shell command on macOS and Linux. On Windows, the exec form (`command`
+    plus `args`, no shell): there Claude Code runs a shell command in Git
+    Bash, or in PowerShell when Git Bash is not installed, and no one quoting
+    of a Windows path suits both."""
+    if sys.platform == "win32":
+        executable, *args = hook_argv(role)
+        return {
+            "type": "command",
+            "command": executable,
+            "args": args,
+            "timeout": timeout,
+        }
+    return {"type": "command", "command": hook_command(role), "timeout": timeout}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,7 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--role", required=True)
     args = parser.parse_args(argv)
     try:
-        event = json.load(sys.stdin)
+        # Bytes, not text: Claude Code sends UTF-8, and Windows decodes a
+        # piped stdin in the locale's code page.
+        event = json.load(getattr(sys.stdin, "buffer", sys.stdin))
     except ValueError:
         # An unreadable event is refused: the hook cannot tell what it is.
         print("blocked: unreadable tool event", file=sys.stderr)

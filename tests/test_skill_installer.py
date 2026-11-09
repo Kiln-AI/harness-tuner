@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from platform_marks import requires_symlinks
 
 from kiln_harness_tuner.skill_installer import bundle as b
 from kiln_harness_tuner.skill_installer.bundle import (
@@ -58,10 +59,11 @@ def make_project(tmp_path, existing_name="existing-skill", existing_id="42424211
     (skill_dir / "skill.kiln").write_text(
         json.dumps(
             {"v": 1, "id": existing_id, "name": existing_name, "model_type": "skill"}
-        )
+        ),
+        encoding="utf-8",
     )
     (skill_dir / "SKILL.md").write_text(
-        f"---\nname: {existing_name}\ndescription: x\n---\n\nBody.\n"
+        f"---\nname: {existing_name}\ndescription: x\n---\n\nBody.\n", encoding="utf-8"
     )
     return project
 
@@ -157,7 +159,7 @@ class TestValidateBundle:
     def test_bundle_is_a_file(self, tmp_path):
         _, scratch = make_bundle(tmp_path)
         f = scratch / "not-a-dir.md"
-        f.write_text("x")
+        f.write_text("x", encoding="utf-8")
         project = make_project(tmp_path)
         assert any(
             "not a directory" in e for e in validate(tmp_path, f, scratch, project)
@@ -172,13 +174,14 @@ class TestValidateBundle:
 
     def test_stray_root_entries_rejected(self, tmp_path):
         bundle, scratch = make_bundle(tmp_path)
-        (bundle / "skill.kiln").write_text("{}")
-        (bundle / "notes.txt").write_text("x")
+        (bundle / "skill.kiln").write_text("{}", encoding="utf-8")
+        (bundle / "notes.txt").write_text("x", encoding="utf-8")
         project = make_project(tmp_path)
         errors = validate(tmp_path, bundle, scratch, project)
         assert any("'skill.kiln'" in e for e in errors)
         assert any("'notes.txt'" in e for e in errors)
 
+    @requires_symlinks
     def test_symlinks_rejected(self, tmp_path):
         bundle, scratch = make_bundle(tmp_path, refs={"real.md": "x"})
         project = make_project(tmp_path)
@@ -297,7 +300,7 @@ class TestValidateBundle:
             body="",
             refs={"bad.md": b"\xff\xfe"},
         )
-        (bundle / "stray.txt").write_text("x")
+        (bundle / "stray.txt").write_text("x", encoding="utf-8")
         project = make_project(tmp_path)
         errors = validate(tmp_path, bundle, scratch, project, notes="")
         # One call surfaces every defect class — no ping-pong.
@@ -318,6 +321,27 @@ class TestInstall:
         result = install_bundle(bundle, scratch, project, "notes", ["424242451835"])
         return result, project, bundle
 
+    def test_a_skill_md_with_windows_line_endings_installs(self, tmp_path):
+        # Written on Windows (an editor, the agent's Write tool, Python's
+        # text mode), SKILL.md has CRLF lines. Kiln reads it in text mode.
+        bundle, scratch = make_bundle(tmp_path)
+        crlf = (
+            b"---\r\nname: fresh-skill\r\ndescription: A fresh skill.\r\n---\r\n"
+            b"\r\nUse the thing.\r\n"
+        )
+        (bundle / "SKILL.md").write_bytes(crlf)
+        project = make_project(tmp_path)
+        assert validate(tmp_path, bundle, scratch, project) == []
+        result = install_bundle(bundle, scratch, project, "notes", [])
+        assert result["ok"] is True, result
+        dest = project / "skills" / f"{result['skill_id']} - fresh-skill"
+        assert (dest / "SKILL.md").read_bytes() == crlf  # installed as written
+        sidecar = json.loads((dest / "skill.kiln").read_text(encoding="utf-8"))
+        assert (sidecar["name"], sidecar["description"]) == (
+            "fresh-skill",
+            "A fresh skill.",
+        )
+
     def test_installed_tree_and_sidecar(self, tmp_path):
         result, project, bundle_dir = self.install(tmp_path)
         assert result["ok"] is True
@@ -332,9 +356,11 @@ class TestInstall:
         assert (dest / "SKILL.md").read_bytes() == (
             bundle_dir / "SKILL.md"
         ).read_bytes()
-        assert (dest / "references" / "policies" / "deep.md").read_text() == "deep\n"
+        assert (dest / "references" / "policies" / "deep.md").read_text(
+            encoding="utf-8"
+        ) == "deep\n"
         assert (dest / "assets").is_dir()
-        sidecar = json.loads((dest / "skill.kiln").read_text())
+        sidecar = json.loads((dest / "skill.kiln").read_text(encoding="utf-8"))
         assert sidecar == {
             "v": 1,
             "id": skill_id,
@@ -396,7 +422,7 @@ class TestSweep:
         project = make_project(tmp_path)
         staging = project / "skills" / ".staging-424242999999"
         staging.mkdir()
-        (staging / "junk.txt").write_text("x")
+        (staging / "junk.txt").write_text("x", encoding="utf-8")
         assert sweep_staging(project) == 1
         assert not staging.exists()
         assert (project / "skills" / "424242111111 - existing-skill").is_dir()
@@ -456,7 +482,7 @@ class TestServer:
         payload = _tool_payload(out)
         assert payload["ok"] is True
         dest = project / "skills" / f"{payload['skill_id']} - fresh-skill"
-        assert (dest / "references" / "guide.md").read_text() == "g\n"
+        assert (dest / "references" / "guide.md").read_text(encoding="utf-8") == "g\n"
 
     def test_main_requires_flags(self, monkeypatch, capsys):
         import pytest
@@ -494,7 +520,7 @@ class TestExport:
         project = make_project(tmp_path)
         skill = project / "skills" / "424242111111 - existing-skill"
         (skill / "references" / "deep").mkdir(parents=True)
-        (skill / "references" / "deep" / "a.md").write_text("ref")
+        (skill / "references" / "deep" / "a.md").write_text("ref", encoding="utf-8")
         (tmp_path / "scratch").mkdir()
         return export_bundle, project
 
@@ -504,7 +530,9 @@ class TestExport:
         result = export_bundle("424242111111", dest, tmp_path / "scratch", project)
         assert result["ok"] is True
         assert (dest / "SKILL.md").is_file()
-        assert (dest / "references" / "deep" / "a.md").read_text() == "ref"
+        assert (dest / "references" / "deep" / "a.md").read_text(
+            encoding="utf-8"
+        ) == "ref"
         assert not (dest / "skill.kiln").exists()
 
     @pytest.mark.parametrize(
@@ -524,10 +552,11 @@ class TestExport:
             result = export_bundle(skill_id, dest, tmp_path / "scratch", project)
             assert result["ok"] is False, skill_id
 
+    @requires_symlinks
     def test_refuses_a_symlink_inside_the_skill(self, tmp_path):
         export_bundle, project = self._project(tmp_path)
         skill = project / "skills" / "424242111111 - existing-skill"
-        (tmp_path / "secret.txt").write_text("val data")
+        (tmp_path / "secret.txt").write_text("val data", encoding="utf-8")
         (skill / "references" / "link.md").symlink_to(tmp_path / "secret.txt")
         dest = (tmp_path / "scratch" / "copy").resolve()
         result = export_bundle("424242111111", dest, tmp_path / "scratch", project)

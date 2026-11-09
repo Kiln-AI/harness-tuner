@@ -258,7 +258,9 @@ def _project(tmp_path: Path, val_n: int, train_n: int = 8, evals=("eval_1",)) ->
     for eval_id in evals:
         folder = task / "evals" / f"{eval_id} - E"
         folder.mkdir(parents=True)
-        (folder / "eval.kiln").write_text(json.dumps({"id": eval_id, "splits": splits}))
+        (folder / "eval.kiln").write_text(
+            json.dumps({"id": eval_id, "splits": splits}), encoding="utf-8"
+        )
     for split, count in (("train", train_n), ("val", val_n), ("test", 3)):
         for n in range(count):
             item = task / "eval_inputs" / f"{split}{n}"
@@ -273,7 +275,8 @@ def _project(tmp_path: Path, val_n: int, train_n: int = 8, evals=("eval_1",)) ->
                             "user_message": {"text": f"{split} input {n}"},
                         },
                     }
-                )
+                ),
+                encoding="utf-8",
             )
     return tmp_path / "proj"
 

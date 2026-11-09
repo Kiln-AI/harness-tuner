@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 from kiln_harness_tuner.integrity import strings_in
 from kiln_harness_tuner.kiln import KilnError
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.skill_installer.bundle import installed_skill_dir
 
 if TYPE_CHECKING:
@@ -174,7 +175,9 @@ def _tree_files(directory: Path) -> list[Path]:
     if not directory.is_dir():
         return []
     return [
-        p for p in sorted(directory.rglob("*")) if p.is_file() and not p.is_symlink()
+        p
+        for p in sorted(directory.rglob("*"), key=path_key)
+        if p.is_file() and not p.is_symlink()
     ]
 
 

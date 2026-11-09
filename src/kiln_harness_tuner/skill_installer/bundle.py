@@ -34,6 +34,8 @@ from pathlib import Path
 
 import yaml
 
+from kiln_harness_tuner.path_order import path_key
+
 # Kiln basemodel.py ports (FORBIDDEN_CHARS_REGEX + string_to_valid_name).
 _FORBIDDEN_CHARS_REGEX = r"[/\\?%*:|\"<>.,;=\n]"
 
@@ -261,7 +263,9 @@ def validate_bundle(
         return errors
 
     try:
-        raw = skill_md.read_bytes().decode("utf-8")
+        # As Kiln reads it (`Skill.skill_md_raw`): text mode, so a file with
+        # Windows line endings parses with `\n` lines.
+        raw = skill_md.read_text(encoding="utf-8")
     except UnicodeDecodeError:
         errors.append("SKILL.md is not UTF-8 text")
         return errors
@@ -438,7 +442,7 @@ def export_bundle(
     wanted = [source / "SKILL.md"]
     for sub in ("references", "assets"):
         if (source / sub).is_dir():
-            wanted += sorted(p for p in (source / sub).rglob("*"))
+            wanted += sorted((source / sub).rglob("*"), key=path_key)
     total = 0
     for path in wanted:
         if path.is_symlink():

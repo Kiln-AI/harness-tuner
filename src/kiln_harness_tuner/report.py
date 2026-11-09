@@ -795,6 +795,21 @@ def _render_setup_section(status: RunStatus) -> list[str]:
     return lines
 
 
+NO_SANDBOX_NOTE = (
+    "> **This run had no OS sandbox.** It ran on native Windows, where the"
+    " agents' shell commands run without one. Only the agent CLI's own"
+    " permission rules fenced what an agent could read, so this report cannot"
+    " guarantee that no agent read the withheld test set. Run in WSL (Windows"
+    " Subsystem for Linux) for that guarantee."
+)
+
+
+def render_sandbox_note(status: RunStatus) -> str:
+    """The note at the top of the report of a run with no OS sandbox, on
+    both report paths; empty for a sandboxed run."""
+    return "" if status.os_sandbox else NO_SANDBOX_NOTE
+
+
 def render_fallback_report(status: RunStatus) -> str:
     """Code-generated run history (waves, items, outcomes, promotions, spend)
     from `RunStatus` — the fallback body.
@@ -885,6 +900,10 @@ class ReportWriter:
 
     def _write(self, markdown: str, status: RunStatus) -> str:
         markdown = markdown.rstrip("\n") + "\n\n---\n\n" + render_spend_appendix(status)
+        note = render_sandbox_note(status)
+        if note:
+            # First, because it qualifies every number below it.
+            markdown = note + "\n\n" + markdown
         speed = render_speed_appendix(status)
         if speed:
             markdown = markdown.rstrip("\n") + "\n\n" + speed

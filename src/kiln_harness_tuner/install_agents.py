@@ -29,11 +29,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import shlex
 import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from kiln_harness_tuner.command_line import executable_name, split_command
+from kiln_harness_tuner.path_order import path_key
 
 # install_agents.py sits at <repo>/src/kiln_harness_tuner/, as cli.py does.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -121,7 +123,9 @@ def install(
     skills_source = (source / "skills").resolve()
     skills_dest = dest / layout.skills
     if skills_dest.resolve() != skills_source:
-        for skill in sorted(p for p in skills_source.iterdir() if p.is_dir()):
+        for skill in sorted(
+            (p for p in skills_source.iterdir() if p.is_dir()), key=path_key
+        ):
             target = skills_dest / skill.name
             if target.is_symlink() or target.is_file():
                 target.unlink()
@@ -151,14 +155,15 @@ def agent_cli_name(text: str) -> str:
 
     A name (`codex`, `all`) is itself. A whole command, as the run command's
     `--agent-cli` takes it (`'codex exec -m gpt-6.1-sol'`), is named by its
-    first word, a path's last part. argparse's `choices` then accepts or
-    refuses the name. The first word is taken here rather than through
-    `dispatch.agent_cli`, whose package import loads every dispatcher."""
+    first word, a path's last part (on Windows, without `.exe` or `.cmd`).
+    argparse's `choices` then accepts or refuses the name. The first word is
+    taken here rather than through `dispatch.agent_cli`, whose package import
+    loads every dispatcher."""
     try:
-        words = shlex.split(text)
+        words = split_command(text)
     except ValueError:  # unbalanced quotes: `choices` refuses it as written
         return text
-    return Path(words[0]).name if words else text
+    return executable_name(words[0]) if words else text
 
 
 def main(argv: list[str] | None = None) -> int:

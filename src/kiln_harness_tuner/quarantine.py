@@ -46,6 +46,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from kiln_harness_tuner.path_order import path_key
+
 ItemKey = tuple[str, str]  # (source, id): ("eval_input", id) | ("task_run", id)
 SPLIT_NAMES = ("train", "val", "test")
 # A tag that names a held-out split, used by an eval or not.
@@ -147,7 +149,7 @@ class QuarantineReport:
 
 def _read(path: Path) -> dict[str, Any]:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise QuarantineError(
             f"cannot read {path} ({exc}) — the start-up quarantine must read every"
@@ -165,14 +167,17 @@ def _read(path: Path) -> dict[str, Any]:
 
 def task_dirs(project_root: Path, task_id: str) -> list[Path]:
     return sorted(
-        p for p in project_root.glob(f"tasks/{task_id} - *") if p.is_dir()
-    ) or sorted(p for p in project_root.glob(f"tasks/{task_id}") if p.is_dir())
+        (p for p in project_root.glob(f"tasks/{task_id} - *") if p.is_dir()),
+        key=path_key,
+    ) or sorted(
+        (p for p in project_root.glob(f"tasks/{task_id}") if p.is_dir()), key=path_key
+    )
 
 
 def _children(folder: Path, filename: str) -> Iterable[tuple[Path, dict[str, Any]]]:
     if not folder.is_dir():
         return
-    for child in sorted(folder.iterdir()):
+    for child in sorted(folder.iterdir(), key=path_key):
         path = child / filename
         if child.is_dir() and path.is_file():
             yield child, _read(path)

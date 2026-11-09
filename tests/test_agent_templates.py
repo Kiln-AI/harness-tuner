@@ -54,7 +54,7 @@ SPEND_HEADER_SHAPE = "budget <N> min · elapsed <M> min · exit <reason>"
 
 
 def _template_text(agent: str) -> str:
-    return (DEFAULT_TEMPLATES_DIR / f"{agent}.md").read_text()
+    return (DEFAULT_TEMPLATES_DIR / f"{agent}.md").read_text(encoding="utf-8")
 
 
 def _normalized_template(agent: str) -> str:
@@ -64,7 +64,7 @@ def _normalized_template(agent: str) -> str:
 def _normalized_doc(path: Path) -> str:
     """Any agent-loadable doc with runs of whitespace collapsed — doctrine
     freezes must survive markdown re-wrapping (pattern from `538e025a`)."""
-    return " ".join(path.read_text().split())
+    return " ".join(path.read_text(encoding="utf-8").split())
 
 
 def _normalized_skill(skill: str) -> str:
@@ -72,7 +72,7 @@ def _normalized_skill(skill: str) -> str:
 
 
 def _frontmatter_name(skill_dir: Path) -> str | None:
-    text = (skill_dir / "SKILL.md").read_text()
+    text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
     match = re.search(r"^name:\s*(\S+)\s*$", text, re.MULTILINE)
     return match.group(1) if match else None
 
@@ -123,11 +123,11 @@ def test_merging_reference_exists():
     assert merging.is_file()
     build_skill = (
         SKILLS_DIR / "kiln-harness-tuner-experiment-build" / "SKILL.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert "references/merging.md" in build_skill
     analysis_skill = (
         SKILLS_DIR / "kiln-harness-tuner-experiment-analysis" / "SKILL.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert "references/merging.md" in analysis_skill
 
 
@@ -138,11 +138,11 @@ def test_head_to_head_field_documented_on_both_work_types():
     # exclusivity in prose.
     merging = (
         SKILLS_DIR / "kiln-harness-tuner-experiment-build" / "references" / "merging.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert "both FixWork and MergeWork" in merging
     planner = (
         SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert "Groups may span item types" in planner
 
 
@@ -646,7 +646,7 @@ def _code_spans(text: str) -> list[str]:
 
 def test_no_kiln_harness_tuner_doc_renders_a_measurement_delta_as_a_percentage():
     for path in _kiln_harness_tuner_doc_paths():
-        for span in _code_spans(path.read_text()):
+        for span in _code_spans(path.read_text(encoding="utf-8")):
             if "n=" not in span:
                 continue
             assert not _SIGNED_PERCENT.search(span), (
@@ -665,7 +665,7 @@ _DELETED_UI_RULE = re.compile(r"opens with (?:a|the)[^.]{0,60}signed")
 
 def test_no_tuner_doc_still_asserts_the_deleted_leading_character_ui_rule():
     for path in _kiln_harness_tuner_doc_paths():
-        normalized = " ".join(path.read_text().split())
+        normalized = " ".join(path.read_text(encoding="utf-8").split())
         match = _DELETED_UI_RULE.search(normalized)
         assert match is None, (
             f"{path.relative_to(SKILLS_DIR)} still teaches the tail-opens-with-"
@@ -735,7 +735,7 @@ _OLD_BASELINE_OVERVIEW = re.compile(r"BASELINE:\s*\S+\s*—")
 
 def test_no_kiln_harness_tuner_doc_quotes_the_deleted_baseline_overview_format():
     for path in _kiln_harness_tuner_doc_paths():
-        normalized = " ".join(path.read_text().split())
+        normalized = " ".join(path.read_text(encoding="utf-8").split())
         match = _OLD_BASELINE_OVERVIEW.search(normalized)
         assert match is None, (
             f"{path.relative_to(SKILLS_DIR)} still quotes the deleted"
@@ -757,7 +757,9 @@ _MONOPOLY_CLAIM = "memory allowed to carry val-split metrics"
 def _memory_skill_tag_row(tag: str) -> str:
     rows = [
         line
-        for line in (SKILLS_DIR / "memory" / "SKILL.md").read_text().splitlines()
+        for line in (SKILLS_DIR / "memory" / "SKILL.md")
+        .read_text(encoding="utf-8")
+        .splitlines()
         if line.startswith(f"| `{tag}` |")
     ]
     assert len(rows) == 1, f"expected exactly one `{tag}` row, got {len(rows)}"
@@ -771,7 +773,7 @@ def test_no_kiln_harness_tuner_doc_documents_the_deleted_baselineref_provenance_
     # a future field change cannot leave this test asserting the wrong shape.
     assert set(BaselineRef.model_fields) == {"rc_id"}
     for path in _kiln_harness_tuner_doc_paths():
-        normalized = " ".join(path.read_text().split())
+        normalized = " ".join(path.read_text(encoding="utf-8").split())
         assert "rc_id, provenance" not in normalized, (
             f"{path.relative_to(SKILLS_DIR)} documents `baseline` as"
             " `{rc_id, provenance}` — `BaselineRef.provenance` was deleted"
@@ -847,7 +849,7 @@ def _api_paths_in(text: str) -> list[tuple[str, str]]:
 
 def test_no_kiln_harness_tuner_doc_elides_an_api_path_with_an_ellipsis():
     for path in _kiln_harness_tuner_doc_paths():
-        for span, api_path in _api_paths_in(path.read_text()):
+        for span, api_path in _api_paths_in(path.read_text(encoding="utf-8")):
             # Split at `?`: elided query VALUES (`?ids=…&ids=…`) are a
             # complete, callable path — it is an elided path PREFIX that
             # sends an agent guessing.
@@ -884,7 +886,7 @@ def test_no_kiln_harness_tuner_doc_names_the_wrong_by_ids_parameter():
     # `/by_ids` takes `ids`; three of the run's analyzer sessions died on
     # `memory_ids`, which is the Python-side name in `memory.py`.
     for path in _kiln_harness_tuner_doc_paths():
-        assert "memory_ids=" not in path.read_text(), (
+        assert "memory_ids=" not in path.read_text(encoding="utf-8"), (
             f"{path.relative_to(SKILLS_DIR)} names the `/by_ids` query"
             " parameter `memory_ids` — the API takes `ids`"
         )
@@ -913,7 +915,7 @@ def test_no_kiln_harness_tuner_doc_carries_a_kiln_host():
     # takes a path. Every host string in agent-visible text is an invitation
     # to curl.
     for path in _kiln_harness_tuner_doc_paths():
-        match = _HOST_SHAPES.search(path.read_text())
+        match = _HOST_SHAPES.search(path.read_text(encoding="utf-8"))
         assert match is None, (
             f"{path.relative_to(SKILLS_DIR)} carries a host ({match.group(0)!r})"
         )
@@ -927,7 +929,7 @@ def _skills_named_by_kiln_harness_tuner_docs() -> list[str]:
     all_skills = {p.name for p in SKILLS_DIR.iterdir() if p.is_dir()}
     named = set()
     for path in _kiln_harness_tuner_doc_paths():
-        for span in _code_spans(path.read_text()):
+        for span in _code_spans(path.read_text(encoding="utf-8")):
             name = span.strip().strip("*")
             if (
                 name in all_skills
@@ -997,7 +999,7 @@ def test_every_skill_name_an_installed_doc_backticks_resolves():
     known = _SKILLS_NOT_INSTALLED_HERE | _NOT_SKILL_NAMES
     unresolved: dict[str, set[str]] = {}
     for path in _installed_doc_paths():
-        for span in _code_spans(path.read_text()):
+        for span in _code_spans(path.read_text(encoding="utf-8")):
             name = span.strip().strip("*")
             if not _is_skill_reference(name) or name in known:
                 continue
@@ -1027,7 +1029,7 @@ def test_no_skill_a_kiln_harness_tuner_doc_loads_carries_a_kiln_host():
     named = _skills_named_by_kiln_harness_tuner_docs()
     assert named, "no routed-to skills found — the derivation broke, not the docs"
     for skill in named:
-        text = (SKILLS_DIR / skill / "SKILL.md").read_text()
+        text = (SKILLS_DIR / skill / "SKILL.md").read_text(encoding="utf-8")
         match = _HOST_SHAPES.search(text)
         assert match is None, (
             f"{skill}/SKILL.md carries a host ({match.group(0)!r}) and a Kiln "
@@ -1038,7 +1040,9 @@ def test_no_skill_a_kiln_harness_tuner_doc_loads_carries_a_kiln_host():
 def test_the_repo_claude_md_carries_no_kiln_port():
     # The dispatcher's cwd is the repo root, so the instructions load into EVERY
     # agent session — it is agent-visible text like any skill.
-    assert ":8757" not in (REPO_ROOT / ".agents" / "AGENTS.md").read_text()
+    assert ":8757" not in (REPO_ROOT / ".agents" / "AGENTS.md").read_text(
+        encoding="utf-8"
+    )
 
 
 # ---- the planner learns eval sizes ----
@@ -1212,7 +1216,7 @@ def _generated_endpoint_index() -> dict[tuple[str, str], str]:
     for path in sorted(KILN_API_DOCS.glob("*.md")):
         if path.name.endswith("_api_list.md"):  # a catalog, not an endpoint
             continue
-        match = _GENERATED_ENDPOINT.search(path.read_text())
+        match = _GENERATED_ENDPOINT.search(path.read_text(encoding="utf-8"))
         if match:
             index[_endpoint_key(*match.groups())] = path.name
     return index
@@ -1222,7 +1226,7 @@ def _deeplinks_in(doc: Path) -> list[tuple[str, str, Path]]:
     """(method, path, resolved target) for every api_docs deeplink in `doc`."""
     return [
         (method, path, (doc.parent / target).resolve())
-        for method, path, target in _DEEPLINK.findall(doc.read_text())
+        for method, path, target in _DEEPLINK.findall(doc.read_text(encoding="utf-8"))
     ]
 
 
@@ -1269,7 +1273,7 @@ def test_every_api_deeplink_names_the_endpoint_it_points_at():
     # endpoint.
     for doc in _agent_prompt_paths():
         for method, path, target in _deeplinks_in(doc):
-            documented = _GENERATED_ENDPOINT.search(target.read_text())
+            documented = _GENERATED_ENDPOINT.search(target.read_text(encoding="utf-8"))
             assert documented, f"{target.name} documents no endpoint"
             assert _endpoint_key(method, path) == _endpoint_key(*documented.groups()), (
                 f"{_doc_label(doc)} deeplinks `{method} {path}` to"
@@ -1295,7 +1299,7 @@ def test_every_endpoint_a_kiln_harness_tuner_doc_names_is_deeplinked():
     index = _generated_endpoint_index()
     for doc in _kiln_harness_tuner_doc_paths():
         linked = {_endpoint_key(m, p) for m, p, _ in _deeplinks_in(doc)}
-        for span, api_path in _api_paths_in(doc.read_text()):
+        for span, api_path in _api_paths_in(doc.read_text(encoding="utf-8")):
             method = _HTTP_METHOD.match(span.strip())
             if not method:
                 continue
@@ -1312,7 +1316,7 @@ def test_every_endpoint_a_kiln_harness_tuner_doc_names_is_deeplinked():
 def test_the_analyzer_names_the_memory_operation_it_reads():
     text = (
         SKILLS_DIR / "kiln-harness-tuner-experiment-analysis" / "SKILL.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     assert "memory_get(ids=[experiment_memory_id])" in text
 
 
@@ -1325,7 +1329,7 @@ def test_the_hole_prohibition_does_not_deeplink_the_results_endpoint():
     # "complete" it.
     text = (
         SKILLS_DIR / "kiln-harness-tuner-experiment-analysis" / "SKILL.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     _, marker, rest = text.partition("Never hand-recover a hole")
     assert marker, (
         "`kiln-harness-tuner-experiment-analysis` no longer says"
@@ -1413,12 +1417,12 @@ def test_no_loop_doc_or_prompt_tells_an_agent_to_call_the_generic_kiln_tool():
     code-tool skill's warning never to allowlist it inside a subject tool."""
     allowed = "kiln-harness-tuner-code-tool-authoring"
     texts = {
-        path.relative_to(SKILLS_DIR).as_posix(): path.read_text()
+        path.relative_to(SKILLS_DIR).as_posix(): path.read_text(encoding="utf-8")
         for path in SKILLS_DIR.glob("kiln-harness-tuner-*/**/*.md")
         if allowed not in path.as_posix()
         and "kiln-harness-tuner-gateway" not in path.as_posix()
     } | {
-        f"agents/{path.name}": path.read_text()
+        f"agents/{path.name}": path.read_text(encoding="utf-8")
         for path in DEFAULT_TEMPLATES_DIR.glob("*.md")
     }
     for name, text in texts.items():
@@ -1429,7 +1433,9 @@ def test_no_loop_doc_or_prompt_tells_an_agent_to_call_the_generic_kiln_tool():
 def test_every_gateway_operation_is_documented_in_the_gateway_skill():
     from kiln_harness_tuner.gateway.ops import OPS
 
-    text = (SKILLS_DIR / "kiln-harness-tuner-gateway" / "SKILL.md").read_text()
+    text = (SKILLS_DIR / "kiln-harness-tuner-gateway" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
     missing = [op for op in OPS if f"`{op}`" not in text]
     assert not missing, f"undocumented gateway operations: {missing}"
 
@@ -1456,7 +1462,9 @@ def test_the_gateway_rule_does_not_leak_out_of_the_kiln_harness_tuner_lane():
 
 
 def test_planner_skill_names_the_lever_attempts_input_and_the_ladder():
-    skill = (SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md").read_text()
+    skill = (SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
     assert "`lever_attempts`" in skill
     assert "references/lever-ladder.md" in skill
     assert set(BatchPlanInput.model_fields) >= {"lever_attempts"}
@@ -1465,7 +1473,7 @@ def test_planner_skill_names_the_lever_attempts_input_and_the_ladder():
         / "kiln-harness-tuner-batch-selection"
         / "references"
         / "lever-ladder.md"
-    ).read_text()
+    ).read_text(encoding="utf-8")
     # The second rule is stated on the count the code supplies, with its
     # limit (any outcome, not "failed") said out loud.
     assert "ANY outcome" in ladder and "which arms failed" in ladder

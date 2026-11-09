@@ -253,6 +253,12 @@ def no_agent_cli_check(monkeypatch):
         return None
 
     monkeypatch.setattr("kiln_harness_tuner.cli.check_agent_cli", passes)
+    # On Windows a start asks before it runs with no OS sandbox, and under
+    # pytest no terminal answers. `tests/test_os_sandbox.py` tests the
+    # question itself.
+    monkeypatch.setattr(
+        "kiln_harness_tuner.cli.confirm_no_sandbox", lambda **_kwargs: None
+    )
     # Nor does it install the agents' files into the repository it runs in.
     # `tests/test_install_agents.py` tests the install against a temp dir.
     monkeypatch.setattr("kiln_harness_tuner.cli.install_agents", lambda *a, **k: [])

@@ -2028,6 +2028,11 @@ class RunStatus(BaseModel):
     # The agent CLI the run dispatches through (`claude`, `codex`, `opencode`):
     # the name of the agent spend lane wherever a person reads it.
     agent_cli: str = "claude"
+    # Whether the platform gave the agent CLIs an OS sandbox
+    # (`os_sandbox.has_os_sandbox`): False on native Windows, and the report
+    # says so. A property of the platform, not of the run: OpenCode uses no
+    # OS sandbox on any platform (docs/agent-cli.md section 11).
+    os_sandbox: bool = True
     phase_segments: list[PhaseSegment] = []  # completed loop-phase spans,
     #   chronological (from phase_start/phase_end events)
     setup: SetupReport | None = None  # the pre-flight setup phase's record

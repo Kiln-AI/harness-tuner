@@ -226,7 +226,9 @@ def _project(tmp_path: Path, train_n: int = 8) -> Path:
         n: {"source": "eval_input", "filter_id": f"tag::{n}"}
         for n in ("train", "val", "test")
     }
-    (evals / "eval.kiln").write_text(json.dumps({"id": "eval_1", "splits": splits}))
+    (evals / "eval.kiln").write_text(
+        json.dumps({"id": "eval_1", "splits": splits}), encoding="utf-8"
+    )
     for split in ("train", "val", "test"):
         for n in range(train_n if split == "train" else 8):
             item = task / "eval_inputs" / f"{split}{n}"
@@ -241,7 +243,8 @@ def _project(tmp_path: Path, train_n: int = 8) -> Path:
                             "user_message": {"text": f"{split} input {n}"},
                         },
                     }
-                )
+                ),
+                encoding="utf-8",
             )
     return tmp_path / "proj"
 

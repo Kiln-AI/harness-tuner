@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from platform_marks import posix_only
 
 from kiln_harness_tuner.cli import render_run_configs
 from kiln_harness_tuner.dispatch.base import AgentDispatcher
@@ -26,6 +27,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     PreflightError,
     SubprocessResult,
 )
+from kiln_harness_tuner.dispatch.run_fence import rule_path
 from kiln_harness_tuner.schemas import (
     AnalysisBundle,
     AnalysisInput,
@@ -194,7 +196,7 @@ def write_transcript(tmp_path: Path, session_id: str, text: str = "{}\n") -> Pat
     src_dir = tmp_path / "projects" / "-repo"
     src_dir.mkdir(parents=True, exist_ok=True)
     src = src_dir / f"{session_id}.jsonl"
-    src.write_text(text)
+    src.write_text(text, encoding="utf-8")
     return src
 
 
@@ -827,7 +829,7 @@ class TestCliArgv:
         run = tmp_path / "run"
         run.mkdir()
         for name in ("mcp_config.batch_plan.json", "settings.batch_plan.json"):
-            (run / name).write_text("{}")
+            (run / name).write_text("{}", encoding="utf-8")
         dispatcher, runner = make_wired_dispatcher(
             tmp_path, [ok_proc(cli_payload(envelope_text(PLAN_DATA)))]
         )
@@ -894,7 +896,7 @@ class TestGrantedMcpToolsExist:
         )
         render_run_configs(tmp_path / "run", target, ACTUAL_REPO_ROOT)
         path = tmp_path / "run" / f"mcp_config.{role}.json"
-        return set(json.loads(path.read_text())["mcpServers"])
+        return set(json.loads(path.read_text(encoding="utf-8"))["mcpServers"])
 
     def test_every_granted_mcp_server_is_rendered(self, tmp_path):
         from kiln_harness_tuner.dispatch.claude_cli import NO_TOOL_ROLES
@@ -1092,7 +1094,7 @@ class TestTraceCopy:
         )
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         dest = traces_dir(tmp_path) / "batch_plan-loop-sess-1.jsonl"
-        assert dest.read_text() == '{"turn": 1}\n'
+        assert dest.read_text(encoding="utf-8") == '{"turn": 1}\n'
         # Success leaves no stderr file (issue 9: failures only).
         assert not list(traces_dir(tmp_path).glob("*-stderr.txt"))
 
@@ -1134,14 +1136,14 @@ class TestTraceCopy:
                     timeout_secs=timeout_secs,
                     cwd=cwd,
                 )
-                src.write_text("first\nsecond\n")
+                src.write_text("first\nsecond\n", encoding="utf-8")
                 return result
 
         dispatcher._runner = GrowingRunner()
         result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert result.status == "ok"
         dest = traces_dir(tmp_path) / "batch_plan-loop-sess-7.jsonl"
-        assert dest.read_text() == "first\nsecond\n"
+        assert dest.read_text(encoding="utf-8") == "first\nsecond\n"
 
     async def test_missing_transcript_never_fails_dispatch(self, tmp_path):
         # No transcript written — the copy logs-and-continues (issue 12).
@@ -1160,7 +1162,7 @@ class TestTraceCopy:
         result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert result.status == "failed_infra"
         stderr_file = traces_dir(tmp_path) / "batch_plan-loop-nosession-stderr.txt"
-        assert stderr_file.read_text() == "MCP spawn failed"
+        assert stderr_file.read_text(encoding="utf-8") == "MCP spawn failed"
 
     async def test_cli_is_error_persists_stderr_and_trace(self, tmp_path):
         write_transcript(tmp_path, "sess-1")
@@ -1178,7 +1180,7 @@ class TestTraceCopy:
         assert result.status == "failed_infra"
         assert (traces_dir(tmp_path) / "batch_plan-loop-sess-1.jsonl").is_file()
         stderr_file = traces_dir(tmp_path) / "batch_plan-loop-sess-1-stderr.txt"
-        assert stderr_file.read_text() == "upstream 429"
+        assert stderr_file.read_text(encoding="utf-8") == "upstream 429"
 
     async def test_unwired_dispatcher_copies_nothing(self, tmp_path):
         dispatcher, _ = make_dispatcher(
@@ -1346,6 +1348,17 @@ async def test_describe_eval_round_trip_and_per_eval_label(tmp_path):
     assert runner.calls[0].timeout_secs == AGENT_TIMEOUTS_SECS["describe_eval"]
 
 
+def assert_killed(proc: asyncio.subprocess.Process) -> None:
+    """Killed and reaped. macOS and Linux: by SIGKILL, so a change to a
+    softer signal shows. Windows has one way to end a process
+    (TerminateProcess), so a non-zero exit of a child that would exit 0 is
+    the proof there."""
+    if sys.platform == "win32":
+        assert proc.returncode not in (None, 0)
+    else:
+        assert proc.returncode == -signal.SIGKILL
+
+
 class TestAsyncioSubprocessRunner:
     """The one place the real runner is exercised against a real child — the
     unit tier is otherwise scripted."""
@@ -1399,7 +1412,7 @@ class TestAsyncioSubprocessRunner:
         # The SIGNAL, not just "it ended": `is not None` would also pass on a
         # child that exited by itself, so it would not notice a future
         # kill→terminate change silently failing on a child ignoring SIGTERM.
-        assert proc.returncode == -signal.SIGKILL  # killed AND reaped
+        assert_killed(proc)
 
     async def test_a_timeout_kills_and_reaps_the_child(self, monkeypatch):
         # The branch with real production traffic, and the OTHER caller of
@@ -1413,8 +1426,12 @@ class TestAsyncioSubprocessRunner:
         with pytest.raises(DispatchTimeoutError, match="wall-clock timeout"):
             await task
 
-        assert proc.returncode == -signal.SIGKILL  # not left running for 30s
+        assert_killed(proc)  # not left running for 30s
 
+    @posix_only(
+        "Windows has no process groups; `taskkill /T` kills the tree there"
+        " (test_platforms.py)"
+    )
     async def test_the_child_leads_its_own_process_group(self, monkeypatch):
         # start_new_session: the kill reaches MCP servers and
         # Bash children because they share the child's group.
@@ -1643,7 +1660,9 @@ class TestSecretHygiene:
         )
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         dest = traces_dir(tmp_path) / "batch_plan-loop-sess-1.jsonl"
-        assert dest.read_text() == '{"tool_result": "Bearer [REDACTED]"}\n'
+        assert (
+            dest.read_text(encoding="utf-8") == '{"tool_result": "Bearer [REDACTED]"}\n'
+        )
 
 
 class TestTimeoutRecovery:
@@ -1665,7 +1684,7 @@ class TestTimeoutRecovery:
         from kiln_harness_tuner.dispatch.claude_cli import transcript_usage_tokens
 
         path = tmp_path / "s.jsonl"
-        path.write_text(self.TRANSCRIPT)
+        path.write_text(self.TRANSCRIPT, encoding="utf-8")
         assert transcript_usage_tokens(path) == 100 + 20 + 300 + 5 + 50 + 25
 
     async def test_timeout_recovers_the_transcript_at_the_chosen_session_id(
@@ -1683,8 +1702,12 @@ class TestTimeoutRecovery:
             async def run(self, argv, *, stdin_text, timeout_secs, cwd):
                 session_id = argv[argv.index("--session-id") + 1]
                 chosen.append(session_id)
-                (src_dir / f"{session_id}.jsonl").write_text(transcript)
-                (src_dir / "sibling-still-running.jsonl").write_text(transcript * 3)
+                (src_dir / f"{session_id}.jsonl").write_text(
+                    transcript, encoding="utf-8"
+                )
+                (src_dir / "sibling-still-running.jsonl").write_text(
+                    transcript * 3, encoding="utf-8"
+                )
                 raise DispatchTimeoutError("claude -p exceeded 1s wall-clock timeout")
 
         dispatcher, _ = make_wired_dispatcher(tmp_path, [])
@@ -1700,8 +1723,8 @@ class TestTimeoutRecovery:
         uuid.UUID(session_id)  # a valid uuid, as the CLI requires
         dest = traces_dir(tmp_path) / f"batch_plan-loop-{session_id}-timeout.jsonl"
         assert dest.is_file()
-        assert "sk-ant-api03-abcdefghijklmnop" not in dest.read_text()
-        assert "[REDACTED]" in dest.read_text()
+        assert "sk-ant-api03-abcdefghijklmnop" not in dest.read_text(encoding="utf-8")
+        assert "[REDACTED]" in dest.read_text(encoding="utf-8")
 
     async def test_timeout_with_no_new_transcript_stays_unmeasured_zero(self, tmp_path):
         dispatcher, _ = make_wired_dispatcher(
@@ -1772,7 +1795,8 @@ class TestResumeOnTimeout:
                 if len(calls) == 1:
                     session_id = argv[argv.index("--session-id") + 1]
                     (src_dir / f"{session_id}.jsonl").write_text(
-                        '{"message":{"usage":{"input_tokens":10,"output_tokens":5}}}\n'
+                        '{"message":{"usage":{"input_tokens":10,"output_tokens":5}}}\n',
+                        encoding="utf-8",
                     )
                     raise DispatchTimeoutError("claude -p exceeded 1800s")
                 assert timeout_secs == 600.0  # the short resume cap
@@ -1805,7 +1829,7 @@ class TestResumeOnTimeout:
             async def run(self, argv, *, stdin_text, timeout_secs, cwd):
                 nonlocal calls
                 calls += 1
-                (src_dir / "orphan-1.jsonl").write_text("{}\n")
+                (src_dir / "orphan-1.jsonl").write_text("{}\n", encoding="utf-8")
                 raise DispatchTimeoutError("claude -p exceeded 900s")
 
         dispatcher, _ = make_wired_dispatcher(tmp_path, [])
@@ -1929,7 +1953,7 @@ async def test_every_dispatch_leaves_a_step_record(tmp_path):
     assert result.status == "ok"
     (path,) = sorted((tmp_path / "run" / "steps").glob("*.json"))
     assert path.name == "001-batch_plan-loop.json"
-    record = json.loads(path.read_text())
+    record = json.loads(path.read_text(encoding="utf-8"))
     assert record["agent"] == "batch_plan" and record["label"] == "batch_plan-loop"
     assert record["request"]["baseline"] == BATCH_PLAN_INPUT.baseline.model_dump()
     assert record["result"]["status"] == "ok"
@@ -1992,7 +2016,7 @@ class TestReadOnlyRoles:
         )
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         (call,) = runner.calls
-        assert self._settings(call.argv).endswith("/settings.json")
+        assert Path(self._settings(call.argv)).name == "settings.json"
         assert "scratch_dir:" in call.stdin_text
 
 
@@ -2005,22 +2029,26 @@ class TestRunDirDeniedByDefault:
         run = tmp_path / "run"
         run.mkdir()
         for name in ("settings.json", "settings.readonly.json"):
-            (run / name).write_text(json.dumps({"permissions": {"deny": ["WebFetch"]}}))
+            (run / name).write_text(
+                json.dumps({"permissions": {"deny": ["WebFetch"]}}), encoding="utf-8"
+            )
         return run
 
     async def test_a_new_entry_is_denied_before_the_next_session(self, tmp_path):
         run = self._run_dir(tmp_path)
-        (run / "late_writer.json").write_text("{}")
+        (run / "late_writer.json").write_text("{}", encoding="utf-8")
         (run / "late_dir").mkdir()
         dispatcher, _runner = TestReadOnlyRoles()._dispatcher(
             tmp_path, [ok_proc(cli_payload(envelope_text(PLAN_DATA)))]
         )
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
-        root = str(run.resolve()).lstrip("/")
+        root = rule_path(run.resolve())
         for name in ("settings.json", "settings.readonly.json"):
-            deny = json.loads((run / name).read_text())["permissions"]["deny"]
-            assert f"Read(//{root}/late_writer.json)" in deny, name
-            assert f"Read(//{root}/late_dir/**)" in deny, name
+            deny = json.loads((run / name).read_text(encoding="utf-8"))["permissions"][
+                "deny"
+            ]
+            assert f"Read({root}/late_writer.json)" in deny, name
+            assert f"Read({root}/late_dir/**)" in deny, name
             assert not any("/scratch" in rule for rule in deny), name
             assert deny[0] == "WebFetch"  # the rest of the settings kept
 
@@ -2028,7 +2056,7 @@ class TestRunDirDeniedByDefault:
         from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
 
         run = self._run_dir(tmp_path)
-        (run / "x.json").write_text("{}")
+        (run / "x.json").write_text("{}", encoding="utf-8")
         files = [run / "settings.json"]
         assert refresh_run_dir_denials(run, files)
         assert refresh_run_dir_denials(run, files) == []

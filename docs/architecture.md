@@ -79,9 +79,11 @@ In this order, and the order is the design:
    with no tools goes through `--agent-cli`, before the lock and the run
    directory. A CLI that cannot answer stops the start and leaves nothing
    behind ([agent-cli.md](agent-cli.md) section 9).
-1. **The run lock.** A kernel `flock` on `runs/.lock-<project>-<task>`. One
-   live run per task. The kernel releases it when the holder dies, so there is
-   no stale-lock reclaim step and no reclaim race.
+1. **The run lock** (`run_lock.py`). An OS file lock on
+   `runs/.lock-<project>-<task>`: `flock` on macOS and Linux,
+   `msvcrt.locking` on Windows. One live run per task. The OS releases it when
+   the holder dies, so there is no stale-lock reclaim step and no reclaim
+   race.
 2. **The rendered per-run configuration.** `render_run_configs` writes
    `runs/<run_id>/mcp_config.<role>.json` and
    `runs/<run_id>/settings.<role>.json` for every role (plus the shared
@@ -928,7 +930,10 @@ reviewers) run under it, and get no scratch directory.
 3. **The OS sandbox.** Bash and its children run sandboxed: the repository is
    deny-write, the scratch tree is re-opened, the read fence is repeated, and
    the outbound network allowlist is empty. A missing sandbox is a loud failure
-   rather than a silent unsandboxed fallback.
+   rather than a silent unsandboxed fallback. Native Windows is the one
+   exception: it has no OS sandbox, so a start there asks the operator first
+   (`os_sandbox.py`), the settings turn the sandbox off, and the report says
+   the run had none ([install.md](install.md), platform support).
 4. **The loop gateway**
    ([`gateway/`](../src/kiln_harness_tuner/gateway/)). Loop agents never get a generic
    Kiln API tool. Each role's MCP config holds the gateway, started with
@@ -1051,8 +1056,11 @@ them, is [agent-cli.md](agent-cli.md) section 6.
 
 ```
 src/kiln_harness_tuner/
-  cli.py            the console script: flags, run lock, rendered per-run
-                    config, the read fence, the composition root
+  cli.py            the console script: flags, rendered per-run config,
+                    the read fence, the composition root
+  run_lock.py       the one-run-per-task lock, on every OS
+  os_sandbox.py     the platform with no OS sandbox (native Windows): the
+                    question before a start
   kiln.py           KilnClient, the one REST client
   kiln_names.py     Kiln-valid names for the objects the loop creates
   budget.py         the per-candidate spending caps and their holds

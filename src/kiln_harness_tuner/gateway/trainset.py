@@ -109,12 +109,15 @@ class TrainSet:
         )
 
     def write(self, path: Path) -> None:
-        path.write_text(json.dumps(self.to_json(), indent=1) + "\n")
+        path.write_text(
+            json.dumps(self.to_json(), indent=1, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     @staticmethod
     def load(path: Path) -> TrainSet:
         try:
-            return TrainSet.from_json(json.loads(path.read_text()))
+            return TrainSet.from_json(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError) as exc:
             raise TrainSetError(
                 f"cannot read {path} ({exc})."

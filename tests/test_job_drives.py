@@ -57,13 +57,15 @@ def _project(tmp_path: Path, n: int = 6) -> Path:
         name: {"source": "eval_input", "filter_id": f"tag::{name}"}
         for name in ("train", "val", "test")
     }
-    (evals / "eval.kiln").write_text(json.dumps({"id": "eval_1", "splits": splits}))
+    (evals / "eval.kiln").write_text(
+        json.dumps({"id": "eval_1", "splits": splits}), encoding="utf-8"
+    )
     for split in ("train", "val", "test"):
         for i in range(n):
             item = task / "eval_inputs" / f"{split}{i}"
             item.mkdir(parents=True)
             doc = _multi_turn_doc(f"{split}{i}", [split], f"{split} opening {i}")
-            (item / "eval_input.kiln").write_text(json.dumps(doc))
+            (item / "eval_input.kiln").write_text(json.dumps(doc), encoding="utf-8")
     return tmp_path / "proj"
 
 
@@ -380,7 +382,8 @@ def test_the_gateway_drives_a_multi_turn_train_item_through_a_train_job(tmp_path
     item_dir = tmp_path / "proj" / "tasks" / f"{TASK} - T" / "eval_inputs" / "mt1"
     item_dir.mkdir(parents=True)
     (item_dir / "eval_input.kiln").write_text(
-        json.dumps(_multi_turn_doc("mt1", ["train_a"], "opening line"))
+        json.dumps(_multi_turn_doc("mt1", ["train_a"], "opening line")),
+        encoding="utf-8",
     )
     gateway, kiln = _gateway(tmp_path, routes)
     assert "mt1" in gateway.s.train.per_eval["e1"]
@@ -412,9 +415,11 @@ def _as_multi_turn(project_root: Path) -> None:
     """Rewrite every eval input of `_speed_ctx`'s project as a multi-turn
     world item with the same opening text."""
     for path in project_root.glob("tasks/*/eval_inputs/*/eval_input.kiln"):
-        doc = json.loads(path.read_text())
+        doc = json.loads(path.read_text(encoding="utf-8"))
         text = doc["data"]["user_message"]["text"]
-        path.write_text(json.dumps(_multi_turn_doc(doc["id"], doc["tags"], text)))
+        path.write_text(
+            json.dumps(_multi_turn_doc(doc["id"], doc["tags"], text)), encoding="utf-8"
+        )
 
 
 async def test_a_multi_turn_cost_run_times_and_promotes_through_eval_jobs(

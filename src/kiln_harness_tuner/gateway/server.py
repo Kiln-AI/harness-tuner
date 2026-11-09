@@ -35,7 +35,7 @@ POLICY_FILE = "model_policy.json"
 
 def load_policy(run_dir: Path) -> ModelPolicy | None:
     path = run_dir / POLICY_FILE
-    if not path.exists() or not path.read_text().strip():
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
         return None
     try:
         return ModelPolicy.load(path)

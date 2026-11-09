@@ -125,7 +125,9 @@ def _stored(ctx, eval_id: str, rc_id: str, scores: dict[str, float]) -> None:
     (eval_dir,) = (task / "evals").glob(f"{eval_id} - *")
     config = eval_dir / "configs" / f"ec_{eval_id} - judge"
     config.mkdir(parents=True, exist_ok=True)
-    (config / "eval_config.kiln").write_text(json.dumps({"id": f"ec_{eval_id}"}))
+    (config / "eval_config.kiln").write_text(
+        json.dumps({"id": f"ec_{eval_id}"}), encoding="utf-8"
+    )
     for item_id, value in scores.items():
         run = config / "runs" / f"{rc_id}-{item_id}"
         run.mkdir(parents=True)
@@ -137,7 +139,8 @@ def _stored(ctx, eval_id: str, rc_id: str, scores: dict[str, float]) -> None:
                     "task_run_config_id": rc_id,
                     "scores": {"accuracy": value},
                 }
-            )
+            ),
+            encoding="utf-8",
         )
 
 
@@ -659,7 +662,9 @@ class TestNoPerRequestCeiling:
         assert re.search(line, record)
         line = r"latency eval_1 \(train, eval_runs, n=\d+\).*ratio 2\.00"
         assert re.search(line, record)
-        summary = json.loads((tmp_path / "val_summary.json").read_text())
+        summary = json.loads(
+            (tmp_path / "val_summary.json").read_text(encoding="utf-8")
+        )
         (row,) = summary["candidates"][0]["per_eval"]
         assert row["cost"]["metric"] == "cost_usd"
         assert row["cost"]["median_ratio"] == pytest.approx(0.5)

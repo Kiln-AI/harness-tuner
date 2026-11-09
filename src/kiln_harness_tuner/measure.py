@@ -114,6 +114,7 @@ from kiln_harness_tuner.latency import (
     timed_drives,
 )
 from kiln_harness_tuner.objective import is_efficiency
+from kiln_harness_tuner.path_order import path_key
 from kiln_harness_tuner.schemas import (
     ErrorInfo,
     EvalTarget,
@@ -214,7 +215,7 @@ def _train_ids(ctx: Ctx, eval_id: str) -> set[str] | None:
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
@@ -226,7 +227,7 @@ def _with_id(folder: Path, filename: str, wanted: str) -> list[Path]:
         return []
     return [
         child
-        for child in sorted(folder.iterdir())
+        for child in sorted(folder.iterdir(), key=path_key)
         if (data := _read_json(child / filename)) is not None
         and str(data.get("id")) == wanted
     ]
