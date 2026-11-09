@@ -3,8 +3,13 @@ name = "harness-tuner"
 version = "0.1.0"
 description = "Automatically tune an AI agent's harness (prompt, model, tools, skills), measured by your evals and confirmed on held-out data."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Kiln AI" }]
 keywords = ["kiln", "llm", "evals", "prompt-optimization", "agents"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 # One floor for the whole repository, the vendored MCP server included. The
 # whole dependency set (`kiln-ai`, `jq`, `mcp`, `pydantic`, `rich`, `pyyaml`,
 # `httpx`) installs on CPython 3.11, and the full suite passes there.

@@ -11,7 +11,9 @@ tool_description: same as the wrapped tool's, plus: "Errors come back as
 plain instructions (valid values, nearest matches, what to change)."
 
 parameters_schema: same as the wrapped tool's — read it from the
-clone-source GET; typically {"type": "object", "properties": {
+clone-source GET (`get_code_tool`) for a code tool, or from
+`get_tool_definition` for an MCP, built-in, Kiln task or RAG tool; typically
+{"type": "object", "properties": {
   "method": {"type": "string"}, "url_path": {"type": "string"},
   "query_params": {"type": "object"}, "body": {"type": "object"}},
   "required": ["method", "url_path"]}

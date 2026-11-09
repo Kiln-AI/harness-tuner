@@ -9,10 +9,15 @@ of options `cli.build_parser()` defines.
 not exist is broken, and the mistake this repository is most likely to make is
 linking forward to a document a later phase writes.
 
-The link and flag checks read different sets of files, on purpose. The link
-check covers `docs/` **and the two documents at the repository root**:
-`README.md` is almost entirely links into `docs/`, and a misspelling there is
-invisible to a check that reads `docs/` alone and broken for every reader.
+**The install sample names every console script.** `docs/install.md` shows
+the line `uv tool install .` prints. A script added to `[project.scripts]`
+and not to that line is a stale document.
+
+The flag check and the link check read different sets of files, on purpose.
+The link check covers `docs/` **and the two documents at the repository
+root**: `README.md` is almost entirely links into `docs/`, and a misspelling
+there is invisible to a check that reads `docs/` alone and broken for every
+reader.
 
 The flag check stays over `docs/` alone, and the reason is the documentation
 plan, not the entry pattern: the flag reference lives in `docs/`, one row per
@@ -43,6 +48,7 @@ from __future__ import annotations
 
 import os
 import re
+import tomllib
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -312,3 +318,21 @@ def test_docs_name_no_retired_command(path: Path):
     assert not hits, f"{path.relative_to(REPO_ROOT)} names retired forms:\n" + (
         "\n".join(hits)
     )
+
+
+# The summary line `uv tool install .` prints, as `docs/install.md` shows it.
+INSTALLED_LINE_RE = re.compile(r"^Installed (\d+) executables: (.+)$", re.MULTILINE)
+
+
+def test_install_doc_lists_every_console_script():
+    """`docs/install.md` shows the line `uv tool install .` prints. `uv` names
+    every `[project.scripts]` entry on it, sorted, so a script added to
+    `pyproject.toml` and not to the sample is a stale document."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    scripts = tomllib.loads(pyproject)["project"]["scripts"]
+    install = (DOCS_ROOT / "install.md").read_text(encoding="utf-8")
+    lines = INSTALLED_LINE_RE.findall(install)
+    assert len(lines) == 1, f"expected one `Installed N executables:` line: {lines}"
+    count, names = lines[0]
+    assert names.split(", ") == sorted(scripts)
+    assert int(count) == len(scripts)

@@ -103,5 +103,7 @@ full.
 
 ## Licence
 
-The `LICENSE` file is not in the repository yet. Ask before you invest in a
-large change.
+The project is under the MIT License. See [LICENSE](../LICENSE).
+
+New contributors must agree to the contributor license agreement in
+[.github/CLA.md](CLA.md).

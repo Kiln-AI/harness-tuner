@@ -49,8 +49,10 @@ Four families:
   served on demand is a real lever — variants of a context tool are cheap
   experiments).
 
-`tool_config` items overlap this space from the other side: attaching,
-dropping, or re-describing existing tools on the new rc, no new code.
+`tool_config` items overlap this space from the other side: attaching or
+dropping existing tools on the new rc, no new code. A new description is
+not `tool_config`. It is a new tool: a clone of a code tool with the new
+`tool_description`, or a wrapper of any tool.
 
 ## Wrapper templates — bake it into code first
 
@@ -75,8 +77,8 @@ against a stub of `kiln.tools`:
 | Spurious writes on a read scenario | `readonly_guard.py` |
 
 Three edits turn a template into the subject's tool: rename
-`call_subject_api` to the wrapped tool's real `tool_function_name`, match its
-real `parameters_schema`, set the subject's routes and field names. Then the
+`call_subject_api` to the wrapped tool's real function name, match its
+real parameter schema, set the subject's routes and field names. Then the
 build discipline below applies unchanged (fresh function name, dry-run with
 reads, wire into the new rc, say in `build_notes` whether it replaces or sits
 beside the wrapped tool).
@@ -89,9 +91,11 @@ into a subject tool's `tool_allowlist` — that hands the subject model a live
 channel into the Kiln API (eval definitions, memories, run configs). Advice
 to "route HTTP through `tools.call_kiln_api`" is for tools built *for the
 Kiln assistant*; for a subject tool it is exactly
-backwards. The wrap targets are the tools already on the parent rc (they are
-code tools themselves — nested code-tool → code-tool calls are supported,
-depth cap 10).
+backwards. The wrap targets are the subject-task tools already on the parent
+rc, of any kind a run config attaches except skills: code tools, MCP tools
+and built-in tools alike. The rule above still applies to each of them (the
+Contract below lists what Kiln accepts). Nested code-tool → code-tool calls
+are supported, depth cap 10.
 
 ## Prerequisites
 
@@ -108,11 +112,23 @@ and persist or run nothing — check the field.
 - Return `str` (passthrough) or JSON-serializable dict/list/number/bool/None
   (auto-dumped).
 - **Nested tool calls**: `from kiln import tools` (or `async_tools`) →
-  `tools.<tool_function_name>(**kwargs)` — kwargs must match the *wrapped*
-  tool's own `parameters_schema` (read it from the clone-source GET; do not
-  guess its signature). Every callee must be in `tool_allowlist` (code-tool
-  ids allowed; skill ids and `kiln_unmanaged::` rejected; no self-reference;
-  depth cap 10; process concurrency cap 8).
+  `tools.<function_name>(**kwargs)` — kwargs must match the *wrapped*
+  tool's own parameter schema. Read it from the clone-source GET
+  (`get_code_tool`, its `parameters_schema`) for a code tool, or from
+  `get_tool_definition` (`definition.parameters`) for an MCP, built-in,
+  Kiln task or RAG tool; do not guess its signature. Every callee must be in
+  `tool_allowlist`:
+  - Kiln accepts code-tool, MCP (remote and local), built-in, Kiln task,
+    RAG, memory and world tool ids (a world tool resolves only inside an
+    episode of its world). The allowlist hygiene rule above still applies
+    to every kind: never `kiln_tool::call_kiln_api`, and never a
+    `kiln_tool::memory::…` tool, which reads and writes the project's
+    memory store;
+  - Kiln rejects skill ids, `kiln_unmanaged::` ids, a duplicate id, and the
+    tool's own id;
+  - function names must be unique in one allowlist, except among MCP tools:
+    a call to a name that two MCP tools share fails as ambiguous;
+  - depth cap 10; process concurrency cap 8.
 - Nested results may arrive parsed OR as a JSON string — parse defensively,
   and note the *body inside* a `{status_code, body}` envelope may itself be
   a JSON string again.
@@ -130,6 +146,7 @@ Your gateway operations (the `kiln-harness-tuner-gateway` skill has their fields
 | Dry-run (nothing persisted) | `test_code_tool` — create fields + `params` (the invocation args) → `{result, error, traceback, not_trusted, tool_call_log, …}` |
 | Create | `create_code_tool` — `{name, tool_function_name, tool_description, parameters_schema, code, timeout_seconds, tool_allowlist}` |
 | Read an existing tool (clone source) | `get_code_tool` |
+| Read a non-code tool's schema (wrap target) | `get_tool_definition` — `definition`: `function_name`, `description`, `parameters` |
 | Wire into the new rc | add `kiln_tool::code::<new_ctid>` to the new run config's `tools_config.tools` |
 
 ## Build discipline (the Kiln Harness Tuner deltas)
@@ -166,7 +183,10 @@ The shape: users hand the model display numbers; the API's path segments
 need opaque ids; the baseline model guesses. The composite makes the
 resolve-then-fetch idiom one call. `call_subject_api` stands for whatever
 the parent rc's domain API tool is named; match its real signature and
-routes, taken from its own definition.
+routes, taken from its own definition. `<subject_api_tool_id>` is that
+tool's id on the parent rc, of any kind (`kiln_tool::code::…`,
+`mcp::local|remote::…`), but never `kiln_tool::call_kiln_api` (the rule
+above).
 
 Create payload:
 
@@ -183,7 +203,7 @@ Create payload:
     "required": ["query"]
   },
   "timeout_seconds": 60,
-  "tool_allowlist": ["kiln_tool::code::<subject_api_ctid>"],
+  "tool_allowlist": ["<subject_api_tool_id>"],
   "code": "<the module below as a string>"
 }
 ```

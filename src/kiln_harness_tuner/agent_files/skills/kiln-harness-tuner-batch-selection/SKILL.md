@@ -58,7 +58,7 @@ going looking.
   candidate. **A model swap is excluded by default** — the subject model is
   the environment; only guidance that explicitly allows other models, or
   `objective: "speed"` (below), makes it a lever. Provider
-  parameters (thinking level, temperature, top_p, max tokens) are in scope
+  parameters (thinking level, temperature, top_p) are in scope
   unless the guidance names them.
 - **Only models in `allowed_models`**. When `model_policy` is
   set, a run config on any other (provider, model) pair is refused by code —
@@ -388,8 +388,8 @@ Then read **the baseline run-config itself** (`get_run_config` with
 `get_prompt_text`): its prompt, tools, and skills drive cost, technique, and
 cohesion judgments — a candidate branches from this config. **All of it is
 in the action space**: an arm may rewrite, split, merge, scrub or detach an
-attached skill (as a new version), re-describe, wrap, consolidate or drop a
-tool, change the parameters or the model — not only add text around what
+attached skill (as a new version), re-describe (as a code-tool clone or a
+wrapper), wrap, consolidate or drop a tool, change the parameters or the model — not only add text around what
 is there. When the failure traces to an inherited skill or tool, the
 candidate changes THAT, not the prompt (the lever ladder's rows on
 inherited skills and on tool consolidation).
@@ -443,7 +443,7 @@ runs; only "did the output change in the named way" needs the agent.
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
   new_tool | params | …`), with `needs_eval: true` when the issue has no eval
   yet. `params` is a run-config-only arm — the model's provider parameters
-  (thinking level, temperature, top_p, max tokens) on a clone of the parent
+  (thinking level, temperature, top_p) on a clone of the parent
   with everything else byte-identical. Parameters are an ordinary lever:
   the kickoff guidance must NAME one to exclude it; "do not
   change the tools/eval/corpus" does not. **Thinking is a ladder**: start from the baseline's level (the minimum viable one)
