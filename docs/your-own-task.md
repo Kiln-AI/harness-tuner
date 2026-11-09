@@ -419,7 +419,7 @@ project and task reads:
 ✓ Project   Forum Moderation (424242975950)
 ✓ Task      Forum Moderation (424242783061)
 ✓ Ready     1 run config · 1 eval the tuner can measure
-✓ API keys  Fireworks AI
+✓ API keys  OpenRouter
 ```
 
 To watch a run on a task that is known to be ready first, `--demo-project`
@@ -590,7 +590,7 @@ again, and one last question:
 ```
 Ready to start
   Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950)
-  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on Fireworks AI
+  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter
   Improve      Quality
   Guidance     "Improve the moderation decisions. Keep the output format."
   Agents       Claude Code (claude -p) · opus

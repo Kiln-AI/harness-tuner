@@ -496,7 +496,7 @@ provider. This key is **not** the Claude Code sign-in of section 4: the agents
 that run the loop and the model being optimized are different accounts, metered
 separately, and reported as two separate spend lanes
 ([costs.md](costs.md)). The moderation example (`examples/moderation/`), which
-is also the demo project, uses Fireworks.
+is also the demo project, uses OpenRouter.
 
 ### The key check at start-up
 
@@ -569,11 +569,11 @@ the summary before the run shows as its "Starts from" line.
 
 ```
 curl -sS http://localhost:8757/api/available_models \
-  | python3 -c "import json,sys; print(any(p.get('provider_id') == 'fireworks_ai' for p in json.load(sys.stdin)))"
+  | python3 -c "import json,sys; print(any(p.get('provider_id') == 'openrouter' for p in json.load(sys.stdin)))"
 ```
 
 `True` means Kiln has the key. Substitute your provider's ID for
-`fireworks_ai`. The message names providers as Kiln's UI does, and
+`openrouter`. The message names providers as Kiln's UI does, and
 `PROVIDER_NAMES` in
 [`onboarding/keys.py`](../src/kiln_harness_tuner/onboarding/keys.py) maps
 each ID to that name: `gemini_api` is "Gemini API", `together_ai` is
@@ -713,8 +713,8 @@ Not a requirement: a first run on a task that is known to be ready.
 `--demo-project` copies the demo project — the moderation task of
 [examples/moderation](../examples/moderation/README.md) — into a new folder,
 imports the copy into Kiln, and runs on it. It needs sections 1 to 5, including
-a Fireworks key in Kiln, because the demo's baseline calls its model through
-Fireworks. Section 5's check says so if the key is missing.
+an OpenRouter key in Kiln, because the demo's baseline calls its model
+through OpenRouter. Section 5's check says so if the key is missing.
 
 ```
 harness-tuner --demo-project
@@ -736,7 +736,7 @@ questions. With each pre-filled answer accepted, the screen ends like this:
 ✓ Project   Forum Moderation (731954460212)
 ✓ Task      Forum Moderation (424242783061)
 ✓ Ready     1 run config · 1 eval the tuner can measure
-✓ API keys  Fireworks AI
+✓ API keys  OpenRouter
 ✓ Improve   Quality
 ✓ Guidance  "Improve the moderation decisions. Keep the output format."
 ✓ Agents    Claude Code (claude -p) · opus
@@ -746,7 +746,7 @@ questions. With each pre-filled answer accepted, the screen ends like this:
 
 Ready to start
   Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212)
-  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on Fireworks AI
+  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter
   Improve      Quality
   Guidance     "Improve the moderation decisions. Keep the output format."
   Agents       Claude Code (claude -p) · opus

@@ -19,7 +19,7 @@ The task has no tools, no simulated user and no state. Every post is invented.
 `none`.
 
 **The baseline** is the run config `Baseline`: a short prompt on DeepSeek
-V4.1 Flash 1017 (`deepseek_4_1_flash_1017`) through Fireworks. The prompt
+V4.1 Flash 1017 (`deepseek_4_1_flash_1017`) through OpenRouter. The prompt
 names the four rules in one line each. It does not give the house rules below,
 so the baseline removes some good posts and keeps many bad ones. Those
 mistakes are what the loop can find on train and fix.
@@ -93,8 +93,8 @@ invented.
 
 You need the requirements in the [main README](../../README.md#requirements):
 the loop installed, a running Kiln studio server, and a signed-in agent CLI.
-You also need a Fireworks key in Kiln, because the baseline calls DeepSeek
-V4.1 Flash 1017 through Fireworks. The start checks that Kiln has the key,
+You also need an OpenRouter key in Kiln, because the baseline calls DeepSeek
+V4.1 Flash 1017 through OpenRouter. The start checks that Kiln has the key,
 and says where to add it when it doesn't.
 
 1. Start the loop on a fresh copy of the project:
