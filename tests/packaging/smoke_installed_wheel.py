@@ -4,18 +4,21 @@ The offline suite runs from the checkout, so it cannot catch a package that
 works only from one. This script checks what the sdist and the wheel hold,
 installs the wheel as a uv tool into temporary folders, and makes a real run
 from an empty folder. A fake `claude` (`fake_claude.py`) stands in for Claude
-Code, and no Kiln server answers. The run gets through the agent-file install,
-the agent CLI check, the lock, the run folder, the rendered configs and the
-split check, and stops at the pre-flight with exit code 1. The checks then
-look at where every file went. The run is made twice: with
-`KILN_HARNESS_TUNER_HOME` set, and without it.
+Code, and a fake Kiln (`fake_kiln_server.py`) answers the reads of the
+start-up checks from the run's copy of the demo project. The run gets through
+the start-up checks, the agent-file install, the agent CLI check, the lock,
+the run folder, the rendered configs, the split check and the pre-flight,
+where the installed gateway pings the fake Kiln. It stops with exit code 1 at
+its first write to Kiln, which the fake refuses. The checks then look at where
+every file went. The run is made twice: with `KILN_HARNESS_TUNER_HOME` set,
+and without it.
 
     uv build
     python tests/packaging/smoke_installed_wheel.py --dist dist
 
 `--dist` is the folder `uv build` wrote, with one sdist and one wheel in it.
-The script is stdlib only and never imports `kiln_harness_tuner`: the
-installed copy is what it tests. The tool is installed on the interpreter that
+The script and its fakes are stdlib only and never import `kiln_harness_tuner`:
+the installed copy is what they test. The tool is installed on the interpreter that
 runs the script. It needs `uv`, `uvx` and `git` on `PATH`. Each passed check
 prints one `ok:` line. The first failed check stops the script with a message
 that names it.
@@ -37,6 +40,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
+from fake_kiln_server import FakeKiln
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
 # The demo project ships in the package, for `--demo-project`.
@@ -45,8 +50,6 @@ EXAMPLE_PROJECT = (
 )
 PROJECT_ID = "424242975950"
 TASK_ID = "424242783061"
-# Nothing listens on port 9, so no Kiln server answers.
-NO_KILN_HOST = "http://127.0.0.1:9"
 RUN_TIMEOUT_SECS = 600
 # An install with a cold uv cache downloads every dependency.
 COMMAND_TIMEOUT_SECS = 600
@@ -362,8 +365,8 @@ def dry_preflight(
     env: dict[str, str],
     checkout_before: str,
 ) -> None:
-    """One run that stops at the pre-flight, and the checks on where its
-    files went."""
+    """One run that stops at its first write to Kiln, after the pre-flight,
+    and the checks on where its files went."""
 
     def check(name: str) -> str:
         return f"[{dry.label}] {name}"
@@ -394,24 +397,35 @@ def dry_preflight(
         "--task-id",
         TASK_ID,
         "--kiln-host",
-        NO_KILN_HOST,
+        "<fake Kiln>",
         "--no-progress",
     ]
-    proc = run(
-        check("run"),
-        argv,
-        env=run_env,
-        cwd=tmp / "cwd",
-        expect=1,
-        timeout=RUN_TIMEOUT_SECS,
-    )
+    with FakeKiln(project) as kiln:
+        argv[argv.index("<fake Kiln>")] = kiln.host
+        proc = run(
+            check("run"),
+            argv,
+            env=run_env,
+            cwd=tmp / "cwd",
+            expect=1,
+            timeout=RUN_TIMEOUT_SECS,
+        )
+    writes = [request for request in kiln.requests if not request.startswith("GET ")]
     runs = dry.state / "runs"
     if f"files in {runs}/" not in proc.stdout:
         fail(check("start line"), f"no run folder under {runs}/\n{output_of(proc)}")
-    for expected in ("preflight failed", "harness-tuner: run folder:"):
+    # The first write is the last request: the fake refuses it, and the run
+    # stops there.
+    if len(writes) != 1 or kiln.requests[-1] != writes[0]:
+        fail(
+            check("exit"),
+            f"the run made {len(writes)} write(s) to Kiln, not one last one:"
+            f" {kiln.requests[-5:]}\n{output_of(proc)}",
+        )
+    for expected in ("Kiln returned an error", writes[0], "  Run folder: "):
         if expected not in proc.stderr:
             fail(check("exit"), f"stderr lacks {expected!r}\n{output_of(proc)}")
-    ok(check("exit code 1 at the pre-flight, with the start and run-folder lines"))
+    ok(check(f"exit code 1 at the first write to Kiln ({writes[0]}), after the start"))
 
     agents_dir = dry.state / "agents" / "claude" / version
     if not (agents_dir / ".claude" / "skills" / "kiln-api" / "SKILL.md").is_file():
@@ -447,7 +461,7 @@ def dry_preflight(
     if len(run_dirs) != 1:
         fail(check("run folder"), f"{runs} holds {len(run_dirs)} run folders, not 1")
     run_dir = run_dirs[0]
-    if f"harness-tuner: run folder: {run_dir}" not in proc.stderr:
+    if f"  Run folder: {run_dir}\n" not in proc.stderr:
         fail(check("run folder"), f"stderr does not name {run_dir}\n{output_of(proc)}")
     absent = [
         name
@@ -489,7 +503,13 @@ def dry_preflight(
             f"the gateway listed {preflight.get('tools')!r}"
             f" (error: {preflight.get('error')!r})\n" + output_of(proc),
         )
-    ok(check(f"the gateway started and listed {preflight['tools']}"))
+    if '"ok": true' not in str(preflight.get("ping")):
+        fail(
+            check("gateway ping"),
+            f"the gateway's ping answered {preflight.get('ping')!r}"
+            f" (error: {preflight.get('error')!r})\n" + output_of(proc),
+        )
+    ok(check(f"the gateway listed {preflight['tools']} and its ping reached Kiln"))
 
     if any((tmp / "cwd").iterdir()):
         fail(check("cwd"), f"the run wrote {sorted((tmp / 'cwd').iterdir())}")
