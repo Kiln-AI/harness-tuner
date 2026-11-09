@@ -218,8 +218,8 @@ def check_wheel(wheel: Path, version: str) -> bytes:
     if extra:
         fail("wheel", f"{wheel.name} ships {extra} (no tests/, no examples/)")
     ok(
-        f"wheel holds the agent files, role templates and demo project ({len(tracked)} tracked"
-        f" files) and only {', '.join(sorted(tops))}"
+        "wheel holds the agent files, role templates and demo project"
+        f" ({len(tracked)} tracked files) and only {', '.join(sorted(tops))}"
     )
     return instructions
 
@@ -395,7 +395,7 @@ def dry_preflight(
         TASK_ID,
         "--kiln-host",
         NO_KILN_HOST,
-        "--no-ui",
+        "--no-progress",
     ]
     proc = run(
         check("run"),
