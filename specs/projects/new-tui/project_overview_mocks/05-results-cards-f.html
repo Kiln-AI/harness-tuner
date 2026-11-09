@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Tuner Results Cards</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Geist+Mono:wght@400;700&family=Noto+Sans+Symbols+2&display=swap">
+<style>
+/* Layout: plain page; terminal plates at fixed simulated widths. */
+:root{
+  --bg:#f3f4f2; --panel:#ffffff; --ink:#1b1f1e; --muted:#5e6866; --line:#d8dddb; --accent:#2f6f8f;
+  --font-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono:"Geist Mono", "Noto Sans Symbols 2", ui-monospace, Menlo, Consolas, monospace;
+  --t-bg:#0f1216; --t-bar:#171b21; --t-fg:#d6dae0; --t-dim:#7c8490; --t-faint:#3a414b;
+  --t-good:#5fd38d; --t-bad:#ff6f6f; --t-run:#5cc8f0;
+  --s0:#5d6570; --s1:#e6e9ee; --s2:#a990ff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4; color-scheme: dark; } }
+:root[data-theme="dark"]{ --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4; color-scheme: dark; }
+body.pal-b{--s1:#3fc1a5;--s2:#6b9cff}
+body.pal-c{--s1:#5fd38d;--s2:#e8b84a}
+body.light-terms{--t-bg:#fbfbf8;--t-bar:#eeefeb;--t-fg:#1d222a;--t-dim:#69717d;--t-faint:#c6ccd4;--t-good:#14803b;--t-bad:#c4302a;--t-run:#076c9f;--s0:#aab0b8;--s1:#1d222a;--s2:#6a46c0}
+body.light-terms.pal-b{--s1:#0f8a73;--s2:#2f62d6}
+body.light-terms.pal-c{--s1:#14803b;--s2:#a36d00}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5;margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:36px 72px;display:grid;gap:28px}
+h1{font-size:28px;line-height:1.15;margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:17px;margin:0;font-weight:600}
+p{margin:0;max-width:72ch}
+.muted{color:var(--muted)}
+.head{display:grid;gap:10px}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;font-size:14px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line)}
+.ctl{display:flex;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex-wrap:wrap}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--panel);color:var(--ink);padding:5px 11px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plate{display:grid;gap:8px;min-width:0}
+.cap{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+.tag{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 6px}
+.term{background:var(--t-bg);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0;justify-self:start;max-width:100%}
+.tbar{display:flex;justify-content:space-between;gap:12px;background:var(--t-bar);color:var(--t-dim);font-family:var(--font-mono);font-size:11.5px;padding:5px 12px}
+.scroll{overflow-x:auto}
+.scr{font-family:var(--font-mono);font-size:var(--fs,13px);line-height:1.32;color:var(--t-fg);white-space:pre;margin:0;padding:14px 16px 16px;font-variant-numeric:tabular-nums;width:max-content}
+.scr .w{display:inline-block;width:1ch;text-align:center}
+.scr .fb,.scr .xb{height:1.32em;vertical-align:top}
+.scr .fb{background:currentColor}
+.scr .xb{background:linear-gradient(to right,currentColor calc(var(--h)*12.5%),transparent 0)}
+.scr .d{color:var(--t-dim)} .scr .f{color:var(--t-faint)} .scr .g{color:var(--t-good)} .scr .r{color:var(--t-bad)} .scr .c{color:var(--t-run)}
+.scr .s0{color:var(--s0)} .scr .s1{color:var(--s1)} .scr .s2{color:var(--s2)} .scr .b{font-weight:700}
+</style>
+
+<main class="wrap">
+  <header class="head">
+    <div class="eyebrow">Harness Tuner · Results · render F</div>
+    <h1>Results as cards</h1>
+    <p>One card per concern with three bars: Start, Best Confirmed (one run config, measured on val) and Best Unconfirmed (the best single run config for that concern, measured on train). Cards stretch and reflow to the terminal's width. Every concern is shown. The key sits on one line in the section header: on the title line when the terminal is wide enough, on its own line when it is not.</p>
+    <p class="muted">Pick a terminal width to see the reflow, or "All widths" to compare them. Sample data on an invented agent.</p>
+  </header>
+
+  <div class="controls">
+    <div class="ctl"><span id="l-w">Terminal width</span><div class="seg" role="group" aria-labelledby="l-w"><button data-w="all" aria-pressed="true">All widths</button><button data-w="80" aria-pressed="false">80</button><button data-w="100" aria-pressed="false">100</button><button data-w="130" aria-pressed="false">130</button><button data-w="160" aria-pressed="false">160</button></div></div>
+    <div class="ctl"><span id="l-m">Moment</span><div class="seg" role="group" aria-labelledby="l-m"><button data-m="B" aria-pressed="true">Mid wave 4</button><button data-m="G" aria-pressed="false">Just after the gate</button></div></div>
+    <div class="ctl"><span id="l-n">Concerns</span><div class="seg" role="group" aria-labelledby="l-n"><button data-n="7" aria-pressed="true">7</button><button data-n="14" aria-pressed="false">14</button></div></div>
+    <div class="ctl"><span id="l-p">Bar colors</span><div class="seg" role="group" aria-labelledby="l-p"><button data-p="a" aria-pressed="true">Gray · White · Violet</button><button data-p="b" aria-pressed="false">Gray · Teal · Blue</button><button data-p="c" aria-pressed="false">Gray · Green · Amber</button></div></div>
+    <div class="ctl"><span id="l-t">Terminal</span><div class="seg" role="group" aria-labelledby="l-t"><button data-t="dark" aria-pressed="true">Dark</button><button data-t="light" aria-pressed="false">Light</button></div></div>
+  </div>
+
+  <div id="plates" style="display:grid;gap:30px"></div>
+</main>
+
+<script>
+/* ---------- cell-grid toolkit ---------- */
+const RE=/\{([a-zA-Z0-9 -]+)\|([^}]*)\}/g;
+const strip=s=>s.replace(RE,'$2'),len=s=>[...strip(s)].length,rep=(c,n)=>c.repeat(Math.max(0,Math.floor(n)));
+const pad=(s,w)=>s+rep(' ',w-len(s)),padL=(s,w)=>rep(' ',w-len(s))+s;
+const clip=(s,w)=>[...s].length>w?[...s].slice(0,w-1).join('')+'…':s;
+const SP='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',spin=t=>SP[Math.floor(t*10)%10];
+const LEFTB='▏▎▍▌▋▊▉';
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function wide(s){let o='';for(const ch of s){const cp=ch.codePointAt(0);
+  if(ch==='█')o+='<span class="w fb"></span>';else if(LEFTB.includes(ch))o+=`<span class="w xb" style="--h:${LEFTB.indexOf(ch)+1}"></span>`;
+  else o+=(cp>0x7f&&!(cp>=0x2500&&cp<=0x259f))?`<span class="w">${ch}</span>`:ch}return o}
+function toHTML(line){let o='',last=0,m;RE.lastIndex=0;while((m=RE.exec(line))){o+=wide(esc(line.slice(last,m.index)));o+=`<span class="${m[1]}">${wide(esc(m[2]))}</span>`;last=RE.lastIndex}return o+wide(esc(line.slice(last)))}
+function box(w,lines,o={}){const bc=o.bc||'f',inner=w-4;const tp=o.title?` ${o.title} `:'',rp=o.right?` ${o.right} `:'',bp=o.bottom?` ${o.bottom} `:'';
+  return [`{${bc}|╭─}${tp}{${bc}|${rep('─',w-4-len(tp)-len(rp))}}${rp}{${bc}|─╮}`,...lines.map(l=>`{${bc}|│} ${pad(l,inner)} {${bc}|│}`),`{${bc}|╰${rep('─',w-3-len(bp))}}${bp}{${bc}|─╯}`]}
+function hcat(blocks,gap=' '){const ws=blocks.map(b=>Math.max(0,...b.map(len)));const h=Math.max(...blocks.map(b=>b.length));const out=[];for(let i=0;i<h;i++)out.push(blocks.map((b,j)=>pad(b[i]||'',ws[j])).join(gap).replace(/\s+$/,''));return out}
+
+/* ---------- data (task order; no special sorting) ---------- */
+const MOM={
+ B:{conf:'w3-4',confName:'get_container wrapper',status:t=>`{d|wave 4 ·} {c|${spin(t)}} {d|6 in flight}`,
+  rows:[['Refusal honesty','p0','pass',70.2,79.8,89.0,'w4-2',['w4-4']],['Hold placement','p1','pass',63.0,70.1,75.3,'w4-1',['w4-4']],
+   ['Output format','p1','pass',93.3,93.5,null,null,['w4-4']],['Tone and policy','p2','rating',4.08,4.12,null,null,['w4-4']],
+   ['Escalation','p2','pass',54.8,56.0,null,null,['w4-3','w4-4']]],
+  extra:[['Address validation','p1','pass',82.0,85.0,null,null,['w4-4']],['Customs paperwork','p1','pass',74.5,74.3,77.8,'w4-1',['w4-4']],['Auth checks','p1','pass',96.0,96.4,null,null,['w4-4']],
+   ['Pickup windows','p2','pass',68.0,68.0,null,null,['w4-4']],['Damage claims','p2','pass',71.0,71.1,null,null,['w4-4']],['Rate quotes','p2','pass',77.0,76.0,null,null,['w4-4']],['Language match','p3','pass',85.0,84.9,null,null,['w4-4']]],
+  watch:[['Cost / request','','cost',0.042,0.039,0.033,'w4-1',[]],['Latency, median','','lat',8.4,7.6,6.5,'w4-1',[]]]},
+ G:{conf:'w4-2',confName:'refusal rule in prompt',status:()=>`{d|wave 5 planning}`,
+  rows:[['Refusal honesty','p0','pass',70.2,87.6,null,null,[]],['Hold placement','p1','pass',63.0,70.4,null,null,[]],
+   ['Output format','p1','pass',93.3,93.4,null,null,[]],['Tone and policy','p2','rating',4.08,4.11,null,null,[]],['Escalation','p2','pass',54.8,56.2,null,null,[]]],
+  extra:[['Address validation','p1','pass',82.0,85.2,null,null,[]],['Customs paperwork','p1','pass',74.5,74.6,null,null,[]],['Auth checks','p1','pass',96.0,96.3,null,null,[]],
+   ['Pickup windows','p2','pass',68.0,68.4,null,null,[]],['Damage claims','p2','pass',71.0,70.8,null,null,[]],['Rate quotes','p2','pass',77.0,76.2,null,null,[]],['Language match','p3','pass',85.0,85.1,null,null,[]]],
+  watch:[['Cost / request','','cost',0.042,0.040,null,null,[]],['Latency, median','','lat',8.4,7.9,null,null,[]]]}};
+let width='all',moment='B',count=7,pal='a',light=false;
+const obj=([n,pr,k,s,c,u,uid,fl])=>({n,pr,k,s,c,u,uid,fl});
+function rows(){const m=MOM[moment];return [...m.rows,...(count===14?m.extra:[]),...m.watch].map(obj)}
+const fv=(k,v)=>k==='pass'?v.toFixed(1)+'%':k==='rating'?v.toFixed(2):k==='cost'?'$'+v.toFixed(3).slice(1):v.toFixed(1)+'s';
+function dl(k,s,v){if(v==null)return '';let txt,b;
+  if(k==='pass'||k==='rating'){const d=v-s;b=d;txt=(d>=0?'+':'−')+Math.abs(d).toFixed(k==='pass'?1:2)+(k==='pass'?'%':'')}
+  else{const r=(v-s)/s*100;b=-r;txt=(r>0?'+':'−')+Math.abs(r).toFixed(0)+'%'}
+  return `{${Math.abs(b)<(k==='rating'?0.02:0.5)?'d':(b>0?'g':'r')}|${txt}}`}
+const frac=(k,s,v)=>k==='pass'?v/100:k==='rating'?(v-1)/4:v/s*0.8;
+function hbar(f,W,cls){const e=Math.round(Math.max(0,Math.min(1,f))*W*8),full=Math.floor(e/8),part=e%8;return `{${cls}|${rep('█',full)}${part?LEFTB[part-1]:''}}`+rep(' ',W-full-(part?1:0))}
+
+/* ---------- the section ---------- */
+const MIN_CARD=32;
+function section(W,t){
+  const m=MOM[moment],st=m.status(t),L=[];
+  const keyFull=`{s0|■} Start   {s1|■} Best Confirmed {d|· val ·} ${m.conf} {d|${m.confName}}   {s2|■} Best Unconfirmed {d|· train}`;
+  const keyShort=`{s0|■} start  {s1|■} best confirmed {d|val ·} ${m.conf}  {s2|■} best unconfirmed {d|train}`;
+  const title=' {b|RESULTS}';
+  if(len(title)+3+len(keyFull)+3+len(st)<=W){L.push(title+'   '+keyFull+rep(' ',W-len(title)-3-len(keyFull)-len(st)-1)+st)}
+  else{L.push(title+rep(' ',W-len(title)-len(st)-1)+st);L.push(' '+(1+len(keyFull)<=W?keyFull:keyShort))}
+  L.push('');
+  const n=Math.max(1,Math.floor((W-1+1)/(MIN_CARD+1)));const cw=Math.floor((W-1-(n-1))/n);const bw=cw-4-17;
+  const cards=rows().map(r=>box(cw,[
+    `${hbar(frac(r.k,r.s,r.s),bw,'s0')} {s0|${padL(fv(r.k,r.s),7)}}`,
+    `${hbar(frac(r.k,r.s,r.c),bw,'s1')} {s1|${padL(fv(r.k,r.c),7)}} ${padL(dl(r.k,r.s,r.c),8)}`,
+    r.u!=null?`${hbar(frac(r.k,r.s,r.u),bw,'s2')} {s2|${padL(fv(r.k,r.u),7)}} ${padL(dl(r.k,r.s,r.u),8)}`:''],
+    {title:`{b|${clip(r.n,cw-16)}}${r.pr?` {d|${r.pr}}`:''}`,right:r.fl.length?`{c|${spin(t)}} {d|${r.fl.length}}`:'',bottom:r.u!=null?`{s2|${r.uid}}`:''}));
+  for(let i=0;i<cards.length;i+=n)hcat(cards.slice(i,i+n),' ').forEach(l=>L.push(' '+l));
+  return {lines:L,perRow:n,cardW:cw}}
+
+/* ---------- plates ---------- */
+const host=document.getElementById('plates');const WIDTHS=[80,100,130,160];
+const fs=W=>W<=100?13:W<=130?12:10.5;
+function build(){host.innerHTML='';(width==='all'?WIDTHS:[+width]).forEach(W=>{const d=document.createElement('section');d.className='plate';
+  d.innerHTML=`<div class="cap"><h2>${W} columns</h2><span class="tag" id="info-${W}"></span></div><div class="term"><div class="tbar"><span>harness-tuner</span><span>${W} cols</span></div><div class="scroll"><pre class="scr" id="p-${W}" style="--fs:${fs(W)}px" aria-label="Results at ${W} columns"></pre></div></div>`;host.appendChild(d)});draw()}
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches,T0=performance.now();
+function draw(){const t=reduce?0.35:(performance.now()-T0)/1000;(width==='all'?WIDTHS:[+width]).forEach(W=>{const s=section(W,t);const pre=document.getElementById('p-'+W);if(!pre)return;
+  pre.innerHTML=s.lines.map(l=>toHTML(pad(l,W))).join('\n');document.getElementById('info-'+W).textContent=`${s.perRow} cards per row · ${s.cardW} cols each · ${s.lines.length} rows`})}
+function sync(){const set=(sel,fn)=>document.querySelectorAll(sel).forEach(b=>b.setAttribute('aria-pressed',String(fn(b))));
+  set('[data-w]',b=>b.dataset.w===String(width));set('[data-m]',b=>b.dataset.m===moment);set('[data-n]',b=>+b.dataset.n===count);set('[data-p]',b=>b.dataset.p===pal);set('[data-t]',b=>(b.dataset.t==='light')===light);
+  document.body.classList.toggle('pal-b',pal==='b');document.body.classList.toggle('pal-c',pal==='c');document.body.classList.toggle('light-terms',light)}
+document.querySelector('.controls').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  let rebuild=false;if(b.dataset.w){width=b.dataset.w;rebuild=true}if(b.dataset.m)moment=b.dataset.m;if(b.dataset.n)count=+b.dataset.n;if(b.dataset.p)pal=b.dataset.p;if(b.dataset.t)light=b.dataset.t==='light';
+  sync();rebuild?build():draw()});
+sync();build();if(!reduce)setInterval(draw,150);
+</script>
+
+</body></html>

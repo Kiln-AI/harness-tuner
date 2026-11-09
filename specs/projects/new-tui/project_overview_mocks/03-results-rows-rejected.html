@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Tuner Results Section</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Geist+Mono:wght@400;700&family=Noto+Sans+Symbols+2&display=swap">
+<style>
+/* Layout: one column; a terminal plate is the subject, plain page chrome around it. */
+:root{
+  --bg:#f3f4f2; --panel:#ffffff; --ink:#1b1f1e; --muted:#5e6866; --line:#d8dddb; --accent:#2f6f8f;
+  --font-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono:"Geist Mono", "Noto Sans Symbols 2", ui-monospace, Menlo, Consolas, monospace;
+  /* terminal palette: dark by default whatever the page theme; Light toggles it */
+  --t-bg:#0f1216; --t-bar:#171b21; --t-fg:#d6dae0; --t-dim:#7c8490; --t-faint:#3a414b;
+  --t-good:#5fd38d; --t-good2:#2f6a49; --t-bad:#ff6f6f; --t-bad2:#7d3838; --t-warn:#e9c46a; --t-run:#5cc8f0; --t-acc:#ff9a5c;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4; color-scheme: dark; } }
+:root[data-theme="dark"]{ --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4; color-scheme: dark; }
+body.light-terms{ --t-bg:#fbfbf8; --t-bar:#eeefeb; --t-fg:#1d222a; --t-dim:#69717d; --t-faint:#c6ccd4;
+  --t-good:#14803b; --t-good2:#93c9a6; --t-bad:#c4302a; --t-bad2:#eaa49f; --t-warn:#8f6000; --t-run:#076c9f; --t-acc:#c24e19; }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5;margin:0}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:36px 72px;display:grid;gap:22px}
+h1{font-size:28px;line-height:1.15;margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:17px;margin:0;font-weight:600}
+p{margin:0;max-width:72ch}
+.muted{color:var(--muted)}
+.head{display:grid;gap:10px}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;font-size:14px}
+.ctl{display:flex;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex-wrap:wrap}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--panel);color:var(--ink);padding:5px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.term{background:var(--t-bg);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0}
+.tbar{display:flex;justify-content:space-between;gap:12px;background:var(--t-bar);color:var(--t-dim);font-family:var(--font-mono);font-size:11.5px;padding:5px 12px}
+.scroll{overflow-x:auto}
+.scr{font-family:var(--font-mono);font-size:13px;line-height:1.32;color:var(--t-fg);white-space:pre;margin:0;padding:14px 16px 16px;font-variant-numeric:tabular-nums;width:max-content;min-width:100%}
+.scr .w{display:inline-block;width:1ch;text-align:center}
+.scr .fb,.scr .lb,.scr .xb{height:1.32em;vertical-align:top}
+.scr .fb{background:currentColor}
+.scr .xb{background:linear-gradient(to right,currentColor calc(var(--h)*12.5%),transparent 0)}
+.scr .lb{background:linear-gradient(to top,currentColor calc(var(--h)*12.5%),transparent 0)}
+.scr .d{color:var(--t-dim)} .scr .f{color:var(--t-faint)} .scr .g{color:var(--t-good)} .scr .gd{color:var(--t-good2)}
+.scr .r{color:var(--t-bad)} .scr .rd{color:var(--t-bad2)} .scr .y{color:var(--t-warn)} .scr .c{color:var(--t-run)} .scr .a{color:var(--t-acc)}
+.scr .b{font-weight:700} .scr .u{text-decoration:underline;text-underline-offset:2px}
+.scr .inv{background:var(--t-fg);color:var(--t-bg)}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.note{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:6px;align-content:start}
+.note li{font-size:14px;color:var(--muted)}
+.note ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.note b{color:var(--ink);font-weight:600}
+.note code{font-family:var(--font-mono);font-size:12.5px}
+</style>
+
+<main class="wrap">
+  <header class="head">
+    <div class="eyebrow">Harness Tuner · functional mock · section 3</div>
+    <h1>Results</h1>
+    <p>The Results section as it would render in the terminal. Every concern (each eval, cost, latency) gets the same row and the same "better than start" scale. Confirmed progress and unconfirmed train wins are drawn differently, and unconfirmed wins are never added into the champion's number. Step through three moments of one run.</p>
+    <p class="muted">Sample run on an invented freight-depot agent; all numbers are made up.</p>
+  </header>
+
+  <div class="controls">
+    <div class="ctl"><span id="l-m">Moment</span><div class="seg" role="group" aria-labelledby="l-m"><button data-m="A" aria-pressed="false">After wave 1</button><button data-m="B" aria-pressed="true">Mid wave 4</button><button data-m="C" aria-pressed="false">Wave 4 landed</button></div></div>
+    <div class="ctl"><span id="l-n">Concerns</span><div class="seg" role="group" aria-labelledby="l-n"><button data-n="7" aria-pressed="true">7</button><button data-n="18" aria-pressed="false">18</button></div></div>
+    <div class="ctl"><span id="l-c">Quiet rows</span><div class="seg" role="group" aria-labelledby="l-c"><button data-c="show" aria-pressed="true">Show</button><button data-c="fold" aria-pressed="false">Fold</button></div></div>
+    <div class="ctl"><span id="l-t">Terminal</span><div class="seg" role="group" aria-labelledby="l-t"><button data-t="dark" aria-pressed="true">Dark</button><button data-t="light" aria-pressed="false">Light</button></div></div>
+  </div>
+
+  <div class="term"><div class="tbar"><span>harness-tuner · results</span><span id="dims"></span></div><div class="scroll"><pre class="scr" id="scr" aria-label="Terminal mock of the Results section"></pre></div></div>
+
+  <section class="notes">
+    <div class="note"><h2>Tiers</h2><ul>
+      <li><b>Start:</b> the config the run began from. Train until the first gate, then val.</li>
+      <li><b>Champion:</b> the current promoted config, on val. Dim means no clear change from start.</li>
+      <li><b>Unconfirmed wins</b> (the indented lines): a successful train verdict, not promoted, not rejected at val, not already in a promoted merge. A merge's result replaces its ingredients.</li>
+    </ul></div>
+    <div class="note"><h2>One scale</h2><ul>
+      <li><b>Pass-rate evals:</b> share of start's failures now fixed.</li>
+      <li><b>Rating evals:</b> share of the distance to the top of the scale.</li>
+      <li><b>Cost and latency:</b> share cut from start. Only configs whose quality held can show here.</li>
+    </ul></div>
+    <div class="note"><h2>Data</h2><ul>
+      <li>Train start values: the detectability report (<code>emitted</code>).</li>
+      <li>Val start and champion values: the gate's per-eval tables (<code>computed</code>, not emitted today).</li>
+      <li>Unconfirmed membership: <code>item_outcome</code>, <code>promotion</code> and merge ingredients (<code>derived</code>). Pooled estimate emitted; per-eval rows computed.</li>
+    </ul></div>
+  </section>
+</main>
+
+<script>
+/* ---------- cell-grid toolkit: {class|text} markup, fixed-width cells ---------- */
+const RE=/\{([a-zA-Z0-9 -]+)\|([^}]*)\}/g;
+const strip=s=>s.replace(RE,'$2'),len=s=>[...strip(s)].length,rep=(c,n)=>c.repeat(Math.max(0,Math.floor(n)));
+const pad=(s,w)=>s+rep(' ',w-len(s)),padL=(s,w)=>rep(' ',w-len(s))+s;
+const clip=(s,w)=>[...s].length>w?[...s].slice(0,w-1).join('')+'…':s;
+const SP='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',spin=t=>SP[Math.floor(t*10)%10];
+const LEFTB='▏▎▍▌▋▊▉';
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function wide(s){let o='';for(const ch of s){const cp=ch.codePointAt(0);
+  if(ch==='█')o+='<span class="w fb"></span>';else if(LEFTB.includes(ch))o+=`<span class="w xb" style="--h:${LEFTB.indexOf(ch)+1}"></span>`;
+  else o+=(cp>0x7f&&!(cp>=0x2500&&cp<=0x259f))?`<span class="w">${ch}</span>`:ch}return o}
+function toHTML(line){let o='',last=0,m;RE.lastIndex=0;while((m=RE.exec(line))){o+=wide(esc(line.slice(last,m.index)));o+=`<span class="${m[1]}">${wide(esc(m[2]))}</span>`;last=RE.lastIndex}return o+wide(esc(line.slice(last)))}
+function runs(cells){let o='',cur=null,buf='';const fl=()=>{if(buf)o+=cur?`{${cur}|${buf}}`:buf;buf=''};for(const c of cells){const k=c.cls||'';if(k!==cur){fl();cur=k}buf+=c.ch}fl();return o}
+
+/* ---------- sample data (same run as the feed mock) ---------- */
+const BASE=[
+ {id:'g1',name:'Refusal honesty',pr:'p0',kind:'pass',role:'optimize'},{id:'g2',name:'Hold placement',pr:'p1',kind:'pass',role:'optimize'},
+ {id:'g4',name:'Output format',pr:'p1',kind:'pass',role:'optimize'},{id:'g3',name:'Tone and policy',pr:'p2',kind:'rating',role:'optimize'},
+ {id:'g5',name:'Escalation',pr:'p2',kind:'pass',role:'optimize'},{id:'gc',name:'Cost / request',pr:'',kind:'cost',role:'watch'},{id:'gl',name:'Latency, median',pr:'',kind:'lat',role:'watch'}];
+const EXTRA=[['Address validation','p1'],['Customs paperwork','p1'],['Auth checks','p1'],['Pickup windows','p2'],['Damage claims','p2'],['Handoff summary','p2'],
+ ['Multi-shipment asks','p2'],['Rate quotes','p2'],['Greeting policy','p3'],['US vs metric units','p3'],['Language match','p3']].map(([n,p],i)=>({id:'x'+i,name:n,pr:p,kind:'pass',role:'optimize'}));
+const OLD='w2-1';
+const M={
+ A:{split:'train',sum:'{d|no promotion yet ·} 1 unconfirmed win {d|· wave 2 planning}',champ:null,
+  g1:{s:71.2,fl:[]},g2:{s:62.0,fl:[],unc:[{id:'w1-3',d:7.8,lo:2.0,hi:13.6,par:'start',why:'knowledge win, not a candidate'}]},g4:{s:93.0,fl:[]},g3:{s:4.10,fl:[]},g5:{s:55.0,fl:[]},gc:{s:0.042,fl:[]},gl:{s:8.4,fl:[]}},
+ B:{split:'val',sum:'{a b|◆ w3-4} {d|after 2 promotions ·} 4 unconfirmed wins {d|·} merge w4-4 measuring',champ:'w3-4',
+  g1:{s:70.2,c:79.8,clear:true,fl:['w4-4'],unc:[{id:'w4-2',d:9.2,lo:3.1,hi:15.0,par:'◆ w3-4',gate:true}]},
+  g2:{s:63.0,c:70.1,clear:true,fl:['w4-1','w4-4'],unc:[{id:'w3-3',d:5.6,lo:0.9,hi:10.3,par:OLD,older:true}],notes:[['c','merge w4-4 (w3-1 + w3-3 onto ◆ w3-4) measuring',true]]},
+  g4:{s:93.3,c:93.5,clear:false,fl:['w4-4'],unc:[{id:'w3-1',d:3.1,lo:0.2,hi:6.0,par:OLD,older:true,why:'in merge w4-4'}]},
+  g3:{s:4.08,c:4.12,clear:false,fl:['w4-4']},
+  g5:{s:54.8,c:56.0,clear:false,fl:['w4-3','w4-4'],notes:[['d','w3-2 rejected at val (train +6, val +1): not counted']]},
+  gc:{s:0.042,c:0.039,clear:false,fl:[],unc:[{id:'s3·c4',r:0.29,par:OLD,older:true,why:'screen survivor: haiku-5-5, thinking off'}]},
+  gl:{s:8.4,c:7.6,clear:true,fl:[],unc:[{id:'s3·c4',r:0.37,par:OLD,older:true,why:'screen survivor'}]}},
+ C:{split:'val',sum:'{a b|◆ w3-4} {d|·} 2 candidates to the gate: w4-2, merge w4-4',champ:'w3-4',
+  g1:{s:70.2,c:79.8,clear:true,fl:[],unc:[{id:'w4-2',d:9.2,lo:3.1,hi:15.0,par:'◆ w3-4',gate:true}]},
+  g2:{s:63.0,c:70.1,clear:true,fl:[],unc:[{id:'w4-4',d:8.0,lo:2.4,hi:13.6,par:'◆ w3-4',gate:true,why:'merge: w3-3 stacked'}]},
+  g4:{s:93.3,c:93.5,clear:false,fl:[],unc:[{id:'w4-4',d:0.2,lo:-1.5,hi:1.9,par:'◆ w3-4',gate:true,why:'merge: w3-1 did not carry'}]},
+  g3:{s:4.08,c:4.12,clear:false,fl:[]},
+  g5:{s:54.8,c:56.0,clear:false,fl:[],notes:[['d','w3-2 rejected at val: not counted · w4-3 no win']]},
+  gc:{s:0.042,c:0.039,clear:false,fl:[],unc:[{id:'s3·c4',r:0.29,par:OLD,older:true,why:'screen survivor: haiku-5-5, thinking off'}]},
+  gl:{s:8.4,c:7.6,clear:true,fl:[],unc:[{id:'s3·c4',r:0.37,par:OLD,older:true,why:'screen survivor'}]}}};
+const XS=[82.0,74.5,96.0,68.0,71.0,88.0,64.0,77.0,97.0,91.0,85.0],XD=[3.0,-0.2,0.4,0,0.1,-0.3,0.2,-1.0,0.1,0.2,-0.1];
+function extraFor(m,i){const s=XS[i];if(m==='A')return {s,fl:[]};return {s:s-0.6,c:s-0.6+XD[i],clear:i===0,fl:m==='B'?['w4-4']:[]}}
+
+/* ---------- formatting and the shared scale ---------- */
+const better=(k,s,v)=>k==='pass'?(v-s)/(100-s)*100:k==='rating'?(v-s)/(5-s)*100:(s-v)/s*100;
+const span=(k,s)=>k==='pass'?100-s:5-s;
+const fv=(k,v)=>k==='pass'?v.toFixed(1)+'%':k==='rating'?v.toFixed(2):k==='cost'?'$'+v.toFixed(3).slice(1):v.toFixed(1)+'s';
+const sg=d=>d>0.0001?'+':(d<-0.0001?'−':'±');
+const fd=(k,d,s,v)=>k==='pass'?`${sg(d)}${Math.abs(d).toFixed(1)}pt`:k==='rating'?`${sg(d)}${Math.abs(d).toFixed(2)}`:`${sg(v-s)}${Math.abs((v-s)/s*100).toFixed(0)}%`;
+const NEG=5,POS=30,TW=NEG+1+POS; /* track: 5 cells for −20..0, a start marker, 30 cells for 0..100 */
+function track(g,r,t){
+  const cells=Array.from({length:TW},(_,i)=>({ch:i===NEG+15?'┊':' ',cls:'f'}));cells[NEG]={ch:'┃',cls:'d'};
+  const cb=r.c!=null?better(g.kind,r.s,r.c):0;const cc=r.clear?'g':'gd';
+  if(cb<0){const n=Math.min(NEG,Math.max(1,Math.round(-cb/20*NEG)));for(let i=NEG-n;i<NEG;i++)cells[i]={ch:'█',cls:r.clear?'r':'rd'}}
+  let endCell=0;
+  if(cb>0){const e=Math.round(cb/100*POS*8),full=Math.floor(e/8),part=e%8;for(let i=0;i<full&&i<POS;i++)cells[NEG+1+i]={ch:'█',cls:cc};
+    if(part&&full<POS)cells[NEG+1+full]={ch:LEFTB[part-1],cls:cc};endCell=full+(part?1:0)}
+  const u=(r.unc||[])[0];
+  if(u){const from=cb>0?cb:0;let gain,lo=null,hi=null;
+    if(u.r!=null){const base=r.c!=null?r.c:r.s;gain=better(g.kind,r.s,base*u.r)-better(g.kind,r.s,base)}
+    else{const sp=span(g.kind,r.s);gain=u.d/sp*100;lo=u.lo/sp*100;hi=u.hi/sp*100}
+    const toCell=v=>Math.round(v/100*POS);
+    if(lo!=null){const a=Math.max(endCell,toCell(from+lo)),b=Math.min(POS,toCell(from+hi));for(let i=a;i<b;i++)cells[NEG+1+i]={ch:'─',cls:'gd'};if(from+hi>100)cells[TW-1]={ch:'▸',cls:'gd'}}
+    if(gain>0.5){const a=Math.max(endCell,toCell(from)),b=Math.min(POS,Math.max(a+1,toCell(from+gain)));for(let i=a;i<b;i++)cells[NEG+1+i]={ch:u.older?'░':'▒',cls:'g'}}}
+  return runs(cells)}
+/* columns: name 22 · start 8 · champion 16 · track 36 · in flight */
+const COL={name:22,start:8,champ:17};
+const INDENT=1+COL.name+2;
+function row(g,r,m,t){
+  const nm=`{d|${pad(g.pr||'  ',3)}}${pad(clip(g.name,COL.name-3),COL.name-3)}`;
+  const st=padL(fv(g.kind,r.s),7);
+  let ch;if(r.c==null)ch=`{d|${pad('      —',COL.champ)}}`;
+  else{const d=r.c-r.s,v=padL(fv(g.kind,r.c),7),dl=fd(g.kind,d,r.s,r.c),b=better(g.kind,r.s,r.c);
+    ch=r.clear?`${v} {${b>=0?'g':'r'}|${pad(dl,8)}}`:`{d|${v} ${pad(dl,8)}}`}
+  const fl=r.fl&&r.fl.length?`{c|${spin(t)}} {d|${r.fl.join(' ')}}`:'';
+  const out=[` ${nm}  ${st} ${pad(ch,COL.champ)}  ${track(g,r,t)}  ${fl}`];
+  (r.unc||[]).forEach((u,i)=>{const est=u.r!=null?`×${u.r.toFixed(2)}`:`${sg(u.d)}${Math.abs(u.d).toFixed(g.kind==='rating'?2:1)}${g.kind==='pass'?'pt':''} {d|[${u.lo>0?'+':''}${u.lo.toFixed(1)}, ${u.hi>0?'+':''}${u.hi.toFixed(1)}]}`;
+    const tail=[u.older?'{y|older parent}':'',u.why?`{d|${u.why}}`:''].filter(Boolean).join(' {d|·} ');
+    out.push(`${rep(' ',INDENT)}{f|└} {g|${u.older?'░':'▒'}} {b|${u.id}} ${est} {d|vs} ${u.par}${u.gate?'  {inv c b| to gate }':''}${tail?'  '+tail:''}`)});
+  (r.notes||[]).forEach(([cls,txt,live])=>out.push(`${rep(' ',INDENT)}{f|└} {${cls}|${txt}}${live?` {c|${spin(t)}}`:''}`));
+  return out}
+const quiet=r=>!(r.c!=null&&r.clear)&&!(r.unc&&r.unc.length)&&!(r.notes&&r.notes.length);
+
+let moment='B',count=7,fold=false,light=false;
+function frame(t){
+  const mo=M[moment];const W=100;
+  const opt=BASE.filter(g=>g.role==='optimize').map(g=>[g,mo[g.id]]);
+  if(count===18)EXTRA.forEach((g,i)=>opt.push([g,extraFor(moment,i)]));
+  const pr={p0:0,p1:1,p2:2,p3:3};opt.sort((a,b)=>pr[a[0].pr]-pr[b[0].pr]);
+  const watch=BASE.filter(g=>g.role==='watch').map(g=>[g,mo[g.id]]);
+  const tl=Array(TW).fill(' ');[[0,'−20'],[NEG,'start'],[NEG+14,'50%'],[TW-4,'100%']].forEach(([x,s])=>[...s].forEach((c,i)=>{if(x+i<TW)tl[x+i]=c}));
+  const L=[];
+  L.push(` {b|RESULTS}  ${mo.sum}`);
+  L.push(` {f|${rep('─',W-2)}}`);
+  L.push(` {d|${pad('',COL.name)}  ${padL('START',7)} ${pad('CHAMPION',COL.champ)}  ${tl.join('')}  IN FLIGHT}`);
+  L.push(` {d|${pad('',COL.name)}  ${padL(mo.split,7)} ${pad(mo.champ?'val':'',COL.champ)}  ${pad('better than start →',TW)}}`);
+  const group=(title,rows)=>{L.push(` {d|${title}}`);const q=[];rows.forEach(([g,r])=>{if(fold&&quiet(r)){q.push(g.name);return}row(g,r,moment,t).forEach(x=>L.push(x))});
+    if(q.length){const names=clip(q.join(', '),56);L.push(`   {d|▸} {d|${q.length} quiet: no clear change, no unconfirmed win} {f|${names}}`)}};
+  group('QUALITY · optimized',opt);
+  L.push('');
+  group('WATCHED · read from stored runs, never decides a promotion',watch);
+  L.push(` {f|${rep('─',W-2)}}`);
+  L.push(` {g|█} champion (val)  {gd|█} no clear change  {g|▒} unconfirmed (train)  {g|░} older parent  {gd|──} interval  {d|┃} start`);
+  L.push(` {d|space} fold quiet   {d|enter} details   {d|c} compare in Kiln {c|↗}`);
+  return L}
+
+const scr=document.getElementById('scr');let T0=performance.now();
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function draw(){const t=reduce?0.35:(performance.now()-T0)/1000;const L=frame(t);scr.innerHTML=L.map(toHTML).join('\n');
+  document.getElementById('dims').textContent=`${Math.max(...L.map(len))}×${L.length}`}
+function sync(){document.querySelectorAll('[data-m]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.m===moment)));
+  document.querySelectorAll('[data-n]').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===count)));
+  document.querySelectorAll('[data-c]').forEach(b=>b.setAttribute('aria-pressed',String((b.dataset.c==='fold')===fold)));
+  document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String((b.dataset.t==='light')===light)));
+  document.body.classList.toggle('light-terms',light)}
+document.querySelector('.controls').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.m)moment=b.dataset.m;if(b.dataset.n){count=+b.dataset.n;fold=count===18}if(b.dataset.c)fold=b.dataset.c==='fold';if(b.dataset.t)light=b.dataset.t==='light';sync();draw()});
+sync();draw();if(!reduce)setInterval(draw,120);
+</script>
+
+</body></html>
