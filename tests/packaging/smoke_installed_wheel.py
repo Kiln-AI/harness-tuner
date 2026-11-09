@@ -39,7 +39,10 @@ from typing import Any, NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAKE_CLAUDE = Path(__file__).with_name("fake_claude.py")
-EXAMPLE_PROJECT = REPO_ROOT / "examples" / "moderation" / "Forum Moderation"
+# The demo project ships in the package, for `--demo-project`.
+EXAMPLE_PROJECT = (
+    REPO_ROOT / "src" / "kiln_harness_tuner" / "demo_project" / "Forum Moderation"
+)
 PROJECT_ID = "424242975950"
 TASK_ID = "424242783061"
 # Nothing listens on port 9, so no Kiln server answers.
@@ -69,7 +72,11 @@ WHEEL_FILES = (
     "kiln_harness_tuner/agent_files/claude/.mcp.json",
 )
 # Package data: the wheel holds every file git tracks under these folders.
-PACKAGE_DATA = ("src/kiln_harness_tuner/agent_files", "src/kiln_harness_tuner/agents")
+PACKAGE_DATA = (
+    "src/kiln_harness_tuner/agent_files",
+    "src/kiln_harness_tuner/agents",
+    "src/kiln_harness_tuner/demo_project",
+)
 WHEEL_PACKAGES = frozenset({"kiln_harness_tuner", "kiln_api_mcp"})
 GATEWAY_SERVER = "kiln_harness_tuner_gateway"
 GATEWAY_ARGS = ["-P", "-m", "kiln_harness_tuner.gateway.server"]
@@ -211,7 +218,7 @@ def check_wheel(wheel: Path, version: str) -> bytes:
     if extra:
         fail("wheel", f"{wheel.name} ships {extra} (no tests/, no examples/)")
     ok(
-        f"wheel holds the agent files and role templates ({len(tracked)} tracked"
+        f"wheel holds the agent files, role templates and demo project ({len(tracked)} tracked"
         f" files) and only {', '.join(sorted(tops))}"
     )
     return instructions

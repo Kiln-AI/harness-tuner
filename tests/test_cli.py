@@ -678,7 +678,10 @@ def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp
     code = main(ARGS)
     assert code == 1
     err = capsys.readouterr().err
-    assert err.startswith("harness-tuner: no baseline record")
+    assert err.startswith(
+        "harness-tuner: error: The task has no baseline the tuner can use\n"
+        "  no baseline record"
+    )
     assert "run baseline setup" in err
 
 
@@ -1088,6 +1091,7 @@ def test_read_fence_denies_the_runs_own_project_whole(tmp_path):
         state.runs,
         state.traces,
         state.reports,
+        demo_fence_root().resolve(),
         tmp_path / "home" / ".claude" / "projects",
     )
     assert fence.allow == (
@@ -1106,11 +1110,12 @@ def test_read_fence_denies_the_packaged_demo(tmp_path):
     looks, so the fence names it by path."""
     from kiln_harness_tuner.cli import read_fence_for
 
+    state = _state(tmp_path)
     fence = read_fence_for(
-        repo_root=tmp_path / "repo",
+        state=state,
         project_root=tmp_path / "Kiln Projects" / "Forum Moderation",
-        run_dir=tmp_path / "repo" / "runs" / "260731-0900",
-        task_id="424242783061",
+        run_dir=state.runs / "260731-0900",
+        agents_dir=_agents_dir(state),
         home=tmp_path / "home",
     )
     assert demo_fence_root().resolve() in fence.deny
@@ -1262,9 +1267,12 @@ def test_a_handled_error_names_the_run_folder_and_the_report(
     run_dir = _run_dir(state_dir)
     report = state_dir / "reports" / f"kiln-harness-tuner-{run_dir.name}.md"
     assert capsys.readouterr().err.splitlines() == [
-        "harness-tuner: Kiln answered 500 on the baseline run config",
-        f"harness-tuner: run folder: {run_dir}",
-        f"harness-tuner: report: {report}",
+        "harness-tuner: error: The run stopped",
+        "  Kiln answered 500 on the baseline run config",
+        "  The run stopped. Spent $0.00 so far (agents and the task's model calls).",
+        f"  Run folder: {run_dir}",
+        f"  Report: {report}",
+        "harness-tuner stopped with an error (exit 1)",
     ]
 
 
@@ -1277,8 +1285,8 @@ def test_a_handled_error_with_no_report_names_the_run_folder_only(
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     assert main(ARGS) == 1
     err = capsys.readouterr().err
-    assert f"harness-tuner: run folder: {_run_dir(state_dir)}" in err
-    assert "harness-tuner: report:" not in err
+    assert f"  Run folder: {_run_dir(state_dir)}\n" in err
+    assert "Report:" not in err
 
 
 def test_an_interrupted_run_names_the_run_folder(monkeypatch, capsys, state_dir):
@@ -1329,10 +1337,13 @@ def test_a_state_folder_that_cannot_be_used_stops_the_start(
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     assert main(ARGS) == 1
     err = capsys.readouterr().err
-    assert err.startswith(f"harness-tuner: the state folder {blocked} cannot be used")
+    assert err.startswith(
+        "harness-tuner: error: The tuner's state folder can't be used\n"
+        f"  the state folder {blocked} cannot be used"
+    )
     assert "fix: set KILN_HARNESS_TUNER_HOME to a writable folder." in err
     # Before any run folder: there is none to name.
-    assert "run folder" not in err
+    assert "Run folder" not in err
     assert not started
 
 
