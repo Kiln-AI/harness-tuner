@@ -489,16 +489,20 @@ def test_the_cli_flag_turns_the_preflight_off(tmp_path):
 
     from kiln_harness_tuner.cli import build_ctx, build_parser, target_from_args
     from kiln_harness_tuner.kiln import KilnClient
+    from kiln_harness_tuner.paths import StatePaths
 
     assert build_parser().parse_args(ARGS).skip_model_preflight is False
     args = build_parser().parse_args([*ARGS, "--skip-model-preflight"])
     assert args.skip_model_preflight is True
-    run_dir = tmp_path / "runs" / "r"
+    state = StatePaths(tmp_path / "state")
+    run_dir = state.runs / "r"
 
     def ctx_with(**kwargs):
         return build_ctx(
             target_from_args(args),
             KilnClient("http://localhost:1"),
+            state=state,
+            agents_dir=state.agents / "claude",
             run_id="r",
             run_dir=run_dir,
             mcp_config_path=run_dir / "mcp_config.json",

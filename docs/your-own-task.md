@@ -1,6 +1,6 @@
 # Pointing the loop at your own task
 
-What a Kiln task needs before `kiln-harness-tuner` can work on it, what the loop's setup
+What a Kiln task needs before `harness-tuner` can work on it, what the loop's setup
 phase prepares for you, what it refuses to guess, and every flag.
 
 This document assumes nothing but a Kiln studio server with your project in it.
@@ -21,7 +21,7 @@ With none, the run stops:
 
 > task … has no run configs, so there is nothing to optimize from. Create a run
 > config for this task (a model + prompt the task can actually run), then
-> re-invoke `kiln-harness-tuner`. The loop measures every experiment against a baseline
+> re-invoke `harness-tuner`. The loop measures every experiment against a baseline
 > run config and will not invent one.
 
 This is the **one state code cannot decide**. No starter run config is minted
@@ -59,7 +59,7 @@ Missing splits fail pre-flight, listing every offending eval at once:
 >
 > The loop measures experiments on train and gates promotion on val, and it
 > does not create or repair splits. Add splits to these evals (or deactivate
-> them via their Spec status), then re-invoke `kiln-harness-tuner`.
+> them via their Spec status), then re-invoke `harness-tuner`.
 
 One pass, one list, one fix. The audit exists because without it a task like
 this dies at its first promotion gate instead — after the waves before it have
@@ -273,13 +273,14 @@ the loop, not the task.
 ## 5. The first run
 
 ```
-kiln-harness-tuner --project-path "/path/to/Your Project" \
+harness-tuner --project-path "/path/to/Your Project" \
           --project-id <id> --task-id <id> \
           --guidance "…" --timeout-mins 60
 ```
 
-The loop shows its progress in the terminal, runs waves until the budget or the
-planner ends it, and writes a report.
+The loop prints its run folder, shows its progress in the terminal, runs waves
+until the budget or the planner ends it, writes a report, and prints the
+report's path.
 
 **Start it bounded, with headroom for a whole wave.** No wave ever *starts* past
 `--timeout-mins` or `--budget-usd`, but the two do not end a run the same way:
@@ -293,18 +294,20 @@ task is the wrong place to discover how long a wave takes.
 what stops the first planner assuming facts about your model. It is not free
 either: it drives real items on the model you are optimizing, so on an expensive
 model it is not trivial. Price it with [costs.md](costs.md) and the
-[`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md) skill
+[`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md) skill
 behind it, rather than against a figure from somebody else's task.
 
 **Stopping a run.** In the foreground, Ctrl-C. A run started in the
-background (`kiln-harness-tuner … &`, `nohup`) does not receive the terminal's
+background (`harness-tuner … &`, `nohup`) does not receive the terminal's
 Ctrl-C, and a shell without job control — a script, an agent's shell —
 starts it with SIGINT ignored, so `kill -INT` does nothing either. Send
 SIGTERM instead: `kill <pid>`. The loop also
 stops cleanly on SIGHUP, which a closing terminal sends. On either signal it
 cancels the run the way Ctrl-C does: every `claude -p` child is killed, the
 server's eval jobs are cancelled, the run lock is released and the report is
-written; the exit code is 143 for SIGTERM and 129 for SIGHUP. `kill -9`
+written; the exit code is 143 for SIGTERM and 129 for SIGHUP. On Ctrl-C,
+SIGTERM or SIGHUP it also prints the run folder
+(`harness-tuner: run folder: …`), whose log holds the details. `kill -9`
 skips all of that and leaves the children running to their own time caps.
 
 ### Every flag
@@ -344,15 +347,19 @@ arm are also reported, read from its stored eval runs.
 
 ## 6. Reading the result
 
+A run's files are your local output, in the state folder:
+`~/.kiln_ai/harness_tuner/`, unless `KILN_HARNESS_TUNER_HOME` names another
+([install.md](install.md#where-the-tuner-keeps-its-files)). The paths in the
+table are inside it. The tuner writes nothing in the folder you start it
+from.
+
 | Where | What |
 |---|---|
 | `reports/kiln-harness-tuner-<run_id>.md` | the round report: what was planned, what was measured, what was promoted, and code-computed appendices: the spend, why each arm stopped and how many of its items were judged, and the trade-offs of the screened candidates (quality lost against cost and latency saved) |
-| `runs/<run_id>/` | the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
+| `runs/<run_id>/` | the run log (`kiln-harness-tuner.log`), the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
 | `runs/.quarantine/<project>-<task>/archived_run_configs/` | the loop's own `PROBE …` run configs, archived out of the project after a run |
-| `traces/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |
+| `traces/<project>/<task>/<run_id>/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |
 | Kiln memory | the durable result: the baseline record and its promotion chain, every issue's state, every experiment's verdict |
-
-`runs/` and `traces/` are git-ignored: they are your local output.
 
 **The report is not the whole result.** The memory store is. A second run on
 the same task re-orients from it, which is why a crashed run costs spend but

@@ -18,10 +18,19 @@ instruction rather than re-run, which is what stops it duplicating every
 artifact it had created — but there is no warm resume of a *run*.
 
 **The one-run-per-task lock is local.** It is a kernel `flock` on a file under
-`runs/`, so it holds on one machine. Two machines pointed at the same Kiln
-server and the same task are not covered, and the janitor's inference — that a
+the state folder's `runs/`
+([install.md](install.md#where-the-tuner-keeps-its-files)), so it holds on one
+machine and for one state folder. Two machines pointed at the same Kiln server
+and the same task are not covered, and neither are two runs on one machine with
+different `KILN_HARNESS_TUNER_HOME` values. The janitor's inference — that a
 `— RUNNING` record at startup means a dead orchestrator — is only safe because
 of that lock.
+
+**`uvx` runs the tuner from `uv`'s cache.** With `uvx harness-tuner`, the
+interpreter and the package are in `uv`'s cache, and every agent session
+starts its MCP servers with that interpreter. A cache clean (`uv cache clean`)
+during the run removes them, and the run's later sessions then fail. A
+`uv tool install` has no such window.
 
 **The budget and the clock are checked at wave boundaries, and only the budget
 is purely that.** No wave *starts* past either limit, and a wave already running
@@ -223,11 +232,11 @@ accepts those writes only on an eval that it created in the same run; the
 evals the loop measures with get no new items, no new judge config from an
 agent and no change of their current config. Code makes one exception, and
 only under `--noise-check`: a copy of a V2 judge config, never the default,
-run once on N train items and then moved out of the project to
-`runs/.quarantine/…/archived_eval_configs/`. A run that dies between the two
-steps leaves the copy, named `NOISE …`, in the eval. The eval builder can still run a train eval
-job on an existing eval (`run_train_eval`), which adds results and changes
-no definition.
+run once on N train items and then moved out of the project to the state
+folder's `runs/.quarantine/…/archived_eval_configs/`. A run that dies between
+the two steps leaves the copy, named `NOISE …`, in the eval. The eval
+builder can still run a train eval job on an existing eval
+(`run_train_eval`), which adds results and changes no definition.
 
 **The gateway is loop code between the agents and Kiln.** It answers from a
 train set computed from the evals' own splits and its own record of what
@@ -309,8 +318,8 @@ train item that repeats a val item's text.
   agent that created such an eval could still read its definition in the
   same session; the definition names filters, not items.
 - **An entry created in the run directory while a session runs.** The read
-  deny over `runs/<run_id>/` names its entries one by one. The dispatcher
-  re-reads the run directory before every session and denies
+  deny over the state folder's `runs/<run_id>/` names its entries one by one.
+  The dispatcher re-reads the run directory before every session and denies
   every entry but `scratch/`, listed in `RUN_DIR_ENTRIES` or not
   (`dispatch/run_fence.py`). A session that is already running keeps the
   rules it started with, so a file created during it is readable to its
@@ -320,13 +329,23 @@ train item that repeats a val item's text.
   text. An agent that already knew a held-out input could drive it; the
   fences are what keep it from knowing one.
 
-**The read fence is a path fence.** It denies by resolved path: the run's own
-Kiln project whole, other Kiln projects at any depth, every run's directory
-except this run's scratch, traces and reports, other sessions' transcripts,
-and everything under `examples/`. Two consequences. The name `examples`
-is hardcoded, so a *second* top-level answer-key directory is not fenced. And a
-Kiln project deliberately hidden in a dot-directory is not found by the scan
-that builds the deny list.
+**The Claude read fence is a deny list.** It denies by resolved path: the run's
+own Kiln project whole, the state folder's `runs/` (except this run's scratch),
+`traces/` and `reports/`, and other Claude sessions' transcripts. A path nobody
+names is readable to a Claude loop agent. That includes:
+
+- **other Kiln projects** on the machine;
+- **`~/.kiln_ai/settings.yaml`**, where Kiln keeps the provider API keys;
+- **any clone of this repository.** Its `examples/` is the answer key of the
+  moderation example: `posts.jsonl` holds the label and the split of every
+  post, and the scorer and the README state the house rules. A Claude agent
+  in a run on the example can read them. A clone used before the state folder
+  existed can also hold old `runs/`, `traces/` and `reports/`, with the val
+  tables of the tasks it ran on: delete them or move them out
+  ([install.md](install.md#where-the-tuner-keeps-its-files)).
+
+The Codex and OpenCode fences are allow lists, so they do not have these gaps
+([agent-cli.md](agent-cli.md) sections 10 and 11).
 
 **The pre-tool hook checks tool names only.** It admits the role's gateway
 operations and refuses every other MCP tool; what a gateway operation may do
@@ -388,7 +407,7 @@ Nothing notices when the server moves past it.
 
 This repository quotes no measured cost figure. [costs.md](costs.md) is the
 method for estimating a run before starting it.
-[`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md) is the
+[`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md) is the
 skill behind it. It covers the six spend lanes and the formulas, and its first rule is the one that
 matters most here — never scale a cost across models by a list-price ratio.
 

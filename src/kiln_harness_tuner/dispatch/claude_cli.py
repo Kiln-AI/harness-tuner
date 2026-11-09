@@ -1,7 +1,8 @@
 """ClaudeCliDispatcher — the reference AgentDispatcher (docs/agent-cli.md).
 
-One `claude -p` subprocess per call, cwd = the repository root so
-`.claude/skills/` loads exactly as it does for interactive sessions. MCP
+One `claude -p` subprocess per call, cwd = the agents folder in the state
+folder (`install_agents.install_for_run`), so its `.claude/skills/` and
+`CLAUDE.md` load exactly as they do for interactive sessions. MCP
 servers come from the per-run rendered config (`--mcp-config` +
 `--strict-mcp-config`, host-injected), NOT the installed
 `.mcp.json`; write tools are sandboxed by the per-run rendered `--settings`.
@@ -294,7 +295,7 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
 
     The GROUP, not just `claude`: the child is spawned as a
     session leader (`start_new_session=True`), so its MCP servers
-    (the loop gateway, the skill installer under `uv run`) and anything the
+    (the loop gateway, the skill installer) and anything the
     agent launched from Bash share its pgid — signalling the pid alone
     re-parented all of them to init, still running and, for a Bash-launched
     driver, still spending. `proc.kill()` stays as the fallback for a child
@@ -722,7 +723,7 @@ class ClaudeCliDispatcher:
     def __init__(
         self,
         target: TargetBlock,
-        repo_root: Path,
+        agents_dir: Path,
         *,
         runner: SubprocessRunner | None = None,
         claude_bin: str = "claude",
@@ -745,7 +746,9 @@ class ClaudeCliDispatcher:
         readonly_settings_path: Path | None = None,
     ):
         self._target = target
-        self._repo_root = repo_root
+        # The folder `install_for_run` installed this CLI's skills and
+        # instructions into.
+        self._agents_dir = agents_dir
         self._runner = runner or AsyncioSubprocessRunner()
         self._claude_bin = claude_bin
         # The operator's own options from `--agent-cli`, on every session.
@@ -865,8 +868,9 @@ class ClaudeCliDispatcher:
             if scratch_dir is not None
             else ""
         )
-        # The standard target block: cwd alone identifies nothing — the repo
-        # holds one project with multiple tasks; no agent ever guesses ids.
+        # The standard target block: cwd alone identifies nothing — it is the
+        # agents folder, and a project holds many tasks; no agent ever guesses
+        # ids.
         # `kiln_host` is excluded: it reached agents ONLY through
         # this block, and an agent given it would curl Kiln directly —
         # agents reach Kiln through their gateway operations, which need no host. The
@@ -1087,10 +1091,10 @@ class ClaudeCliDispatcher:
                 " host; the MCP server is not installed; or the MCP server"
                 " failed to spawn/handshake.\n"
                 "fix: start the Kiln studio server at the host above, then"
-                " install the tools with `uv tool install .` from this"
-                " repository's root. If both are already true, read the"
-                " config file named above and this run's stderr copy under"
-                " traces/. docs/install.md checks each prerequisite in turn,"
+                " reinstall with `uv tool install harness-tuner`. If both are"
+                " already true, read the config file named above and this"
+                " run's stderr copy under the state folder's traces/."
+                " docs/install.md checks each prerequisite in turn,"
                 f" including {self.SIGN_IN_HINT} — this message names the"
                 " two commonest causes, not every one."
             )
@@ -1414,9 +1418,9 @@ class ClaudeCliDispatcher:
         return (parsed, parse_error, session_id), usage
 
     def _cwd(self, label: str | None) -> Path:
-        """Where the session runs: the repository root, so `.claude/skills/`
-        loads as it does for interactive sessions."""
-        return self._repo_root
+        """Where the session runs: the agents folder, so its `.claude/skills/`
+        and `CLAUDE.md` load as they do for interactive sessions."""
+        return self._agents_dir
 
     def _parse_cli_output(self, stdout: str) -> CliRound | None:
         """`claude -p --output-format json` prints one JSON object. None when
@@ -1438,7 +1442,7 @@ class ClaudeCliDispatcher:
         )
 
     def _transcript_dir(self) -> Path:
-        return self._claude_projects_dir / _project_slug(str(self._repo_root))
+        return self._claude_projects_dir / _project_slug(str(self._agents_dir))
 
     def _transcript_source(self, session_id: str) -> Path | None:
         """The CLI's own transcript of a session, or None when not found."""

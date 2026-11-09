@@ -14,7 +14,7 @@
 </h3>
 
 <p align="center">
-  <a href="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml"><img src="https://github.com/Kiln-AI/kiln-harness-tuner/actions/workflows/ci.yml/badge.svg" alt="CI: Build and Test"></a>
+  <a href="https://github.com/Kiln-AI/harness-tuner/actions/workflows/ci.yml"><img src="https://github.com/Kiln-AI/harness-tuner/actions/workflows/ci.yml/badge.svg" alt="CI: Build and Test"></a>
   <a href="https://pypi.org/project/harness-tuner/"><img src="https://img.shields.io/pypi/v/harness-tuner" alt="PyPI"></a>
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT">          
 </p>

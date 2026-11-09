@@ -11,21 +11,23 @@ dispatcher writes for it (`OPENCODE_CONFIG`):
 
 - every tool is denied (`"*": "deny"`), so the shell, web fetch, web search,
   grep, glob, sub-agents and the rest are not in the session at all;
-- `read` is allowed in the session's workspace and in the repository's
-  skills directory, and — for the roles that read traces — in the
+- `read` is allowed in the session's workspace and in the agents folder's
+  skills folder, and — for the roles that read traces — in the
   gateway's trace folder, and nowhere else;
-- `edit` is allowed in the workspace, and denied for the val readers;
+- `edit` is allowed in the workspace except its `.agents/` (the link to the
+  shared skills), and denied for the val readers;
 - `skill` is allowed, so the skills load as they do under Claude Code;
 - the role's MCP tools are allowed by name.
 
 This is a tool-level allow list, not an OS one: it is as strong as
 OpenCode's own permission checks. OpenCode matches a path rule against the
-path relative to its worktree (the git root above the workspace), so each
-rule is written in that form and in the absolute form.
+path relative to its worktree (the git root above the workspace, or `/` when
+there is none), so each rule is written in that form and in the absolute form.
 
-**Skills and instructions.** OpenCode finds `.agents/skills` and
-`AGENTS.md` under the worktree root, so the repository's skills and its
-installed instructions load with no link.
+**Skills and instructions.** OpenCode finds `.agents/skills` and `AGENTS.md`
+in its workspace. As for Codex (`codex_cli.stage_workspace`), each workspace
+holds `.agents/skills`, a link to the agents folder's skills, and a copy of
+the agents folder's `AGENTS.md`.
 
 **What it does not have.** A session id cannot be chosen before the spawn,
 so a session killed at its wall-clock cap is not resumed; the ladder re-runs
@@ -50,7 +52,11 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     CliRound,
     child_env,
 )
-from kiln_harness_tuner.dispatch.codex_cli import mcp_tool_names
+from kiln_harness_tuner.dispatch.codex_cli import (
+    SKILLS_LINK,
+    mcp_tool_names,
+    stage_workspace,
+)
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, TRACE_READER_ROLES
 from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.schemas import TargetBlock, Usage
@@ -60,7 +66,7 @@ logger = logging.getLogger(__name__)
 OPENCODE_EFFORT = "high"
 # An MCP request can wait on a Kiln job (`run_train_eval`, `run_task`), and
 # OpenCode's default is 5 seconds. The role's own wall-clock cap bounds the
-# session. The first spawn of a server may sync a uv environment.
+# session.
 MCP_TIMEOUT_MS = 30 * 60 * 1000
 EXPORT_TIMEOUT_SECS = 60
 
@@ -105,12 +111,22 @@ def opencode_config(
         ws = path_patterns(workspace, worktree)
         skills = path_patterns(skills_dir, worktree)
         extra = [p for d in read_dirs or [] for p in path_patterns(d, worktree)]
+        # `.agents/skills` in the workspace is a link to the agents folder,
+        # which every later session and every run on this version reads.
+        # If OpenCode checks a rule against the path as written rather than
+        # the link's target, the workspace allow lets an edit through it.
+        # Built from the workspace patterns, not resolved: resolving would
+        # follow the link. Last and longest, so it wins under either rule.
+        link_folder = SKILLS_LINK.parent.as_posix()
+        links = [f"{p.removesuffix('/**')}/{link_folder}/**" for p in ws]
         permission["read"] = {
             "*": "deny",
             **dict.fromkeys(ws + skills + extra, "allow"),
         }
         permission["edit"] = (
-            {"*": "deny", **dict.fromkeys(ws, "allow")} if writable else "deny"
+            {"*": "deny", **dict.fromkeys(ws, "allow"), **dict.fromkeys(links, "deny")}
+            if writable
+            else "deny"
         )
         permission["external_directory"] = {
             "*": "deny",
@@ -211,15 +227,15 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
     def __init__(
         self,
         target: TargetBlock,
-        repo_root: Path,
+        agents_dir: Path,
         *,
         opencode_bin: str = "opencode",
-        skills_dir: Path | None = None,
         **kwargs: Any,
     ):
-        super().__init__(target, repo_root, **kwargs)
+        super().__init__(target, agents_dir, **kwargs)
         self._opencode_bin = opencode_bin
-        self._skills_dir = skills_dir or repo_root / ".agents" / "skills"
+        self._skills_dir = agents_dir / SKILLS_LINK
+        self._instructions = agents_dir / "AGENTS.md"
 
     def _session_root(self) -> Path:
         return (
@@ -231,9 +247,11 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
     # ---- where it runs ----
 
     def _workspace(self, label: str | None) -> Path:
-        """The session's scratch directory, the only path it may write."""
+        """The session's scratch directory, the only path it may write,
+        holding the link OpenCode finds the skills through and the
+        instructions file."""
         workspace = self._session_root() / "scratch" / (label or "session")
-        workspace.mkdir(parents=True, exist_ok=True)
+        stage_workspace(workspace, self._skills_dir, self._instructions)
         return workspace
 
     def _cwd(self, label: str | None) -> Path:

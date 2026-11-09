@@ -6,6 +6,7 @@ copy. No live calls."""
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ from kiln_harness_tuner.dispatch.codex_cli import (
     toml_value,
 )
 from kiln_harness_tuner.gateway.ops import ROLE_OPS
+from kiln_harness_tuner.paths import StatePaths
 from kiln_harness_tuner.provider_errors import ProviderQuotaError
 from kiln_harness_tuner.schemas import ExperimentItem, RcBuildInput, TargetBlock
 
@@ -94,16 +96,20 @@ def codex_events(
     return "\n".join(json.dumps(e) for e in events) + "\n"
 
 
+def agents_dir(tmp_path: Path) -> Path:
+    """The run's agents folder for Codex, as `install_for_run` lays it out."""
+    agents = tmp_path / "state" / "agents" / "codex" / "0.1.0"
+    (agents / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
+    return agents
+
+
 def make(tmp_path: Path, script, **kwargs) -> tuple[CodexCliDispatcher, FakeRunner]:
     runner = FakeRunner(script=list(script))
-    skills = tmp_path / "skills"
-    skills.mkdir(exist_ok=True)
     dispatcher = CodexCliDispatcher(
         TARGET,
-        tmp_path / "repo",
+        agents_dir(tmp_path),
         runner=runner,
         run_dir=tmp_path / "run",
-        skills_dir=skills,
         codex_sessions_dir=tmp_path / "sessions",
         **kwargs,
     )
@@ -183,7 +189,8 @@ class TestTheCommand:
         assert '":root" = "deny"' in profile
         assert '":minimal" = "read"' in profile
         assert '":workspace_roots" = {"." = "write"}' in profile
-        assert f'"{(tmp_path / "skills").resolve()}" = "read"' in profile
+        skills = agents_dir(tmp_path) / ".agents" / "skills"
+        assert f'"{skills.resolve()}" = "read"' in profile
         assert '"network" = {"enabled" = false}' in profile
         disabled = [v for f, v in zip(argv, argv[1:], strict=False) if f == "--disable"]
         assert disabled == list(DISABLED_FEATURES)
@@ -230,22 +237,34 @@ class TestTheCommand:
             ]
             assert str(traces) not in profile, role
 
-    def test_the_workspace_links_the_skills(self, tmp_path):
+    def test_the_workspace_links_the_agents_folders_skills(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
         dispatcher._argv("batch_plan", label="w1")
         link = tmp_path / "run" / "scratch" / "w1" / ".agents" / "skills"
         assert link.is_symlink()
-        assert link.resolve() == (tmp_path / "skills").resolve()
+        assert link.resolve() == (agents_dir(tmp_path) / ".agents" / "skills")
         # Idempotent: a second session of the same label reuses it.
         dispatcher._argv("batch_plan", label="w1")
 
-    def test_the_workspace_holds_the_installed_instructions(self, tmp_path):
-        (tmp_path / "repo").mkdir()
-        (tmp_path / "repo" / "AGENTS.md").write_text("the rules\n")
+    def test_the_workspace_holds_the_agents_folders_instructions(self, tmp_path):
+        (agents_dir(tmp_path) / "AGENTS.md").write_text("the rules\n")
         dispatcher, _ = make(tmp_path, [])
         dispatcher._argv("batch_plan", label="w1")
         copied = tmp_path / "run" / "scratch" / "w1" / "AGENTS.md"
         assert copied.read_text() == "the rules\n"
+
+    def test_a_link_planted_as_the_instructions_is_not_written_through(self, tmp_path):
+        (agents_dir(tmp_path) / "AGENTS.md").write_text("the rules\n")
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep\n")
+        dispatcher, _ = make(tmp_path, [])
+        dispatcher._argv("batch_plan", label="w1")
+        copied = tmp_path / "run" / "scratch" / "w1" / "AGENTS.md"
+        copied.unlink()
+        copied.symlink_to(outside)
+        dispatcher._argv("batch_plan", label="w1")  # the repair round's restage
+        assert outside.read_text() == "keep\n"
+        assert not copied.is_symlink() and copied.read_text() == "the rules\n"
 
     def test_resume_names_the_thread_and_keeps_the_fence(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
@@ -269,8 +288,9 @@ class TestTheMcpServers:
             kiln_host="http://localhost:8757",
         )
         (tmp_path / "proj").mkdir()
+        state = StatePaths(tmp_path / "state")
         mcp_path, _ = render_run_configs(
-            tmp_path / "run", target, Path(__file__).resolve().parents[1]
+            state.runs / "r1", target, state=state, agents_dir=agents_dir(tmp_path)
         )
         return make(tmp_path, [], mcp_config_path=mcp_path)[0]
 
@@ -305,13 +325,16 @@ class TestTheMcpServers:
         dispatcher = self._wired(tmp_path)
         config = config_of(dispatcher._argv("batch_plan", label="b"))
         server = config["mcp_servers.kiln_harness_tuner_gateway"]
-        assert server.startswith("{") and '"command" = "uv"' in server
+        # The tuner's own interpreter starts the gateway: no `uv`, no checkout.
+        assert server.startswith("{")
+        assert f'"command" = {json.dumps(sys.executable)}' in server
+        assert '"args" = ["-P", "-m", "kiln_harness_tuner.gateway.server"' in server
 
     def test_the_servers_get_the_runs_uv_and_python_settings(
         self, tmp_path, monkeypatch
     ):
-        # Codex gives an MCP server a small default environment; the gateway's
-        # `uv run` needs the run's uv settings to behave the same way.
+        # Codex gives an MCP server a small default environment; the gateway
+        # needs the run's Python settings to behave the same way.
         monkeypatch.setenv("UV_FROZEN", "1")
         monkeypatch.setenv("PYTHONPATH", "/somewhere/src")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-not-forwarded")

@@ -14,7 +14,8 @@ profile `kiln_harness_tuner`, passed per call with `-c`:
 - the platform paths common tools need are readable (`":minimal"`);
 - the session's own workspace — its scratch directory — is writable, or
   readable only for the val readers;
-- the repository's skills directory is readable, and nothing else of it;
+- the skills folder of the run's agents folder is readable, and nothing
+  else of it;
 - the gateway's trace folder (`runs/<run_id>/scratch/traces/`) is
   readable to the roles that read traces (`TRACE_READER_ROLES`);
 - the network is off for every command.
@@ -31,8 +32,9 @@ none of their MCP servers or settings reach a loop session, and
 
 **Skills and instructions.** Codex finds skills in `.agents/skills` and
 instructions in `AGENTS.md` under its working directory. Each workspace holds
-`.agents/skills`, a link to the repository's `.agents/skills`, which the
-profile makes readable, and a copy of the repository's installed `AGENTS.md`.
+`.agents/skills`, a link to the agents folder's `.agents/skills`
+(`install_agents.install_for_run`), which the profile makes readable, and a
+copy of the agents folder's `AGENTS.md` (`stage_workspace`).
 
 **What it does not have.** Codex reports tokens, not cost: every session's
 tokens are booked as unmeasured, and `--budget-usd` caps the Kiln side only.
@@ -175,6 +177,24 @@ def codex_install_paths(codex_bin: str) -> list[Path]:
     return paths
 
 
+def stage_workspace(workspace: Path, skills_dir: Path, instructions: Path) -> None:
+    """Make `workspace` a session folder that finds the run's skills and
+    instructions: `.agents/skills`, a link to `skills_dir`, and a copy of
+    `instructions` as `AGENTS.md`. A link already there is kept."""
+    workspace.mkdir(parents=True, exist_ok=True)
+    link = workspace / SKILLS_LINK
+    if not link.is_symlink() and not link.exists():
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(skills_dir.resolve(), target_is_directory=True)
+    if instructions.is_file():
+        copy = workspace / "AGENTS.md"
+        # The session writes its workspace: a link planted here would carry
+        # this unsandboxed copy to wherever it points.
+        if copy.is_symlink():
+            copy.unlink()
+        shutil.copyfile(instructions, copy)
+
+
 def permission_profile(
     skills_dir: Path,
     *,
@@ -281,24 +301,23 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
     def __init__(
         self,
         target: TargetBlock,
-        repo_root: Path,
+        agents_dir: Path,
         *,
         codex_bin: str = "codex",
         codex_sessions_dir: Path = DEFAULT_CODEX_SESSIONS_DIR,
-        skills_dir: Path | None = None,
         runner: Any = None,
         **kwargs: Any,
     ):
         super().__init__(
             target,
-            repo_root,
+            agents_dir,
             runner=runner or AsyncioSubprocessRunner(),
             **kwargs,
         )
         self._codex_bin = codex_bin
         self._codex_sessions_dir = codex_sessions_dir
-        self._skills_dir = skills_dir or repo_root / ".agents" / "skills"
-        self._instructions = repo_root / "AGENTS.md"
+        self._skills_dir = agents_dir / SKILLS_LINK
+        self._instructions = agents_dir / "AGENTS.md"
         self._install_paths = codex_install_paths(codex_bin)
 
     # ---- where it runs ----
@@ -315,13 +334,7 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
             else Path(tempfile.gettempdir()) / "kiln-harness-tuner-codex"
         )
         workspace = root / name
-        workspace.mkdir(parents=True, exist_ok=True)
-        link = workspace / SKILLS_LINK
-        if not link.is_symlink() and not link.exists():
-            link.parent.mkdir(parents=True, exist_ok=True)
-            link.symlink_to(self._skills_dir.resolve(), target_is_directory=True)
-        if self._instructions.is_file():
-            shutil.copyfile(self._instructions, workspace / "AGENTS.md")
+        stage_workspace(workspace, self._skills_dir, self._instructions)
         return workspace
 
     def _cwd(self, label: str | None) -> Path:
@@ -339,10 +352,11 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
 
     @staticmethod
     def _mcp_env() -> dict[str, str]:
-        """The run's uv and Python settings, for each MCP server. Codex starts
-        a server with a small default environment, not the session's, and the
-        gateway runs under `uv run`: without these, a `UV_FROZEN` or a
-        `UV_PROJECT_ENVIRONMENT` the run was started with does not reach it."""
+        """The run's Python (and uv) settings, for each MCP server. Codex
+        starts a server with a small default environment, not the session's,
+        and the gateway runs on the tuner's own interpreter: without these, a
+        `PYTHONPATH` or a `VIRTUAL_ENV` the run was started with does not
+        reach it."""
         return {
             name: value
             for name, value in os.environ.items()

@@ -1,9 +1,9 @@
-"""The wrapper templates in
-`.agents/skills/kiln-harness-tuner-code-tool-authoring/references/wrappers/` are real
-code the build agent copies into `POST /code_tools`. Each is run here against a stub of
-`kiln.tools` (the sandbox's nested-call surface), so the plumbing — envelope parsing,
-error shaping, pagination, batching — is proven before an agent adapts the routes to a
-subject API."""
+"""The wrapper templates in the package's
+`agent_files/skills/kiln-harness-tuner-code-tool-authoring/references/wrappers/`
+are real code the build agent copies into `POST /code_tools`. Each is run here
+against a stub of `kiln.tools` (the sandbox's nested-call surface), so the
+plumbing — envelope parsing, error shaping, pagination, batching — is proven
+before an agent adapts the routes to a subject API."""
 
 from __future__ import annotations
 
@@ -11,14 +11,13 @@ import importlib.util
 import json
 import sys
 import types
-from pathlib import Path
 
 import pytest
 
-# tests/ sits at the repo root, so parents[1] is the root.
+from kiln_harness_tuner.install_agents import source_dir
+
 WRAPPERS = (
-    Path(__file__).resolve().parents[1]
-    / ".agents"
+    source_dir()
     / "skills"
     / "kiln-harness-tuner-code-tool-authoring"
     / "references"

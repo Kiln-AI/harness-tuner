@@ -6,7 +6,7 @@ ONE role (`ops.ROLE_OPS[role]`) as typed tools and nothing else; it reads
 the run's train set and model policy from the run directory, which agents
 cannot read.
 
-    kiln-harness-tuner-gateway-mcp --role batch_plan --run-dir runs/<run_id>
+    harness-tuner-gateway-mcp --role batch_plan --run-dir runs/<run_id>
         --kiln-host http://localhost:8757 --project-id <id> --task-id <id>
         --project-path <path> [--max-concurrent-evals <n>]
         [--traces-dir runs/<run_id>/scratch/traces]
@@ -108,7 +108,7 @@ def create_server(gateway: gw.Gateway, role: str) -> FastMCP:
 def main(argv: list[str] | None = None) -> None:
     from kiln_harness_tuner.kiln import KilnClient
 
-    parser = argparse.ArgumentParser(prog="kiln-harness-tuner-gateway-mcp")
+    parser = argparse.ArgumentParser(prog="harness-tuner-gateway-mcp")
     parser.add_argument("--role", required=True, choices=sorted(gw.ROLE_OPS))
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--kiln-host", required=True)

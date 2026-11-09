@@ -75,9 +75,9 @@ Three things, and they are the whole of an agent's context.
 2. **The target block.** `project_id` and `task_id`. (`project_path` stays
    on `TargetBlock` for the orchestrator's code, and is not in the prompt:
    the project tree is read-denied to every agent.) The working
-   directory identifies nothing — one repository can hold several projects, and
-   the loop targets exactly one — so the dispatcher injects the ids and no
-   agent ever guesses them.
+   directory identifies nothing — it is a folder of the tuner's (section 7),
+   not the project, and a project can hold many tasks — so the dispatcher
+   injects the ids and no agent ever guesses them.
 
    The Kiln host is deliberately **not** in the rendered block. The agents
    reach Kiln through their gateway operations, and the gateway holds the
@@ -89,7 +89,9 @@ Three things, and they are the whole of an agent's context.
 
 Everything else the agent reads for itself, through its gateway operations.
 A trace is the one exception to "in the answer": the gateway
-writes it to a file in `runs/<run_id>/scratch/traces/` and answers with the
+writes it to a file in the run folder's `scratch/traces/`
+(`<state>/runs/<run_id>/scratch/traces/`, where `<state>` is the state folder,
+[install.md](install.md#where-the-tuner-keeps-its-files)) and answers with the
 path, so a dispatcher must let the roles that read traces read that folder.
 Every gateway answer stays under 40,000 characters, below the limit at
 which Claude Code moves an MCP answer to a file the fence denies
@@ -233,9 +235,18 @@ role inherits them.
 A second dispatcher may skip all of these. Each is written here with what it is
 worth, so the decision is informed.
 
+- **Where a session runs.** A Claude session's working folder is the agents
+  folder, `<state>/agents/claude/<version>/`, which holds the `.claude/skills/`
+  and the `CLAUDE.md` that `install_agents.install_for_run` installs before
+  the run's first session. So the skills and the instructions load from
+  there. Claude Code keeps the session's transcript under
+  `~/.claude/projects/`, in a folder named from the agents folder's path,
+  and the dispatcher copies it from there. The fence denies the file tools
+  any write to the agents folder ([architecture.md](architecture.md) section
+  12). Worth: the skills load with no file in any folder of yours.
 - **Transcript copying, redacted.** Every session's transcript is copied to
-  `traces/`, through a redactor that blanks known credential shapes — an
-  agent's tool result can carry whatever it read, including a configuration
+  `<state>/traces/`, through a redactor that blanks known credential shapes —
+  an agent's tool result can carry whatever it read, including a configuration
   file with a token in it. Worth: this is the only record of *how* an agent
   reached its answer, and it is where a wrong verdict is diagnosed.
 - **Environment stripping.** Names that carry credentials never reach the
@@ -247,8 +258,8 @@ worth, so the decision is informed.
   across machines, overridable per role from the CLI. Worth: the agent side is
   where a run's spend concentrates, and the mechanical roles do not need the
   same model as the planner.
-- **A per-dispatch scratch directory.** Under `runs/<run_id>/`, and the only
-  place the session may write files.
+- **A per-dispatch scratch directory.** Under the run folder's `scratch/`,
+  and the only place the session may write files.
 - **A provider-quota circuit breaker.** A classified quota or authentication
   error ends the run through the code-rendered report instead of down the
   ladder.
@@ -341,13 +352,13 @@ Codex home:
 | `":root" = "deny"` | The whole disk is unreadable and unwritable. |
 | `":minimal" = "read"` | The platform paths common tools need. |
 | `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the val readers. |
-| the repository's `.agents/skills` = `"read"` | The skills, and nothing else of the repository. |
-| `runs/<run_id>/scratch/traces` = `"read"` | The gateway's trace folder, for the roles that read traces (`TRACE_READER_ROLES`) only. |
+| the agents folder's `.agents/skills` = `"read"` | The skills, and nothing else of the state folder. |
+| the run folder's `scratch/traces` = `"read"` | The gateway's trace folder, for the roles that read traces (`TRACE_READER_ROLES`) only. |
 | `network.enabled = false` | No network for any command: no `curl` to the Kiln server. |
 
 This is an **allow list**, where the Claude fence is a deny list: a directory
-nobody named is still fenced. Under this profile, reads of the repository,
-of `runs/`, of the home directory and of `~/.codex/auth.json`, and a
+nobody named is still fenced. Under this profile, reads of the state
+folder's `runs/`, of the home directory and of `~/.codex/auth.json`, and a
 disk-wide `grep`, are all refused; the workspace and the skills are
 readable. A sub-agent a session spawns runs under the same profile.
 
@@ -366,9 +377,11 @@ servers and settings — out of every session, and `--strict-config` makes an
 unknown key or feature fail the session rather than pass unnoticed.
 
 Codex finds skills in `.agents/skills` and instructions in `AGENTS.md`
-under its working directory. Each workspace holds that path as a link to the
-repository's `.agents/skills`, and a copy of the `AGENTS.md` that a run
-installs at the repository root.
+under its working directory. Before its first session, a run installs both
+into the agents folder, `<state>/agents/codex/<version>/`. Each workspace
+holds `.agents/skills` as a link to the agents folder's `.agents/skills`, and
+a copy of its `AGENTS.md` (`codex_cli.stage_workspace`). A link that the
+session plants in place of `AGENTS.md` is removed before the copy.
 
 Against section 6:
 
@@ -422,21 +435,25 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 | Rule | Effect |
 |---|---|
 | `"*": "deny"` | Every tool is denied, so the shell, web fetch, web search, grep, glob, sub-agents and the rest are not in the session at all. |
-| `read` | Allowed in the session's workspace and in the repository's `.agents/skills`, and in the gateway's trace folder for the roles that read traces; denied everywhere else. |
-| `edit` | Allowed in the workspace. Denied for the val readers. |
+| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces; denied everywhere else. |
+| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the val readers. |
 | `external_directory` | Denied, except the workspace, the skills and, for the roles that read traces, the trace folder. |
 | `skill` | Allowed, so the skills load as they do under Claude Code. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |
 | `skill_installer_<tool>` | Allowed by name, for the two roles that hold the installer. |
 
-A no-tool role (`integrity_review`, `generality_review`) gets `"*": "deny"`
-and no MCP server. OpenCode matches a path rule against the path relative to
-its worktree (the git root above the workspace), so each rule is written in
-that form and in the absolute form. Under these rules, reads of the repository's `CLAUDE.md`, of a file in the
-run directory and of `~/.codex/auth.json` are refused; the shell, web fetch
-and search tools are absent; a write and a read in the workspace and a read
-of a skill file work; the `kiln-harness-tuner-*` skills are found; and the gateway
-answers through the rendered MCP config.
+A no-tool role (`integrity_review`, `generality_review`) gets `"*": "deny"` and
+no MCP server. OpenCode matches a path rule against the path relative to its
+worktree (the git root above the workspace, or `/` when there is none), so each
+rule is written in that form and in the absolute form. The `edit` deny on
+`.agents/` is written from the workspace's own patterns, so it matches a path
+through the link as written; the same path resolved is in the agents folder,
+which no `edit` rule allows. The deny is the last and the longest rule, so it
+wins whichever precedence OpenCode applies. Under these rules, reads of a file
+in the run directory and of `~/.codex/auth.json` are refused; the shell, web
+fetch and search tools are absent; a write and a read in the workspace and a
+read of a skill file work; the `kiln-harness-tuner-*` skills are found; and the
+gateway answers through the rendered MCP config.
 
 Every session also runs with `--format json`, `--pure` (no external
 plugins) and `--auto` (approve what the rules do not deny, so a session
@@ -462,6 +479,8 @@ What else differs:
 - **Errors.** A failed session exits non-zero and prints an `error` event;
   that event is classified, as for Codex.
 - **Transcripts** are copied, redacted, from `opencode export <session id>`.
-- **Instructions and skills.** OpenCode loads the `AGENTS.md` that a run
-  installs at the repository root, the skills in `.agents/skills`, and the
-  user's own skills, as Claude Code does.
+- **Instructions and skills.** OpenCode finds `.agents/skills` and
+  `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
+  the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy
+  of its `AGENTS.md`. OpenCode also loads the user's own skills, as Claude
+  Code does.

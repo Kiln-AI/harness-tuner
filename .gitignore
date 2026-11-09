@@ -6,9 +6,9 @@
 # build- and tool-artifact patterns are therefore anchored with a leading `/`. Caches (`__pycache__/`,
 # `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `*.egg-info/`, `.venv`)
 # stay unanchored on purpose: they are produced next to whatever they
-# describe and never hold content. `*.log` also stays unanchored: the only
-# log this tree writes is `runs/<run_id>/kiln-harness-tuner.log`, already
-# ignored, and the examples commit no `.log` fixture.
+# describe and never hold content. `*.log` also stays unanchored: a run
+# writes its log in the state folder, not here, and the examples commit no
+# `.log` fixture.
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -229,21 +229,20 @@ tempCodeRunnerFile.py
 # Streamlit
 .streamlit/secrets.toml
 
-# Run outputs. In this repository both of these are a user's local output,
-# not committed evidence: `runs/` is run scratch and
-# `traces/` holds the redacted `claude -p` session transcripts the dispatcher
-# copies out. A user should not be offered their own agent transcripts to
-# commit. Root-anchored, because a Kiln project tree under `examples/` carries
-# its own `tasks/<id>/runs/` — see the note at the end of this file.
+# Old run outputs. A run keeps its state in the state folder
+# (`~/.kiln_ai/harness_tuner/`, or `$KILN_HARNESS_TUNER_HOME`), never in this
+# tree. A checkout used before that move still holds its `runs/` (run
+# scratch), `traces/` (the session transcripts the dispatcher copied out) and
+# `reports/`. They are a user's local output, not committed evidence, and
+# nothing moves them: delete them or move them out. Root-anchored, because a
+# Kiln project tree under `examples/` carries its own `tasks/<id>/runs/` — see
+# the note at the end of this file.
 /runs/
 /traces/
+/reports/
 # Local Kiln projects you point the loop at. Never tracked. One Kiln project
 # per subfolder.
 /targets/
-
-# `reports/` is deliberately NOT ignored. A round report is the readable
-# artifact of a run: the thing a person quotes, shares and reviews. If a report
-# must stay private, delete it or move it out of the tree; do not add it here.
 
 # A Kiln project under `examples/` is committed without its runs. Kiln writes
 # them when a project is used in place rather than copied out: the task's runs
@@ -253,10 +252,16 @@ tempCodeRunnerFile.py
 # is not reproducible. What is committed is the corpus that produces them.
 /examples/*/*/tasks/**/runs/
 
-# Installed by `kiln-harness-tuner-install-agents` from `.agents/`: the skills
-# and instructions in each agent CLI's own layout. `.agents/` is the source.
-/CLAUDE.md
-/AGENTS.md
+# Installed by `harness-tuner-install-agents --dest .` from
+# `src/kiln_harness_tuner/agent_files/`: the skills in each agent CLI's own
+# layout, and Claude Code's `kiln_api_mcp` server. `agent_files/` is the
+# source. The root `AGENTS.md` and `CLAUDE.md` are the tracked contributor
+# guide, not install targets.
+/.agents/
 /.claude/skills/
 /.claude/settings.json
 /.mcp.json
+
+# Spec-driven development: per-user state and local review artifacts.
+/.specs_skill_state/
+/reviews/

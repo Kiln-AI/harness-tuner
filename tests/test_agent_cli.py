@@ -27,7 +27,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
 
-TARGET_REPO = Path("/nonexistent/repo")
+AGENTS_DIR = Path("/nonexistent/state/agents/claude/0.1.0")
 REQUIRED = ["--project-path", "p", "--project-id", "1", "--task-id", "2"]
 
 
@@ -86,7 +86,9 @@ class TestParsing:
         }
 
     def test_the_command_reaches_the_adapter(self):
-        dispatcher = make_dispatcher(parse_agent_cli("codex exec -m m1 --oss"), TARGET)
+        dispatcher = make_dispatcher(
+            parse_agent_cli("codex exec -m m1 --oss"), TARGET, AGENTS_DIR
+        )
         assert isinstance(dispatcher, CodexCliDispatcher)
         argv = dispatcher._argv("batch_plan", label="b")
         assert argv[argv.index("-m") + 1] == "m1"
@@ -95,7 +97,7 @@ class TestParsing:
 
 class TestTheRunWideModel:
     def test_claude_keeps_its_pinned_defaults(self):
-        dispatcher = make_dispatcher(parse_agent_cli("claude -p"), TARGET)
+        dispatcher = make_dispatcher(parse_agent_cli("claude -p"), TARGET, AGENTS_DIR)
         argv = dispatcher._argv("generality_review")
         assert argv[argv.index("--model") + 1] == "sonnet"
         argv = dispatcher._argv("batch_plan")
@@ -105,6 +107,7 @@ class TestTheRunWideModel:
         dispatcher = make_dispatcher(
             parse_agent_cli("claude -p --model haiku --effort low"),
             TARGET,
+            AGENTS_DIR,
             models={"batch_plan": "opus"},
         )
         argv = dispatcher._argv("generality_review")
@@ -129,7 +132,7 @@ def claude_answer(text: str, is_error: bool = False) -> str:
 class TestTheCheck:
     async def test_an_answer_passes(self):
         runner = FakeRunner(script=[ok_proc(claude_answer(CLI_CHECK_WORD))])
-        dispatcher = ClaudeCliDispatcher(TARGET, TARGET_REPO, runner=runner)
+        dispatcher = ClaudeCliDispatcher(TARGET, AGENTS_DIR, runner=runner)
         usage = await dispatcher.check_cli("claude -p")
         assert usage.cost_usd == pytest.approx(0.01)
         (call,) = runner.calls
@@ -154,7 +157,7 @@ class TestTheCheck:
     )
     async def test_a_failure_refuses_the_start(self, outcome, reason):
         runner = FakeRunner(script=[outcome])
-        dispatcher = ClaudeCliDispatcher(TARGET, TARGET_REPO, runner=runner)
+        dispatcher = ClaudeCliDispatcher(TARGET, AGENTS_DIR, runner=runner)
         with pytest.raises(PreflightError) as info:
             await dispatcher.check_cli("claude -p")
         message = str(info.value)
@@ -165,4 +168,4 @@ class TestTheCheck:
     async def test_a_missing_executable_refuses_before_any_spawn(self, monkeypatch):
         monkeypatch.setattr("kiln_harness_tuner.cli.shutil.which", lambda _name: None)
         with pytest.raises(PreflightError, match="`codex` is not on PATH"):
-            await check_agent_cli(parse_agent_cli("codex exec"), TARGET)
+            await check_agent_cli(parse_agent_cli("codex exec"), TARGET, AGENTS_DIR)

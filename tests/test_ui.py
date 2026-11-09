@@ -850,7 +850,7 @@ def test_plain_ui_prints_one_line_per_event():
     lines = out.getvalue().splitlines()
     # CI-log usefulness: every line is timestamped.
     assert all(line.startswith("[14:02:03] ") for line in lines)
-    assert "kiln-harness-tuner: run started (timeout 180 min)" in lines[0]
+    assert "harness-tuner: run started (timeout 180 min)" in lines[0]
     assert "baseline: rc_base" in lines[1]
     assert "pre-flight checks passed" in lines[2]  # 0 stamped → the pass line
     assert "Planning wave 1…" in lines[3]

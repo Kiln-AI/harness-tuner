@@ -194,16 +194,20 @@ class TestMeasureTheBaselineFirst:
     def test_the_cli_turns_it_on(self, tmp_path):
         import kiln_harness_tuner.cli as cli
         from kiln_harness_tuner.kiln import KilnClient
+        from kiln_harness_tuner.paths import StatePaths
 
         target = cli.target_from_args(
             cli.build_parser().parse_args(
                 ["--project-path", "p", "--project-id", "1", "--task-id", "2"]
             )
         )
-        run_dir = tmp_path / "r"
+        state = StatePaths(tmp_path / "state")
+        run_dir = state.runs / "r"
         ctx = cli.build_ctx(
             target,
             KilnClient("http://localhost:1"),
+            state=state,
+            agents_dir=state.agents / "claude",
             run_id="r",
             run_dir=run_dir,
             mcp_config_path=run_dir / "m.json",
