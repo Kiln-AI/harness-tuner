@@ -155,7 +155,12 @@ from kiln_harness_tuner.schemas import (
     TrainDetectability,
     lane_for_source,
 )
-from kiln_harness_tuner.setup import eval_rows_from_response, run_setup
+from kiln_harness_tuner.setup import (
+    _require_rows,
+    eval_rows_from_response,
+    measurable_evals,
+    run_setup,
+)
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
@@ -313,6 +318,12 @@ class Ctx:
     #   is measured (`quarantine.new_eval_split_problem`). None = no check.
     startup_eval_ids: frozenset[str] | None = None
     checked_evals: dict[str, str | None] = field(default_factory=dict)
+    # The active evals whose config Kiln can't load (eval id -> its name and
+    # Kiln's reason), set by setup: the whole run leaves them out.
+    #   `unloadable_eval_ids`: every eval setup found Kiln can't load, active
+    #   or not — a read that loads its config would fail the same way.
+    unloadable_evals: dict[str, tuple[str, str]] = field(default_factory=dict)
+    unloadable_eval_ids: frozenset[str] = frozenset()
     policy_exempt_rcs: set[str] = field(default_factory=set)
     # `measure_baseline_first`: measure the baseline on train
     #   (every active eval, the full split) at setup when its stored rows do
@@ -2437,7 +2448,8 @@ def _coverage_shortfall(
 async def _active_evals(ctx: Ctx) -> list[tuple[dict[str, Any], str]]:
     """The active set, pinned: an eval with a spec is active iff the
     spec's status is "active"; no default eval config → non-active (each eval
-    always runs its default config, never loop-chosen)."""
+    always runs its default config, never loop-chosen). An eval Kiln couldn't
+    load at setup is left out for the whole run."""
     base = f"/api/projects/{ctx.target.project_id}/tasks/{ctx.target.task_id}"
     # Same envelope the setup read handles, and the same reason to go through
     # one reader: an unwrapped body here is a dict, and iterating it yields its
@@ -2450,22 +2462,15 @@ async def _active_evals(ctx: Ctx) -> list[tuple[dict[str, Any], str]]:
             f"{base}/evals",
             eval_load_errors,
         )
-    specs = await ctx.kiln.call("GET", f"{base}/specs") or []
-    status_by_eval = {s["eval_id"]: s.get("status") for s in specs if s.get("eval_id")}
-    active: list[tuple[dict[str, Any], str]] = []
-    for eval_def in evals:
-        config_id = eval_def.get("current_config_id")
-        if not config_id:
-            continue  # no default eval config set → non-active
-        if eval_def["id"] in status_by_eval:
-            if status_by_eval[eval_def["id"]] != "active":
-                continue
-        # Known limitation: an eval without a spec is treated as active. The
-        # spec carries the status, so such an eval has no status to read.
-        if _new_eval_refused(ctx, str(eval_def["id"])):
-            continue
-        active.append((eval_def, config_id))
-    return active
+    # A reshaped body must fail, not read as "no specs": that would count
+    # every archived eval as active.
+    specs = _require_rows(f"{base}/specs", await ctx.kiln.call("GET", f"{base}/specs"))
+    return [
+        (eval_def, config_id)
+        for eval_def, config_id in measurable_evals(evals, specs)
+        if str(eval_def["id"]) not in ctx.unloadable_evals
+        and not _new_eval_refused(ctx, str(eval_def["id"]))
+    ]
 
 
 def _new_eval_refused(ctx: Ctx, eval_id: str) -> bool:

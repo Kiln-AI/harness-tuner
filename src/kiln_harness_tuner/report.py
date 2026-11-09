@@ -751,11 +751,21 @@ def _cost_cells(c: object) -> str:
     )
 
 
+def _left_out_line(status: RunStatus) -> str:
+    """The evals Kiln can't load, which the run left out, with Kiln's
+    reason for each."""
+    return "Left out: " + "; ".join(
+        f'"{_md(e.name)}" (Kiln can\'t load it: {_md(e.reason)})'
+        for e in status.unloadable_evals
+    )
+
+
 def _render_setup_section(status: RunStatus) -> list[str]:
     """The Setup section: what the pre-flight phase seeded,
     and — the half a human has to act on — the issues it refused to guess a
-    binding for and the ones it flagged unmeasurable. Ids, not counts: those
-    lists are a work queue.
+    binding for and the ones it flagged unmeasurable, and the evals Kiln
+    can't load, which the run left out. Ids, not counts: those lists are a
+    work queue.
 
     Dropped entirely on a warm run that did nothing, matching what the
     `kiln-harness-tuner-report` skill tells the agent to do on the other report path:
@@ -777,7 +787,7 @@ def _render_setup_section(status: RunStatus) -> list[str]:
         )
         if ids
     ]
-    if not entries and not setup.baseline_rule:
+    if not entries and not setup.baseline_rule and not status.unloadable_evals:
         return []
     lines = [
         "",
@@ -785,6 +795,8 @@ def _render_setup_section(status: RunStatus) -> list[str]:
         "",
         f"- evals: {setup.evals_active} active of {setup.evals_total}",
     ]
+    if status.unloadable_evals:
+        lines.append(f"- {_left_out_line(status)}")
     if setup.baseline_rule:  # absent when a baseline record already existed
         lines.append(
             f"- baseline seeded: `{setup.baseline_rc_id}` (rule: {setup.baseline_rule})"

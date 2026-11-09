@@ -24,11 +24,12 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.items import call_with_retries
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.memory import (
@@ -271,6 +272,36 @@ async def seed_baseline_if_missing(ctx: Ctx) -> BaselineSeedOutcome:
         # documented zero-run-configs state; say so instead of seeding.
         raise SetupPreconditionError(unreadable_response_message(rc_path, rows))
 
+    choice = choose_baseline_rc(task, run_configs)
+    await ctx.memory.seed_baseline(
+        choice.rc_id, rule=choice.rule, rc_count=len(run_configs)
+    )
+    return BaselineSeedOutcome(
+        seeded=True,
+        rc_id=choice.rc_id,
+        rule=choice.rule,
+        unresolvable_default=choice.unresolvable_default,
+    )
+
+
+@dataclass(frozen=True)
+class BaselineChoice:
+    """The run config a task with no `baseline` record starts from, and the
+    rule that chose it. `unresolvable_default` is as on
+    `BaselineSeedOutcome`."""
+
+    rc_id: str
+    rule: str
+    unresolvable_default: str | None = None
+
+
+def choose_baseline_rc(
+    task: dict[str, Any], run_configs: list[dict[str, Any]]
+) -> BaselineChoice:
+    """The task's default run config when the run-config list has it, else
+    the most recent. `run_configs` are `_usable_run_configs` rows, at least
+    one. Pure: seeding writes the choice, and the start-up's key check only
+    reads it."""
     # The default is honored only when the run-config list confirms it. A
     # dangling default (rc deleted, or not served by this route) falls
     # through to the mechanical pick rather than seeding an rc that
@@ -280,23 +311,16 @@ async def seed_baseline_if_missing(ctx: Ctx) -> BaselineSeedOutcome:
     # no *usable* default exists.
     live_rc_ids = {_run_config_id(rc) for rc in run_configs}
     default_rc_id = str(task.get("default_run_config_id") or "").strip()
-    unresolvable_default: str | None = None
     if default_rc_id in live_rc_ids:  # "" is never a member — ids are non-empty
-        rc_id, rule = default_rc_id, BASELINE_RULE_TASK_DEFAULT
-    else:
-        # The pre-start survey is expected to ask here;
-        # with no survey, code picks mechanically and says so in the record.
-        rc_id = _run_config_id(_most_recent(run_configs))
-        rule = BASELINE_RULE_MOST_RECENT
+        return BaselineChoice(default_rc_id, BASELINE_RULE_TASK_DEFAULT)
+    # The pre-start survey is expected to ask here;
+    # with no survey, code picks mechanically and says so in the record.
+    return BaselineChoice(
+        _run_config_id(_most_recent(run_configs)),
+        BASELINE_RULE_MOST_RECENT,
         # A default WAS named and could not be honored — the breadcrumb the
         # record's provenance can't carry.
-        unresolvable_default = default_rc_id or None
-    await ctx.memory.seed_baseline(rc_id, rule=rule, rc_count=len(run_configs))
-    return BaselineSeedOutcome(
-        seeded=True,
-        rc_id=rc_id,
-        rule=rule,
-        unresolvable_default=unresolvable_default,
+        unresolvable_default=default_rc_id or None,
     )
 
 
@@ -313,9 +337,12 @@ SPEC_STATUS_ACTIVE = "active"
 # like the describe fan-out — the calls are independent and cheap.
 SETUP_CONFIG_READ_CONCURRENCY = 4
 # The statuses that mean an eval config is GONE, as opposed to unreadable —
-# the only ones setup degrades rather than raising on (see
-# `_read_config_properties`).
+# setup degrades these rather than raising on them (see `read_eval_config`).
 CONFIG_GONE_STATUSES = frozenset({404, 410})
+# The statuses Kiln answers a config it can't load with, such as a judge
+# template this Kiln can't parse: a problem of that one eval, which the run
+# leaves out (`read_eval_config`).
+UNLOADABLE_STATUSES = frozenset({400, 422})
 # Kiln's Spec priority range, and the range the `p<n>` tag vocabulary covers.
 MIN_ISSUE_PRIORITY = 0
 MAX_ISSUE_PRIORITY = 3
@@ -372,12 +399,20 @@ class EvalView:
     val_filter: str | None  # splits["val"].filter_id
     config_properties: dict[str, Any] | None  # the CURRENT config only
     spec: SpecView | None
+    # Kiln's reason when it can't load the current config (`read_eval_config`).
+    unloadable: str | None = None
 
     @property
     def is_active(self) -> bool:
         """The loop's active-set rule: no
         Spec, or a Spec whose status is `active`."""
         return self.spec is None or self.spec.status == SPEC_STATUS_ACTIVE
+
+    @property
+    def in_run(self) -> bool:
+        """Active, and its config loads: an eval Kiln can't load is left out
+        of the run."""
+        return self.is_active and self.unloadable is None
 
     @property
     def priority(self) -> int:
@@ -438,9 +473,20 @@ class SyncPlan:
 
     @property
     def active(self) -> list[EvalView]:
-        """The active set — what the split audit audits and the sync
+        """The active set less the evals Kiln can't load — what the sync
         partitions."""
-        return [view for view in self.evals if view.is_active]
+        return [view for view in self.evals if view.in_run]
+
+    @property
+    def unloadable(self) -> dict[str, tuple[str, str]]:
+        """The active evals whose config Kiln can't load, by id, with their
+        name and Kiln's reason. The run leaves them out, and their issues are
+        left as they are: neither seeded, refreshed, repaired nor flagged."""
+        return {
+            view.id: (view.name, view.unloadable)
+            for view in self.evals
+            if view.is_active and view.unloadable is not None
+        }
 
     @property
     def describe_targets(self) -> list[EvalView]:
@@ -600,6 +646,42 @@ def eval_rows_from_response(url_path: str, response: Any) -> tuple[list[Any], in
     raise SetupPreconditionError(unreadable_response_message(url_path, response))
 
 
+def active_eval_rows(
+    eval_rows: list[Any], spec_rows: list[Any]
+) -> list[dict[str, Any]]:
+    """The eval rows that are dicts with an id, and whose spec is absent or
+    has status "active". Row order is kept.
+
+    Known limitation: an eval without a spec is treated as active. The spec
+    carries the status, so such an eval has no status to read."""
+    status_by_eval = {
+        str(spec["eval_id"]): spec.get("status")
+        for spec in spec_rows
+        if isinstance(spec, dict) and spec.get("eval_id")
+    }
+    return [
+        row
+        for row in eval_rows
+        if isinstance(row, dict)
+        and row.get("id")
+        and status_by_eval.get(str(row["id"]), SPEC_STATUS_ACTIVE) == SPEC_STATUS_ACTIVE
+    ]
+
+
+def measurable_evals(
+    eval_rows: list[Any], spec_rows: list[Any]
+) -> list[tuple[dict[str, Any], str]]:
+    """The `active_eval_rows` that carry a default eval config
+    (`current_config_id`), each paired with it: the loop's measurement set
+    before any per-run filter. Each eval always runs its default config,
+    never one the loop chooses."""
+    return [
+        (row, str(row["current_config_id"]))
+        for row in active_eval_rows(eval_rows, spec_rows)
+        if row.get("current_config_id")
+    ]
+
+
 async def read_eval_views(ctx: Ctx) -> list[EvalView]:
     """Evals + their Specs + each eval's CURRENT config. Only the
     config named by `current_config_id` is live; superseded configs sit
@@ -634,18 +716,20 @@ async def read_eval_views(ctx: Ctx) -> list[EvalView]:
             spec_by_eval[str(raw["eval_id"])] = SpecView.from_api(raw)
     rows = [raw for raw in evals if isinstance(raw, dict) and raw.get("id")]
 
-    semaphore = asyncio.Semaphore(SETUP_CONFIG_READ_CONCURRENCY)
-
-    async def properties_for(raw: dict[str, Any]) -> dict[str, Any] | None:
-        config_id = raw.get("current_config_id")
-        if not config_id:
-            return None
-        async with semaphore:
-            return await _read_config_properties(
-                ctx, base, str(raw["id"]), str(config_id)
-            )
-
-    properties = await asyncio.gather(*(properties_for(raw) for raw in rows))
+    configured = [
+        (raw, str(raw["current_config_id"]))
+        for raw in rows
+        if raw.get("current_config_id")
+    ]
+    read_by_eval = {
+        str(raw["id"]): read
+        for (raw, _config_id), read in zip(
+            configured,
+            await read_eval_configs(ctx.kiln, base, configured),
+            strict=True,
+        )
+    }
+    reads = [read_by_eval.get(str(raw["id"]), EvalConfigRead(None)) for raw in rows]
     return [
         EvalView(
             id=str(raw["id"]),
@@ -653,47 +737,100 @@ async def read_eval_views(ctx: Ctx) -> list[EvalView]:
             current_config_id=raw.get("current_config_id"),
             train_filter=split_filter_id(raw, "train"),
             val_filter=split_filter_id(raw, "val"),
-            config_properties=config_properties,
+            config_properties=_config_properties(read.config),
             spec=spec_by_eval.get(str(raw["id"])),
+            unloadable=read.unloadable,
         )
-        for raw, config_properties in zip(rows, properties, strict=True)
+        for raw, read in zip(rows, reads, strict=True)
     ]
 
 
-async def _read_config_properties(
-    ctx: Ctx, base: str, eval_id: str, config_id: str
-) -> dict[str, Any] | None:
-    """An unreadable config never fails a run — the rule applied to the
-    two ways a config can be MISSING.
+@dataclass(frozen=True)
+class EvalConfigRead:
+    """One eval's default config, as Kiln answered for it."""
 
-    A drifted BODY degrades to `None`. So does a "gone" status: a
-    `current_config_id` naming a deleted config is a real answer (kiln.py
-    never retries or softens 4xx), and letting `KilnAPIError` out would abort
-    every invocation with a raw traceback — `cli.py` catches only the two
-    instructive setup errors — with no in-product repair path.
+    config: dict[str, Any] | None  # None when gone or unloadable
+    unloadable: str | None = None  # Kiln's reason, when it can't load it
 
-    Everything else propagates, including 401/403/429. Those mean "we could
-    not READ it", not "it is not there", and degrading them is expensive and
-    silent: the eval would fingerprint over an empty rubric, refreshing the
-    whole active set (a PAID describe fan-out — 28 on a wide task), storing
-    the wrong fingerprint, and refreshing again once the read heals. Failing
-    instead costs nothing: setup runs before any paid work.
 
-    `rubric_text` then hashes the empty string, so a genuinely-gone config
-    still fingerprints — stably, and it re-fingerprints the moment a config
-    is there again."""
+async def read_eval_config(
+    kiln: KilnApi, base: str, eval_id: str, config_id: str
+) -> EvalConfigRead:
+    """An eval's config, read by the one rule setup, readiness and the key
+    check share. An unreadable config never fails a run — the rule applied
+    to the ways a config can be MISSING.
+
+    A "gone" status (404, 410) is a real answer: a `current_config_id`
+    naming a deleted config (kiln.py never retries or softens 4xx). Setup
+    then fingerprints the eval over an empty rubric — stably, and it
+    re-fingerprints the moment a config is there again.
+
+    An "unloadable" status (400, 422) is Kiln saying it can't load that
+    config, as for a judge template this Kiln can't parse. That is a problem
+    of the one eval, so the run leaves the eval out (`EvalView.in_run`)
+    rather than stop. It is not degraded to an empty rubric: that changes
+    its fingerprint, and a paid re-describe would follow on every
+    invocation while the eval stays broken.
+
+    A drifted BODY reads as no config.
+
+    Everything else propagates, including 401/403/429 and 5xx. Those mean
+    "we could not READ it", not "it is not there", and degrading them is
+    expensive and silent: the eval would fingerprint over an empty rubric,
+    refreshing the whole active set (a PAID describe fan-out — 28 on a wide
+    task), storing the wrong fingerprint, and refreshing again once the
+    read heals. Failing instead costs nothing: setup runs before any paid
+    work."""
     try:
-        config = await ctx.kiln.call(
+        config = await kiln.call(
             "GET", f"{base}/evals/{eval_id}/eval_config/{config_id}"
         )
     except KilnAPIError as exc:
-        if exc.status_code not in CONFIG_GONE_STATUSES:
-            raise
-        return None
-    if not isinstance(config, dict):
+        if exc.status_code in CONFIG_GONE_STATUSES:
+            return EvalConfigRead(None)
+        if exc.status_code in UNLOADABLE_STATUSES:
+            return EvalConfigRead(None, unloadable=exc.kiln_message)
+        raise
+    return EvalConfigRead(config if isinstance(config, dict) else None)
+
+
+async def read_eval_configs(
+    kiln: KilnApi, base: str, pairs: Sequence[tuple[dict[str, Any], str]]
+) -> list[EvalConfigRead]:
+    """`read_eval_config` for each `(eval row, config id)` pair, in order,
+    bounded like setup's own reads."""
+    semaphore = asyncio.Semaphore(SETUP_CONFIG_READ_CONCURRENCY)
+
+    async def read(row: dict[str, Any], config_id: str) -> EvalConfigRead:
+        async with semaphore:
+            return await read_eval_config(kiln, base, str(row["id"]), config_id)
+
+    return await asyncio.gather(*(read(row, config_id) for row, config_id in pairs))
+
+
+def _config_properties(config: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A config's `properties`, or `None` for no config or a drifted one."""
+    if config is None:
         return None
     properties = config.get("properties")
     return properties if isinstance(properties, dict) else None
+
+
+_UNLOADABLE_FIX = (
+    "The run leaves it out. To use it, fix its judge in Kiln, or update Kiln if",
+    "the eval was made with a newer version",
+)
+
+
+def unloadable_eval_lines(name: str, reason: str, link: str | None = None) -> list[str]:
+    """The warning for an eval Kiln can't load: Kiln's reason and the fix,
+    ending with the page that fixes it when `link` is given. The lines
+    after the first are indented under it."""
+    return [
+        f'Kiln can\'t load eval "{name}": {reason.removesuffix(".")}.',
+        f"  {_UNLOADABLE_FIX[0]}",
+        f"  {_UNLOADABLE_FIX[1]}" + (f": {link}" if link else "."),
+    ]
 
 
 async def read_issue_views(ctx: Ctx) -> list[IssueView]:
@@ -772,6 +909,7 @@ async def build_sync_plan(ctx: Ctx) -> SyncPlan:
     live_eval_ids = frozenset(view.id for view in evals)
     active = plan.active
     active_ids = frozenset(view.id for view in active)
+    unloadable_ids = frozenset(plan.unloadable)
     spec_by_eval: dict[str, SpecView] = {
         view.id: view.spec for view in evals if view.spec is not None
     }
@@ -798,6 +936,8 @@ async def build_sync_plan(ctx: Ctx) -> SyncPlan:
             if repaired is None:
                 plan.unbound_unresolved.append(issue)
                 continue
+            if repaired.eval_id in unloadable_ids:
+                continue  # left as it is until Kiln can load its eval
             plan.repair.append(repaired)
             bound = frozenset([repaired.eval_id])
         bindings[issue.id] = bound
@@ -831,8 +971,14 @@ async def build_sync_plan(ctx: Ctx) -> SyncPlan:
     skip_states = ISSUE_TERMINAL_STATES | {IssueState.UNMEASURABLE}
     for issue in issues:
         bound = bindings.get(issue.id, frozenset())
-        # Bound to several evals ⇒ unmeasurable only when NONE is active.
-        if bound and not bound & active_ids and issue.state not in skip_states:
+        # Bound to several evals ⇒ unmeasurable only when NONE is active. An
+        # eval Kiln can't load is left out of this run, not out of the
+        # active set, so its issues are not flagged.
+        if (
+            bound
+            and not bound & (active_ids | unloadable_ids)
+            and issue.state not in skip_states
+        ):
             plan.unmeasurable.append(
                 # `bound`, not the issue's tags: a repaired issue's binding
                 # isn't written yet, and reading the tags here produced a
@@ -1038,9 +1184,9 @@ def _render_missing_splits(rows: list[tuple[EvalView, str]]) -> str:
 
 
 def audit_splits(views: list[EvalView]) -> None:
-    """Every ACTIVE eval must carry both split filters, or the run dies
-    here rather than three waves and real money in, at the first promotion
-    gate's 422.
+    """Every eval in the run (active, and Kiln can load it) must carry both
+    split filters, or the run dies here rather than three waves and real
+    money in, at the first promotion gate's 422.
 
     A pure local pass over the already-fetched views — no extra REST call and
     no 422-probing, which is why it is not `async` (there is nothing to
@@ -1053,13 +1199,31 @@ def audit_splits(views: list[EvalView]) -> None:
     rows = [
         (view, missing)
         for view in views
-        if view.is_active and (missing := _missing_splits(view)) is not None
+        if view.in_run and (missing := _missing_splits(view)) is not None
     ]
     if rows:
         raise EvalSplitAuditError(_render_missing_splits(rows))
 
 
 # ---- the phase itself ----
+
+
+def _leave_out_unloadable_evals(ctx: Ctx, plan: SyncPlan) -> None:
+    """Record the evals Kiln can't load. The active ones are those the whole
+    run leaves out (`orchestrator._active_evals`), and each is logged; an
+    inactive one is not in the run, but is still not read again."""
+    ctx.unloadable_eval_ids = frozenset(
+        view.id for view in plan.evals if view.unloadable is not None
+    )
+    ctx.unloadable_evals = plan.unloadable
+    for eval_id, (name, reason) in ctx.unloadable_evals.items():
+        ctx.log.event(
+            "eval_unloadable",
+            eval_id=eval_id,
+            name=name,
+            reason=reason,
+            line=" ".join(line.strip() for line in unloadable_eval_lines(name, reason)),
+        )
 
 
 async def run_setup(ctx: Ctx) -> SetupReport:
@@ -1094,6 +1258,7 @@ async def run_setup(ctx: Ctx) -> SetupReport:
         return descriptions
 
     plan = await build_sync_plan(ctx)
+    _leave_out_unloadable_evals(ctx, plan)
     report = await apply_sync_plan(ctx, plan, describe)
     report.baseline_rule = outcome.rule
     report.baseline_rc_id = outcome.rc_id

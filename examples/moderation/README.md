@@ -94,38 +94,54 @@ invented.
 You need the requirements in the [main README](../../README.md#requirements):
 the loop installed, a running Kiln studio server, and a signed-in agent CLI.
 You also need a Fireworks key in Kiln, because the baseline calls DeepSeek
-V4.1 Flash 1017 through Fireworks.
+V4.1 Flash 1017 through Fireworks. The start checks that Kiln has the key,
+and says where to add it when it doesn't.
 
-1. Copy the project out of a clone of this repository. The example is not in
-   the installed package. Kiln and the loop write runs into the project
-   folder, and a copy keeps your clone clean.
-
-   ```
-   git clone https://github.com/Kiln-AI/harness-tuner.git
-   cd harness-tuner
-   mkdir -p ~/kiln-projects
-   cp -R "examples/moderation/Forum Moderation" ~/kiln-projects/
-   ```
-
-2. Import the copy into Kiln. In the Kiln app, import an existing project and
-   select `~/kiln-projects/Forum Moderation/project.kiln`. Or use the API:
+1. Start the loop on a fresh copy of the project:
 
    ```
-   curl -X POST "http://localhost:8757/api/import_project?trusted=true&project_path=$HOME/kiln-projects/Forum%20Moderation/project.kiln"
+   harness-tuner --demo-project
    ```
 
-   `trusted=true` is required because the eval runs code: the scorer.
+   `--demo-project` copies the project into
+   `~/Kiln Projects/Forum Moderation`, imports the copy into Kiln, and runs
+   on it. Kiln and the loop write runs into the project folder, so they
+   write into the copy and never into the package. Each start with
+   `--demo-project` makes a new copy: when the folder is taken, the copy goes
+   to `Forum Moderation-1`, then `-2`, and so on. Nothing is overwritten.
+   Each copy has its own project id, and the task id is always
+   `424242783061`.
 
-3. Start the loop:
+   In a terminal, the start then asks a few questions, each pre-filled, so
+   Enter accepts it:
 
-   ```
-   harness-tuner --project-path ~/kiln-projects/"Forum Moderation" \
-             --project-id 424242975950 --task-id 424242783061 \
-             --guidance "Improve the moderation decisions. Keep the output format." \
-             --timeout-mins 60 --budget-usd 20
-   ```
+   | Question | Pre-filled |
+   |---|---|
+   | What should the tuner improve? | Quality |
+   | Guidance for the tuner's planner (optional) | `Improve the moderation decisions. Keep the output format.` |
+   | Which agent CLI should run the tuner's agents? | Claude Code; not asked when only one is installed |
+   | Model for the agents | `opus` for Claude Code |
+   | Budget for this run | `50`, in USD |
+   | Time limit | `12h` |
+   | Advanced options | Keep these |
 
-   `--budget-usd` is a ceiling, not an estimate. It covers both the agent
+   It does not ask for the project or the task: they are the copy's. A flag
+   answers its question instead, so for a short first run,
+   `harness-tuner --demo-project --budget-usd 20 --timeout-mins 60` asks
+   neither the budget nor the time limit. Then it shows a summary and the
+   command that runs on the same copy again with the same answers, and starts
+   the run when you press `s`.
+   [docs/install.md](../../docs/install.md#try-the-demo) shows the whole start.
+   Without a terminal, or with `--no-interaction`, nothing is asked and every
+   option takes its default, with no guidance: pass `--guidance` to give the
+   planner the demo's text.
+
+   The project the copies come from ships inside the package, in
+   [`src/kiln_harness_tuner/demo_project/Forum Moderation/`](../../src/kiln_harness_tuner/demo_project/Forum%20Moderation/).
+   Every agent's read fence denies that folder, because it holds the labels
+   of every split.
+
+   The budget is a ceiling, not an estimate. It covers both the agent
    sessions and the model calls of the task. Read
    [docs/costs.md](../../docs/costs.md) to estimate a run.
 
@@ -133,6 +149,6 @@ V4.1 Flash 1017 through Fireworks.
    the report's path. The report is in `~/.kiln_ai/harness_tuner/reports/` by
    default, not in the clone.
 
-4. Check the result on test yourself. The loop never reads test. In Kiln, run
+2. Check the result on test yourself. The loop never reads test. In Kiln, run
    the `Decision correct` eval on the test split for the baseline and for the
    run config the loop promoted, and compare the two.

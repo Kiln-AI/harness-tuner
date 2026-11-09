@@ -216,8 +216,9 @@ Per wave, in order:
    stopping. Otherwise compute `should_wrap`.
 2. **The budget check.** First the ledger is reconciled with the records
    this run created (`kiln_harness_tuner.reconcile`; [costs.md](costs.md)), so
-   the check reads the true spend. With `--budget-usd` set: at or past the
-   ceiling, exit `budget_exhausted`; within one mean wave's cost of it, this wave is the
+   the check reads the true spend. With a budget (any `--budget-usd` but
+   `none`; the default is 50): at or past the ceiling, exit
+   `budget_exhausted`; within one mean wave's cost of it, this wave is the
    wrap-up. This check is a wave boundary and nothing else — **a wave already
    running is never killed for the budget**, so the wave that crosses the
    ceiling runs to completion and is paid for. The clock does not work this way
@@ -522,9 +523,9 @@ two ways, and neither edits anything the loop measures with:
   re-judged, and the row says why.
 
 **Spend.** Before any spend, one line gives an estimate from the baseline's
-stored rows. With `--budget-usd`, an estimate that does not fit the
-remaining run budget skips the check with the reason. The spend is booked as
-`spend` source `noise_check`, in the provider lane.
+stored rows. With a budget (any `--budget-usd` but `none`), an estimate that
+does not fit the remaining run budget skips the check with the reason. The
+spend is booked as `spend` source `noise_check`, in the provider lane.
 
 **The result.** Per (eval, score): how many sampled items changed on the
 re-drive and on the re-judge (a pass/fail outcome, or a rating value with
@@ -851,8 +852,9 @@ writer's input. Another host can render it its own way.
 
 - **The live display** (`ui.py`, built on `rich.live`). Completed waves are
   never erased or rewritten — each freezes into scrollback as-is, and only the
-  active wave's block updates. One pinned totals row, always present. `--no-ui`
-  falls back to plain timestamped lines for a non-interactive terminal.
+  active wave's block updates. One pinned totals row, always present.
+  `--no-progress` falls back to plain timestamped lines for a non-interactive
+  terminal.
 - **The wave log** (`wave_log.py`) is the append-only audit trail under
   `runs/<run_id>/`.
 - **The report** — the report-writer agent returns markdown and **code** writes
@@ -923,10 +925,11 @@ directory.
 2. **The read fence.** `read_fence_for` builds it. Denied: the run's OWN
    Kiln project, whole — its eval inputs, task runs and eval runs
    are every split's data; the state folder's `runs/` (this run's directory
-   included, except its scratch), `traces/` and `reports/`; and every other
-   Claude session's transcripts (`~/.claude/projects`). Allowed: the run's
-   scratch, and the `.claude/skills` and `CLAUDE.md` that the run installs
-   for Claude Code in the agents folder.
+   included, except its scratch), `traces/` and `reports/`; the demo project
+   that ships in the package (`src/kiln_harness_tuner/demo_project/`), by
+   path; and every other Claude session's transcripts (`~/.claude/projects`).
+   Allowed: the run's scratch, and the `.claude/skills` and `CLAUDE.md` that
+   the run installs for Claude Code in the agents folder.
 
    **The trace folder.** The roles that read traces —
    `TRACE_READER_ROLES` in `gateway/ops.py`: the planner, the builder, the
@@ -1143,6 +1146,8 @@ src/kiln_harness_tuner/
   agents/           one prompt template per agent role
   agent_files/      the agents' skills and instructions (package data),
                     installed per agent CLI into the state folder
+  demo_project/     the moderation example's Kiln project, shipped as
+                    package data for --demo-project
   dispatch/         the seam (base.py), --agent-cli (agent_cli.py), the
                     claude -p, codex exec and opencode run implementations,
                     and the run-directory read fence (run_fence.py)

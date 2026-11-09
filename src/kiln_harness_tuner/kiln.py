@@ -25,6 +25,54 @@ DEFAULT_KILN_HOST = "http://localhost:8757"
 # 3 quick retries after the initial attempt, with backoff
 RETRY_BACKOFF_SECS: tuple[float, ...] = (2.0, 5.0, 10.0)
 
+# The longest Kiln message an error screen or a warning quotes.
+KILN_MESSAGE_MAX_CHARS = 500
+# What pydantic puts before a validator's own message, as Kiln passes it on.
+_MESSAGE_PREFIXES = (": ", "Value error, ")
+
+
+def _clean_message(message: object) -> str:
+    text = str(message)
+    for prefix in _MESSAGE_PREFIXES:
+        text = text.removeprefix(prefix)
+    return text
+
+
+def _messages(body: Any) -> list[str]:
+    """Kiln's own messages in an error body: its `error_messages`, else
+    FastAPI's `detail` (a string, or a validation error's list of items)."""
+    if not isinstance(body, dict):
+        return []
+    error_messages = body.get("error_messages")
+    if isinstance(error_messages, list) and error_messages:
+        return [_clean_message(message) for message in error_messages]
+    detail = body.get("detail")
+    if isinstance(detail, str):
+        return [_clean_message(detail)]
+    if isinstance(detail, list):
+        return [
+            _clean_message(item["msg"])
+            for item in detail
+            if isinstance(item, dict) and "msg" in item
+        ]
+    return []
+
+
+def kiln_error_text(body: Any) -> str:
+    """The message in a Kiln error body, for a person to read: Kiln's own
+    messages joined with `; `, else the body as text, cut to
+    `KILN_MESSAGE_MAX_CHARS`."""
+    messages = _messages(body)
+    if messages:
+        text = "; ".join(messages)
+    elif isinstance(body, str):
+        text = _clean_message(body)
+    else:
+        text = repr(body)
+    if len(text) > KILN_MESSAGE_MAX_CHARS:
+        text = text[: KILN_MESSAGE_MAX_CHARS - 1] + "…"
+    return text
+
 
 class KilnError(Exception):
     """Base class for KilnClient failures."""
@@ -39,6 +87,10 @@ class KilnAPIError(KilnError):
         self.status_code = status_code
         self.body = body
         super().__init__(f"{method} {url_path} -> HTTP {status_code}: {body!r}")
+
+    @property
+    def kiln_message(self) -> str:
+        return kiln_error_text(self.body)
 
 
 class KilnTransportError(KilnError):

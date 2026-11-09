@@ -3,7 +3,7 @@ invoked manually from a terminal).
 
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
 observability: run id, wave log (`<state>/runs/<run_id>/`, run scratch),
-`RunStatus` tracker + UI (rich live display, or plain lines under `--no-ui` /
+`RunStatus` tracker + UI (rich live display, or plain lines under `--no-progress` /
 non-TTY), and the report hook (`<state>/reports/kiln-harness-tuner-<run_id>.md`)
 — then runs `orchestrate`, which returns the report path. `<state>` is the
 state folder (`paths.py`); the agents' skills and instructions come from the
@@ -31,6 +31,8 @@ from typing import Any
 from rich.console import Console
 
 from kiln_harness_tuner.analysis import AnalysisError, Analyzer
+from kiln_harness_tuner.contract import ContractPreflightError
+from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.agent_cli import (
     DEFAULT_AGENT_CLI,
     AgentCli,
@@ -56,7 +58,13 @@ from kiln_harness_tuner.install_agents import (
     install_for_run,
     package_version,
 )
-from kiln_harness_tuner.kiln import DEFAULT_KILN_HOST, KilnClient, KilnError
+from kiln_harness_tuner.kiln import (
+    DEFAULT_KILN_HOST,
+    KilnAPIError,
+    KilnClient,
+    KilnError,
+    KilnTransportError,
+)
 from kiln_harness_tuner.logbook import configure_run_logging
 from kiln_harness_tuner.memory import (
     BaselineRecordMissingError,
@@ -65,6 +73,26 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
+from kiln_harness_tuner.model_preflight import ModelPreflightError
+from kiln_harness_tuner.onboarding import (
+    OnboardingError,
+    OnboardingStopped,
+    prepare_start,
+)
+from kiln_harness_tuner.onboarding.demo import demo_fence_root
+from kiln_harness_tuner.onboarding.error_screen import (
+    RunProgress,
+    ending_lines,
+    error_body,
+    show_closing_line,
+    show_error,
+)
+from kiln_harness_tuner.onboarding.questions import (
+    number_text,
+    parse_budget,
+    parse_fraction,
+)
+from kiln_harness_tuner.onboarding.summary import OptionInfo
 from kiln_harness_tuner.orchestrator import (
     DEFAULT_COVERAGE_FLOOR,
     Ctx,
@@ -82,7 +110,12 @@ from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.reference_check import REFERENCE_CHECK_MODES
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
-from kiln_harness_tuner.setup import SetupError
+from kiln_harness_tuner.setup import (
+    EvalSplitAuditError,
+    SetupDescribeError,
+    SetupError,
+    SetupPreconditionError,
+)
 from kiln_harness_tuner.skill_installer import sweep_staging
 from kiln_harness_tuner.status import RunStatusTracker, make_run_id
 from kiln_harness_tuner.ui import LiveUi, PlainUi
@@ -90,7 +123,13 @@ from kiln_harness_tuner.wave_log import FanoutLog, WaveLog
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_MINS = 180
+# The command's name. The parser and every start-up message use it, so a
+# rename of the command is this one line.
+PROG = "harness-tuner"
+
+DEFAULT_TIMEOUT_MINS = 720  # 12 hours
+# The run's cost cap by default: `--budget-usd none` runs with no cap.
+DEFAULT_BUDGET_USD = 50.0
 # Concurrency defaults: bounded by default — the
 # unbounded gathers were what manufactured provider 429 storms ("Kiln Harness Tuner's
 # own parallelism creates the limit that stalls it"). 4 concurrent eval jobs × ~a few
@@ -160,11 +199,33 @@ REMOVED_FLAGS = {
         " speed when latency is the goal; the latency of each arm per request"
         " is still reported"
     ),
+    "--no-ui": (
+        "--no-ui was renamed --no-progress: plain log lines instead of the live"
+        " progress display"
+    ),
 }
 
 
 class _Parser(argparse.ArgumentParser):
-    """An ArgumentParser that names a removed flag and gives the reason."""
+    """An ArgumentParser that names a removed flag and gives the reason, and
+    records each long option's dest, whether it takes a value, and its
+    default in `option_dests`: the start-up reads the command line with
+    them (which flags were given, and the rerun command), and the parser's
+    own table is private."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self.option_dests: dict[str, OptionInfo] = {}
+        super().__init__(*args, **kwargs)
+
+    def add_argument(self, *args: Any, **kwargs: Any) -> argparse.Action:
+        action = super().add_argument(*args, **kwargs)
+        info = OptionInfo(
+            action.dest, takes_value=action.nargs != 0, default=action.default
+        )
+        for option in action.option_strings:
+            if option.startswith("--"):
+                self.option_dests[option] = info
+        return action
 
     def parse_known_args(  # type: ignore[override]
         self, args: Sequence[str] | None = None, namespace: Any = None
@@ -179,9 +240,9 @@ class _Parser(argparse.ArgumentParser):
         return super().parse_known_args(args, namespace)
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser() -> _Parser:
     parser = _Parser(
-        prog="harness-tuner",
+        prog=PROG,
         description=(
             "Kiln Harness Tuner\n"
             "\n"
@@ -196,11 +257,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--project-path",
-        required=True,
-        help="on-disk Kiln project dir (for agents exploring .kiln files)",
+        help="on-disk Kiln project dir (for agents exploring .kiln files);"
+        " default: the folder Kiln has for the project. When given, it must be"
+        " that folder",
     )
-    parser.add_argument("--project-id", required=True, help="Kiln project id")
-    parser.add_argument("--task-id", required=True, help="Kiln task id")
+    parser.add_argument(
+        "--project-id",
+        help="Kiln project id (default: the only project in Kiln, or one you"
+        " pick; found from --project-path or --task-id when either is given)",
+    )
+    parser.add_argument(
+        "--task-id",
+        help="Kiln task id (default: the only task in the project, or one you pick)",
+    )
+    parser.add_argument(
+        "--demo-project",
+        action="store_true",
+        help="copy the demo project into a new folder under ~/Kiln Projects,"
+        " import it into Kiln and run on it (can't be combined with"
+        " --project-id, --task-id or --project-path)",
+    )
+    parser.add_argument(
+        "--no-interaction",
+        action="store_true",
+        help="never ask a question or wait: checks fail fast, a missing project"
+        " or task is an error, and every option not given takes its default",
+    )
     parser.add_argument(
         "--kiln-host",
         default=DEFAULT_KILN_HOST,
@@ -215,20 +297,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout-mins",
         type=int,
         default=DEFAULT_TIMEOUT_MINS,
-        help=f"time budget, wave-boundary checked (default {DEFAULT_TIMEOUT_MINS})",
+        help="time budget in minutes, wave-boundary checked (default"
+        f" {DEFAULT_TIMEOUT_MINS}, 12 hours)",
     )
     parser.add_argument(
-        "--no-ui",
+        "--no-progress",
         action="store_true",
-        help="plain log lines instead of the live display (V1)",
+        help="plain log lines instead of the live progress display during the run",
     )
     parser.add_argument(
         "--budget-usd",
-        type=float,
-        default=None,
+        type=_budget,
+        default=DEFAULT_BUDGET_USD,
+        metavar="USD",
         help="cost ceiling for the run (both lanes); at the ceiling the run"
         " exits, one projected wave short of it the next wave is the wrap-up"
-        " (default: no ceiling)",
+        f" (default {number_text(DEFAULT_BUDGET_USD)}; none = no ceiling)",
     )
     parser.add_argument(
         "--coverage-floor",
@@ -383,17 +467,33 @@ def build_parser() -> argparse.ArgumentParser:
 OBJECTIVES = ("quality", "speed", "cost")
 
 
-def _fraction(text: str) -> float:
-    """`--min-effect`: a share of items, above 0 and at most 1."""
-    try:
-        value = float(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
-    if not 0.0 < value <= 1.0:
-        raise argparse.ArgumentTypeError(
-            f"{text!r} is not a fraction above 0 and at most 1 (0.1 = 10%)"
+def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """The rules between flags that argparse can't state. Each failure is an
+    argparse error: usage, the message, exit 2."""
+    project_flags = (args.project_id, args.task_id, args.project_path)
+    if args.demo_project and any(flag is not None for flag in project_flags):
+        parser.error(
+            "--demo-project makes its own project:"
+            " drop --project-id, --task-id and --project-path"
         )
-    return value
+
+
+def _budget(text: str) -> float | None:
+    """`--budget-usd`: USD above 0, or `none` for no cap. The start's budget
+    question takes the same values."""
+    try:
+        return parse_budget(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
+def _fraction(text: str) -> float:
+    """`--min-effect`: a share of items, above 0 and at most 1. The start's
+    question takes the same values."""
+    try:
+        return parse_fraction(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
 
 def _positive_int(text: str) -> int:
@@ -509,8 +609,9 @@ def read_fence_for(
     gateway operations, which answer from train records only, and through
     code-assembled inputs. Every run's directory in the state folder — this
     run's too, except its scratch: the wave log, the step records and the
-    memory snapshots carry val tables. The traces and the reports. Every other
-    Claude session's transcripts.
+    memory snapshots carry val tables. The traces and the reports. The demo
+    project that ships in the package (`--demo-project` copies it), which
+    holds every split's labels. Every other Claude session's transcripts.
 
     Readable: this run's scratch, and the skills and `CLAUDE.md` that
     `install_for_run` installs for Claude Code in the agents folder. A project
@@ -525,6 +626,9 @@ def read_fence_for(
         state.runs,
         state.traces,
         state.reports,
+        # Resolved like the roots above: an install reached through a
+        # symlink would otherwise name a path the sandbox doesn't match.
+        demo_fence_root().resolve(),
         home / ".claude" / "projects",
     ]
     allow = [
@@ -1062,20 +1166,10 @@ def _acquire_run_lock(
     return RunLock(lock_path, fd)
 
 
-@dataclass
-class _RunOutput:
-    """Where this run's files are, for the lines `main` prints at the exit:
-    set as soon as each exists, cleared at the top of `main`."""
-
-    run_dir: Path | None = None
-    report_path: Path | None = None
-
-    def clear(self) -> None:
-        self.run_dir = None
-        self.report_path = None
-
-
-_RUN_OUTPUT = _RunOutput()
+# How far this invocation got, for the error screen's ending: `_run` fills it
+# in as the agent CLI check passes, the run folder is made, and the spend
+# meter and the report writer are built. `main` resets it.
+_RUN_PROGRESS = RunProgress()
 
 
 async def _run(args: argparse.Namespace) -> str:
@@ -1095,13 +1189,14 @@ async def _run(args: argparse.Namespace) -> str:
     try:
         agents_dir = install_for_run(agent_cli.kind, state.agents, package_version())
     except InstallError as exc:
-        raise SystemExit(f"harness-tuner: {exc}") from exc
+        raise SystemExit(f"{PROG}: {exc}") from exc
     target = target_from_args(args)
     models = parse_role_overrides(args.agent_model, "--agent-model")
     efforts = parse_role_overrides(args.agent_effort, "--agent-effort")
     # Before the run lock and the run directory: a CLI that cannot answer
     # leaves nothing behind.
     await check_agent_cli(agent_cli, target, agents_dir, models, efforts)
+    _RUN_PROGRESS.cli_checked = True
     policy = load_model_policy(args.model_policy)
     lock = _acquire_run_lock(state.runs, target.task_id, target.project_id)
     try:
@@ -1110,9 +1205,9 @@ async def _run(args: argparse.Namespace) -> str:
         run_started_at = datetime.now()
         run_id = _unique_run_id(state.runs, run_started_at)
         run_dir = state.runs / run_id
-        _RUN_OUTPUT.run_dir = run_dir
+        _RUN_PROGRESS.run_dir = run_dir
         # Before the live display, which owns the terminal from then on.
-        print(f"harness-tuner: run {run_id} — files in {run_dir}/", flush=True)
+        print(f"{PROG}: run {run_id} — files in {run_dir}/", flush=True)
         # Diagnostics to `runs/<run_id>/kiln-harness-tuner.log` from the first moment
         # the run has a directory — before `render_run_configs`, so a startup failure
         # there is in the file too. File only: the live UI owns the
@@ -1192,6 +1287,7 @@ async def _run(args: argparse.Namespace) -> str:
                 noise_check_items=args.noise_check,
                 model_preflight=not args.skip_model_preflight,
             )
+            _RUN_PROGRESS.spend = ctx.spend
             # The tracker MUST share Ctx.clock's domain — run_start's monotonic
             # `deadline` is compared against the tracker's clock.
             tracker = RunStatusTracker(
@@ -1202,10 +1298,10 @@ async def _run(args: argparse.Namespace) -> str:
                 agent_cli=agent_cli.kind,
             )
             console = Console()
-            # --no-ui (and CI / non-TTY) falls back to plain log lines.
+            # --no-progress (and CI / non-TTY) falls back to plain log lines.
             ui = (
                 LiveUi(tracker, console=console)
-                if not args.no_ui and console.is_terminal
+                if not args.no_progress and console.is_terminal
                 else PlainUi(tracker, console=console)
             )
             with WaveLog(run_dir / "wave_log.jsonl") as wave_log, ui:
@@ -1216,7 +1312,7 @@ async def _run(args: argparse.Namespace) -> str:
                 # — re-point it at the fan-out now that it exists.
                 ctx.analyzer.log = ctx.log
                 report_writer = ReportWriter(tracker, run_id, state.reports)
-                _RUN_OUTPUT.report_path = report_writer.report_path
+                _RUN_PROGRESS.report_path = report_writer.report_path
                 ctx.write_report = report_writer
                 # Agent-free report for fatal/circuit-break exits: a
                 # report always ships, whatever the exit.
@@ -1272,22 +1368,98 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
                 loop.remove_signal_handler(sig)
 
 
+# The error screen's title for each error that stops the start or the run,
+# most specific first: the first `isinstance` match wins. Kept here, not in
+# the error screen's module, because it names `PreflightError`, and only the
+# composition root may import a dispatcher (tests/test_dispatch_boundary.py).
+ERROR_TITLES: tuple[tuple[type[BaseException], str], ...] = (
+    (KilnTransportError, "Lost the connection to Kiln"),
+    (KilnAPIError, "Kiln returned an error"),
+    (StateHomeError, "The tuner's state folder can't be used"),
+    (RunLockError, "Another run is already using this task"),
+    (PreflightError, "The tuner's agents couldn't start"),
+    (ConfigRenderError, "A start-up option needs fixing"),
+    (EvalSplitAuditError, "Some evals have no train or val split"),
+    (SetupDescribeError, "The tuner couldn't describe an eval"),
+    (UnderpoweredEvalsError, "No eval can show a win on val"),
+    (ModelPreflightError, "The task's model failed its test call"),
+    (SetupPreconditionError, "The task isn't set up the way the tuner needs"),
+    (SetupError, "Setup stopped the run"),
+    (BaselineRecordMissingError, "The task has no baseline the tuner can use"),
+    (ContractPreflightError, "Kiln's API isn't what the tuner expects"),
+    (AnalysisError, "Measuring a candidate failed"),
+    (MemoryWriteRefused, "The tuner refused an unsafe memory write"),
+    (RecordKindError, "An agent named the wrong kind of record"),
+    (QuarantineError, "The tuner couldn't tell the splits apart"),
+    (TrainSetError, "The train split isn't clear"),
+)
+FALLBACK_TITLE = "The run stopped"
+
+# The errors `main` shows on the error screen instead of a traceback. They
+# carry instructive messages; anything else is a genuine bug and may raise raw.
+SHOWN_ERRORS: tuple[type[BaseException], ...] = (
+    StateHomeError,  # the state folder cannot be used
+    BaselineRecordMissingError,
+    SetupError,  # setup precondition / split audit / description
+    AnalysisError,
+    KilnError,
+    PreflightError,
+    ConfigRenderError,
+    RunLockError,
+    MemoryWriteRefused,  # a refused lifecycle write that reached the top
+    RecordKindError,  # an agent-supplied id of the wrong record kind
+    QuarantineError,  # the splits could not be decided
+    TrainSetError,  # the train boundary is unclear: no agent may start
+)
+
+
+def title_for(exc: BaseException) -> str:
+    """The error screen's title for `exc`."""
+    if isinstance(exc, OnboardingError):
+        return exc.title
+    return next(
+        (title for kind, title in ERROR_TITLES if isinstance(exc, kind)),
+        FALLBACK_TITLE,
+    )
+
+
 def _print_run_folder() -> None:
     """The run folder, after a run that did not finish: its
     `kiln-harness-tuner.log` holds the details."""
-    if _RUN_OUTPUT.run_dir is not None:
-        print(f"harness-tuner: run folder: {_RUN_OUTPUT.run_dir}", file=sys.stderr)
+    if _RUN_PROGRESS.run_dir is not None:
+        print(f"{PROG}: run folder: {_RUN_PROGRESS.run_dir}", file=sys.stderr)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    _RUN_OUTPUT.clear()
+    global _RUN_PROGRESS
+    _RUN_PROGRESS = RunProgress()
+    parser = build_parser()
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    args = parser.parse_args(raw_argv)
+    validate_args(parser, args)
     try:
+        args = prepare_start(
+            args,
+            raw_argv,
+            prog=PROG,
+            option_dests=parser.option_dests,
+            policy_loader=load_model_policy,
+        )
         result = asyncio.run(_run_with_signals(args))
+    except OnboardingStopped as stop:
+        print(f"{PROG}: stopped.", file=sys.stderr)
+        return stop.exit_code
+    except OnboardingError as exc:
+        if exc.shown:
+            # A guided start has already shown it, as a block on the terminal.
+            show_closing_line(PROG)
+        else:
+            show_error(exc.title, exc.body, ending_lines(_RUN_PROGRESS), prog=PROG)
+        return 1
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
         print(
-            f"harness-tuner: interrupted ({signal.Signals(signum).name})"
+            f"{PROG}: interrupted ({signal.Signals(signum).name})"
             " — children killed, lock released",
             file=sys.stderr,
         )
@@ -1299,30 +1471,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         # It goes on as before; the run folder is named first.
         _print_run_folder()
         raise
-    except (
-        StateHomeError,  # the state folder cannot be used
-        BaselineRecordMissingError,
-        SetupError,  # setup precondition / split audit / description
-        AnalysisError,
-        KilnError,
-        PreflightError,
-        ConfigRenderError,
-        RunLockError,
-        MemoryWriteRefused,  # a refused lifecycle write that reached the top
-        RecordKindError,  # an agent-supplied id of the wrong record kind
-        QuarantineError,  # the splits could not be decided
-        TrainSetError,  # the train boundary is unclear: no agent may start
-    ) as exc:
-        # The hard errors carry instructive messages — land them instead
-        # of a traceback. Anything else is a genuine bug and may raise raw.
-        print(f"harness-tuner: {exc}", file=sys.stderr)
-        _print_run_folder()
-        # The fallback report a fatal exit writes, when there is one.
-        report = _RUN_OUTPUT.report_path
-        if report is not None and report.exists():
-            print(f"harness-tuner: report: {report}", file=sys.stderr)
+    except SHOWN_ERRORS as exc:
+        show_error(
+            title_for(exc),
+            error_body(exc, host=args.kiln_host),
+            ending_lines(_RUN_PROGRESS),
+            prog=PROG,
+        )
         return 1
-    print(f"harness-tuner: run finished — report: {result}")
+    print(f"{PROG}: run finished — report: {result}")
     return 0
 
 

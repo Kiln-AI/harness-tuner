@@ -23,6 +23,8 @@ src/kiln_harness_tuner/
   agents/           one prompt template per agent role
   agent_files/      the agents' skills and instructions: package data, which
                     a run installs per agent CLI into the state folder
+  demo_project/     the moderation example's Kiln project, shipped as
+                    package data for --demo-project
   dispatch/         the dispatcher seam, and the claude -p, codex exec and
                     opencode run implementations
   gateway/          the loop gateway: the only way loop agents reach Kiln
@@ -43,10 +45,12 @@ A run writes nothing here. Its state goes in the state folder,
 ## The moderation example
 
 `examples/moderation/` is the example: a single-turn task that moderates
-posts on an invented gardening forum. The Kiln project is
-`examples/moderation/Forum Moderation/`. `posts.jsonl` holds its 624 labelled
-posts. `scorer.py` is a copy of its code eval. Project
-`424242975950`, task `424242783061`.
+posts on an invented gardening forum. The Kiln project ships in the package,
+at `src/kiln_harness_tuner/demo_project/Forum Moderation/`, and
+`--demo-project` runs on a copy of it. `posts.jsonl` holds its 624 labelled
+posts. `scorer.py` is a copy of its code eval. The packaged project is
+`424242975950`, and each copy gets a new project id. The task is
+`424242783061` in every copy.
 
 Every id this repository authors is inside the invented `424242……` band, so
 it can never be mistaken for a resource on a real server.

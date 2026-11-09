@@ -331,8 +331,9 @@ train item that repeats a val item's text.
 
 **The Claude read fence is a deny list.** It denies by resolved path: the run's
 own Kiln project whole, the state folder's `runs/` (except this run's scratch),
-`traces/` and `reports/`, and other Claude sessions' transcripts. A path nobody
-names is readable to a Claude loop agent. That includes:
+`traces/` and `reports/`, the demo project that ships in the package, and
+other Claude sessions' transcripts. A path nobody names is readable to a
+Claude loop agent. That includes:
 
 - **other Kiln projects** on the machine;
 - **`~/.kiln_ai/settings.yaml`**, where Kiln keeps the provider API keys;

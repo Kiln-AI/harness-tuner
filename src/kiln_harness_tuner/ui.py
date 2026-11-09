@@ -21,9 +21,9 @@ Two EventLog-shaped views, chosen in cli.py:
   writes print as scrollback, so a long silent phase is visible (the
   memory-write line is the compensating control for the loop's one
   log-and-continue write).
-- `PlainUi` (`--no-ui` / non-TTY): one timestamped log line per significant
-  event — phases get a start line and a done line with elapsed, and the
-  wave_end / exit lines carry the same totals (read at event time, no
+- `PlainUi` (`--no-progress` / non-TTY): one timestamped log line per
+  significant event — phases get a start line and a done line with elapsed,
+  and the wave_end / exit lines carry the same totals (read at event time, no
   ticking).
 
 Render functions are pure (`RunStatus`/`WaveStatus`/`ItemStatus` → str) so the
@@ -501,6 +501,8 @@ SETUP_LINE_EVENTS = frozenset(
         "model_preflight",
         "model_preflight_flag",
         "model_preflight_untested",
+        # An eval Kiln can't load, which the run leaves out.
+        "eval_unloadable",
     }
 )
 
@@ -873,7 +875,7 @@ class LiveUi:
 
 
 class PlainUi:
-    """`--no-ui` / non-TTY fallback: timestamped log lines, one per
+    """`--no-progress` / non-TTY fallback: timestamped log lines, one per
     significant event — no live region. The timestamps are the point for CI
     logs: a 6-minute planner dispatch reads as a visible gap between its start
     and done lines.

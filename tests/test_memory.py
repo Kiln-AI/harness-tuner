@@ -2392,12 +2392,18 @@ def test_state_prefix_run_reads_the_whole_run():
 # memory.py = <repo>/src/kiln_harness_tuner/memory.py → parents[2] is the repo root.
 _KILN_PROJECTS = Path(memory_module.__file__).resolve().parents[2]
 
-# A Kiln project checked into this repository sits under `examples/<name>/`;
-# the bare root pattern covers one placed beside it.
-_PROJECT_GLOBS = ("*/project.kiln", "examples/*/*/project.kiln")
+# A Kiln project checked into this repository is the packaged demo, under
+# `src/kiln_harness_tuner/demo_project/<name>/`, or an example, under
+# `examples/<name>/`; the bare root pattern covers one placed beside them.
+_PROJECT_GLOBS = (
+    "*/project.kiln",
+    "examples/*/*/project.kiln",
+    "src/kiln_harness_tuner/demo_project/*/project.kiln",
+)
 _MEMORY_GLOBS = (
     "*/assistant_memory/*/memory.kiln",
     "examples/*/*/assistant_memory/*/memory.kiln",
+    "src/kiln_harness_tuner/demo_project/*/assistant_memory/*/memory.kiln",
 )
 
 

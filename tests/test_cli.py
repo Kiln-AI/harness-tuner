@@ -1,36 +1,55 @@
 """CLI tests: the flags parse, wire a TargetBlock, and main runs the
 orchestrator (monkeypatched — no live Kiln)."""
 
+import argparse
+import io
 import json
 import sys
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 import kiln_harness_tuner.cli
+from kiln_harness_tuner.analysis import AnalysisError
 from kiln_harness_tuner.cli import (
+    ERROR_TITLES,
     GATEWAY_MODULE,
     INSTALLER_MODULE,
+    PROG,
+    ConfigRenderError,
+    RunLockError,
     build_parser,
+    load_model_policy,
     main,
     render_run_configs,
     target_from_args,
+    title_for,
 )
+from kiln_harness_tuner.contract import ContractPreflightError
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.claude_cli import PreflightError
+from kiln_harness_tuner.gateway.trainset import TrainSetError
 from kiln_harness_tuner.install_agents import package_version
-from kiln_harness_tuner.kiln import KilnError
-from kiln_harness_tuner.memory import BaselineRecordMissingError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
+from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriteRefused
+from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
+from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.demo import demo_fence_root
+from kiln_harness_tuner.onboarding.summary import OptionInfo
 from kiln_harness_tuner.paths import StatePaths
+from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
     EvalSplitAuditError,
     SetupDescribeError,
+    SetupError,
     SetupPreconditionError,
     no_run_configs_message,
 )
+from kiln_harness_tuner.ui import PlainUi
 from kiln_harness_tuner.wave_log import FanoutLog
 
 ARGS = [
@@ -59,6 +78,16 @@ def _run_dir(state_dir: Path) -> Path:
     return run_dir
 
 
+@pytest.fixture(autouse=True)
+def no_onboarding(monkeypatch):
+    """`main` runs the start-up checks against a live Kiln before the run.
+    These tests have none: the checks pass the flags through unchanged.
+    `tests/test_onboarding_*.py` test the checks on a fake Kiln."""
+    monkeypatch.setattr(
+        kiln_harness_tuner.cli, "prepare_start", lambda args, _argv, **_kwargs: args
+    )
+
+
 def test_flags_build_target_block_with_defaults():
     args = build_parser().parse_args(ARGS)
     assert target_from_args(args) == TargetBlock(
@@ -67,8 +96,8 @@ def test_flags_build_target_block_with_defaults():
         task_id="424242613304",
         kiln_host="http://localhost:8757",
     )
-    assert args.timeout_mins == 180  # default timeout
-    assert args.no_ui is False
+    assert args.timeout_mins == 720  # default timeout: 12 hours
+    assert args.no_progress is False
     assert args.guidance == ""
 
 
@@ -88,12 +117,54 @@ def test_overrides():
             "30",
             "--guidance",
             "one wave, cheapest issues",
-            "--no-ui",
+            "--no-progress",
         ]
     )
     assert args.kiln_host == "http://localhost:9999"
     assert args.timeout_mins == 30
-    assert args.no_ui is True
+    assert args.no_progress is True
+
+
+def test_no_ui_was_renamed_no_progress(capsys):
+    with pytest.raises(SystemExit) as exited:
+        build_parser().parse_args(["--no-ui"])
+    assert exited.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "harness-tuner: error: --no-ui was renamed --no-progress:"
+        " plain log lines instead of the live progress display"
+    )
+
+
+def test_the_budget_defaults_to_50_dollars():
+    assert build_parser().parse_args([]).budget_usd == 50.0
+
+
+@pytest.mark.parametrize(
+    ("given", "budget"),
+    [("none", None), ("NONE", None), ("$12.50", 12.5), ("7", 7.0)],
+)
+def test_the_budget_takes_none_and_a_dollar_sign(given, budget):
+    assert build_parser().parse_args(["--budget-usd", given]).budget_usd == budget
+
+
+@pytest.mark.parametrize("given", ["0", "-5", "lots", "$", "nan"])
+def test_an_invalid_budget_exits_2(given, capsys):
+    with pytest.raises(SystemExit) as exited:
+        build_parser().parse_args(["--budget-usd", given])
+    assert exited.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        f"harness-tuner: error: argument --budget-usd: {given!r}:"
+        " Enter an amount in USD, like 50, or none"
+    )
+
+
+def test_an_invalid_min_effect_names_the_valid_values(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--min-effect", "2"])
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "harness-tuner: error: argument --min-effect: '2':"
+        " Enter a fraction above 0 and at most 1, like 0.1 for 10%"
+    )
 
 
 def test_objective_and_model_policy_flags(tmp_path):
@@ -210,9 +281,324 @@ def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
     assert ctx_with(baseline_audit=False).baseline_audit is False
 
 
-def test_missing_required_flag_errors():
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["--project-id", "1"])
+def test_the_ids_and_the_path_are_optional():
+    """The start-up checks fill in what is missing (`onboarding.choose`)."""
+    args = build_parser().parse_args([])
+    assert (args.project_id, args.task_id, args.project_path) == (None, None, None)
+    args = build_parser().parse_args(["--task-id", "424242613304"])
+    assert (args.project_id, args.task_id) == (None, "424242613304")
+
+
+def test_no_interaction_parses_and_defaults_off():
+    assert build_parser().parse_args([]).no_interaction is False
+    assert build_parser().parse_args(["--no-interaction"]).no_interaction is True
+
+
+def test_demo_project_parses_and_defaults_off():
+    assert build_parser().parse_args([]).demo_project is False
+    assert build_parser().parse_args(["--demo-project"]).demo_project is True
+
+
+@pytest.mark.parametrize("flag", ["--project-id", "--task-id", "--project-path"])
+def test_demo_project_with_a_project_flag_exits_2(monkeypatch, capsys, flag):
+    started: list = []
+    monkeypatch.setattr(
+        kiln_harness_tuner.cli,
+        "prepare_start",
+        lambda args, _argv, **_kwargs: started.append(args),
+    )
+    with pytest.raises(SystemExit) as exited:
+        main(["--demo-project", flag, "424242613304"])
+    assert exited.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "harness-tuner: error: --demo-project makes its own project:"
+        " drop --project-id, --task-id and --project-path"
+    )
+    assert started == []
+
+
+def test_the_parser_records_every_long_option():
+    parser = build_parser()
+    every_long_option = {
+        option: action
+        for action in parser._actions
+        for option in action.option_strings
+        if option.startswith("--")
+    }
+    assert sorted(parser.option_dests) == sorted(every_long_option)
+    for option, action in every_long_option.items():
+        assert parser.option_dests[option] == OptionInfo(
+            action.dest, takes_value=action.nargs != 0, default=action.default
+        )
+    assert parser.option_dests["--budget-usd"] == OptionInfo("budget_usd", True, 50.0)
+    assert parser.option_dests["--no-progress"] == OptionInfo(
+        "no_progress", False, False
+    )
+    assert parser.option_dests["--agent-model"] == OptionInfo("agent_model", True, [])
+
+
+def test_the_parser_is_named_by_prog():
+    assert PROG == "harness-tuner"
+    assert build_parser().prog == PROG
+
+
+def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
+    seen = {}
+
+    def fake_prepare_start(args, argv, *, prog, option_dests, policy_loader):
+        seen["prog"] = prog
+        seen["argv"] = argv
+        seen["option_dests"] = option_dests
+        seen["policy_loader"] = policy_loader
+        seen["given"] = args
+        returned = argparse.Namespace(**vars(args))
+        returned.guidance = "filled in by the checks"
+        seen["returned"] = returned
+        return returned
+
+    async def fake_run(args):
+        seen["run"] = args
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fake_prepare_start)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
+    assert main(ARGS) == 0
+    assert seen["prog"] == PROG
+    assert seen["argv"] == ARGS
+    assert seen["option_dests"] == build_parser().option_dests
+    # The start-up's key check loads `--model-policy` the way the run does.
+    assert seen["policy_loader"] is load_model_policy
+    assert seen["run"] is seen["returned"] and seen["run"] is not seen["given"]
+    assert seen["run"].guidance == "filled in by the checks"
+    assert "harness-tuner: run finished — report: wrap_up" in capsys.readouterr().out
+
+
+def test_main_hands_the_start_up_the_command_line_as_typed(monkeypatch):
+    """With no `argv`, the command line is `sys.argv`, and the start-up
+    rebuilds the rerun command from it."""
+    seen = {}
+
+    def fake_prepare_start(args, argv, **_kwargs):
+        seen["argv"] = argv
+        return args
+
+    async def fake_run(args):
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fake_prepare_start)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
+    monkeypatch.setattr("sys.argv", [PROG, "--task-id", "424242613304"])
+    assert main() == 0
+    assert seen["argv"] == ["--task-id", "424242613304"]
+
+
+def _never_run(seen):
+    async def fake_run(args):
+        seen.append(args)
+        return "unreachable"
+
+    return fake_run
+
+
+CLOSING = "harness-tuner stopped with an error (exit 1)\n"
+NOTHING_SPENT = "  Nothing was spent and no run folder was created.\n"
+
+
+def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
+    def fails(args, _argv, **_kwargs):
+        raise OnboardingError("Kiln isn't running at http://localhost:8757.")
+
+    ran: list = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fails)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "harness-tuner: error: Kiln isn't running at http://localhost:8757.\n"
+        + NOTHING_SPENT
+        + CLOSING
+    )
+    assert ran == []
+
+
+def test_main_prints_only_the_closing_line_for_an_error_the_guided_start_showed(
+    monkeypatch, capsys
+):
+    def shown(args, _argv, **_kwargs):
+        error = OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])
+        error.shown = True
+        raise error
+
+    ran: list = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", shown)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == CLOSING
+    assert ran == []
+
+
+def test_main_prints_a_titled_error_with_its_body(monkeypatch, capsys):
+    def fails(args, _argv, **_kwargs):
+        raise OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fails)
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "harness-tuner: error: Kiln has no project 999\n"
+        "  Projects in Kiln:\n" + NOTHING_SPENT + CLOSING
+    )
+
+
+CONFIG_PATH = "/api/projects/424242748186/tasks/424242613304/evals/e1/eval_config/c1"
+JINJA_ERROR = KilnAPIError(
+    "GET",
+    CONFIG_PATH,
+    500,
+    {"error_messages": [": Value error, Invalid Jinja2 template: no 'x' filter"]},
+)
+JINJA_BODY = (
+    f"  GET {CONFIG_PATH}\n  HTTP 500: Invalid Jinja2 template: no 'x' filter\n"
+)
+
+
+def test_main_shows_a_kiln_error_before_the_run_with_nothing_spent(monkeypatch, capsys):
+    async def fails(args):
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails)
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "harness-tuner: error: Kiln returned an error\n"
+        + JINJA_BODY
+        + NOTHING_SPENT
+        + CLOSING
+    )
+
+
+def test_main_after_the_agent_cli_check_names_its_one_test_prompt(
+    monkeypatch, capsys, tmp_path
+):
+
+    def locked(*_args):
+        raise RunLockError("another run (pid 7) is live against task 424242613304.")
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_acquire_run_lock", locked)
+    assert main(ARGS) == 1
+    assert capsys.readouterr().err == (
+        "harness-tuner: error: Another run is already using this task\n"
+        "  another run (pid 7) is live against task 424242613304.\n"
+        "  The only spend was the agent CLI's one test prompt."
+        " No run folder was created.\n" + CLOSING
+    )
+
+
+@pytest.mark.parametrize("report", [True, False], ids=["report", "no report"])
+def test_main_after_the_run_folder_names_spend_folder_and_report(
+    monkeypatch, capsys, tmp_path, report
+):
+    seen = {}
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        ctx.log.event("spend", source="preflight", cost_usd=1.25)
+        ctx.log.event("spend", source="describe_eval", cost_usd=1.95)
+        seen["run_dir"] = ctx.run_dir
+        if report:
+            seen["report"] = await ctx.write_fallback(ctx, "fatal")
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 1
+    report_line = f"  Report: {seen['report']}\n" if report else ""
+    assert capsys.readouterr().err == (
+        "harness-tuner: error: Kiln returned an error\n"
+        + JINJA_BODY
+        + "  The run stopped. Spent $3.20 so far"
+        " (agents and the task's model calls).\n"
+        f"  Run folder: {seen['run_dir']}\n" + report_line + CLOSING
+    )
+
+
+def test_each_run_starts_with_nothing_spent(monkeypatch, capsys, tmp_path):
+    """How far one `main` got is not the next one's ending."""
+
+    async def fails_in_the_run(ctx, guidance, timeout_mins):
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fails_in_the_run)
+    assert main(ARGS) == 1
+    assert "Run folder:" in capsys.readouterr().err
+
+    async def fails_at_once(args):
+        raise JINJA_ERROR
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails_at_once)
+    assert main(ARGS) == 1
+    assert NOTHING_SPENT in capsys.readouterr().err
+
+
+SETUP_ERRORS = [
+    (EvalSplitAuditError("x"), "Some evals have no train or val split"),
+    (
+        SetupDescribeError("e1", "Tone", "rate_limit: 429", attempts=2),
+        "The tuner couldn't describe an eval",
+    ),
+    (UnderpoweredEvalsError("x"), "No eval can show a win on val"),
+    (ModelPreflightError("x"), "The task's model failed its test call"),
+    (
+        SetupPreconditionError("x"),
+        "The task isn't set up the way the tuner needs",
+    ),
+    (SetupError("x"), "Setup stopped the run"),
+]
+
+
+TITLES = [
+    (KilnTransportError("x"), "Lost the connection to Kiln"),
+    (KilnAPIError("GET", "/x", 422, None), "Kiln returned an error"),
+    (KilnError("x"), "The run stopped"),
+    (RunLockError("x"), "Another run is already using this task"),
+    (PreflightError("x"), "The tuner's agents couldn't start"),
+    (ConfigRenderError("x"), "A start-up option needs fixing"),
+    *SETUP_ERRORS,
+    (
+        BaselineRecordMissingError("x"),
+        "The task has no baseline the tuner can use",
+    ),
+    (AnalysisError("x"), "Measuring a candidate failed"),
+    (ContractPreflightError("x"), "Kiln's API isn't what the tuner expects"),
+    (MemoryWriteRefused("x"), "The tuner refused an unsafe memory write"),
+    (RecordKindError("x"), "An agent named the wrong kind of record"),
+    (QuarantineError("x"), "The tuner couldn't tell the splits apart"),
+    (TrainSetError("x"), "The train split isn't clear"),
+    (OnboardingError("Kiln isn't running"), "Kiln isn't running"),
+    (RuntimeError("x"), "The run stopped"),
+]
+
+
+@pytest.mark.parametrize(
+    "error,title", TITLES, ids=[type(error).__name__ for error, _title in TITLES]
+)
+def test_each_error_has_its_title(error, title):
+    assert title_for(error) == title
+
+
+def test_the_titles_are_most_specific_first():
+    # A class listed after one of its bases would never be reached.
+    kinds = [kind for kind, _title in ERROR_TITLES]
+    for i, kind in enumerate(kinds):
+        assert not any(issubclass(kind, base) for base in kinds[:i]), kind
+
+
+@pytest.mark.parametrize("exit_code", [1, 130])
+def test_main_returns_the_stop_code(monkeypatch, capsys, exit_code):
+    def stops(args, _argv, **_kwargs):
+        raise OnboardingStopped(exit_code)
+
+    ran: list = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", stops)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
+    assert main(ARGS) == exit_code
+    assert capsys.readouterr().err == "harness-tuner: stopped.\n"
+    assert ran == []
 
 
 def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, state_dir):
@@ -249,6 +635,38 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, state_dir):
     assert "project 424242748186 task 424242613304" in log_text
 
 
+@pytest.mark.parametrize(
+    ("flags", "display"), [([], "live"), (["--no-progress"], "plain")]
+)
+def test_no_progress_gives_the_plain_display_on_a_terminal(
+    monkeypatch, tmp_path, flags, display
+):
+    built = []
+
+    def recorded(name):
+        # Each records which display the run chose, and builds the plain
+        # one, so the test starts no live display thread.
+        def build(tracker, console):
+            built.append(name)
+            return PlainUi(tracker, console=console)
+
+        return build
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "LiveUi", recorded("live"))
+    monkeypatch.setattr(kiln_harness_tuner.cli, "PlainUi", recorded("plain"))
+    monkeypatch.setattr(
+        kiln_harness_tuner.cli,
+        "Console",
+        lambda: Console(file=io.StringIO(), force_terminal=True),
+    )
+    assert main(ARGS + flags) == 0
+    assert built == [display]
+
+
 def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp_path):
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
@@ -260,7 +678,10 @@ def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp
     code = main(ARGS)
     assert code == 1
     err = capsys.readouterr().err
-    assert err.startswith("harness-tuner: no baseline record")
+    assert err.startswith(
+        "harness-tuner: error: The task has no baseline the tuner can use\n"
+        "  no baseline record"
+    )
     assert "run baseline setup" in err
 
 
@@ -620,6 +1041,7 @@ class TestRenderRunConfigs:
             str(state.runs),
             str(state.traces),
             str(state.reports),
+            str(demo_fence_root().resolve()),
             str(Path.home() / ".claude" / "projects"),
         ]
         # Only the scratch of this run — not its wave log, steps or
@@ -669,6 +1091,7 @@ def test_read_fence_denies_the_runs_own_project_whole(tmp_path):
         state.runs,
         state.traces,
         state.reports,
+        demo_fence_root().resolve(),
         tmp_path / "home" / ".claude" / "projects",
     )
     assert fence.allow == (
@@ -679,6 +1102,24 @@ def test_read_fence_denies_the_runs_own_project_whole(tmp_path):
     # The run's own project, its own task included, is denied.
     assert not any(own == a or own in a.parents for a in fence.allow)
     assert fence.rule_paths()[0] == own
+
+
+def test_read_fence_denies_the_packaged_demo(tmp_path):
+    """The packaged demo holds every split's labels. Once the package is
+    installed it sits outside the repository, where the project scan never
+    looks, so the fence names it by path."""
+    from kiln_harness_tuner.cli import read_fence_for
+
+    state = _state(tmp_path)
+    fence = read_fence_for(
+        state=state,
+        project_root=tmp_path / "Kiln Projects" / "Forum Moderation",
+        run_dir=state.runs / "260731-0900",
+        agents_dir=_agents_dir(state),
+        home=tmp_path / "home",
+    )
+    assert demo_fence_root().resolve() in fence.deny
+    assert demo_fence_root().resolve() in fence.rule_paths()
 
 
 def test_read_fence_rule_paths_open_the_allowed_child(tmp_path):
@@ -826,9 +1267,12 @@ def test_a_handled_error_names_the_run_folder_and_the_report(
     run_dir = _run_dir(state_dir)
     report = state_dir / "reports" / f"kiln-harness-tuner-{run_dir.name}.md"
     assert capsys.readouterr().err.splitlines() == [
-        "harness-tuner: Kiln answered 500 on the baseline run config",
-        f"harness-tuner: run folder: {run_dir}",
-        f"harness-tuner: report: {report}",
+        "harness-tuner: error: The run stopped",
+        "  Kiln answered 500 on the baseline run config",
+        "  The run stopped. Spent $0.00 so far (agents and the task's model calls).",
+        f"  Run folder: {run_dir}",
+        f"  Report: {report}",
+        "harness-tuner stopped with an error (exit 1)",
     ]
 
 
@@ -841,8 +1285,8 @@ def test_a_handled_error_with_no_report_names_the_run_folder_only(
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     assert main(ARGS) == 1
     err = capsys.readouterr().err
-    assert f"harness-tuner: run folder: {_run_dir(state_dir)}" in err
-    assert "harness-tuner: report:" not in err
+    assert f"  Run folder: {_run_dir(state_dir)}\n" in err
+    assert "Report:" not in err
 
 
 def test_an_interrupted_run_names_the_run_folder(monkeypatch, capsys, state_dir):
@@ -893,10 +1337,13 @@ def test_a_state_folder_that_cannot_be_used_stops_the_start(
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     assert main(ARGS) == 1
     err = capsys.readouterr().err
-    assert err.startswith(f"harness-tuner: the state folder {blocked} cannot be used")
+    assert err.startswith(
+        "harness-tuner: error: The tuner's state folder can't be used\n"
+        f"  the state folder {blocked} cannot be used"
+    )
     assert "fix: set KILN_HARNESS_TUNER_HOME to a writable folder." in err
     # Before any run folder: there is none to name.
-    assert "run folder" not in err
+    assert "Run folder" not in err
     assert not started
 
 
@@ -962,7 +1409,7 @@ def test_new_flags_have_safe_defaults():
     args = build_parser().parse_args(
         ["--project-path", "/p", "--project-id", "p1", "--task-id", "t1"]
     )
-    assert args.budget_usd is None
+    assert args.budget_usd == 50.0
     assert args.coverage_floor == pytest.approx(0.95)
     assert args.max_concurrent_evals == 4
     assert args.max_concurrent_agents == 4

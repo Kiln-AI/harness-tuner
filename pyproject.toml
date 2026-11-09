@@ -25,6 +25,15 @@ dependencies = [
     "mcp>=1.10.1,<2",
     "pydantic>=2.7",
     "pyyaml>=6.0",
+    # The guided start's pickers, action menus and text questions. The
+    # terminal reaches past questionary's public API: it sets
+    # `Question.application.key_bindings`, and its picker reads and moves
+    # the select's `InquirerControl` (`filtered_choices`, `found_in_search`,
+    # `search_filter`, `pointed_at`, `is_answered`, `add_search_character`).
+    # Those hold in 2.1.1, and a minor release may change them, so the
+    # range is one minor version: `uv tool install` resolves it afresh,
+    # without this repository's lock.
+    "questionary>=2.1.1,<2.2",
     "rich>=13.7",
 ]
 

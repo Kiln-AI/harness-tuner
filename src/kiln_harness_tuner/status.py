@@ -48,6 +48,7 @@ from kiln_harness_tuner.schemas import (
     ScreenResult,
     SetupReport,
     TrialResult,
+    UnloadableEval,
     WaveStatus,
     lane_for_source,
 )
@@ -335,6 +336,21 @@ class RunStatusTracker:
         the report writer gets the ids and not just the event's counts."""
         if report is not None:
             self._status.setup = report
+
+    def _on_eval_unloadable(
+        self,
+        eval_id: object = None,
+        name: object = None,
+        reason: object = None,
+        **_: object,
+    ) -> None:
+        # An eval Kiln can't load, which the run leaves out — the report
+        # names each one.
+        self._status.unloadable_evals.append(
+            UnloadableEval(
+                eval_id=str(eval_id), name=str(name or eval_id), reason=str(reason)
+            )
+        )
 
     def _on_detectability(
         self, report: DetectabilityReport | None = None, **_: object

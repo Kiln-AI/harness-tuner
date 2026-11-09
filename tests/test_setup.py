@@ -41,7 +41,9 @@ from kiln_harness_tuner.setup import (
     SETUP_CONFIG_READ_CONCURRENCY,
     SETUP_DESCRIBE_BACKOFFS,
     SETUP_DESCRIBE_CONCURRENCY,
+    BaselineChoice,
     DescribeEvals,
+    EvalConfigRead,
     EvalSplitAuditError,
     EvalView,
     SetupDescribeError,
@@ -52,14 +54,17 @@ from kiln_harness_tuner.setup import (
     apply_sync_plan,
     audit_splits,
     build_sync_plan,
+    choose_baseline_rc,
     describe_all,
     eval_rows_from_response,
     fingerprint,
+    read_eval_config,
     read_eval_views,
     rubric_text,
     run_setup,
     seed_baseline_if_missing,
     split_filter_id,
+    unloadable_eval_lines,
     unreadable_response_message,
 )
 
@@ -288,6 +293,41 @@ async def test_unreadable_run_configs_response_is_a_precondition_error():
     # "re-verify the shape", so a paging envelope must be legible as one.
     assert "keys ['matched', 'run_configs']" in message
     assert kiln.memory_posts == []
+
+
+# ---- choose_baseline_rc: the decision, without the reads or the write ----
+
+
+def test_choose_baseline_rc_honours_the_task_default():
+    run_configs = [
+        make_run_config("rc_default", created_at="2026-01-01T00:00:00+00:00"),
+        make_run_config("rc_newer", created_at="2026-07-31T00:00:00+00:00"),
+    ]
+    choice = choose_baseline_rc({"default_run_config_id": "rc_default"}, run_configs)
+    assert choice == BaselineChoice("rc_default", BASELINE_RULE_TASK_DEFAULT, None)
+
+
+def test_choose_baseline_rc_falls_back_to_the_most_recent_for_a_dangling_default():
+    run_configs = [
+        make_run_config("rc_a", created_at="2026-07-01T09:00:00-04:00"),
+        make_run_config("rc_b", created_at="2026-07-30T09:00:00-04:00"),
+    ]
+    choice = choose_baseline_rc({"default_run_config_id": "rc_deleted"}, run_configs)
+    assert choice == BaselineChoice(
+        "rc_b", BASELINE_RULE_MOST_RECENT, unresolvable_default="rc_deleted"
+    )
+
+
+@pytest.mark.parametrize(
+    "task", [{}, {"default_run_config_id": None}, {"default_run_config_id": " "}]
+)
+def test_choose_baseline_rc_takes_the_most_recent_with_no_default(task):
+    run_configs = [
+        make_run_config("rc_a", created_at="2026-07-30T09:00:00-04:00"),
+        make_run_config("rc_b", created_at="2026-07-01T09:00:00-04:00"),
+    ]
+    choice = choose_baseline_rc(task, run_configs)
+    assert choice == BaselineChoice("rc_a", BASELINE_RULE_MOST_RECENT, None)
 
 
 # ---- an eval row's split filter ids: the two homes they have had ----
@@ -1848,3 +1888,200 @@ async def test_eval_and_issue_reads_run_in_parallel():
     await build_sync_plan(ctx)
 
     assert ctx.kiln.max_in_flight == 2
+
+
+# ===========================================================================
+# evals Kiln can't load
+# ===========================================================================
+
+JINJA_REASON = "Invalid Jinja2 template: No filter named 'trace_overview'"
+
+
+def cant_load(eval_id: str, status: int = 422) -> KilnAPIError:
+    return KilnAPIError(
+        "GET",
+        f"{TASK_PATH}/evals/{eval_id}/eval_config/ec_{eval_id}",
+        status,
+        {"error_messages": [f": Value error, {JINJA_REASON}"]},
+    )
+
+
+def make_unloadable(kiln: FakeKiln, eval_id: str, status: int = 422) -> None:
+    kiln.eval_configs[f"ec_{eval_id}"] = cant_load(eval_id, status)
+
+
+@pytest.mark.parametrize(
+    "answer,expected",
+    [
+        (
+            {"id": "ec_1", "properties": {}},
+            EvalConfigRead({"id": "ec_1", "properties": {}}),
+        ),
+        (["drift"], EvalConfigRead(None)),
+        (KilnAPIError("GET", "c", 404, None), EvalConfigRead(None)),
+        (KilnAPIError("GET", "c", 410, None), EvalConfigRead(None)),
+        (cant_load("e1", 400), EvalConfigRead(None, unloadable=JINJA_REASON)),
+        (cant_load("e1", 422), EvalConfigRead(None, unloadable=JINJA_REASON)),
+    ],
+    ids=["a config", "drift", "404", "410", "400", "422"],
+)
+async def test_read_eval_config_per_answer(answer, expected):
+    kiln = FakeKiln()
+    kiln.eval_configs["ec_1"] = answer
+    assert await read_eval_config(kiln, TASK_PATH, "e1", "ec_1") == expected
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+async def test_read_eval_config_raises_every_other_error(status):
+    kiln = FakeKiln()
+    kiln.eval_configs["ec_1"] = KilnAPIError("GET", "c", status, {"detail": "no"})
+    with pytest.raises(KilnAPIError):
+        await read_eval_config(kiln, TASK_PATH, "e1", "ec_1")
+
+
+@pytest.mark.parametrize("status", [400, 422])
+async def test_an_eval_kiln_cant_load_is_neither_seeded_nor_audited(status):
+    kiln = FakeKiln()
+    add_eval(kiln, HANDOFF_ID, spec_status="active")
+    # No splits either: the audit would refuse it if it were in the run.
+    add_eval(
+        kiln,
+        MANIFEST_ID,
+        spec_status="active",
+        spec_id="424242130650",
+        train_filter=None,
+        val_filter=None,
+    )
+    make_unloadable(kiln, MANIFEST_ID, status)
+    ctx = make_ctx(kiln)
+    described: list[list[str]] = []
+
+    plan = await build_sync_plan(ctx)
+    await apply_sync_plan(ctx, plan, stub_describe(described))
+    audit_splits(plan.evals)
+
+    (view,) = [v for v in plan.evals if v.id == MANIFEST_ID]
+    assert (view.unloadable, view.config_properties, view.in_run) == (
+        JINJA_REASON,
+        None,
+        False,
+    )
+    assert [v.id for v in plan.active] == [HANDOFF_ID]
+    assert described == [[HANDOFF_ID]]
+    assert [p["tags"][-1] for p in issue_posts(kiln)] == [eval_tag(HANDOFF_ID)]
+    # Still counted as active: it is left out of this run, not deactivated.
+    assert (plan.evals_total, plan.evals_active) == (2, 2)
+
+
+async def test_the_issues_of_an_eval_kiln_cant_load_are_left_as_they_are():
+    kiln = FakeKiln()
+    add_eval(kiln, HANDOFF_ID, spec_status="active", name="Handoff")
+    make_unloadable(kiln, HANDOFF_ID)
+    # A setup-owned issue whose fingerprint no longer matches, which would be
+    # refreshed; an open issue that would be flagged unmeasurable; and one
+    # bound only in prose, which would be repaired.
+    drifted = add_issue(
+        kiln,
+        eval_ids=(HANDOFF_ID,),
+        content=setup_owned_content("00000000"),
+    )
+    loop_authored = add_issue(
+        kiln, overview="issue: the block is late", eval_ids=(HANDOFF_ID,)
+    )
+    prose_only = add_issue(
+        kiln, overview="issue: wrong tags", content=f"eval {HANDOFF_ID} fails it"
+    )
+    before = {i: dict(kiln.memories[i]) for i in (drifted, loop_authored, prose_only)}
+    ctx = make_ctx(kiln)
+
+    plan = await build_sync_plan(ctx)
+    report = await apply_sync_plan(ctx, plan, stub_describe())
+
+    assert (plan.seed, plan.refresh, plan.repair, plan.unmeasurable) == ([], [], [], [])
+    assert plan.unbound_unresolved == []
+    assert not plan.has_writes
+    assert report.seeded_eval_ids == report.refreshed_eval_ids == []
+    assert kiln.memory_posts == [] and kiln.memory_patches == []
+    assert {i: kiln.memories[i] for i in before} == before
+
+
+async def test_an_issue_bound_to_a_loadable_and_an_unloadable_eval_is_kept():
+    # Bound to several evals ⇒ unmeasurable only when none is in the run or
+    # left out of it; here one is left out, so nothing is flagged.
+    kiln = FakeKiln()
+    add_eval(kiln, HANDOFF_ID, spec_status="active")
+    add_eval(kiln, MANIFEST_ID, spec_status="archived", spec_id="424242130650")
+    issue = add_issue(kiln, eval_ids=(MANIFEST_ID, HANDOFF_ID))
+    make_unloadable(kiln, HANDOFF_ID)
+
+    plan = await build_sync_plan(make_ctx(kiln))
+
+    assert plan.unmeasurable == []
+    assert issue in kiln.memories
+
+
+async def test_the_issues_of_an_archived_eval_kiln_cant_load_are_synced_as_usual():
+    # It left the active set, which is news for its issue, whatever Kiln
+    # answers for its config.
+    kiln = FakeKiln()
+    add_eval(kiln, MANIFEST_ID, spec_status="archived", spec_id="424242130650")
+    make_unloadable(kiln, MANIFEST_ID)
+    bound = add_issue(kiln, eval_ids=(MANIFEST_ID,))
+    prose_only = add_issue(
+        kiln, overview="issue: wrong totals", content=f"eval {MANIFEST_ID} fails it"
+    )
+
+    plan = await build_sync_plan(make_ctx(kiln))
+
+    assert plan.unloadable == {}
+    assert [b.issue.id for b in plan.repair] == [prose_only]
+    assert sorted(i.id for i, _cause in plan.unmeasurable) == sorted(
+        [bound, prose_only]
+    )
+
+
+async def test_run_setup_records_and_logs_each_active_eval_kiln_cant_load():
+    kiln = FakeKiln()
+    kiln.run_configs = [make_run_config("rc_1")]
+    add_eval(kiln, HANDOFF_ID, spec_status="active", name="Handoff")
+    add_eval(
+        kiln, MANIFEST_ID, spec_status="active", spec_id="424242130650", name="Tone"
+    )
+    add_eval(
+        kiln,
+        OUT_OF_SCOPE_ID,
+        spec_status="archived",
+        spec_id="424242130651",
+        name="Old",
+    )
+    make_unloadable(kiln, MANIFEST_ID)
+    make_unloadable(kiln, OUT_OF_SCOPE_ID, 400)
+    ctx = make_ctx(kiln)
+
+    report = await run_setup(ctx)
+
+    # An archived eval is not in the run either way, so it is not news; but
+    # it is not read again either.
+    assert ctx.unloadable_evals == {MANIFEST_ID: ("Tone", JINJA_REASON)}
+    assert ctx.unloadable_eval_ids == frozenset({MANIFEST_ID, OUT_OF_SCOPE_ID})
+    assert [f for k, f in ctx.log.events if k == "eval_unloadable"] == [
+        {
+            "eval_id": MANIFEST_ID,
+            "name": "Tone",
+            "reason": JINJA_REASON,
+            "line": (
+                f'Kiln can\'t load eval "Tone": {JINJA_REASON}. The run leaves it'
+                " out. To use it, fix its judge in Kiln, or update Kiln if the eval"
+                " was made with a newer version."
+            ),
+        }
+    ]
+    assert report.seeded_eval_ids == [HANDOFF_ID]
+
+
+def test_the_unloadable_warning_ends_with_its_link_when_given():
+    assert unloadable_eval_lines("Tone", "Bad config.", "http://k/e") == [
+        'Kiln can\'t load eval "Tone": Bad config.',
+        "  The run leaves it out. To use it, fix its judge in Kiln, or update Kiln if",
+        "  the eval was made with a newer version: http://k/e",
+    ]

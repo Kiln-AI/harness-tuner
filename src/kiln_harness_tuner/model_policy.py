@@ -68,6 +68,11 @@ class Rule:
         """No wildcard: the rule names one provider and one model."""
         return not _WILDCARDS & set(self.provider + self.model)
 
+    @property
+    def exact_provider(self) -> bool:
+        """No wildcard in the provider: the rule names one provider."""
+        return not _WILDCARDS & set(self.provider)
+
 
 @dataclass(frozen=True)
 class Decision:
