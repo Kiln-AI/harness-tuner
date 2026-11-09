@@ -290,7 +290,7 @@ def _no_agent_cli() -> Problem:
             "The tuner's agents run through an agent CLI, signed in with its own"
             " account:",
             f"{', '.join(names[:-1])} or {names[-1]}.",
-            "docs/install.md section 5 has the install and sign-in steps for each.",
+            "docs/install.md section 4 has the install and sign-in steps for each.",
         ),
         retry_label="Check again (I've installed one)",
     )

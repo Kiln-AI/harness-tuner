@@ -4,9 +4,10 @@ Eight code-tool templates, one per mechanical failure class in the lever
 ladder (`kiln-harness-tuner-batch-selection/references/lever-ladder.md`). Each is a
 complete `run()` module you copy into a `POST /code_tools` payload after
 three edits: rename `call_subject_api` to the wrapped tool's real
-`tool_function_name`, match its real `parameters_schema` (read it from the
-clone-source GET — never guess), and set the routes and field names of the
-subject's API. Every template is exercised by
+function name, match its real parameter schema (read it from the
+clone-source GET, `get_code_tool`, for a code tool, or from
+`get_tool_definition` for an MCP, built-in, Kiln task or RAG tool — never guess), and set
+the routes and field names of the subject's API. Every template is exercised by
 `tests/test_wrapper_templates.py` against a stub of `kiln.tools`
 (success, error and raising-tool paths, and the input coercion), so the
 plumbing shape is tested; the subject-specific edits are yours to dry-run

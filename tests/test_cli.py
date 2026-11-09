@@ -4,6 +4,7 @@ orchestrator (monkeypatched — no live Kiln)."""
 import argparse
 import io
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,8 @@ import kiln_harness_tuner.cli
 from kiln_harness_tuner.analysis import AnalysisError
 from kiln_harness_tuner.cli import (
     ERROR_TITLES,
+    GATEWAY_MODULE,
+    INSTALLER_MODULE,
     PROG,
     ConfigRenderError,
     RunLockError,
@@ -27,6 +30,7 @@ from kiln_harness_tuner.contract import ContractPreflightError
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.claude_cli import PreflightError
 from kiln_harness_tuner.gateway.trainset import TrainSetError
+from kiln_harness_tuner.install_agents import package_version
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
 from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriteRefused
 from kiln_harness_tuner.memory_schema import RecordKindError
@@ -34,6 +38,7 @@ from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.demo import demo_fence_root
 from kiln_harness_tuner.onboarding.summary import OptionInfo
+from kiln_harness_tuner.paths import StatePaths
 from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.report import ReportWriter
 from kiln_harness_tuner.schemas import TargetBlock
@@ -55,6 +60,22 @@ ARGS = [
     "--task-id",
     "424242613304",
 ]
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _state(tmp_path) -> StatePaths:
+    return StatePaths(tmp_path / "state")
+
+
+def _agents_dir(state: StatePaths, cli: str = "claude") -> Path:
+    """Where `install_for_run` puts a run's agent files."""
+    return state.agents / cli / package_version()
+
+
+def _run_dir(state_dir: Path) -> Path:
+    """The one run folder a `main` call made in the per-test state folder."""
+    (run_dir,) = [d for d in (state_dir / "runs").iterdir() if d.is_dir()]
+    return run_dir
 
 
 @pytest.fixture(autouse=True)
@@ -80,6 +101,12 @@ def test_flags_build_target_block_with_defaults():
     assert args.guidance == ""
 
 
+def test_the_parser_is_named_after_the_command():
+    # `uvx harness-tuner` runs the command named `harness-tuner`, so usage
+    # and errors name it too.
+    assert build_parser().prog == "harness-tuner"
+
+
 def test_overrides():
     args = build_parser().parse_args(
         ARGS
@@ -103,7 +130,7 @@ def test_no_ui_was_renamed_no_progress(capsys):
         build_parser().parse_args(["--no-ui"])
     assert exited.value.code == 2
     assert capsys.readouterr().err.splitlines()[-1] == (
-        "kiln-harness-tuner: error: --no-ui was renamed --no-progress:"
+        "harness-tuner: error: --no-ui was renamed --no-progress:"
         " plain log lines instead of the live progress display"
     )
 
@@ -126,7 +153,7 @@ def test_an_invalid_budget_exits_2(given, capsys):
         build_parser().parse_args(["--budget-usd", given])
     assert exited.value.code == 2
     assert capsys.readouterr().err.splitlines()[-1] == (
-        f"kiln-harness-tuner: error: argument --budget-usd: {given!r}:"
+        f"harness-tuner: error: argument --budget-usd: {given!r}:"
         " Enter an amount in USD, like 50, or none"
     )
 
@@ -135,7 +162,7 @@ def test_an_invalid_min_effect_names_the_valid_values(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--min-effect", "2"])
     assert capsys.readouterr().err.splitlines()[-1] == (
-        "kiln-harness-tuner: error: argument --min-effect: '2':"
+        "harness-tuner: error: argument --min-effect: '2':"
         " Enter a fraction above 0 and at most 1, like 0.1 for 10%"
     )
 
@@ -154,7 +181,7 @@ def test_objective_and_model_policy_flags(tmp_path):
         build_parser().parse_args(ARGS + ["--objective", "cheap"])
 
     assert load_model_policy(None) is None
-    example = Path(kiln_harness_tuner.cli.REPO_ROOT) / "examples" / "model-policy.json"
+    example = REPO / "examples" / "model-policy.json"
     assert load_model_policy(str(example)) is not None
     bad = tmp_path / "bad.json"
     bad.write_text('{"allow": []}')
@@ -163,10 +190,13 @@ def test_objective_and_model_policy_flags(tmp_path):
 
     policy = load_model_policy(str(example))
     target = target_from_args(build_parser().parse_args(ARGS))
-    run_dir = tmp_path / "runs" / "r"
+    state = _state(tmp_path)
+    run_dir = state.runs / "r"
     ctx = build_ctx(
         target,
         KilnClient("http://localhost:1"),
+        state=state,
+        agents_dir=_agents_dir(state),
         run_id="r",
         run_dir=run_dir,
         mcp_config_path=run_dir / "mcp_config.json",
@@ -176,9 +206,8 @@ def test_objective_and_model_policy_flags(tmp_path):
     )
     assert ctx.objective == "speed" and ctx.model_policy is policy
     # The quarantine lands in a tree the read fence denies.
-    assert ctx.quarantine_root is not None
-    assert (
-        ctx.quarantine_root.parent.parent == kiln_harness_tuner.cli.REPO_ROOT / "runs"
+    assert ctx.quarantine_root == state.runs / ".quarantine" / (
+        "424242748186-424242613304"
     )
     assert ctx.train_set_path == run_dir / "train_set.json"
 
@@ -203,10 +232,13 @@ def test_detectability_and_noise_flags(tmp_path):
     for bad in (["--min-effect", "0"], ["--min-effect", "1.5"], ["--noise-check", "0"]):
         with pytest.raises(SystemExit):
             build_parser().parse_args(ARGS + bad)
-    run_dir = tmp_path / "runs" / "r"
+    state = _state(tmp_path)
+    run_dir = state.runs / "r"
     ctx = build_ctx(
         target_from_args(args),
         KilnClient("http://localhost:1"),
+        state=state,
+        agents_dir=_agents_dir(state),
         run_id="r",
         run_dir=run_dir,
         mcp_config_path=run_dir / "mcp_config.json",
@@ -229,12 +261,15 @@ def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
 
     assert build_parser().parse_args(ARGS).no_baseline_audit is False
     assert build_parser().parse_args([*ARGS, "--no-baseline-audit"]).no_baseline_audit
-    run_dir = tmp_path / "runs" / "r"
+    state = _state(tmp_path)
+    run_dir = state.runs / "r"
 
     def ctx_with(**kwargs):
         return build_ctx(
             target_from_args(build_parser().parse_args(ARGS)),
             KilnClient("http://localhost:1"),
+            state=state,
+            agents_dir=_agents_dir(state),
             run_id="r",
             run_dir=run_dir,
             mcp_config_path=run_dir / "mcp_config.json",
@@ -276,7 +311,7 @@ def test_demo_project_with_a_project_flag_exits_2(monkeypatch, capsys, flag):
         main(["--demo-project", flag, "424242613304"])
     assert exited.value.code == 2
     assert capsys.readouterr().err.splitlines()[-1] == (
-        "kiln-harness-tuner: error: --demo-project makes its own project:"
+        "harness-tuner: error: --demo-project makes its own project:"
         " drop --project-id, --task-id and --project-path"
     )
     assert started == []
@@ -303,7 +338,7 @@ def test_the_parser_records_every_long_option():
 
 
 def test_the_parser_is_named_by_prog():
-    assert PROG == "kiln-harness-tuner"
+    assert PROG == "harness-tuner"
     assert build_parser().prog == PROG
 
 
@@ -335,7 +370,7 @@ def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
     assert seen["policy_loader"] is load_model_policy
     assert seen["run"] is seen["returned"] and seen["run"] is not seen["given"]
     assert seen["run"].guidance == "filled in by the checks"
-    assert "kiln-harness-tuner: run finished — wrap_up" in capsys.readouterr().out
+    assert "harness-tuner: run finished — report: wrap_up" in capsys.readouterr().out
 
 
 def test_main_hands_the_start_up_the_command_line_as_typed(monkeypatch):
@@ -365,7 +400,7 @@ def _never_run(seen):
     return fake_run
 
 
-CLOSING = "kiln-harness-tuner stopped with an error (exit 1)\n"
+CLOSING = "harness-tuner stopped with an error (exit 1)\n"
 NOTHING_SPENT = "  Nothing was spent and no run folder was created.\n"
 
 
@@ -378,7 +413,7 @@ def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
     assert main(ARGS) == 1
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: error: Kiln isn't running at http://localhost:8757.\n"
+        "harness-tuner: error: Kiln isn't running at http://localhost:8757.\n"
         + NOTHING_SPENT
         + CLOSING
     )
@@ -408,7 +443,7 @@ def test_main_prints_a_titled_error_with_its_body(monkeypatch, capsys):
     monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fails)
     assert main(ARGS) == 1
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: error: Kiln has no project 999\n"
+        "harness-tuner: error: Kiln has no project 999\n"
         "  Projects in Kiln:\n" + NOTHING_SPENT + CLOSING
     )
 
@@ -432,7 +467,7 @@ def test_main_shows_a_kiln_error_before_the_run_with_nothing_spent(monkeypatch, 
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails)
     assert main(ARGS) == 1
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: error: Kiln returned an error\n"
+        "harness-tuner: error: Kiln returned an error\n"
         + JINJA_BODY
         + NOTHING_SPENT
         + CLOSING
@@ -442,7 +477,6 @@ def test_main_shows_a_kiln_error_before_the_run_with_nothing_spent(monkeypatch, 
 def test_main_after_the_agent_cli_check_names_its_one_test_prompt(
     monkeypatch, capsys, tmp_path
 ):
-    _redirect_roots(monkeypatch, tmp_path)
 
     def locked(*_args):
         raise RunLockError("another run (pid 7) is live against task 424242613304.")
@@ -450,7 +484,7 @@ def test_main_after_the_agent_cli_check_names_its_one_test_prompt(
     monkeypatch.setattr(kiln_harness_tuner.cli, "_acquire_run_lock", locked)
     assert main(ARGS) == 1
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: error: Another run is already using this task\n"
+        "harness-tuner: error: Another run is already using this task\n"
         "  another run (pid 7) is live against task 424242613304.\n"
         "  The only spend was the agent CLI's one test prompt."
         " No run folder was created.\n" + CLOSING
@@ -461,7 +495,6 @@ def test_main_after_the_agent_cli_check_names_its_one_test_prompt(
 def test_main_after_the_run_folder_names_spend_folder_and_report(
     monkeypatch, capsys, tmp_path, report
 ):
-    _redirect_roots(monkeypatch, tmp_path)
     seen = {}
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
@@ -476,7 +509,7 @@ def test_main_after_the_run_folder_names_spend_folder_and_report(
     assert main(ARGS) == 1
     report_line = f"  Report: {seen['report']}\n" if report else ""
     assert capsys.readouterr().err == (
-        "kiln-harness-tuner: error: Kiln returned an error\n"
+        "harness-tuner: error: Kiln returned an error\n"
         + JINJA_BODY
         + "  The run stopped. Spent $3.20 so far"
         " (agents and the task's model calls).\n"
@@ -486,7 +519,6 @@ def test_main_after_the_run_folder_names_spend_folder_and_report(
 
 def test_each_run_starts_with_nothing_spent(monkeypatch, capsys, tmp_path):
     """How far one `main` got is not the next one's ending."""
-    _redirect_roots(monkeypatch, tmp_path)
 
     async def fails_in_the_run(ctx, guidance, timeout_mins):
         raise JINJA_ERROR
@@ -565,47 +597,11 @@ def test_main_returns_the_stop_code(monkeypatch, capsys, exit_code):
     monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", stops)
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
     assert main(ARGS) == exit_code
-    assert capsys.readouterr().err == "kiln-harness-tuner: stopped.\n"
+    assert capsys.readouterr().err == "harness-tuner: stopped.\n"
     assert ran == []
 
 
-def _write_mcp_json_fixture(tmp_path):
-    """render_run_configs reads the repo's committed .mcp.json at startup —
-    give the fake repo root one shaped like the real file."""
-    (tmp_path / "repo").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "repo" / ".mcp.json").write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "kiln_api_mcp": {
-                        "type": "stdio",
-                        "command": "kiln_api_mcp",
-                        "args": [],
-                    },
-                    "kiln_chat_mcp": {
-                        "type": "stdio",
-                        "command": "kiln_chat_mcp",
-                        "args": [],
-                    },
-                    "model_info_mcp": {
-                        "type": "stdio",
-                        "command": "kiln_model_info_mcp",
-                        "args": [],
-                    },
-                }
-            }
-        )
-    )
-
-
-def _redirect_roots(monkeypatch, tmp_path):
-    """Keep test runs' wave logs/reports out of the real repository tree."""
-    monkeypatch.setattr(kiln_harness_tuner.cli, "REPO_ROOT", tmp_path / "repo")
-    _write_mcp_json_fixture(tmp_path)
-
-
-def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, tmp_path):
-    _redirect_roots(monkeypatch, tmp_path)
+def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, state_dir):
     seen = {}
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
@@ -617,7 +613,8 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, tmp_path):
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     code = main(ARGS + ["--guidance", "one wave", "--timeout-mins", "30"])
     assert code == 0
-    assert "wrap_up" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "harness-tuner: run finished — report: wrap_up" in out
     assert seen["guidance"] == "one wave"
     assert seen["timeout_mins"] == 30
     ctx = seen["ctx"]
@@ -625,10 +622,12 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, tmp_path):
     # Wiring: fanout log (wave log → tracker → UI) + the report hook.
     assert isinstance(ctx.log, FanoutLog)
     assert isinstance(ctx.write_report, ReportWriter)
-    assert ctx.write_report.report_path.parent == tmp_path / "repo" / "reports"
-    # The wave log landed under <repo>/runs/<run_id>/.
-    (run_dir,) = [d for d in (tmp_path / "repo" / "runs").iterdir() if d.is_dir()]
+    assert ctx.write_report.report_path.parent == state_dir / "reports"
+    # The wave log landed under <state>/runs/<run_id>/, and the start line,
+    # printed before the live display, named the folder.
+    run_dir = _run_dir(state_dir)
     assert (run_dir / "wave_log.jsonl").exists()
+    assert out.startswith(f"harness-tuner: run {run_dir.name} — files in {run_dir}/\n")
     # …and beside it the run's diagnostics file, already carrying
     # the run's opening line — the bootstrap runs before anything can fail.
     log_text = (run_dir / "kiln-harness-tuner.log").read_text()
@@ -642,7 +641,6 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, tmp_path):
 def test_no_progress_gives_the_plain_display_on_a_terminal(
     monkeypatch, tmp_path, flags, display
 ):
-    _redirect_roots(monkeypatch, tmp_path)
     built = []
 
     def recorded(name):
@@ -670,7 +668,6 @@ def test_no_progress_gives_the_plain_display_on_a_terminal(
 
 
 def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp_path):
-    _redirect_roots(monkeypatch, tmp_path)
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
         raise BaselineRecordMissingError(
@@ -680,13 +677,14 @@ def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     code = main(ARGS)
     assert code == 1
-    assert "run baseline setup" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err.startswith("harness-tuner: no baseline record")
+    assert "run baseline setup" in err
 
 
 def test_main_setup_precondition_error_prints_instructive_error(
     monkeypatch, capsys, tmp_path
 ):
-    _redirect_roots(monkeypatch, tmp_path)
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
         raise SetupPreconditionError(no_run_configs_message("424242613304"))
@@ -730,7 +728,6 @@ def test_main_prints_every_setup_error_instructively(
 ):
     # All three setup fatals share `SetupError` and the same treatment: the
     # message, no traceback, exit 1.
-    _redirect_roots(monkeypatch, tmp_path)
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
         raise error
@@ -763,16 +760,25 @@ def _fixture_project(tmp_path, task_id):
 class TestRenderRunConfigs:
     TASK_ID = "424242613304"
 
-    def make(self, tmp_path):
-        _write_mcp_json_fixture(tmp_path)
-        target = TargetBlock(
+    def target(self, tmp_path) -> TargetBlock:
+        return TargetBlock(
             project_path=str(_fixture_project(tmp_path, self.TASK_ID)),
             project_id="424242748186",
             task_id=self.TASK_ID,
             kiln_host="http://localhost:9999",
         )
-        run_dir = tmp_path / "repo" / "runs" / "260731-0900"
-        return render_run_configs(run_dir, target, tmp_path / "repo"), run_dir
+
+    def make(self, tmp_path, **kwargs):
+        state = _state(tmp_path)
+        run_dir = state.runs / "260731-0900"
+        rendered = render_run_configs(
+            run_dir,
+            self.target(tmp_path),
+            state=state,
+            agents_dir=_agents_dir(state),
+            **kwargs,
+        )
+        return rendered, run_dir
 
     def test_each_role_gets_the_gateway_and_no_generic_kiln_server(self, tmp_path):
         """Loop sessions reach Kiln through the loop gateway only.
@@ -794,14 +800,10 @@ class TestRenderRunConfigs:
             )
             assert set(servers) == expected, role
             gateway = servers["kiln_harness_tuner_gateway"]
-            assert gateway["command"] == "uv"
+            # The tuner's own interpreter, with no `uv` and no checkout.
+            assert gateway["command"] == sys.executable
             args = gateway["args"]
-            assert args[:4] == [
-                "run",
-                "--project",
-                str(tmp_path / "repo"),
-                "kiln-harness-tuner-gateway-mcp",
-            ]
+            assert args[:3] == ["-P", "-m", GATEWAY_MODULE]
             assert args[args.index("--role") + 1] == role
             assert args[args.index("--run-dir") + 1] == str(run_dir.resolve())
             assert args[args.index("--kiln-host") + 1] == "http://localhost:9999"
@@ -819,37 +821,26 @@ class TestRenderRunConfigs:
     def test_the_gateway_gets_the_eval_job_cap(self, tmp_path):
         """The gateway's drives through eval jobs take
         `--max-concurrent-evals` too."""
-        _write_mcp_json_fixture(tmp_path)
-        target = TargetBlock(
-            project_path=str(_fixture_project(tmp_path, self.TASK_ID)),
-            project_id="424242748186",
-            task_id=self.TASK_ID,
-            kiln_host="http://localhost:9999",
-        )
-        run_dir = tmp_path / "repo" / "runs" / "260731-0900"
-        mcp_path, _ = render_run_configs(
-            run_dir, target, tmp_path / "repo", max_concurrent_evals=3
-        )
+        (mcp_path, _), _ = self.make(tmp_path, max_concurrent_evals=3)
         args = json.loads(mcp_path.read_text())["mcpServers"][
             "kiln_harness_tuner_gateway"
         ]["args"]
         assert args[args.index("--max-concurrent-evals") + 1] == "3"
 
     def test_skill_installer_server_rendered(self, tmp_path):
-        # Run-scoped: absolute uv --project path plus the run's resolved
+        # Run-scoped: the tuner's interpreter plus the run's resolved
         # project + scratch roots — in the builder's and the probe's configs.
         (_, _s), run_dir = self.make(tmp_path)
         server = json.loads(
             (run_dir / "mcp_config.create_experiment_rc.json").read_text()
         )["mcpServers"]["skill_installer"]
         assert server["type"] == "stdio"
-        assert server["command"] == "uv"
+        assert server["command"] == sys.executable
         project_root = _fixture_project(tmp_path, self.TASK_ID).resolve()
         assert server["args"] == [
-            "run",
-            "--project",
-            str(tmp_path / "repo"),
-            "kiln-harness-tuner-skill-installer-mcp",
+            "-P",
+            "-m",
+            INSTALLER_MODULE,
             "--project-path",
             str(project_root),
             "--scratch-root",
@@ -860,7 +851,7 @@ class TestRenderRunConfigs:
         # The Write-tool leak closure: the Kiln
         # project tree is deny-ruled for ALL file tools; deny beats both the
         # scratch allow and the implicit cwd grant. Scratch lives under
-        # <repo>/runs/, disjoint, so the allow is untouched.
+        # <state>/runs/, disjoint, so the allow is untouched.
         (_, settings_path), run_dir = self.make(tmp_path)
         settings = json.loads(settings_path.read_text())
         project_root = _fixture_project(tmp_path, self.TASK_ID).resolve()
@@ -925,15 +916,48 @@ class TestRenderRunConfigs:
         assert edit_rule == f"Edit(//{str(scratch).lstrip('/')}/**)"
         assert "///" not in edit_rule
         # Bash: OS sandbox on, loud when unavailable, no unsandboxed escape
-        # hatch; repo denied, scratch re-opened.
+        # hatch; the state folder (the cwd's, the agents folder's, every
+        # run's) denied, scratch re-opened.
         sandbox = settings["sandbox"]
         assert sandbox["enabled"] is True
         assert sandbox["failIfUnavailable"] is True
         assert sandbox["allowUnsandboxedCommands"] is False
-        assert sandbox["filesystem"]["denyWrite"] == [
-            str((tmp_path / "repo").resolve())
-        ]
+        assert sandbox["filesystem"]["denyWrite"] == [str(_state(tmp_path).root)]
         assert sandbox["filesystem"]["allowWrite"] == [str(scratch)]
+
+    def test_no_role_may_edit_the_agents_folder(self, tmp_path):
+        """The agents folder is the Claude sessions' working folder, which
+        Claude Code lets the file tools write by default, and every later
+        session reads its skills."""
+        from kiln_harness_tuner.gateway.ops import ROLE_OPS
+
+        (_, settings_path), run_dir = self.make(tmp_path)
+        agents = _agents_dir(_state(tmp_path))
+        rule = f"Edit(//{str(agents).lstrip('/')}/**)"
+        for name in ["settings.json", "settings.readonly.json"] + [
+            f"settings.{r}.json" for r in ROLE_OPS
+        ]:
+            settings = json.loads((run_dir / name).read_text())
+            assert rule in settings["permissions"]["deny"], name
+
+    def test_the_val_readers_may_edit_nothing_in_the_state_folder(self, tmp_path):
+        (_, _s), run_dir = self.make(tmp_path)
+        state = _state(tmp_path)
+        for name in ("settings.readonly.json", "settings.promote_best.json"):
+            deny = json.loads((run_dir / name).read_text())["permissions"]["deny"]
+            assert deny[0] == f"Edit(//{str(state.root).lstrip('/')}/**)"
+
+    def test_an_unknown_interpreter_is_refused(self, tmp_path, monkeypatch):
+        from kiln_harness_tuner.cli import ConfigRenderError
+
+        for value in ("", "python3"):
+            monkeypatch.setattr(sys, "executable", value)
+            with pytest.raises(ConfigRenderError) as exc:
+                self.make(tmp_path)
+            assert repr(value) in str(exc.value)
+            assert "fix: run harness-tuner from its installed command." in str(
+                exc.value
+            )
 
     def test_each_roles_settings_arm_the_gateway_hook_for_that_role(self, tmp_path):
         """The hook admits only the role's own MCP tools; the
@@ -949,8 +973,9 @@ class TestRenderRunConfigs:
             (entry,) = settings["hooks"]["PreToolUse"]
             assert entry["matcher"] == "mcp__.*"
             (hook,) = entry["hooks"]
+            # The session's working folder stays off the hook's `sys.path`.
             assert hook["command"].endswith(
-                f"-m kiln_harness_tuner.gateway.hook --role {role}"
+                f" -P -m kiln_harness_tuner.gateway.hook --role {role}"
             )
             assert hook["timeout"] == 10
             assert "mcp__kiln_api_mcp" in settings["permissions"]["deny"]
@@ -997,35 +1022,33 @@ class TestRenderRunConfigs:
                 assert rule in readonly["permissions"]["deny"]
 
     def test_settings_fence_reads_and_the_network(self, tmp_path):
-        # An agent reads its own task, the project artifacts, the repo's
-        # skills and CLAUDE.md, and its own run scratch — never other tasks,
-        # other Kiln projects, other runs, reports, `examples/` (the answer
-        # key) or other Claude sessions' transcripts; no internet, no web
+        # An agent reads the agents folder's skills and CLAUDE.md, and its
+        # own run scratch — never its Kiln project, other runs, traces,
+        # reports or other Claude sessions' transcripts; no internet, no web
         # tools.
         (_, settings_path), run_dir = self.make(tmp_path)
         settings = json.loads(settings_path.read_text())
         fs = settings["sandbox"]["filesystem"]
-        repo = (tmp_path / "repo").resolve()
+        state = _state(tmp_path)
         project = _fixture_project(tmp_path, self.TASK_ID).resolve()
         # The run's own project is denied WHOLE — it holds the
         # eval inputs and results of every split.
-        assert str(project) in fs["denyRead"]
-        assert str(repo / "runs") in fs["denyRead"]
-        assert str(repo / "traces") in fs["denyRead"]
-        assert str(repo / "reports") in fs["denyRead"]
-        # This fixture's repo has no `examples/`, so the name is denied
-        # whole; the per-level rule has its own tests below
-        # (`test_examples_are_denied_whole_except_the_runs_own_project` and
-        # `test_the_examples_deny_recurses_to_the_projects_own_depth`).
-        assert str(repo / "examples") in fs["denyRead"]
-        assert str(Path.home() / ".claude" / "projects") in fs["denyRead"]
-        assert str(demo_fence_root().resolve()) in fs["denyRead"]
+        assert fs["denyRead"] == [
+            str(project),
+            str(state.runs),
+            str(state.traces),
+            str(state.reports),
+            str(demo_fence_root().resolve()),
+            str(Path.home() / ".claude" / "projects"),
+        ]
         # Only the scratch of this run — not its wave log, steps or
         # snapshots, which carry val tables.
-        assert str((run_dir / "scratch").resolve()) in fs["allowRead"]
-        assert str(run_dir.resolve()) not in fs["allowRead"]
-        assert str(repo / ".claude" / "skills") in fs["allowRead"]
-        assert str(repo / "CLAUDE.md") in fs["allowRead"]
+        agents = _agents_dir(state)
+        assert fs["allowRead"] == [
+            str((run_dir / "scratch").resolve()),
+            str(agents / ".claude" / "skills"),
+            str(agents / "CLAUDE.md"),
+        ]
         assert settings["sandbox"]["network"] == {
             "strictAllowlist": True,
             "allowedDomains": [],
@@ -1043,187 +1066,36 @@ class TestRenderRunConfigs:
             assert any(str(run / entry) in rule for rule in read_rules), entry
         assert not any(str(run / "scratch") in rule for rule in read_rules)
 
-    def test_fence_denies_a_kiln_project_nested_under_the_repo(self, tmp_path):
-        """A project can sit two levels down (`examples/<name>/`), so
-        the one-level glob this replaced could not see it — and a project the
-        fence cannot see is a project whose runs and memory store an agent can
-        read."""
-        other = tmp_path / "repo" / "examples" / "Other Project"
-        other.mkdir(parents=True)
-        (other / "project.kiln").write_text("v1: 1\n")
-        (_, settings_path), _ = self.make(tmp_path)
-        denied = json.loads(settings_path.read_text())["sandbox"]["filesystem"][
-            "denyRead"
-        ]
-        assert str(other.resolve()) in denied
-
-
-def test_kiln_project_dirs_finds_every_depth_and_prunes(tmp_path):
-    from kiln_harness_tuner.cli import kiln_project_dirs
-
-    for rel in ("Top", "examples/Nested", ".hidden/Buried"):
-        (tmp_path / rel).mkdir(parents=True)
-        (tmp_path / rel / "project.kiln").write_text("v1: 1\n")
-    # A project's own tree holds tasks, runs and eval runs, never a second
-    # project — descending into it is wasted work on a large fixture tree.
-    inner = tmp_path / "Top" / "tasks" / "1 - a"
-    inner.mkdir(parents=True)
-    (inner / "project.kiln").write_text("v1: 1\n")
-    assert kiln_project_dirs(tmp_path) == [
-        tmp_path / "Top",
-        tmp_path / "examples" / "Nested",
-    ]
-
-
-def test_kiln_project_dirs_follows_a_symlinked_project(tmp_path):
-    """A project checked out elsewhere and symlinked in is what a symlink is
-    for, and the glob this walk replaced found it. `os.walk` lists a symlinked
-    directory and does not descend into it by default, so without
-    `followlinks` that project's runs and memory store stay readable."""
-    from kiln_harness_tuner.cli import kiln_project_dirs
-
-    elsewhere = tmp_path / "elsewhere" / "Linked"
-    elsewhere.mkdir(parents=True)
-    (elsewhere / "project.kiln").write_text("v1: 1\n")
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "Linked").symlink_to(elsewhere, target_is_directory=True)
-    assert kiln_project_dirs(repo) == [repo / "Linked"]
-
-
-def test_kiln_project_dirs_survives_a_symlink_cycle(tmp_path):
-    # Following links is only safe with the visited set that stops a cycle.
-    repo = tmp_path / "repo"
-    (repo / "a").mkdir(parents=True)
-    (repo / "a" / "loop").symlink_to(repo, target_is_directory=True)
-    (repo / "a" / "P").mkdir()
-    (repo / "a" / "P" / "project.kiln").write_text("v1: 1\n")
-    from kiln_harness_tuner.cli import kiln_project_dirs
-
-    assert kiln_project_dirs(repo) == [repo / "a" / "P"]
-
-
-def test_kiln_project_dirs_never_returns_or_prunes_at_the_root(tmp_path):
-    """A repository that is itself a Kiln project would otherwise deny itself
-    whole — and when it IS the run's own project, pruning at the root ended
-    the walk with nothing denied at all."""
-    from kiln_harness_tuner.cli import kiln_project_dirs
-
-    (tmp_path / "project.kiln").write_text("v1: 1\n")
-    nested = tmp_path / "examples" / "Other"
-    nested.mkdir(parents=True)
-    (nested / "project.kiln").write_text("v1: 1\n")
-    assert kiln_project_dirs(tmp_path) == [nested]
-
-
-def test_examples_are_denied_whole_except_the_runs_own_project(tmp_path):
-    """An example's labels, its README and its build scripts are the answer
-    key as much as its Kiln project. Denied by convention, so no name below
-    `examples/` is hardcoded."""
-    from kiln_harness_tuner.cli import example_denials
-
-    repo = tmp_path / "repo"
-    examples = repo / "examples"
-    own = examples / "Forum Moderation"
-    for rel in ("authoring", "moderation", "Forum Moderation", "Other Project"):
-        (examples / rel).mkdir(parents=True)
-    (examples / "moderation" / "posts.jsonl").write_text("{}\n")
-    assert example_denials(repo, own) == [
-        examples / "Other Project",
-        examples / "authoring",
-        examples / "moderation",
-    ]
-
-
-def test_the_examples_deny_recurses_to_the_projects_own_depth(tmp_path):
-    """A project one level deeper leaves its example's files BESIDE it. The
-    directory containing the project is not denied, because it is an
-    ancestor, so its other children are denied one by one. The
-    sibling-project rule does not cover them: they are not a Kiln project."""
-    from kiln_harness_tuner.cli import example_denials
-
-    repo = tmp_path / "repo"
-    examples = repo / "examples"
-    own = examples / "env" / "Forum Moderation"
-    for rel in ("env/Forum Moderation", "env/moderation", "env/authoring", "other"):
-        (examples / rel).mkdir(parents=True)
-    denied = example_denials(repo, own)
-    assert denied == [
-        examples / "other",
-        examples / "env" / "authoring",
-        examples / "env" / "moderation",
-    ]
-    assert own not in denied
-    assert examples / "env" not in denied
-
-
-def test_the_examples_name_is_denied_when_the_directory_is_missing(tmp_path):
-    from kiln_harness_tuner.cli import example_denials
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    assert example_denials(repo, repo / "elsewhere") == [repo / "examples"]
-
-
-def test_all_examples_are_denied_when_the_project_is_outside_them(tmp_path):
-    # A run against a project somewhere else has no reason to read any of it.
-    from kiln_harness_tuner.cli import example_denials
-
-    repo = tmp_path / "repo"
-    (repo / "examples" / "moderation").mkdir(parents=True)
-    assert example_denials(repo, tmp_path / "Elsewhere") == [repo / "examples"]
-
-
-def test_all_examples_are_denied_when_the_project_is_examples_itself(tmp_path):
-    """The degenerate layout fails CLOSED, like the root case in
-    `kiln_project_dirs`. There is no path to walk down, so nothing can be left
-    open without leaving the whole answer key open — the run loses its own
-    project and breaks loudly, which is the outcome to prefer."""
-    from kiln_harness_tuner.cli import example_denials
-
-    repo = tmp_path / "repo"
-    examples = repo / "examples"
-    (examples / "moderation").mkdir(parents=True)
-    (examples / "project.kiln").write_text("v1: 1\n")
-    assert example_denials(repo, examples) == [examples]
-
-
-def test_a_missing_directory_on_the_project_path_names_the_flag(tmp_path):
-    """`--project-path` is validated nowhere upstream, so a typo or a project
-    not yet checked out reaches the fence — inside the startup path that
-    change 10 rewrote to be instructive. It raised a raw FileNotFoundError."""
-    from kiln_harness_tuner.cli import ConfigRenderError, example_denials
-
-    repo = tmp_path / "repo"
-    (repo / "examples" / "moderation").mkdir(parents=True)
-    with pytest.raises(ConfigRenderError) as raised:
-        example_denials(repo, repo / "examples" / "typo" / "Forum Moderation")
-    message = str(raised.value)
-    assert "\nfix: " in message
-    assert "--project-path" in message
-    assert str(repo / "examples" / "typo") in message
-
 
 def test_read_fence_denies_the_runs_own_project_whole(tmp_path):
     from kiln_harness_tuner.cli import read_fence_for
 
-    repo = tmp_path / "repo"
-    own = repo / "examples" / "Forum Moderation"
+    own = tmp_path / "Forum Moderation"
     (own / "tasks" / "42 - t").mkdir(parents=True)
     (own / "project.kiln").write_text("v1: 1\n")
-    other = repo / "examples" / "Other"
-    other.mkdir(parents=True)
-    (other / "project.kiln").write_text("v1: 1\n")
+    state = _state(tmp_path)
+    agents = _agents_dir(state)
+    run_dir = state.runs / "260731-0900"
     fence = read_fence_for(
-        repo_root=repo,
+        state=state,
         project_root=own,
-        run_dir=repo / "runs" / "260731-0900",
-        task_id="42",
+        run_dir=run_dir,
+        agents_dir=agents,
         home=tmp_path / "home",
     )
-    assert other in fence.deny
+    assert fence.deny == (
+        own,
+        state.runs,
+        state.traces,
+        state.reports,
+        tmp_path / "home" / ".claude" / "projects",
+    )
+    assert fence.allow == (
+        run_dir / "scratch",
+        agents / ".claude" / "skills",
+        agents / "CLAUDE.md",
+    )
     # The run's own project, its own task included, is denied.
-    assert own in fence.deny
     assert not any(own == a or own in a.parents for a in fence.allow)
     assert fence.rule_paths()[0] == own
 
@@ -1288,7 +1160,6 @@ def test_read_fence_rule_paths_recurse_down_to_the_allowed_path(tmp_path):
 def test_main_sweeps_stale_staging_dirs(monkeypatch, tmp_path):
     # Crash debris from a dead run's skill install is reaped at run start
     # (the run lock guarantees no live install races the sweep).
-    _redirect_roots(monkeypatch, tmp_path)
     project = tmp_path / "proj"
     staging = project / "skills" / ".staging-424242999999"
     staging.mkdir(parents=True)
@@ -1313,8 +1184,7 @@ def test_main_sweeps_stale_staging_dirs(monkeypatch, tmp_path):
     assert keeper.is_dir()
 
 
-def test_main_wires_dispatcher_with_rendered_configs(monkeypatch, tmp_path):
-    _redirect_roots(monkeypatch, tmp_path)
+def test_main_wires_dispatcher_with_rendered_configs(monkeypatch, state_dir):
     seen = {}
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
@@ -1324,20 +1194,45 @@ def test_main_wires_dispatcher_with_rendered_configs(monkeypatch, tmp_path):
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
     assert main(ARGS) == 0
     dispatch = seen["ctx"].dispatch
-    (run_dir,) = [d for d in (tmp_path / "repo" / "runs").iterdir() if d.is_dir()]
+    run_dir = _run_dir(state_dir)
     assert dispatch._mcp_config_path == run_dir / "mcp_config.json"
     assert dispatch._settings_path == run_dir / "settings.json"
     assert dispatch._run_dir == run_dir
     assert dispatch._run_id == run_dir.name
-    assert dispatch._traces_root == tmp_path / "repo" / "traces"
+    assert dispatch._traces_root == state_dir / "traces"
     # Both rendered files exist before any dispatch could run.
     assert (run_dir / "mcp_config.json").is_file()
     assert (run_dir / "settings.json").is_file()
+    # Claude sessions run in the agents folder the run installed.
+    agents = _agents_dir(StatePaths(state_dir))
+    assert dispatch._cwd("w1-1") == agents
+    assert (agents / "CLAUDE.md").is_file()
+    assert (agents / ".claude" / "skills" / "memory" / "SKILL.md").is_file()
+    assert seen["ctx"].quarantine_root == state_dir / "runs" / ".quarantine" / (
+        "424242748186-424242613304"
+    )
+
+
+def test_a_codex_run_installs_the_codex_layout(monkeypatch, state_dir):
+    seen = {}
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        seen["ctx"] = ctx
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main([*ARGS, "--agent-cli", "codex exec"]) == 0
+    agents = _agents_dir(StatePaths(state_dir), "codex")
+    assert (agents / "AGENTS.md").is_file()
+    assert (agents / ".agents" / "skills" / "memory" / "SKILL.md").is_file()
+    assert not (state_dir / "agents" / "claude").exists()
+    workspace = seen["ctx"].dispatch._cwd("w1-1")
+    assert (workspace / ".agents" / "skills").resolve() == agents / ".agents" / (
+        "skills"
+    )
 
 
 def test_main_preflight_error_prints_instructive_error(monkeypatch, capsys, tmp_path):
-    _redirect_roots(monkeypatch, tmp_path)
-
     async def fake_orchestrate(ctx, guidance, timeout_mins):
         raise PreflightError(
             "preflight failed — the Kiln Harness Tuner gateway MCP lane is not working"
@@ -1348,16 +1243,130 @@ def test_main_preflight_error_prints_instructive_error(monkeypatch, capsys, tmp_
     assert "gateway MCP lane" in capsys.readouterr().err
 
 
-def test_render_needs_no_committed_mcp_json(tmp_path):
-    """Loop sessions never use the committed .mcp.json (it serves
-    interactive sessions): a repo without one still renders."""
-    target = TargetBlock(
-        project_path="p", project_id="1", task_id="2", kiln_host="http://h"
-    )
-    mcp_path, _ = render_run_configs(tmp_path / "run", target, tmp_path / "empty-repo")
-    assert (
-        "kiln_harness_tuner_gateway" in json.loads(mcp_path.read_text())["mcpServers"]
-    )
+# ---- what a run prints, and where it writes ----
+
+
+def test_a_handled_error_names_the_run_folder_and_the_report(
+    monkeypatch, capsys, state_dir
+):
+    """A fatal exit says where its log is, and where the fallback report it
+    wrote is."""
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        ctx.write_report.report_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx.write_report.report_path.write_text("# fallback\n")
+        raise KilnError("Kiln answered 500 on the baseline run config")
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 1
+    run_dir = _run_dir(state_dir)
+    report = state_dir / "reports" / f"kiln-harness-tuner-{run_dir.name}.md"
+    assert capsys.readouterr().err.splitlines() == [
+        "harness-tuner: Kiln answered 500 on the baseline run config",
+        f"harness-tuner: run folder: {run_dir}",
+        f"harness-tuner: report: {report}",
+    ]
+
+
+def test_a_handled_error_with_no_report_names_the_run_folder_only(
+    monkeypatch, capsys, state_dir
+):
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        raise KilnError("no answer")
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 1
+    err = capsys.readouterr().err
+    assert f"harness-tuner: run folder: {_run_dir(state_dir)}" in err
+    assert "harness-tuner: report:" not in err
+
+
+def test_an_interrupted_run_names_the_run_folder(monkeypatch, capsys, state_dir):
+    import asyncio
+    import os
+    import signal
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 143
+    err = capsys.readouterr().err
+    assert "harness-tuner: interrupted (SIGTERM)" in err
+    assert f"harness-tuner: run folder: {_run_dir(state_dir)}" in err
+
+
+def test_a_ctrl_c_names_the_run_folder(monkeypatch, capsys, state_dir):
+    """Ctrl-C reaches `main` as KeyboardInterrupt, not as the cancellation
+    SIGTERM and SIGHUP give, and goes on as before after the line."""
+    import asyncio
+    import os
+    import signal
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        os.kill(os.getpid(), signal.SIGINT)
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    with pytest.raises(KeyboardInterrupt):
+        main(ARGS)
+    err = capsys.readouterr().err
+    assert f"harness-tuner: run folder: {_run_dir(state_dir)}" in err
+
+
+def test_a_state_folder_that_cannot_be_used_stops_the_start(
+    monkeypatch, capsys, tmp_path
+):
+    blocked = tmp_path / "state-file"
+    blocked.write_text("a file, not a folder")
+    monkeypatch.setenv("KILN_HARNESS_TUNER_HOME", str(blocked))
+    started = []
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        started.append(ctx)
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"harness-tuner: the state folder {blocked} cannot be used")
+    assert "fix: set KILN_HARNESS_TUNER_HOME to a writable folder." in err
+    # Before any run folder: there is none to name.
+    assert "run folder" not in err
+    assert not started
+
+
+def test_a_state_folder_inside_the_project_stops_the_start(
+    monkeypatch, capsys, tmp_path
+):
+    project = tmp_path / "Forum Moderation"
+    project.mkdir()
+    monkeypatch.setenv("KILN_HARNESS_TUNER_HOME", str(project / "state"))
+    args = ["--project-path", str(project), "--project-id", "1", "--task-id", "2"]
+    assert main(args) == 1
+    assert "overlap" in capsys.readouterr().err
+    # Refused before the state folder is made: nothing lands in the project.
+    assert list(project.iterdir()) == []
+
+
+def test_a_run_writes_nothing_where_it_is_started(monkeypatch, tmp_path, state_dir):
+    """The goal of the state folder: a run started from any folder writes
+    there nothing, and nothing in the home folder either."""
+    cwd = tmp_path / "anywhere"
+    home = tmp_path / "home"
+    cwd.mkdir()
+    home.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("HOME", str(home))
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 0
+    assert list(cwd.iterdir()) == []
+    assert list(home.iterdir()) == []
+    assert (_run_dir(state_dir) / "settings.json").is_file()
 
 
 # ---- role overrides, run lock, unique ids ----
@@ -1448,7 +1457,9 @@ class TestRunLock:
         fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
-            with pytest.raises(RunLockError, match="one run per task"):
+            with pytest.raises(
+                RunLockError, match="another harness-tuner run .* one run per task"
+            ):
                 _acquire_run_lock(tmp_path, "t1")
         finally:
             os.close(fd)
@@ -1538,4 +1549,4 @@ class TestSigterm:
         monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
         rc = main(["--project-path", "x", "--project-id", "p", "--task-id", "t"])
         assert rc == 129 and seen == ["finally"]
-        assert "interrupted (SIGHUP)" in capsys.readouterr().err
+        assert "harness-tuner: interrupted (SIGHUP)" in capsys.readouterr().err

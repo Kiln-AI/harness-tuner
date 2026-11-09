@@ -78,7 +78,8 @@ def build_server(project_path: Path, scratch_root: Path) -> FastMCP:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Kiln Harness Tuner skill-bundle installer MCP server (stdio)"
+        prog="harness-tuner-skill-installer-mcp",
+        description="Kiln Harness Tuner skill-bundle installer MCP server (stdio)",
     )
     parser.add_argument(
         "--project-path",

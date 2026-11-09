@@ -448,7 +448,7 @@ def test_with_no_agent_cli_installed_check_again_finds_one():
     assert body == (
         "The tuner's agents run through an agent CLI, signed in with its own account:",
         "Claude Code (claude), Codex (codex) or OpenCode (opencode).",
-        "docs/install.md section 5 has the install and sign-in steps for each.",
+        "docs/install.md section 4 has the install and sign-in steps for each.",
     )
     assert terminal.menus == [("r", "x")]
     assert terminal.busy_texts == ["Looking for agent CLIs…"] * 2

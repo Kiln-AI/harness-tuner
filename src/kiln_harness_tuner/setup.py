@@ -1,5 +1,5 @@
 """The pre-flight setup phase (docs/architecture.md section 5): make
-`uv run kiln-harness-tuner …` work on a task nobody prepared, and keep it in step on
+`harness-tuner …` work on a task nobody prepared, and keep it in step on
 every later invocation.
 
 `run_setup` is the whole phase and the single entrypoint `orchestrate()` (and
@@ -120,7 +120,7 @@ class SetupDescribeError(SetupError):
             f"({reason}). The loop will not start against an incomplete "
             "requirement set — every active eval needs an issue memory "
             "describing it. Nothing was written for this eval; re-invoke "
-            "`kiln-harness-tuner` once the cause is addressed."
+            "`harness-tuner` once the cause is addressed."
         )
 
 
@@ -152,7 +152,7 @@ def no_run_configs_message(task_id: str) -> str:
     return (
         f"task {task_id} has no run configs, so there is nothing to optimize "
         "from. Create a run config for this task (a model + prompt the task "
-        "can actually run), then re-invoke `kiln-harness-tuner`. The loop "
+        "can actually run), then re-invoke `harness-tuner`. The loop "
         "measures every experiment against a baseline run config and will "
         "not invent one."
     )
@@ -1005,7 +1005,7 @@ def _require_description(
         raise SetupPreconditionError(
             f"no description was produced for eval {view.id} ({view.name}), so "
             "its issue memory cannot be written. The loop will not seed a "
-            "requirement it cannot describe — re-invoke `kiln-harness-tuner` "
+            "requirement it cannot describe — re-invoke `harness-tuner` "
             "to retry the description agent."
         )
     return description
@@ -1179,7 +1179,7 @@ def _render_missing_splits(rows: list[tuple[EvalView, str]]) -> str:
         "The loop measures experiments on train and gates promotion on val, "
         "and it does not create or repair splits. Add splits to these evals "
         "(or deactivate them via their Spec status), then re-invoke "
-        "`kiln-harness-tuner`."
+        "`harness-tuner`."
     )
 
 

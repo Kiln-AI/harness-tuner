@@ -1407,6 +1407,49 @@ wheels = [
 ]
 
 [[package]]
+name = "harness-tuner"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "jq" },
+    { name = "kiln-ai" },
+    { name = "mcp" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "questionary" },
+    { name = "rich" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "jq", specifier = ">=1.11" },
+    { name = "kiln-ai", specifier = ">=0.26" },
+    { name = "mcp", specifier = ">=1.10.1,<2" },
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "questionary", specifier = ">=2.1.1,<2.2" },
+    { name = "rich", specifier = ">=13.7" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23" },
+    { name = "respx", specifier = ">=0.22" },
+    { name = "ruff", specifier = ">=0.6" },
+]
+
+[[package]]
 name = "hf-xet"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1773,49 +1816,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f3/d7/709bd4eaa604a44384e4daa302b6def3f89ef90da49d505e8dc76146d131/kiln_ai-1.1.2.tar.gz", hash = "sha256:077a6a4fdf7991835fd7581c8ed77436933fcb9f8c3a78c2d36331d140e4a0c3", size = 1756040, upload-time = "2026-09-16T01:29:50.244Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/24/b8f0edf8225953307f9646c72000b54ab69d44673abb03b9b770e1350c6a/kiln_ai-1.1.2-py3-none-any.whl", hash = "sha256:c17c65a9ee0a9b69eee5670a7338fbea3a1c8fd008a53df10cb3b09d811bcaef", size = 1085417, upload-time = "2026-09-16T01:29:48.722Z" },
-]
-
-[[package]]
-name = "kiln-harness-tuner"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "httpx" },
-    { name = "jq" },
-    { name = "kiln-ai" },
-    { name = "mcp" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "questionary" },
-    { name = "rich" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "respx" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "jq", specifier = ">=1.11" },
-    { name = "kiln-ai", specifier = ">=0.26" },
-    { name = "mcp", specifier = ">=1.10.1,<2" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "questionary", specifier = ">=2.1.1,<2.2" },
-    { name = "rich", specifier = ">=13.7" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23" },
-    { name = "respx", specifier = ">=0.22" },
-    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]

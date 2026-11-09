@@ -1,6 +1,6 @@
 # Pointing the loop at your own task
 
-What a Kiln task needs before `kiln-harness-tuner` can work on it, what the loop's setup
+What a Kiln task needs before `harness-tuner` can work on it, what the loop's setup
 phase prepares for you, what it refuses to guess, and every flag.
 
 This document assumes nothing but a Kiln studio server with your project in it.
@@ -53,7 +53,7 @@ measure:
 When Kiln reports evals it couldn't load, a warning says how many, for example
 `! Kiln couldn't load 1 eval of this task, so the run can't measure it.` The
 check doesn't fail on it. Right after it, the start checks that Kiln has a key
-for every provider the run will call ([install.md](install.md) section 6).
+for every provider the run will call ([install.md](install.md) section 5).
 
 **An eval whose default config Kiln can't load** is left out of the run. Kiln
 answers such a config with HTTP 400 or 422, for example when the judge's
@@ -146,7 +146,7 @@ Missing splits fail pre-flight, listing every offending eval at once:
 >
 > The loop measures experiments on train and gates promotion on val, and it
 > does not create or repair splits. Add splits to these evals (or deactivate
-> them via their Spec status), then re-invoke `kiln-harness-tuner`.
+> them via their Spec status), then re-invoke `harness-tuner`.
 
 One pass, one list, one fix. The audit exists because without it a task like
 this dies at its first promotion gate instead — after the waves before it have
@@ -207,12 +207,12 @@ resolved, or the start stops, in a guided start as a `✗` block and otherwise o
 stderr:
 
 ```
-kiln-harness-tuner: error: --project-path isn't Kiln's folder for project Forum Moderation
+harness-tuner: error: --project-path isn't Kiln's folder for project Forum Moderation
   --project-path is /a/b,
   but Kiln has project 424242975950 at /c/d.
   Drop --project-path, or pass /c/d.
   Nothing was spent and no run folder was created.
-kiln-harness-tuner stopped with an error (exit 1)
+harness-tuner stopped with an error (exit 1)
 ```
 
 The read fence denies the folder it is given, so a wrong path would leave the
@@ -379,7 +379,7 @@ the loop, not the task.
 ## 5. The first run
 
 ```
-kiln-harness-tuner
+harness-tuner
 ```
 
 In a terminal this is a **guided start** ([install.md](install.md#guided-or-not)):
@@ -387,21 +387,22 @@ it asks for what the flags don't give. Without a terminal, or with
 `--no-interaction`, it asks nothing and takes the defaults. Either way, these
 steps come before any agent session, model call or run folder, in this order:
 
-1. The Kiln check ([install.md](install.md) section 4).
+1. The Kiln check ([install.md](install.md) section 3).
 2. With `--demo-project` only, the demo's copy and import
    ([install.md](install.md#try-the-demo)).
 3. The project and the task (section 5.1), and the project's folder
    (section 1.5).
 4. The readiness check (section 1).
-5. The API-key check ([install.md](install.md) section 6).
+5. The API-key check ([install.md](install.md) section 5).
 6. The questions, guided start only.
 7. The API-key check again, only when an answer set or changed the model
    policy.
 8. The summary. A guided start then shows the command that runs it again, and
    asks whether to start.
 
-Then the run itself starts. The loop shows its progress in the terminal, runs
-waves until the budget, the clock or the planner ends it, and writes a report.
+Then the run itself starts. The loop prints its run folder, shows its progress
+in the terminal, runs waves until the budget, the clock or the planner ends it,
+writes a report, and prints the report's path.
 
 Each finished step leaves one line, so a guided start that has picked its
 project and task reads:
@@ -500,19 +501,19 @@ never asks. One choice is still used. Two or more is an error that lists them,
 one line each, ID then name:
 
 ```
-kiln-harness-tuner: error: --project-id is needed when the start isn't guided
+harness-tuner: error: --project-id is needed when the start isn't guided
   Projects in Kiln:
     424242975950  Forum Moderation
     118230554411  Support Triage
   Nothing was spent and no run folder was created.
-kiln-harness-tuner stopped with an error (exit 1)
+harness-tuner stopped with an error (exit 1)
 ```
 
 Tasks are listed the same way, under `--task-id is needed …`. For a `--task-id`
 that several projects have, the list is of those projects. With no projects,
 or a project with no tasks, the same titles and explanations go to stderr, with
 the Kiln page to open; the no-projects one names
-`kiln-harness-tuner --demo-project`.
+`harness-tuner --demo-project`.
 
 ### 5.2 The questions
 
@@ -538,7 +539,7 @@ shows why under the field and asks again, keeping what you typed.
   tuner's agents (planner, builders, reviewers) run through that CLI and are
   billed to its account, not to your Kiln provider keys. With only one CLI
   installed there is no CLI question, and with none the start stops until you
-  install one ([install.md](install.md) section 5). The model is asked unless
+  install one ([install.md](install.md) section 4). The model is asked unless
   `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
   cheaper, with weaker plans.
 - **The budget** is the most this run may spend: the tuner's agents and the
@@ -597,7 +598,7 @@ Ready to start
   Advanced     defaults
 
 To run this again with the same answers and no questions:
-  kiln-harness-tuner \
+  harness-tuner \
     --project-id 424242975950 --task-id 424242783061 \
     --project-path '/Users/you/Kiln Projects/Forum Moderation' \
     --objective quality \
@@ -642,7 +643,7 @@ Or pass the flags yourself. Each one answers its question, and with
 `--no-interaction` the start asks nothing at all, even in a terminal:
 
 ```
-kiln-harness-tuner --project-path "/path/to/Your Project" \
+harness-tuner --project-path "/path/to/Your Project" \
           --project-id <id> --task-id <id> \
           --guidance "…" --timeout-mins 60 --budget-usd 20 \
           --no-interaction
@@ -662,21 +663,23 @@ task is the wrong place to discover how long a wave takes.
 what stops the first planner assuming facts about your model. It is not free
 either: it drives real items on the model you are optimizing, so on an expensive
 model it is not trivial. Price it with [costs.md](costs.md) and the
-[`experiment-costing`](../.agents/skills/experiment-costing/SKILL.md) skill
+[`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md) skill
 behind it, rather than against a figure from somebody else's task.
 
 **Stopping a run.** In the foreground, Ctrl-C. Start a run in the background
 with `--no-interaction`, as the printed command does: in the background, a
 guided start stops at its first question, waiting for the terminal. A run
-started in the background (`kiln-harness-tuner … &`, `nohup`) does not
+started in the background (`harness-tuner … &`, `nohup`) does not
 receive the terminal's Ctrl-C, and a shell without job control — a script, an
 agent's shell — starts it with SIGINT ignored, so `kill -INT` does nothing
 either. Send SIGTERM instead: `kill <pid>`. The loop also stops cleanly on
 SIGHUP, which a closing terminal sends. On either signal it cancels the run
 the way Ctrl-C does: every `claude -p` child is killed, the server's eval jobs
 are cancelled, the run lock is released and the report is written; the exit
-code is 143 for SIGTERM and 129 for SIGHUP. `kill -9` skips all of that and
-leaves the children running to their own time caps.
+code is 143 for SIGTERM and 129 for SIGHUP. On Ctrl-C, SIGTERM or SIGHUP it
+also prints the run folder (`harness-tuner: run folder: …`), whose log holds
+the details. `kill -9` skips all of that and leaves the children running to
+their own time caps.
 
 ### Every flag
 
@@ -717,15 +720,19 @@ arm are also reported, read from its stored eval runs.
 
 ## 6. Reading the result
 
+A run's files are your local output, in the state folder:
+`~/.kiln_ai/harness_tuner/`, unless `KILN_HARNESS_TUNER_HOME` names another
+([install.md](install.md#where-the-tuner-keeps-its-files)). The paths in the
+table are inside it. The tuner writes nothing in the folder you start it
+from.
+
 | Where | What |
 |---|---|
 | `reports/kiln-harness-tuner-<run_id>.md` | the round report: what was planned, what was measured, what was promoted, and code-computed appendices: the spend, why each arm stopped and how many of its items were judged, and the trade-offs of the screened candidates (quality lost against cost and latency saved) |
-| `runs/<run_id>/` | the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
+| `runs/<run_id>/` | the run log (`kiln-harness-tuner.log`), the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
 | `runs/.quarantine/<project>-<task>/archived_run_configs/` | the loop's own `PROBE …` run configs, archived out of the project after a run |
-| `traces/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |
+| `traces/<project>/<task>/<run_id>/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |
 | Kiln memory | the durable result: the baseline record and its promotion chain, every issue's state, every experiment's verdict |
-
-`runs/` and `traces/` are git-ignored: they are your local output.
 
 **The report is not the whole result.** The memory store is. A second run on
 the same task re-orients from it, which is why a crashed run costs spend but

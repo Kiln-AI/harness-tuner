@@ -66,17 +66,21 @@ statement of what that eval catches.
 
 **Lever.** A **class of change** to a run config: the prompt, a skill, a tool,
 a tool wrapper, a model property. Not a specific edit — "rewrite the tool
-description" is a lever, and the particular rewrite is one attempt at it. The
+description" is a lever, and the particular rewrite is one attempt at it. A
+tool's description does not change in place: the rewrite is a code-tool clone
+or a wrapper. The
 planner tracks attempts per (issue, lever) so that two failed attempts on the
 same surface push it to a different surface class rather than to a third
 wording.
 
 ## The unit of work
 
-**Run.** One invocation of `kiln-harness-tuner`. It has a run id of the form
-`YYMMDD-HHMM`, a scratch directory at `runs/<run_id>/`, a report at
-`reports/kiln-harness-tuner-<run_id>.md`, and one task. Only one run per task may be
-live at a time.
+**Run.** One invocation of `harness-tuner`. It has a run id of the form
+`YYMMDD-HHMM`, a run folder at `runs/<run_id>/` and a report at
+`reports/kiln-harness-tuner-<run_id>.md`, both in the state folder
+(`~/.kiln_ai/harness_tuner/` by default,
+[install.md](install.md#where-the-tuner-keeps-its-files)), and one task. Only
+one run per task may be live at a time.
 
 **Guidance.** The free text a person passes with `--guidance`. It reaches every
 planner, every wave, verbatim, and the promotion gate. It is the one place a

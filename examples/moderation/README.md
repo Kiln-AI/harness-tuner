@@ -100,7 +100,7 @@ and says where to add it when it doesn't.
 1. Start the loop on a fresh copy of the project:
 
    ```
-   kiln-harness-tuner --demo-project
+   harness-tuner --demo-project
    ```
 
    `--demo-project` copies the project into
@@ -127,7 +127,7 @@ and says where to add it when it doesn't.
 
    It does not ask for the project or the task: they are the copy's. A flag
    answers its question instead, so for a short first run,
-   `kiln-harness-tuner --demo-project --budget-usd 20 --timeout-mins 60` asks
+   `harness-tuner --demo-project --budget-usd 20 --timeout-mins 60` asks
    neither the budget nor the time limit. Then it shows a summary and the
    command that runs on the same copy again with the same answers, and starts
    the run when you press `s`.
@@ -145,8 +145,9 @@ and says where to add it when it doesn't.
    sessions and the model calls of the task. Read
    [docs/costs.md](../../docs/costs.md) to estimate a run.
 
-   The loop shows its progress in the terminal. When the run ends, the report
-   is in `reports/` in this repository.
+   The loop shows its progress in the terminal. When the run ends, it prints
+   the report's path. The report is in `~/.kiln_ai/harness_tuner/reports/` by
+   default, not in the clone.
 
 2. Check the result on test yourself. The loop never reads test. In Kiln, run
    the `Decision correct` eval on the test split for the baseline and for the

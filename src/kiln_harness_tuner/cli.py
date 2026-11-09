@@ -1,11 +1,13 @@
-"""`uv run kiln-harness-tuner …` — the documented interface (a CLI,
+"""`harness-tuner …` — the documented interface (a CLI,
 invoked manually from a terminal).
 
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
-observability: run id, wave log (`runs/<run_id>/`, run scratch), `RunStatus`
-tracker + UI (rich live display, or plain lines under `--no-progress` /
-non-TTY), and the report hook (`reports/kiln-harness-tuner-<run_id>.md`) —
-then runs `orchestrate`, which returns the report path.
+observability: run id, wave log (`<state>/runs/<run_id>/`, run scratch),
+`RunStatus` tracker + UI (rich live display, or plain lines under `--no-progress` /
+non-TTY), and the report hook (`<state>/reports/kiln-harness-tuner-<run_id>.md`)
+— then runs `orchestrate`, which returns the report path. `<state>` is the
+state folder (`paths.py`); the agents' skills and instructions come from the
+package and are installed into it (`install_agents.py`).
 """
 
 from __future__ import annotations
@@ -51,8 +53,11 @@ from kiln_harness_tuner.gateway.hook import hook_command as gateway_hook_command
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, ROLE_OPS, TRACE_READER_ROLES
 from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSetError
-from kiln_harness_tuner.install_agents import InstallError
-from kiln_harness_tuner.install_agents import install as install_agents
+from kiln_harness_tuner.install_agents import (
+    InstallError,
+    install_for_run,
+    package_version,
+)
 from kiln_harness_tuner.kiln import (
     DEFAULT_KILN_HOST,
     KilnAPIError,
@@ -94,6 +99,13 @@ from kiln_harness_tuner.orchestrator import (
     SpendMeter,
     orchestrate,
 )
+from kiln_harness_tuner.paths import (
+    StateHomeError,
+    StatePaths,
+    check_no_overlap,
+    prepare_state,
+    state_home,
+)
 from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.reference_check import REFERENCE_CHECK_MODES
 from kiln_harness_tuner.report import ReportWriter
@@ -113,7 +125,7 @@ logger = logging.getLogger(__name__)
 
 # The command's name. The parser and every start-up message use it, so a
 # rename of the command is this one line.
-PROG = "kiln-harness-tuner"
+PROG = "harness-tuner"
 
 DEFAULT_TIMEOUT_MINS = 720  # 12 hours
 # The run's cost cap by default: `--budget-usd none` runs with no cap.
@@ -126,14 +138,6 @@ DEFAULT_BUDGET_USD = 50.0
 DEFAULT_MAX_CONCURRENT_EVALS = 4
 DEFAULT_MAX_CONCURRENT_AGENTS = 4
 
-# The repo root — the dispatcher's cwd, so the installed skills and
-# instructions load. cli.py sits at <repo>/src/kiln_harness_tuner/cli.py, so
-# parents[2] is the repo root. The package lives at the root here, so run
-# scratch (`runs/<run_id>/`), the trace copies (`traces/`) and the reports
-# all hang off this one constant.
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
 # The adapter for each agent CLI `--agent-cli` can name, and the keyword
 # its executable is passed under.
 DISPATCHERS: dict[str, tuple[type[ClaudeCliDispatcher], str]] = {
@@ -144,14 +148,15 @@ DISPATCHERS: dict[str, tuple[type[ClaudeCliDispatcher], str]] = {
 
 
 def make_dispatcher(
-    agent_cli: AgentCli, target: TargetBlock, **kwargs: Any
+    agent_cli: AgentCli, target: TargetBlock, agents_dir: Path, **kwargs: Any
 ) -> ClaudeCliDispatcher:
     """The dispatcher `--agent-cli` names, with its options, model and
-    effort."""
+    effort. `agents_dir` is the folder `install_for_run` installed that CLI's
+    skills and instructions into."""
     cls, bin_kw = DISPATCHERS[agent_cli.kind]
     return cls(
         target,
-        REPO_ROOT,
+        agents_dir,
         **{bin_kw: agent_cli.bin},
         cli_options=agent_cli.options,
         default_model=agent_cli.model,
@@ -163,6 +168,7 @@ def make_dispatcher(
 async def check_agent_cli(
     agent_cli: AgentCli,
     target: TargetBlock,
+    agents_dir: Path,
     models: dict[str, str] | None = None,
     efforts: dict[str, str] | None = None,
 ) -> None:
@@ -174,7 +180,9 @@ async def check_agent_cli(
             f"--agent-cli {agent_cli.text!r}: `{agent_cli.bin}` is not on PATH."
             "\nfix: install the CLI, or name it by its full path."
         )
-    dispatcher = make_dispatcher(agent_cli, target, models=models, efforts=efforts)
+    dispatcher = make_dispatcher(
+        agent_cli, target, agents_dir, models=models, efforts=efforts
+    )
     await dispatcher.check_cli(agent_cli.text)
 
 
@@ -235,7 +243,17 @@ class _Parser(argparse.ArgumentParser):
 def build_parser() -> _Parser:
     parser = _Parser(
         prog=PROG,
-        description="Kiln Harness Tuner — an agentic optimize loop for Kiln tasks.",
+        description=(
+            "Kiln Harness Tuner\n"
+            "\n"
+            "Automatically improves an AI agent by tuning its harness: the prompt,\n"
+            "model, tools, skills and settings around it. Agents propose and build\n"
+            "each change, and your evals measure it. A change becomes the new\n"
+            "baseline only when held-out data confirms it, and the test set is\n"
+            "never read, so your test score stays a true measure."
+        ),
+        # Keep the title on its own line and the description as wrapped above.
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--project-path",
@@ -575,105 +593,13 @@ class ReadFence:
         return tuple(out)
 
 
-def kiln_project_dirs(root: Path) -> list[Path]:
-    """Every directory under `root` holding a `project.kiln`, at any depth.
-
-    A pruning walk rather than a glob: a Kiln project can sit at any depth
-    (an example's is at `examples/<name>/<project>/`), so a one-level glob
-    could not see it. A project tree is not descended into,
-    because a project holds no nested project.
-
-    Dot-directories are skipped, and that is a DELIBERATE NARROWING rather
-    than a free optimisation: `Path.glob("*/project.kiln")` did match a dotted
-    directory, so a project at `.hidden-proj/` was denied before and is not
-    now. The trade is `.git` and `.venv`, which hold no Kiln project and are
-    expensive to descend on every run. A project deliberately hidden from the
-    tool that fences it is a decision its owner made.
-
-    Symlinks ARE followed, guarded by a set of resolved directories already
-    visited, because a project checked out elsewhere and symlinked in is what
-    a symlink is for and the glob this replaced found it. A project the fence
-    cannot see is one whose runs, eval runs and memory store an agent reads.
-    The visited set is what stops a symlink cycle walking forever.
-
-    `root` itself is never returned and never prunes the walk. A repository
-    that is also a Kiln project would otherwise deny itself whole — and when
-    it IS the run's own project, pruning there ended the walk with nothing
-    denied at all."""
-    found: list[Path] = []
-    seen: set[Path] = set()
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
-        here = Path(dirpath)
-        resolved = here.resolve()
-        if resolved in seen:
-            dirnames[:] = []
-            continue
-        seen.add(resolved)
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
-        if "project.kiln" in filenames and here != root:
-            found.append(here)
-            dirnames[:] = []
-    return sorted(found)
-
-
-def example_denials(repo_root: Path, project_root: Path) -> list[Path]:
-    """Everything under `examples/` except the run's own Kiln project.
-
-    An example is the answer key, not only its Kiln project: its labelled
-    corpus carries every split's labels, and its README and build scripts
-    state the rules the loop is asked to discover. An agent that reads them
-    can write a prompt that states the answer, which is the measurement gone
-    rather than the task solved. No name below `examples/` is hardcoded, so a
-    new example is covered without an edit.
-
-    The walk goes DOWN the path to the project and denies, at every level,
-    every child but the one on that path. A project one level deeper than its
-    example's files leaves those files beside it, and the sibling-project rule
-    does not catch them, because they are not a Kiln project.
-
-    Every way of failing to locate the project FAILS CLOSED — all of
-    `examples/` is denied, the agents lose their own project, and the run
-    breaks loudly instead of quietly reading the answer key. That covers a
-    project outside `examples/` (the normal case: the examples' READMEs copy
-    the project out first), a `--project-path` mis-cased on a
-    case-insensitive filesystem, a second symlink alias of a directory
-    already denied, and the project being `examples/` itself. A directory
-    MISSING from the path is the one case that is not a fence decision at
-    all: it is a bad `--project-path`, and it raises `ConfigRenderError` with
-    the fix."""
-    examples = repo_root / "examples"
-    if not examples.is_dir():
-        return [examples]  # absent — deny the name, it costs nothing
-    own = project_root.resolve()
-    try:
-        on_the_path = own.relative_to(examples.resolve()).parts
-    except ValueError:
-        return [examples]  # the run's project lives elsewhere — deny the lot
-    if not on_the_path:
-        return [examples]  # the project IS `examples/` — see the docstring
-    denied: list[Path] = []
-    node = examples
-    for part in on_the_path:
-        keep = (node / part).resolve()
-        try:
-            children = sorted(node.iterdir())
-        except OSError as exc:
-            # `--project-path` is validated nowhere upstream, so a typo or a
-            # project not yet checked out arrives here — inside the startup
-            # path, where a traceback is the wrong answer.
-            raise ConfigRenderError(
-                f"cannot build the read fence: {node} is on the path to the"
-                f" project but is not a readable directory ({exc}).\n"
-                f"fix: check --project-path, which names {project_root} —"
-                " every directory on the way to it must exist and be readable."
-            ) from exc
-        denied += [child for child in children if child.resolve() != keep]
-        node = node / part
-    return denied
-
-
 def read_fence_for(
-    *, repo_root: Path, project_root: Path, run_dir: Path, task_id: str, home: Path
+    *,
+    state: StatePaths,
+    project_root: Path,
+    run_dir: Path,
+    agents_dir: Path,
+    home: Path,
 ) -> ReadFence:
     """The read fence for one run.
 
@@ -681,40 +607,35 @@ def read_fence_for(
     inputs of every split, every task run and every eval run, so a file read
     there is a read of val and test; the agents reach the project through their
     gateway operations, which answer from train records only, and through
-    code-assembled inputs. Every other Kiln project in the repo, whole. Every
-    run's directory — this run's too, except its scratch: the wave log, the step
-    records and the memory snapshots carry val tables. The traces and the
-    reports. Everything under `examples/` — an example's labels, README and
-    build scripts are all the answer key. The demo project that ships in the
-    package (`--demo-project` copies it), which holds every split's labels:
-    in a clone the project scan finds it too, but an installed package sits
-    outside the repository, where the scan never looks. Every other Claude
-    session's transcripts.
+    code-assembled inputs. Every run's directory in the state folder — this
+    run's too, except its scratch: the wave log, the step records and the
+    memory snapshots carry val tables. The traces and the reports. The demo
+    project that ships in the package (`--demo-project` copies it), which
+    holds every split's labels. Every other Claude session's transcripts.
 
     Readable: this run's scratch, and the skills and `CLAUDE.md` that
-    `install_agents.py` installs for Claude Code. A project skill's files
-    reach a builder through the skill installer's `export_skill_bundle`, which
-    copies them into scratch.
-    `task_id` is kept for the signature's callers; no task directory is
-    re-opened."""
-    del task_id
-    sibling_projects = [
-        p for p in kiln_project_dirs(repo_root) if p.resolve() != project_root.resolve()
-    ]
+    `install_for_run` installs for Claude Code in the agents folder. A project
+    skill's files reach a builder through the skill installer's
+    `export_skill_bundle`, which copies them into scratch.
+
+    The fence is a deny list, so what nobody names is readable: other Kiln
+    projects, and any clone of this repository with its `examples/`
+    (docs/limitations.md)."""
     deny = [
         project_root,
-        *sibling_projects,
-        repo_root / "runs",
-        repo_root / "traces",
-        repo_root / "reports",
-        *example_denials(repo_root, project_root),
+        state.runs,
+        state.traces,
+        state.reports,
         # Resolved like the roots above: an install reached through a
         # symlink would otherwise name a path the sandbox doesn't match.
         demo_fence_root().resolve(),
         home / ".claude" / "projects",
     ]
-    repo_reads = [repo_root / ".claude" / "skills", repo_root / "CLAUDE.md"]
-    allow = [run_dir / "scratch", *repo_reads]
+    allow = [
+        run_dir / "scratch",
+        agents_dir / ".claude" / "skills",
+        agents_dir / "CLAUDE.md",
+    ]
     return ReadFence(deny=tuple(deny), allow=tuple(allow))
 
 
@@ -751,16 +672,46 @@ def prepare_run_dir(run_dir: Path) -> None:
             path.write_text("")
 
 
+GATEWAY_MODULE = "kiln_harness_tuner.gateway.server"
+INSTALLER_MODULE = "kiln_harness_tuner.skill_installer.mcp_server"
+
+
+def python_command() -> str:
+    """The interpreter running the tuner, which starts the run's MCP servers:
+    the same code as their console scripts, with no `uv` and no checkout
+    needed."""
+    python = sys.executable
+    if not python or not Path(python).is_absolute():
+        raise ConfigRenderError(
+            "cannot start the run's MCP servers: the Python interpreter running"
+            f" harness-tuner is unknown (sys.executable is {python!r}).\n"
+            "fix: run harness-tuner from its installed command."
+        )
+    return python
+
+
+def python_module_command(module: str) -> list[str]:
+    """`<python> -P -m <module>`. `-m` puts the current folder first on
+    `sys.path`, and Codex and OpenCode start an MCP server in the session's
+    workspace, which the agent writes: a planted `json.py` there would run
+    inside the server, outside every fence. `-P` leaves the current folder
+    out."""
+    return [python_command(), "-P", "-m", module]
+
+
 def render_run_configs(
     run_dir: Path,
     target: TargetBlock,
-    repo_root: Path,
     *,
+    state: StatePaths,
+    agents_dir: Path,
     model_policy: Path | None = None,
     max_concurrent_evals: int | None = None,
 ) -> tuple[Path, Path]:
     """Render the per-run MCP configs and settings the dispatcher passes to
-    every `claude -p`.
+    every `claude -p`. `state` is the state folder the run lives in, and
+    `agents_dir` the folder its sessions read skills and instructions from
+    (for Claude Code, also their working folder).
 
     MCP: loop agents never get a generic Kiln API tool. Each role gets
     `mcp_config.<role>.json` holding ONE Kiln server, the loop gateway
@@ -787,13 +738,18 @@ def render_run_configs(
     traces_root = traces_dir(run_dir.resolve())
     traces_root.mkdir(parents=True, exist_ok=True)
     project_root = Path(target.project_path).expanduser().resolve()
+    # Resolved like the run directory, so the read fence's trees and the
+    # scratch it re-opens inside them compare as paths.
+    state = StatePaths(state.root.resolve())
+    agents_dir = agents_dir.resolve()
     read_fence = read_fence_for(
-        repo_root=repo_root.resolve(),
+        state=state,
         project_root=project_root,
         run_dir=run_dir.resolve(),
-        task_id=target.task_id,
+        agents_dir=agents_dir,
         home=Path.home(),
     )
+    gateway_command = python_module_command(GATEWAY_MODULE)
 
     def gateway_server(role: str) -> dict[str, Any]:
         # Runs OUTSIDE the agent sandbox, like the installer: it is the
@@ -801,12 +757,9 @@ def render_run_configs(
         # train set and model policy from the run directory.
         return {
             "type": "stdio",
-            "command": "uv",
+            "command": gateway_command[0],
             "args": [
-                "run",
-                "--project",
-                str(repo_root),
-                "kiln-harness-tuner-gateway-mcp",
+                *gateway_command[1:],
                 "--role",
                 role,
                 "--run-dir",
@@ -834,14 +787,12 @@ def render_run_configs(
     # author a bundle in scratch and this trusted lane installs it
     # atomically (see kiln_harness_tuner.skill_installer). Only the builder and the
     # probe get it.
+    installer_command = python_module_command(INSTALLER_MODULE)
     installer = {
         "type": "stdio",
-        "command": "uv",
+        "command": installer_command[0],
         "args": [
-            "run",
-            "--project",
-            str(repo_root),
-            "kiln-harness-tuner-skill-installer-mcp",
+            *installer_command[1:],
             "--project-path",
             str(project_root),
             "--scratch-root",
@@ -904,19 +855,22 @@ def render_run_configs(
                 f"Edit(//{str(scratch_root).lstrip('/')}/**)",
             ],
             # Close the Write-tool leak: the scratch allow doesn't DENY
-            # elsewhere, and with the repo root as session cwd the Write tool
-            # was getting through into the Kiln project tree (agents hand-built
-            # skill references there, stray undeletable files included). Deny
-            # beats both the allow above and the implicit cwd grant; scratch
-            # lives under runs/, disjoint from the project tree, so the allow
-            # is unaffected. The only remaining lane into skills/ is the
-            # skill_installer MCP server (unsandboxed trusted code, atomic
-            # installs).
+            # elsewhere, and the Write tool was getting through into the Kiln
+            # project tree (agents hand-built skill references there, stray
+            # undeletable files included). Deny beats the allow above; scratch
+            # lives in the state folder, disjoint from the project tree
+            # (`paths.check_no_overlap`), so the allow is unaffected. The only
+            # remaining lane into skills/ is the skill_installer MCP server
+            # (unsandboxed trusted code, atomic installs).
             "deny": [
                 f"Edit(//{str(project_root).lstrip('/')}/**)",
                 # The trace folder is the gateway's: agents read
                 # it, and only the gateway writes it.
                 f"Edit(//{str(traces_root).lstrip('/')}/**)",
+                # The agents folder is the session's working folder, which
+                # Claude Code lets the file tools write by default. Its skills
+                # and instructions are read by every later session and run.
+                f"Edit(//{str(agents_dir).lstrip('/')}/**)",
                 # No internet, and the file tools see the same
                 # fence as Bash below.
                 "WebFetch",
@@ -927,9 +881,10 @@ def render_run_configs(
             ],
         },
         # Bash and its children ride the OS sandbox. The default sandbox
-        # writable area is the cwd (= the repo root!), so the repo is
-        # explicitly denied and only the scratch tree re-opened. Behavioral
-        # assertion (deny outside / allow inside) is checked by a test.
+        # writable area is the cwd (= the agents folder, inside the state
+        # folder), so the whole state folder is denied and only the scratch
+        # tree re-opened. Behavioral assertion (deny outside / allow inside)
+        # is checked by a test.
         "sandbox": {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
@@ -939,15 +894,13 @@ def render_run_configs(
             "failIfUnavailable": True,
             "allowUnsandboxedCommands": False,
             "filesystem": {
-                "denyWrite": [str(repo_root.resolve())],
+                "denyWrite": [str(state.root)],
                 "allowWrite": [str(scratch_root)],
-                # Read fence: an agent reads its own task, the
-                # project-level artifacts, the skills it loads and its own
-                # run scratch — never other tasks, other Kiln projects, other
-                # runs' logs and traces, reports, the corpus plan (the
-                # answers), or another Claude session's transcripts. An agent
-                # can read a file under ~/.claude/projects, which is why that
-                # one is listed.
+                # Read fence: an agent reads the skills it loads and its own
+                # run scratch — never its Kiln project, other runs' logs and
+                # traces, reports, or another Claude session's transcripts.
+                # An agent can read a file under ~/.claude/projects, which is
+                # why that one is listed.
                 "denyRead": [str(p) for p in read_fence.deny],
                 "allowRead": [str(p) for p in read_fence.allow],
             },
@@ -977,7 +930,7 @@ def render_run_configs(
         0, f"Edit(//{str(scratch_root).lstrip('/')}/**)"
     )
     readonly["permissions"]["deny"].insert(
-        0, f"Edit(//{str(repo_root.resolve()).lstrip('/')}/**)"
+        0, f"Edit(//{str(state.root).lstrip('/')}/**)"
     )
     readonly["sandbox"]["filesystem"]["allowWrite"] = []
     readonly["hooks"] = hook("none")
@@ -1007,6 +960,8 @@ def build_ctx(
     target: TargetBlock,
     kiln: KilnClient,
     *,
+    state: StatePaths,
+    agents_dir: Path,
     run_id: str,
     run_dir: Path,
     mcp_config_path: Path,
@@ -1037,11 +992,12 @@ def build_ctx(
         dispatch=make_dispatcher(
             agent_cli or parse_agent_cli(DEFAULT_AGENT_CLI),
             target,
+            agents_dir,
             run_id=run_id,
             run_dir=run_dir,
             mcp_config_path=mcp_config_path,
             settings_path=settings_path,
-            traces_root=REPO_ROOT / "traces",
+            traces_root=state.traces,
             models=models,
             efforts=efforts,
             max_concurrent=max_concurrent_agents or None,
@@ -1076,16 +1032,13 @@ def build_ctx(
         model_policy=model_policy,
         # A tree the read fence denies: `runs/` is denied except this run's
         # scratch, so `runs/.quarantine/` is unreadable to every agent.
-        quarantine_root=REPO_ROOT
-        / "runs"
-        / ".quarantine"
-        / f"{target.project_id}-{target.task_id}",
+        quarantine_root=state.quarantine(target.project_id, target.task_id),
         train_set_path=run_dir / "train_set.json",
     )
 
 
 class RunLockError(RuntimeError):
-    """Another kiln-harness-tuner run is live against the same task (two concurrent
+    """Another harness-tuner run is live against the same task (two concurrent
     runs race the baseline record and the memory store)."""
 
 
@@ -1184,7 +1137,7 @@ def _acquire_run_lock(
         holder = _lock_holder_pid(lock_path)
         os.close(fd)
         raise RunLockError(
-            f"another kiln-harness-tuner run (pid {holder or '?'}) is live against task"
+            f"another harness-tuner run (pid {holder or '?'}) is live against task"
             f" {task_id} — one run per task.\n"
             "fix: wait for that run to finish, or stop it — the kernel"
             f" releases the lock when its process ends. The lock is"
@@ -1194,10 +1147,10 @@ def _acquire_run_lock(
     if holder is not None and holder != os.getpid() and _pid_alive(holder):
         os.close(fd)  # closing releases the flock
         raise RunLockError(
-            f"another kiln-harness-tuner run (pid {holder}) is live against task"
+            f"another harness-tuner run (pid {holder}) is live against task"
             f" {task_id} — one run per task.\n"
             f"fix: wait for that run to finish. If pid {holder} is not a"
-            f" kiln-harness-tuner run, delete {lock_path} and retry."
+            f" harness-tuner run, delete {lock_path} and retry."
         )
     record = json.dumps(
         {
@@ -1224,10 +1177,17 @@ async def _run(args: argparse.Namespace) -> str:
         agent_cli = parse_agent_cli(args.agent_cli)
     except ValueError as exc:
         raise SystemExit(f"--agent-cli: {exc}") from exc
-    # The skills and the instructions file, where this agent CLI reads them
+    # The state folder first: one that cannot be used fails before anything
+    # is written (`paths.py`). The overlap check runs before the folder is
+    # made, so a refused one is not created inside the Kiln project.
+    project_root = Path(args.project_path).expanduser().resolve()
+    root = state_home()
+    check_no_overlap(StatePaths(root), project_root)
+    state = prepare_state(root)
+    # The skills and the instructions, where this agent CLI reads them
     # (`install_agents.py`). Before the CLI check, which is a session.
     try:
-        install_agents(agent_cli.kind)
+        agents_dir = install_for_run(agent_cli.kind, state.agents, package_version())
     except InstallError as exc:
         raise SystemExit(f"{PROG}: {exc}") from exc
     target = target_from_args(args)
@@ -1235,18 +1195,19 @@ async def _run(args: argparse.Namespace) -> str:
     efforts = parse_role_overrides(args.agent_effort, "--agent-effort")
     # Before the run lock and the run directory: a CLI that cannot answer
     # leaves nothing behind.
-    await check_agent_cli(agent_cli, target, models, efforts)
+    await check_agent_cli(agent_cli, target, agents_dir, models, efforts)
     _RUN_PROGRESS.cli_checked = True
     policy = load_model_policy(args.model_policy)
-    runs_root = REPO_ROOT / "runs"
-    lock = _acquire_run_lock(runs_root, target.task_id, target.project_id)
+    lock = _acquire_run_lock(state.runs, target.task_id, target.project_id)
     try:
         # The budget's clock zero: EvalRuns created before this
         # are evidence the run reads, not money the run spends.
         run_started_at = datetime.now()
-        run_id = _unique_run_id(runs_root, run_started_at)
-        run_dir = runs_root / run_id
+        run_id = _unique_run_id(state.runs, run_started_at)
+        run_dir = state.runs / run_id
         _RUN_PROGRESS.run_dir = run_dir
+        # Before the live display, which owns the terminal from then on.
+        print(f"{PROG}: run {run_id} — files in {run_dir}/", flush=True)
         # Diagnostics to `runs/<run_id>/kiln-harness-tuner.log` from the first moment
         # the run has a directory — before `render_run_configs`, so a startup failure
         # there is in the file too. File only: the live UI owns the
@@ -1286,19 +1247,22 @@ async def _run(args: argparse.Namespace) -> str:
         mcp_config_path, settings_path = render_run_configs(
             run_dir,
             target,
-            REPO_ROOT,
+            state=state,
+            agents_dir=agents_dir,
             model_policy=policy_copy,
             max_concurrent_evals=args.max_concurrent_evals,
         )
         # Crash debris from a dead run's skill install (the janitor reasoning:
         # the run lock guarantees no live install is racing this).
-        swept = sweep_staging(Path(target.project_path).expanduser().resolve())
+        swept = sweep_staging(project_root)
         if swept:
             logger.info("swept %d stale skill staging dir(s)", swept)
         async with KilnClient(target.kiln_host) as kiln:
             ctx = build_ctx(
                 target,
                 kiln,
+                state=state,
+                agents_dir=agents_dir,
                 run_id=run_id,
                 run_dir=run_dir,
                 mcp_config_path=mcp_config_path,
@@ -1347,7 +1311,7 @@ async def _run(args: argparse.Namespace) -> str:
                 # The analyzer logs too (`eval_job_errors`)
                 # — re-point it at the fan-out now that it exists.
                 ctx.analyzer.log = ctx.log
-                report_writer = ReportWriter(tracker, run_id, REPO_ROOT / "reports")
+                report_writer = ReportWriter(tracker, run_id, state.reports)
                 _RUN_PROGRESS.report_path = report_writer.report_path
                 ctx.write_report = report_writer
                 # Agent-free report for fatal/circuit-break exits: a
@@ -1362,7 +1326,7 @@ async def _run(args: argparse.Namespace) -> str:
 # service stop, `timeout(1)`) and SIGHUP (the terminal that started it
 # closed). SIGINT is Ctrl-C in the foreground — Python raises
 # KeyboardInterrupt, which cancels the main task the same way — but a shell
-# starts a BACKGROUND job (`kiln-harness-tuner … &`) with SIGINT ignored, so `kill -INT`
+# starts a BACKGROUND job (`harness-tuner … &`) with SIGINT ignored, so `kill -INT`
 # does nothing to it: stop a backgrounded run with `kill <pid>` (SIGTERM).
 STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 _stopped_by: list[int] = []
@@ -1411,6 +1375,7 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
 ERROR_TITLES: tuple[tuple[type[BaseException], str], ...] = (
     (KilnTransportError, "Lost the connection to Kiln"),
     (KilnAPIError, "Kiln returned an error"),
+    (StateHomeError, "The tuner's state folder can't be used"),
     (RunLockError, "Another run is already using this task"),
     (PreflightError, "The tuner's agents couldn't start"),
     (ConfigRenderError, "A start-up option needs fixing"),
@@ -1433,6 +1398,7 @@ FALLBACK_TITLE = "The run stopped"
 # The errors `main` shows on the error screen instead of a traceback. They
 # carry instructive messages; anything else is a genuine bug and may raise raw.
 SHOWN_ERRORS: tuple[type[BaseException], ...] = (
+    StateHomeError,  # the state folder cannot be used
     BaselineRecordMissingError,
     SetupError,  # setup precondition / split audit / description
     AnalysisError,
@@ -1455,6 +1421,13 @@ def title_for(exc: BaseException) -> str:
         (title for kind, title in ERROR_TITLES if isinstance(exc, kind)),
         FALLBACK_TITLE,
     )
+
+
+def _print_run_folder() -> None:
+    """The run folder, after a run that did not finish: its
+    `kiln-harness-tuner.log` holds the details."""
+    if _RUN_PROGRESS.run_dir is not None:
+        print(f"{PROG}: run folder: {_RUN_PROGRESS.run_dir}", file=sys.stderr)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1490,7 +1463,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             " — children killed, lock released",
             file=sys.stderr,
         )
+        _print_run_folder()
         return 128 + signum  # 143 for SIGTERM, 129 for SIGHUP: the shell's codes
+    except KeyboardInterrupt:
+        # Ctrl-C cancels the main task like the signals above, but
+        # `asyncio.run` then raises KeyboardInterrupt, not CancelledError.
+        # It goes on as before; the run folder is named first.
+        _print_run_folder()
+        raise
     except SHOWN_ERRORS as exc:
         show_error(
             title_for(exc),
@@ -1499,7 +1479,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             prog=PROG,
         )
         return 1
-    print(f"{PROG}: run finished — {result}")
+    print(f"{PROG}: run finished — report: {result}")
     return 0
 
 

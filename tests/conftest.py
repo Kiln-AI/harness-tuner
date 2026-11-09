@@ -253,6 +253,13 @@ def no_agent_cli_check(monkeypatch):
         return None
 
     monkeypatch.setattr("kiln_harness_tuner.cli.check_agent_cli", passes)
-    # Nor does it install the agents' files into the repository it runs in.
-    # `tests/test_install_agents.py` tests the install against a temp dir.
-    monkeypatch.setattr("kiln_harness_tuner.cli.install_agents", lambda *a, **k: [])
+
+
+@pytest.fixture(autouse=True)
+def state_dir(monkeypatch, tmp_path):
+    """Every test's state folder is its own: a run that reaches `cli.main`
+    writes its runs, reports and agents folder here, never in the real
+    `~/.kiln_ai/harness_tuner`."""
+    state = tmp_path / "state"
+    monkeypatch.setenv("KILN_HARNESS_TUNER_HOME", str(state))
+    return state
