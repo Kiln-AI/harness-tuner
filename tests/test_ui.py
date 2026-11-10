@@ -198,11 +198,11 @@ def test_setup_line_summarizes_the_sync():
         "repaired": 3,
         "unmeasurable": 1,
         "unbound_unresolved": 7,
-        "cost_usd": 1.5,
+        "tokens": 1_500_000,
     }
     assert setup_line(fields) == (
         "setup: 25 of 28 evals active — 25 seeded, 3 repaired, 1 unmeasurable;"
-        " 7 issue(s) need a human (no eval binding)   $1.50"
+        " 7 issue(s) need a human (no eval binding)   ~1.5M tokens"
     )
 
 
@@ -580,8 +580,8 @@ def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_its_tokens():
     assert text.startswith("$0.12 (Kiln $0.12 · Codex ~1.2M tokens)")
     assert "Claude Code" not in text
     opencode = run_status(
-        spend_total_usd=0.5,
-        spend_by_lane={"subscription_equivalent": 0.4, "provider": 0.1},
+        spend_total_usd=0.1,
+        spend_by_lane={"provider": 0.1},
         agent_tokens=2_000,
         agent_cli="opencode",
     )

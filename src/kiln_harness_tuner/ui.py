@@ -164,7 +164,7 @@ def change_lines(fields: dict) -> list[str]:
 
 def totals_text(status: RunStatus) -> str:
     """The run's running totals: the spend the budget counts
-    (`RunStatus.budget_spend_usd`: the agent lane is never in it), the agent
+    (`spend_total_usd`: the task's model calls, never the agents), the agent
     tokens beside it, elapsed, and time left.
 
     The `left` segment is omitted when no `run_start` deadline was ever seen
@@ -179,7 +179,7 @@ def totals_text(status: RunStatus) -> str:
     the exit block, and the report's spend appendix is written from the same
     pre-report state. `wave_log.jsonl` has the event. Surfacing it would cost
     a second post-exit totals line beside the exit line's."""
-    text = f"{_fmt_usd(status.budget_spend_usd)}{spend_split_text(status)}"
+    text = f"{_fmt_usd(status.spend_total_usd)}{spend_split_text(status)}"
     text += f" · {_fmt_duration(status.elapsed_secs)} elapsed"
     if status.time_remaining_known:
         text += f" · {_fmt_duration(status.time_remaining_secs)} left"
@@ -220,7 +220,7 @@ def spend_split_text(status: RunStatus) -> str:
     Empty while nothing has been spent, so a run's first frames stay quiet;
     money on an unrecognised lane is appended rather than hidden, matching the
     report appendix's "the fold never drops money" rule."""
-    _agent, kiln, other = spend_split(status.spend_by_lane)
+    kiln, other = spend_split(status.spend_by_lane)
     tokens = status.agent_tokens
     if not (kiln or other or tokens):
         return ""
@@ -268,9 +268,9 @@ def setup_line(fields: dict) -> str:
     unbound = fields.get("unbound_unresolved")
     if unbound:
         line += f"; {unbound} issue(s) need a human (no eval binding)"
-    cost = fields.get("cost_usd")
-    if isinstance(cost, (int, float)) and cost > 0:
-        line += f"   {_fmt_usd(float(cost))}"
+    tokens = fields.get("tokens")
+    if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens > 0:
+        line += f"   ~{_fmt_tokens(tokens)} tokens"
     return line
 
 

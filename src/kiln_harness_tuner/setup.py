@@ -1065,10 +1065,10 @@ SETUP_DESCRIBE_BACKOFFS = (30.0,)
 
 async def describe_all(
     ctx: Ctx, views: list[EvalView]
-) -> tuple[dict[str, EvalDescription], float]:
+) -> tuple[dict[str, EvalDescription], int]:
     """One description agent per eval, bounded-parallel. Returns the
-    descriptions keyed by eval id plus what the fan-out cost, which the
-    `setup_sync` event reports.
+    descriptions keyed by eval id plus the tokens the fan-out used, which
+    the `setup_sync` event reports.
 
     Never batched: batching many criteria into one session
     invites cross-contamination between unrelated requirements, and each
@@ -1086,10 +1086,10 @@ async def describe_all(
     for and their evals are described again next invocation. That is the
     trade, taken knowingly."""
     semaphore = asyncio.Semaphore(SETUP_DESCRIBE_CONCURRENCY)
-    cost_usd = 0.0
+    tokens = 0
 
     async def describe_one(view: EvalView) -> EvalDescription:
-        nonlocal cost_usd
+        nonlocal tokens
         async with semaphore:
             result = await call_with_retries(
                 ctx.dispatch.describe_eval,
@@ -1104,15 +1104,14 @@ async def describe_all(
                 source="describe_eval",
                 item_id=view.id,
             )
-        cost_usd += result.usage.cost_usd
-        # Logged before the raise below: a failed attempt cost real money and
+        tokens += result.usage.tokens
+        # Logged before the raise below: a failed attempt used tokens and
         # must reach the spend accounting like every other dispatch (items.py's
         # rule — `call_with_retries` returns the usage of EVERY attempt).
         ctx.log.event(
             "spend",
             source="describe_eval",
             lane=SUBSCRIPTION_LANE,
-            cost_usd=result.usage.cost_usd,
             tokens=result.usage.tokens,
             unmeasured_tokens=result.usage.unmeasured_tokens,
         )
@@ -1148,7 +1147,7 @@ async def describe_all(
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.gather(*tasks, return_exceptions=True)
         raise
-    return dict(zip((view.id for view in views), descriptions, strict=True)), cost_usd
+    return dict(zip((view.id for view in views), descriptions, strict=True)), tokens
 
 
 # ---- split readiness audit ----
@@ -1250,12 +1249,12 @@ async def run_setup(ctx: Ctx) -> SetupReport:
             unresolvable_default=outcome.unresolvable_default,
         )
 
-    describe_cost_usd = 0.0
+    describe_tokens = 0
 
     async def describe(ctx_: Ctx, views: list[EvalView]) -> dict[str, EvalDescription]:
-        nonlocal describe_cost_usd
-        descriptions, cost_usd = await describe_all(ctx_, views)
-        describe_cost_usd += cost_usd
+        nonlocal describe_tokens
+        descriptions, tokens = await describe_all(ctx_, views)
+        describe_tokens += tokens
         return descriptions
 
     plan = await build_sync_plan(ctx)
@@ -1278,7 +1277,7 @@ async def run_setup(ctx: Ctx) -> SetupReport:
         repaired=len(report.repaired_issue_ids),
         unmeasurable=len(report.unmeasurable_issue_ids),
         unbound_unresolved=len(report.unbound_unresolved_issue_ids),
-        cost_usd=describe_cost_usd,
+        tokens=describe_tokens,
         report=report,
     )
 

@@ -518,7 +518,7 @@ def done_view(model: RunModel) -> DoneView:
     summary: Line = (
         Span(words.duration(elapsed), "bold"),
         Span(" · ", "muted"),
-        Span(words.money(status.budget_spend_usd)),
+        Span(words.money(status.spend_total_usd)),
     )
     if model.budget is not None:
         summary += (Span(f" of {words.money(model.budget)}", "muted"),)

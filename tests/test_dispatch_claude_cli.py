@@ -1492,7 +1492,7 @@ class TestRunLogging:
         text = "\n".join(r.getMessage() for r in caplog.records)
         assert "dispatch batch_plan-loop: spawning claude -p (timeout 900s)" in text
         assert "dispatch batch_plan-loop: claude -p exited 0 after" in text
-        assert "dispatch batch_plan-loop: session sess-1 · $1.25 · 1200 tokens" in text
+        assert "dispatch batch_plan-loop: session sess-1 · 1200 tokens" in text
 
     async def test_a_timeout_is_logged_at_error(self, caplog):
         dispatcher, _ = make_dispatcher(

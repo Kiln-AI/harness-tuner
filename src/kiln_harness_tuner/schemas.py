@@ -67,9 +67,9 @@ ErrorClass = Literal[
 # every `claude -p` dispatch's total_cost_usd — quota burn now, real cost at
 # deployment; provider = eval-lane cost (subject task_run_usage + judge
 # eval_usage) — real money today. Every `spend` event carries one.
-# `--budget-usd` never counts the agent lane: the agent sessions run on the
-# agent CLI's own account, and a person reads their tokens, not their cost
-# (`RunStatus.budget_spend_usd`, `RunStatus.agent_tokens`).
+# The agent lane carries tokens, never dollars: the agent sessions run on
+# the agent CLI's own account. `spend_total_usd` and `--budget-usd` are the
+# task's model calls only (`RunStatus.agent_tokens`).
 SpendLane = Literal["subscription_equivalent", "provider"]
 SUBSCRIPTION_LANE: SpendLane = "subscription_equivalent"
 PROVIDER_LANE: SpendLane = "provider"
@@ -1571,11 +1571,12 @@ class BaselineRef(BaseModel):
 
 
 class LeverCost(BaseModel):
-    """What one lever class cost to BUILD this run — measured, not quoted.
-    Keyed by technique; `n` arms, means over them."""
+    """What one lever class took to BUILD this run — measured, not quoted.
+    Keyed by technique; `n` arms, means over them. Tokens, not dollars: the
+    agents run on the agent CLI's own account."""
 
     n: int
-    mean_build_usd: float
+    mean_build_tokens: float
     mean_build_secs: float
 
 
@@ -2042,7 +2043,7 @@ class RunStatus(BaseModel):
     guidance: str
     baseline_history: list[str]  # rc ids, promotion order
     waves: list[WaveStatus]  # complete history, never dropped
-    spend_total_usd: float
+    spend_total_usd: float  # the task's model calls: no agent dollars
     time_remaining_secs: float
     exit_reason: str | None
     # The live totals row (and the report-appendix header) need the
@@ -2124,12 +2125,6 @@ class RunStatus(BaseModel):
     eval_building: bool = False
     dropped_eval_items: list[DroppedEvalItem] = []
     issues_without_eval: list[IssueWithoutEval] | None = None
-
-    @property
-    def budget_spend_usd(self) -> float:
-        """The spend that counts toward --budget-usd: `spend_total_usd`
-        without the agent lane."""
-        return self.spend_total_usd - self.spend_by_lane.get(SUBSCRIPTION_LANE, 0.0)
 
 
 class ReportInput(BaseModel):

@@ -36,15 +36,20 @@ going looking.
 
 - Top level: `project_id`/`task_id`/`guidance` (the kickoff ask — open the
   report against it), `baseline_history` (rc ids in promotion order),
-  `spend_total_usd`, `exit_reason`.
+  `spend_total_usd` (the run's spend: the task's model calls through Kiln,
+  the only spend the budget counts), `exit_reason`.
 - Spend dimensions: `spend_by_lane` (lane → total) and `spend_by_source`
   (source → lane → $). Two lanes, and **call them by their display names**,
-  which is what the code-computed appendix's columns say: `subscription_
-  equivalent` = **Claude Code** — `claude -p` agent-session cost, quota burn
-  now, real cost at deployment; `provider` = **Kiln** — the provider tokens
-  Kiln burns on the drives and eval jobs this run triggered (subject
-  `task_run_usage` + judge `eval_usage`), real money today. Each item's
-  `spend_by_lane` carries the same split for that item alone.
+  which is what the code-computed appendix's columns say: `provider` =
+  **Kiln** — the provider tokens Kiln burns on the drives and eval jobs this
+  run triggered (subject `task_run_usage` + judge `eval_usage`), real money
+  today, and the only spend in the budget; `subscription_equivalent` = the
+  agent lane, named for the agent CLI (**Claude Code**, **Codex** or
+  **OpenCode**) — the agent sessions, on the agent CLI's own account. State
+  the agent lane in tokens only: `agent_tokens` and `agent_tokens_by_source`,
+  a rough count. Never state it in dollars: no dollar figure in `RunStatus`
+  includes the agents. Each item's `spend_by_lane` carries the Kiln money for
+  that item alone.
 - The run's own clock: `elapsed_secs` (how long the run ran),
   `timeout_mins` (its budget, `None` if it had none) and
   `time_remaining_secs` (meaningful only when `time_remaining_known`).
@@ -171,7 +176,7 @@ going looking.
 # Kiln Harness Tuner round report — <task name or id>, <date>
 
 **Guidance:** <verbatim kickoff guidance>
-**Exit:** <exit_reason, in words> · **Spend:** $<total> · **Waves:** <n>
+**Exit:** <exit_reason, in words> · **Spend:** $<spend_total_usd> · **Waves:** <n>
 
 > Numbers in this report are **loop-internal** — train-side attribution
 > evidence or val-grade selection measurements, labeled per section. The

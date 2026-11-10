@@ -264,21 +264,26 @@ async def test_happy_path_emits_state_spend_and_outcome_events():
     seed_measurement(ctx.kiln)
     ctx.dispatch.queue(
         "create_experiment_rc",
-        ok(RcBuildResult(rc_id="rc_new", build_notes="built"), cost_usd=1.0),
+        ok(RcBuildResult(rc_id="rc_new", build_notes="built"), tokens=1000),
     )
-    ctx.dispatch.queue("analyze_experiment_results", ok(make_result(), cost_usd=0.5))
+    ctx.dispatch.queue("analyze_experiment_results", ok(make_result(), tokens=500))
     outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
 
     states = [f["state"] for k, f in ctx.log.events if k == "item_state"]
     assert states == ["building_rc", "measuring", "analyzing"]
-    spends = [(f["source"], f["cost_usd"]) for k, f in ctx.log.events if k == "spend"]
+    spends = [
+        (f["source"], f.get("cost_usd"), f.get("tokens"))
+        for k, f in ctx.log.events
+        if k == "spend"
+    ]
     # The measurement engine books a spend event per chunk that
     # cost anything; the fake's jobs cost nothing, so only the analysis's
-    # own (zero) booking of the stored rows shows.
+    # own (zero) booking of the stored rows shows. Agent sessions book
+    # tokens, never dollars.
     assert spends == [
-        ("create_experiment_rc", 1.0),
-        ("eval_jobs", 0.0),
-        ("analyze_experiment_results", 0.5),
+        ("create_experiment_rc", None, 1000),
+        ("eval_jobs", 0.0, None),
+        ("analyze_experiment_results", None, 500),
     ]
     # Cost split: dispatches ride the subscription-
     # equivalent lane, eval jobs the provider lane.
@@ -314,7 +319,7 @@ async def test_happy_path_emits_state_spend_and_outcome_events():
 async def test_eval_only_emits_building_eval_and_outcome_events():
     ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
-    ctx.dispatch.queue("eval_build", ok(eval_report(), cost_usd=2.0))
+    ctx.dispatch.queue("eval_build", ok(eval_report(), cost_usd=2.0, tokens=700))
     await execute_plan_item(ctx, eval_only_item(), BASELINE, ["rc_base"], 1)
     kinds = [k for k, _ in ctx.log.events]
     assert kinds == ["item_state", "spend", "item_outcome"]
@@ -323,8 +328,7 @@ async def test_eval_only_emits_building_eval_and_outcome_events():
         "item_id": "w1-1",
         "source": "eval_build",
         "lane": "subscription_equivalent",
-        "cost_usd": 2.0,
-        "tokens": 0,
+        "tokens": 700,  # the CLI's $2.00 is not booked
         "unmeasured_tokens": 0,
     }
 
@@ -382,13 +386,13 @@ async def test_retried_attempts_usage_reaches_spend_event():
     ctx.dispatch.queue(
         "create_experiment_rc",
         failed,
-        ok(RcBuildResult(rc_id="rc_new", build_notes="built"), cost_usd=1.0),
+        ok(RcBuildResult(rc_id="rc_new", build_notes="built"), tokens=100),
     )
     ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
     await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
-    spends = {f["source"]: f["cost_usd"] for k, f in ctx.log.events if k == "spend"}
-    assert spends["create_experiment_rc"] == pytest.approx(1.3)
-    assert failed.usage.cost_usd == 0.3  # scripted result not mutated
+    spends = {f["source"]: f.get("tokens") for k, f in ctx.log.events if k == "spend"}
+    assert spends["create_experiment_rc"] == 110
+    assert failed.usage.tokens == 10  # scripted result not mutated
 
 
 # ---- the ladder reports its own attempt count ----

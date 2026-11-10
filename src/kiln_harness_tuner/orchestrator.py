@@ -307,10 +307,10 @@ class Ctx:
     # runner can tell an ANALYZING item from the rest at the deadline.
     item_states: dict[str, str] = field(default_factory=dict)
     # The dispatcher's agent-session cap (None = unlimited) and, per
-    # technique, the (usd, secs) of every build this run — both go to the
+    # technique, the (tokens, secs) of every build this run — both go to the
     # planner so it can see idle capacity and price a second arm.
     max_concurrent_agents: int | None = None
-    build_samples: dict[str, list[tuple[float, float]]] = field(default_factory=dict)
+    build_samples: dict[str, list[tuple[int, float]]] = field(default_factory=dict)
     # Every probe answered this run, newest last —
     # the reconnaissance battery's and each wave's; fed to every planning
     # call. `recon` runs the battery at setup (cli default on; tests off).
@@ -514,7 +514,6 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
                 "spend",
                 source="circuit_breaker",
                 lane=SUBSCRIPTION_LANE,
-                cost_usd=exc.usage.cost_usd,
                 tokens=exc.usage.tokens,
                 unmeasured_tokens=exc.usage.unmeasured_tokens,
             )
@@ -597,13 +596,12 @@ async def _run_loop(
     # Durable wave-log evidence the lane was proven, symmetric with
     # `baseline_found`/`janitor` (the transient phase events are UI-facing).
     ctx.log.event(
-        "preflight", kiln_host=ctx.target.kiln_host, cost_usd=preflight_usage.cost_usd
+        "preflight", kiln_host=ctx.target.kiln_host, tokens=preflight_usage.tokens
     )
     ctx.log.event(
         "spend",
         source="preflight",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=preflight_usage.cost_usd,
         tokens=preflight_usage.tokens,
         unmeasured_tokens=preflight_usage.unmeasured_tokens,
     )
@@ -1044,7 +1042,6 @@ async def _dispatch_plan(
         "spend",
         source="batch_plan",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=result.usage.cost_usd,
         tokens=result.usage.tokens,
         unmeasured_tokens=result.usage.unmeasured_tokens,
     )
@@ -1639,7 +1636,6 @@ async def _run_promotion_gate(
         "spend",
         source="promote_best",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=decision_result.usage.cost_usd,
         tokens=decision_result.usage.tokens,
         unmeasured_tokens=decision_result.usage.unmeasured_tokens,
     )
@@ -1962,7 +1958,6 @@ async def _integrity_review(
         "spend",
         source="integrity_review",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=result.usage.cost_usd,
         tokens=result.usage.tokens,
         unmeasured_tokens=result.usage.unmeasured_tokens,
     )
@@ -3214,7 +3209,7 @@ def lever_costs(ctx: Ctx) -> dict[str, LeverCost]:
     return {
         technique: LeverCost(
             n=len(samples),
-            mean_build_usd=fmean(usd for usd, _secs in samples),
+            mean_build_tokens=fmean(tokens for tokens, _secs in samples),
             mean_build_secs=fmean(secs for _usd, secs in samples),
         )
         for technique, samples in ctx.build_samples.items()

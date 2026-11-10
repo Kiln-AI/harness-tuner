@@ -102,7 +102,7 @@ def projection(model: RunModel, now: float) -> list[tuple[float, int]]:
         cycle_start=model.cycle_start,
         cycle_spend=model.cycle_spend,
         now=now,
-        spend_now=model.tracker.status.budget_spend_usd,
+        spend_now=model.tracker.status.spend_total_usd,
         deadline=model.deadline,
         budget=model.budget,
         cycles=model.cycles,

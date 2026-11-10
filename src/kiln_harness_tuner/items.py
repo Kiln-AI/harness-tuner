@@ -343,7 +343,6 @@ async def _run_eval_build(
         item_id=item_id,
         source="eval_build",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=rep.usage.cost_usd,
         tokens=rep.usage.tokens,
         unmeasured_tokens=rep.usage.unmeasured_tokens,
     )
@@ -575,7 +574,6 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
             item_id=item.id,
             source="probe",
             lane=SUBSCRIPTION_LANE,
-            cost_usd=rep.usage.cost_usd,
             tokens=rep.usage.tokens,
             unmeasured_tokens=rep.usage.unmeasured_tokens,
         )
@@ -911,7 +909,6 @@ async def _execute_plan_item(
         item_id=item.id,
         source="analyze_experiment_results",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=res.usage.cost_usd,
         tokens=res.usage.tokens,
         unmeasured_tokens=res.usage.unmeasured_tokens,
     )
@@ -1026,16 +1023,15 @@ async def _build_rc(
         item_id=item.id,
         source="create_experiment_rc",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=rc.usage.cost_usd,
         tokens=rc.usage.tokens,
         unmeasured_tokens=rc.usage.unmeasured_tokens,
     )
-    # One (usd, secs) sample per build, by technique — the planner's
+    # One (tokens, secs) sample per build, by technique — the planner's
     # `lever_costs`. A merge is its own class.
     await snapshot_memory(ctx, f"{item.id}-{phase}-after")
     technique = getattr(item.work, "technique", None) or "merge"
     ctx.build_samples.setdefault(technique, []).append(
-        (rc.usage.cost_usd, ctx.clock() - build_started)
+        (rc.usage.tokens, ctx.clock() - build_started)
     )
     return rc
 

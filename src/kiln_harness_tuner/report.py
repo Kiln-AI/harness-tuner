@@ -914,7 +914,7 @@ def render_fallback_report(status: RunStatus) -> str:
         "",
         f"- project `{status.project_id}` · task `{status.task_id}`",
         f"- guidance: {status.guidance!r}",
-        f"- total spend: ${status.budget_spend_usd:.2f} (the task's model calls)",
+        f"- total spend: ${status.spend_total_usd:.2f} (the task's model calls)",
         f"- baseline history: {' → '.join(status.baseline_history) or '(none)'}",
     ]
     if status.janitor_stamped:  # startup sweep
@@ -1070,7 +1070,6 @@ class ReportWriter:
             "spend",
             source="report_writer",
             lane=SUBSCRIPTION_LANE,
-            cost_usd=result.usage.cost_usd,
             tokens=result.usage.tokens,
             unmeasured_tokens=result.usage.unmeasured_tokens,
         )

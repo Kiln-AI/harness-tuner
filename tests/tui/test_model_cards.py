@@ -44,12 +44,12 @@ def test_a_queued_fix_card():
 def test_a_building_card_shows_the_time_in_its_state():
     run = wave_one(fix("w1-1"))
     run.at(13).state("w1-1", "building_rc")
-    run.emit("spend", item_id="w1-1", source="create_experiment_rc", cost_usd=0.4)
+    # An agent session books tokens, not dollars: the card shows no money.
+    run.emit("spend", item_id="w1-1", source="create_experiment_rc", tokens=900)
     run.at(16).emit("phase_start", name="other")  # moves the clock only
     card = run.card("w1-1")
     assert card.steps[0] == ("build", "current")
     assert card.line4 == NoteLine("an agent is writing the change · 3m00s")
-    # The agent's cost is not money the card shows: only Kiln's is.
     assert (card.subtitle, card.live) == ("w1-1", True)
     run.emit("spend", item_id="w1-1", source="eval_jobs", cost_usd=0.4)
     assert run.card("w1-1").subtitle == "w1-1 · $0.40"

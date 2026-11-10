@@ -1313,10 +1313,9 @@ class ClaudeCliDispatcher:
                 elapsed,
                 exc,
                 (
-                    f" (transcript recovered: {usage.unmeasured_tokens:,} tokens, "
-                    "cost unmeasured)"
+                    f" (transcript recovered: {usage.unmeasured_tokens:,} tokens)"
                     if usage.unmeasured_tokens
-                    else " (no transcript recovered — cost unmeasured)"
+                    else " (no transcript recovered)"
                 ),
             )
             return ErrorInfo(error_class="timeout", detail=str(exc)), usage
@@ -1386,10 +1385,9 @@ class ClaudeCliDispatcher:
             )
         usage = _add_usage(usage, round_usage)
         logger.info(
-            "dispatch %s: session %s · $%.2f · %d tokens",
+            "dispatch %s: session %s · %d tokens",
             label,
             session_id or "unknown",
-            round_usage.cost_usd,
             round_usage.tokens,
         )
         if proc.stderr.strip():

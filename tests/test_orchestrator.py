@@ -985,7 +985,7 @@ async def test_planner_input_carries_capacity_and_measured_lever_costs():
     assert first.lever_costs == {}
     assert set(second.lever_costs) == {"prompt"}  # fix_item's technique
     assert second.lever_costs["prompt"].n == 1
-    assert second.lever_costs["prompt"].mean_build_usd >= 0
+    assert second.lever_costs["prompt"].mean_build_tokens >= 0
 
 
 async def test_rejection_write_failure_never_fails_the_gate():
@@ -1856,7 +1856,7 @@ async def test_run_start_and_enriched_wave_start_events():
     )
     ctx.dispatch.queue(
         "batch_plan",
-        ok(wave_plan, cost_usd=0.4),
+        ok(wave_plan, cost_usd=0.4, tokens=4000),
         ok(make_plan(loop_exit="done")),
     )
     ctx.dispatch.queue("create_experiment_rc", rc_ok("rc_cand"))
@@ -1890,8 +1890,13 @@ async def test_run_start_and_enriched_wave_start_events():
     # Each entry also carries the item's details (`status.item_details`).
     assert wave_start["items"] == [item_summary(i) for i in wave_plan.items]
     # Dispatch spend rides the wave log/UI via `spend` events.
-    spends = [(f["source"], f["cost_usd"]) for k, f in ctx.log.events if k == "spend"]
-    assert ("batch_plan", 0.4) in spends
+    # Agent sessions book tokens: the CLI's $0.40 is not booked.
+    spends = [
+        (f["source"], f.get("cost_usd"), f.get("tokens"))
+        for k, f in ctx.log.events
+        if k == "spend"
+    ]
+    assert ("batch_plan", None, 4000) in spends
 
 
 async def test_planning_phase_brackets_every_batch_plan_dispatch():
@@ -2078,7 +2083,7 @@ async def test_val_pass_spend_reaches_accounting():
     ]
     ctx.dispatch.queue("promote_best", decision("rc_cand"))
     await orchestrate(ctx, "", timeout_mins=180)
-    spends = {f["source"]: f["cost_usd"] for k, f in ctx.log.events if k == "spend"}
+    spends = {f["source"]: f.get("cost_usd") for k, f in ctx.log.events if k == "spend"}
     assert spends["val_pass"] == pytest.approx(0.6)  # candidate 0.4 + fill 0.2
     # Cost split: val jobs are provider money; the
     # promote_best dispatch is subscription-equivalent quota burn.
@@ -2116,11 +2121,9 @@ async def test_preflight_runs_first_before_setup_and_any_planning():
     # symmetric with baseline_found/janitor).
     (preflight_fields,) = [f for k, f in ctx.log.events if k == "preflight"]
     assert preflight_fields["kiln_host"] == "http://h"
-    # The preflight's cost reaches the spend accounting, lane-tagged.
-    assert ("preflight", "subscription_equivalent", 0.0) in [
-        (f["source"], f["lane"], f["cost_usd"])
-        for k, f in ctx.log.events
-        if k == "spend"
+    # The preflight's tokens reach the spend accounting, lane-tagged.
+    assert ("preflight", "subscription_equivalent", 0) in [
+        (f["source"], f["lane"], f["tokens"]) for k, f in ctx.log.events if k == "spend"
     ]
 
 
@@ -2346,20 +2349,15 @@ async def test_budget_exhausted_exits_before_a_wave():
 
 
 class _BuildAsKilnSpend:
-    """Books each eval build's cost again as Kiln spend: the budget counts
-    the Kiln lane only, and this is the cheapest wave with Kiln spend."""
+    """Books $6 of Kiln spend with each eval build: the budget counts the
+    Kiln lane only, and this is the cheapest wave with Kiln spend."""
 
     def __init__(self, meter: SpendMeter) -> None:
         self.meter = meter
 
     def event(self, kind: str, **fields: object) -> None:
         if kind == "spend" and fields.get("source") == "eval_build":
-            self.meter.event(
-                "spend",
-                source="eval_jobs",
-                lane="provider",
-                cost_usd=fields["cost_usd"],
-            )
+            self.meter.event("spend", source="eval_jobs", lane="provider", cost_usd=6.0)
 
 
 async def test_budget_within_one_projected_wave_forces_wrap_up():
@@ -2895,7 +2893,9 @@ async def test_agent_lane_breaker_books_the_spend_that_hit_the_wall():
         for k, f in ctx.log.events
         if k == "spend" and f["source"] == "circuit_breaker"
     ]
-    assert spend["cost_usd"] == 1.25 and spend["unmeasured_tokens"] == 7
+    # Tokens, never the CLI's dollars.
+    assert "cost_usd" not in spend
+    assert (spend["tokens"], spend["unmeasured_tokens"]) == (10, 7)
 
 
 async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):
