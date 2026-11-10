@@ -680,6 +680,14 @@ Once the checks pass, a guided start asks the questions its flags didn't
 answer, and shows a summary before it starts the run
 ([your-own-task.md](your-own-task.md) section 5).
 
+- **Esc goes back one step** at each of these questions but the first. The
+  question before it is asked again, pre-filled with your answer, and the
+  step line of that answer goes. At `Start the run?`, Esc asks the last
+  question again. The footer shows `esc Back` only where Esc goes back. The
+  project and task pickers and the `What next?` menus do not go back.
+- In a picker with filter text, Esc first clears the filter, and the footer
+  shows `esc Clear filter`.
+
 **When the app closes**, it prints a plain closing block to the terminal,
 because the app's own screen goes with it. The block holds the start's
 summary, the command that runs it again (after a guided start), and, after a

@@ -1,4 +1,5 @@
-"""The two ways the onboarding stops a start before the run begins."""
+"""The two ways the onboarding stops a start before the run begins, and the
+one way a question steps back."""
 
 from __future__ import annotations
 
@@ -30,3 +31,9 @@ class OnboardingStopped(Exception):
     def __init__(self, exit_code: int):
         self.exit_code = exit_code
         super().__init__(f"stopped (exit {exit_code})")
+
+
+class GoBack(Exception):
+    """The user pressed Esc at a question that was asked with `back=True`.
+    The question loop asks the question before it again
+    (`questions.QuestionWalk`)."""

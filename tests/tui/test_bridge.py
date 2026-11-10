@@ -12,7 +12,8 @@ from queue import SimpleQueue
 import pytest
 
 from kiln_harness_tuner.onboarding import demo
-from kiln_harness_tuner.onboarding.errors import OnboardingStopped
+from kiln_harness_tuner.onboarding.console import PlainTerminal
+from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING, SUMMARY_HEADING
 from kiln_harness_tuner.onboarding.terminal import ENTER, Action, ActionKind, Option
 from kiln_harness_tuner.tui import bridge
@@ -145,6 +146,46 @@ def test_a_prompt_waits_for_its_answer():
     prompt.fail(ValueError("bad policy"))
     with pytest.raises(ValueError, match="bad policy"):
         typed.result(5)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda t, back: t.pick("Which?", OPTIONS, back=back),
+        lambda t, back: t.act("What next?", [RETRY], back=back),
+        lambda t, back: t.text("Budget?", back=back),
+    ],
+    ids=["pick", "act", "text"],
+)
+def test_each_prompt_says_whether_esc_goes_back(call):
+    term, queue = terminal()
+    for back in (False, True):
+        asked = ask_on_a_thread(lambda back=back: call(term, back))
+        prompt = next_prompt(queue)
+        assert prompt.back is back
+        prompt.fail(GoBack())
+        with pytest.raises(GoBack):
+            asked.result(5)
+
+
+def test_mark_and_rewind_put_their_requests_in_order():
+    term, queue = terminal()
+    first = term.mark()
+    term.step("ok", "Improve", "Quality")
+    second = term.mark()
+    term.rewind(first)
+    assert first != second
+    assert requests(queue) == [
+        bridge.Mark(first),
+        bridge.Step("ok", "Improve", "Quality"),
+        bridge.Mark(second),
+        bridge.Rewind(first),
+    ]
+
+
+def test_the_plain_terminal_marks_and_rewinds_nothing():
+    plain = PlainTerminal("harness-tuner")
+    plain.rewind(plain.mark())
 
 
 @pytest.mark.parametrize(

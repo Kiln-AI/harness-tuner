@@ -14,7 +14,7 @@ from textual.widgets import Input, OptionList, Static
 
 from kiln_harness_tuner.onboarding import demo
 from kiln_harness_tuner.onboarding.choose import TaskRow, _step
-from kiln_harness_tuner.onboarding.errors import OnboardingStopped
+from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import WELCOME_DESCRIPTION
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING, SUMMARY_HEADING
 from kiln_harness_tuner.onboarding.terminal import (
@@ -436,6 +436,103 @@ async def test_a_second_stop_during_the_demo_copy_closes_at_once():
         await until(pilot, lambda: harness.app.return_code is not None, timeout=2)
     assert not harness.ended
     release.set()
+
+
+# ---- Esc goes back ----
+
+
+def backable(kind):
+    """A prompt of `kind` asked with `back=True`."""
+    asks = {
+        "pick": lambda t: t.pick("Which?", PROJECTS, back=True),
+        "act": lambda t: t.act("What next?", ACTIONS, back=True),
+        "text": lambda t: t.text("Budget?", default="50", back=True),
+    }
+    return asks[kind]
+
+
+def footer_keys(app) -> dict[str, str]:
+    """The keys the footer shows now, with their labels."""
+    return {
+        key: active.binding.description
+        for key, active in app.screen.active_bindings.items()
+        if active.binding.show and active.enabled
+    }
+
+
+@pytest.mark.parametrize("kind", ["pick", "act", "text"])
+async def test_esc_fails_a_prompt_asked_with_back_with_go_back(kind):
+    assert isinstance(await answered(backable(kind), "escape"), GoBack)
+
+
+@pytest.mark.parametrize("prompt", PROMPTS)
+async def test_esc_does_nothing_at_a_prompt_asked_without_back(prompt):
+    async with asking(PROMPTS[prompt]) as (harness, pilot):
+        assert await still_asking(harness, pilot, "escape")
+
+
+@pytest.mark.parametrize("kind", ["pick", "act", "text"])
+async def test_the_footer_shows_esc_back_only_with_back(kind):
+    async with asking(backable(kind)) as (_harness, pilot):
+        assert footer_keys(pilot.app) == {
+            "escape": "Back",
+            "ctrl+c": "Stop",
+            "ctrl+d": "Exit",
+        }
+    async with asking(PROMPTS[kind]) as (_harness, pilot):
+        assert "escape" not in footer_keys(pilot.app)
+
+
+async def test_esc_in_a_picker_clears_its_filter_and_then_goes_back():
+    async with asking(backable("pick")) as (harness, pilot):
+        picker = pilot.app.screen.query_one(Picker)
+        assert await still_asking(harness, pilot, *"spa")
+        assert len(picker.query_one(OptionList).options) == 1
+        assert footer_keys(pilot.app)["escape"] == "Clear filter"
+        assert await still_asking(harness, pilot, "escape")
+        assert picker.query_one(Input).value == ""
+        assert len(picker.query_one(OptionList).options) == 3
+        assert footer_keys(pilot.app)["escape"] == "Back"
+        await pilot.press("escape")
+        await until(pilot, lambda: harness.ended)
+    assert isinstance(harness.start.outcome.error, GoBack)
+
+
+async def test_esc_clears_the_filter_of_a_picker_without_back():
+    async with asking(pick(PROJECTS)) as (harness, pilot):
+        picker = pilot.app.screen.query_one(Picker)
+        assert await still_asking(harness, pilot, *"spa")
+        assert footer_keys(pilot.app)["escape"] == "Clear filter"
+        assert await still_asking(harness, pilot, "escape", "escape")
+        assert picker.query_one(Input).value == ""
+        assert "escape" not in footer_keys(pilot.app)
+        await pilot.press("down", "enter")
+        await until(pilot, lambda: harness.ended)
+    assert harness.start.outcome.value == "p2"
+
+
+async def test_a_rewind_takes_away_the_parts_shown_since_its_mark():
+    def start(terminal):
+        terminal.step("ok", "Improve", "Quality")
+        before = terminal.mark()
+        terminal.step("ok", "Guidance", "none")
+        terminal.say(SUMMARY)
+        try:
+            terminal.act("Start the run?", ACTIONS, back=True)
+        except GoBack:
+            terminal.rewind(before)
+        terminal.step("ok", "Guidance", '"Shorter."')
+        return terminal.act("What next?", ACTIONS)
+
+    async with asking(start) as (harness, pilot):
+        await pilot.press("escape")
+        await until(pilot, lambda: "Shorter" in "".join(lines(pilot.app)))
+        await prompted(pilot)
+        assert lines(pilot.app) == [
+            "✓ Improve   Quality",
+            '✓ Guidance  "Shorter."',
+        ]
+        assert not pilot.app.screen.query(".-summary")
 
 
 # ---- what the transcript shows ----

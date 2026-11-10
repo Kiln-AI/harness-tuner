@@ -132,6 +132,10 @@ class StartupScreen(Screen[None]):
         # and a rerun command right after the summary in the summary's card.
         self._last: Widget | None = None
         self._busy: BusyLine | None = None
+        # The parts in the transcript, in order, and each mark's place among
+        # them: a rewind removes the parts after its mark.
+        self._parts: list[Widget] = []
+        self._marks: dict[int, int] = {}
 
     def compose(self) -> ComposeResult:
         yield TitleBar()
@@ -189,10 +193,25 @@ class StartupScreen(Screen[None]):
                 self._add(ActionMenu(request))
             case bridge.Text():
                 self._add(TextAnswer(request))
+            case bridge.Mark(token=token):
+                self._marks[token] = len(self._parts)
+            case bridge.Rewind(token=token):
+                self._rewind(self._marks.get(token, len(self._parts)))
 
     def _add(self, part: Widget) -> None:
         self.column.mount(part)
+        self._parts.append(part)
         self._last = part
+        self._scroll()
+
+    def _rewind(self, keep: int) -> None:
+        """Remove every part after the first `keep`."""
+        gone, self._parts = self._parts[keep:], self._parts[:keep]
+        for part in gone:
+            part.remove()
+        if self._busy in gone:
+            self._busy = None
+        self._last = self._parts[-1] if self._parts else None
         self._scroll()
 
     def _scroll(self) -> None:
@@ -247,5 +266,7 @@ class StartupScreen(Screen[None]):
 
     def _settle(self, part: PromptPart[Any]) -> None:
         part.remove()
+        if part in self._parts:
+            self._parts.remove(part)
         if self._last is part:
             self._last = None

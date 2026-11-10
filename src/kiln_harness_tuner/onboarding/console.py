@@ -56,10 +56,13 @@ class PlainTerminal:
         *,
         hint: str | None = None,
         default: T | None = None,
+        back: bool = False,
     ) -> T:
         raise RuntimeError("not a guided start")
 
-    def act(self, question: str, actions: Sequence[Action]) -> Action:
+    def act(
+        self, question: str, actions: Sequence[Action], *, back: bool = False
+    ) -> Action:
         raise RuntimeError("not a guided start")
 
     def text(
@@ -69,8 +72,17 @@ class PlainTerminal:
         default: str = "",
         hint: str | None = None,
         validate: Callable[[str], str | None] | None = None,
+        back: bool = False,
     ) -> str:
         raise RuntimeError("not a guided start")
 
     def open_url(self, url: str) -> None:
         raise RuntimeError("not a guided start")
+
+    # Lines once printed stay printed, and nothing asks, so nothing goes back.
+
+    def mark(self) -> object:
+        return None
+
+    def rewind(self, mark: object) -> None:
+        pass

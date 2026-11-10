@@ -443,7 +443,7 @@ Which project do you want to tune?
 ```
 
 The arrow keys move the highlight, typing filters the rows on their name or
-ID, and Enter picks; a long list scrolls. After the pick the picker goes, and
+ID, Esc clears the filter, and Enter picks; a long list scrolls. After the pick the picker goes, and
 a step line takes its place: `✓ Project   Forum Moderation (424242975950)`.
 The task picker works the same way, under `Which task in Forum Moderation?`,
 and shows the task's description from Kiln under the list. With only one
@@ -526,6 +526,21 @@ the command line answers its question**: the question is skipped, even when the
 flag spells out the default value. Each question starts pre-filled, Enter
 accepts it, and a step line records the answer. An answer that isn't valid
 shows why in red under the field and asks again, keeping what you typed.
+
+**Esc goes back one step.** At each question but the first, Esc asks the
+question before it again, pre-filled with your answer, and takes away the step
+line of that answer. Then the questions go on from there. The steps are:
+
+- each question in the table below that no flag answered;
+- the Advanced options menu;
+- after `c`, each advanced question.
+
+The agents question is three steps. Esc at the thinking level asks the model
+again, and Esc at the model asks the agent CLI again. With only one CLI
+installed, Esc at the model asks the question before the agents question.
+After Other, Esc at the typed name or level shows the list again. In a picker
+with filter text, the first Esc clears the filter, and the second goes back.
+The footer shows `esc Back` only where Esc goes back.
 
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
@@ -635,6 +650,10 @@ Start the run?
   again, and shows the summary again; a new model policy gets the API-key
   check first. It is offered when there is such a question. **`x`** stops with
   exit code 1.
+- **Esc** asks the last question again, and the questions go on from there to
+  a new summary. It is not offered when the start asked no question. After
+  `e`, Esc at the list of questions, or at the question it asks again, leaves
+  the answer as it was and shows the summary again.
 
 **The command to run it again** is shown here, and the closing block prints it
 again when the app closes (section 5.5). It is your

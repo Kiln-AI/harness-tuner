@@ -16,7 +16,7 @@ from typing import Any, TypeVar
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.cli import build_parser
 from kiln_harness_tuner.kiln import KilnAPIError
-from kiln_harness_tuner.onboarding.errors import OnboardingStopped
+from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import KilnRunner
 from kiln_harness_tuner.onboarding.terminal import (
     WHAT_NEXT,
@@ -41,6 +41,7 @@ class Asked:
     offered: tuple[Any, ...] = ()
     default: Any = None
     hint: str | None = None
+    back: bool = False  # Esc goes back
 
 
 class ScriptedTerminal:
@@ -118,6 +119,8 @@ class ScriptedTerminal:
         if not self.answers:
             raise OnboardingStopped(1)
         answer = self.answers.pop(0)
+        if isinstance(answer, GoBack):
+            assert asked.back, f"Esc at {asked.question!r}, which can't go back"
         if isinstance(answer, BaseException):
             raise answer
         return answer
@@ -129,18 +132,21 @@ class ScriptedTerminal:
         *,
         hint: str | None = None,
         default: T | None = None,
+        back: bool = False,
     ) -> T:
         offered = tuple(o.value for o in options)
         self.options.append(tuple(options))
-        answer = self._answer(Asked("pick", question, offered, default, hint))
+        answer = self._answer(Asked("pick", question, offered, default, hint, back))
         value: Any = answer() if callable(answer) else answer
         pickable = [o.value for o in options if o.disabled is None]
         assert value in pickable, f"{value!r} isn't a pickable option of {offered}"
         return value
 
-    def act(self, question: str, actions: Sequence[Action]) -> Action:
+    def act(
+        self, question: str, actions: Sequence[Action], *, back: bool = False
+    ) -> Action:
         offered = tuple(a.key for a in actions)
-        answer = self._answer(Asked("act", question, offered))
+        answer = self._answer(Asked("act", question, offered, back=back))
         key = answer() if callable(answer) else answer
         for action in actions:
             if action.key == key:
@@ -154,8 +160,9 @@ class ScriptedTerminal:
         default: str = "",
         hint: str | None = None,
         validate: Callable[[str], str | None] | None = None,
+        back: bool = False,
     ) -> str:
-        answer = self._answer(Asked("text", question, (default,), default, hint))
+        answer = self._answer(Asked("text", question, (default,), default, hint, back))
         if callable(answer):
             typed: Any = answer(validate)
             return typed
@@ -167,6 +174,16 @@ class ScriptedTerminal:
     def open_url(self, url: str) -> None:
         self.opened.append(url)
         self.transcript.append(f"open {url}")
+
+    def mark(self) -> object:
+        return len(self.steps)
+
+    def rewind(self, mark: object) -> None:
+        """Take away the step lines after `mark`. The transcript keeps all,
+        and says `rewind` where it happened."""
+        assert isinstance(mark, int)
+        del self.steps[mark:]
+        self.transcript.append("rewind")
 
     @property
     def menus(self) -> list[tuple[str, ...]]:
