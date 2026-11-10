@@ -515,7 +515,6 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
                 source="circuit_breaker",
                 lane=SUBSCRIPTION_LANE,
                 tokens=exc.usage.tokens,
-                unmeasured_tokens=exc.usage.unmeasured_tokens,
             )
         stop_line = quota_stop_line(exc.error.error_class, exc.error.detail)
         ctx.log.event("provider_quota", line=stop_line, detail=exc.error.detail)
@@ -603,7 +602,6 @@ async def _run_loop(
         source="preflight",
         lane=SUBSCRIPTION_LANE,
         tokens=preflight_usage.tokens,
-        unmeasured_tokens=preflight_usage.unmeasured_tokens,
     )
     # The setup phase: seed the baseline record, sync the
     # issue store against the task's evals, audit the splits. On a cold
@@ -1043,7 +1041,6 @@ async def _dispatch_plan(
         source="batch_plan",
         lane=SUBSCRIPTION_LANE,
         tokens=result.usage.tokens,
-        unmeasured_tokens=result.usage.unmeasured_tokens,
     )
     if result.data is not None:
         # Every plan the loop runs comes from here, so the wave that follows
@@ -1637,7 +1634,6 @@ async def _run_promotion_gate(
         source="promote_best",
         lane=SUBSCRIPTION_LANE,
         tokens=decision_result.usage.tokens,
-        unmeasured_tokens=decision_result.usage.unmeasured_tokens,
     )
     if decision_result.data is None:
         # Skip promotion — the candidates' wins stay pooled and
@@ -1959,7 +1955,6 @@ async def _integrity_review(
         source="integrity_review",
         lane=SUBSCRIPTION_LANE,
         tokens=result.usage.tokens,
-        unmeasured_tokens=result.usage.unmeasured_tokens,
     )
     if result.data is None:
         why = result.error.detail if result.error else "no answer"

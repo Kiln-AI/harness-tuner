@@ -1071,7 +1071,6 @@ class ReportWriter:
             source="report_writer",
             lane=SUBSCRIPTION_LANE,
             tokens=result.usage.tokens,
-            unmeasured_tokens=result.usage.unmeasured_tokens,
         )
         # Conditioned on `result.data` directly (not a derived bool) so the
         # type checker narrows the Optional on the else branch.

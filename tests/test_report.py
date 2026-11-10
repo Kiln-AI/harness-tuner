@@ -309,7 +309,6 @@ async def test_spend_appendix_excludes_report_session(tmp_path):
         "source": "report_writer",
         "lane": "subscription_equivalent",
         "tokens": 0,
-        "unmeasured_tokens": 0,
     }
 
 

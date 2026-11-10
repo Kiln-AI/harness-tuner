@@ -2875,7 +2875,7 @@ async def test_agent_lane_breaker_books_the_spend_that_hit_the_wall():
     def wall(req):
         raise ProviderQuotaError(
             ErrorInfo(error_class="quota_exhausted", detail="usage limit reached"),
-            usage=Usage(cost_usd=1.25, tokens=10, unmeasured_tokens=7),
+            usage=Usage(cost_usd=1.25, tokens=10),
         )
 
     ctx.dispatch.queue("batch_plan", wall)
@@ -2895,7 +2895,7 @@ async def test_agent_lane_breaker_books_the_spend_that_hit_the_wall():
     ]
     # Tokens, never the CLI's dollars.
     assert "cost_usd" not in spend
-    assert (spend["tokens"], spend["unmeasured_tokens"]) == (10, 7)
+    assert spend["tokens"] == 10
 
 
 async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):

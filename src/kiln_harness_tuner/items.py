@@ -113,7 +113,6 @@ def _sum_usage(a: Usage, b: Usage) -> Usage:
         cost_usd=a.cost_usd + b.cost_usd,
         tokens=a.tokens + b.tokens,
         wall_secs=a.wall_secs + b.wall_secs,
-        unmeasured_tokens=a.unmeasured_tokens + b.unmeasured_tokens,
     )
 
 
@@ -344,7 +343,6 @@ async def _run_eval_build(
         source="eval_build",
         lane=SUBSCRIPTION_LANE,
         tokens=rep.usage.tokens,
-        unmeasured_tokens=rep.usage.unmeasured_tokens,
     )
     return rep
 
@@ -575,7 +573,6 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
             source="probe",
             lane=SUBSCRIPTION_LANE,
             tokens=rep.usage.tokens,
-            unmeasured_tokens=rep.usage.unmeasured_tokens,
         )
         if rep.data is None:
             if rep.status != "failed_expected":
@@ -910,7 +907,6 @@ async def _execute_plan_item(
         source="analyze_experiment_results",
         lane=SUBSCRIPTION_LANE,
         tokens=res.usage.tokens,
-        unmeasured_tokens=res.usage.unmeasured_tokens,
     )
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
@@ -1024,7 +1020,6 @@ async def _build_rc(
         source="create_experiment_rc",
         lane=SUBSCRIPTION_LANE,
         tokens=rc.usage.tokens,
-        unmeasured_tokens=rc.usage.unmeasured_tokens,
     )
     # One (tokens, secs) sample per build, by technique — the planner's
     # `lever_costs`. A merge is its own class.

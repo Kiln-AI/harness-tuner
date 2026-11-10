@@ -150,16 +150,11 @@ class Usage(BaseModel):
     # Defaults to zero: a failed_infra result produced before any subprocess
     # ran has nothing to report.
     cost_usd: float = 0.0
-    # Every token the session used, priced or not: the rough count a person
-    # reads for the agent lane.
+    # Every token the session used: the rough count a person reads for the
+    # agent lane. A `claude -p` killed at its wall-clock timeout never prints
+    # its result payload, so its tokens come from its transcript.
     tokens: int = 0
     wall_secs: float = 0.0
-    # Tokens seen in the transcript of a session whose cost could NOT be
-    # read — a `claude -p` killed at its wall-clock timeout never prints its
-    # result payload. Summed beside cost so a run's books say
-    # how much they are missing instead of booking the run's most expensive
-    # session shape at $0.
-    unmeasured_tokens: int = 0
 
 
 class WinRef(BaseModel):
@@ -2070,10 +2065,8 @@ class RunStatus(BaseModel):
     #   — the report appendix's per-source × per-lane table data
     # Budget honesty: the provider cost of EVERY stored row the run
     # read (cached rows from earlier runs included) — what the evidence rests
-    # on, as distinct from `spend_total_usd`, which is what this run paid —
-    # and the tokens of timed-out agent sessions whose cost could not be read.
+    # on, as distinct from `spend_total_usd`, which is what this run paid.
     evidence_spend_usd: float = 0.0
-    unmeasured_tokens: int = 0
     # The agent CLI the run dispatches through (`claude`, `codex`, `opencode`):
     # the name of the agent spend lane wherever a person reads it.
     agent_cli: str = "claude"

@@ -329,7 +329,6 @@ async def test_eval_only_emits_building_eval_and_outcome_events():
         "source": "eval_build",
         "lane": "subscription_equivalent",
         "tokens": 700,  # the CLI's $2.00 is not booked
-        "unmeasured_tokens": 0,
     }
 
 
@@ -1173,13 +1172,13 @@ async def test_call_with_retries_adds_the_ladder_spend_to_the_breaker():
             )
         raise ProviderQuotaError(
             ErrorInfo(error_class="quota_exhausted", detail="wall"),
-            usage=Usage(cost_usd=0.5, unmeasured_tokens=3),
+            usage=Usage(cost_usd=0.5, tokens=3),
         )
 
     with pytest.raises(ProviderQuotaError) as info:
         await call_with_retries(fn, object(), backoffs=[0.0], sleep=noop_sleep)
     assert info.value.usage.cost_usd == 2.5
-    assert info.value.usage.unmeasured_tokens == 3
+    assert info.value.usage.tokens == 3
 
 
 # ---- named targets gate the train run (through the engine:

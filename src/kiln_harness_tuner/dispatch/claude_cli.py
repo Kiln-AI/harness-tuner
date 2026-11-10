@@ -506,10 +506,8 @@ _USAGE_TOKEN_KEYS = (
 
 def transcript_usage_tokens(path: Path) -> int:
     """Every token the CLI transcript at `path` reports across its assistant
-    turns (`message.usage`). The cost is NOT derivable here — pricing is the
-    provider's, and a local price table is exactly what the accounting
-    doctrine forbids — so this is the "how much is missing" number for a
-    session that never printed its `total_cost_usd`."""
+    turns (`message.usage`): the token count of a session that never
+    printed its result payload."""
     total = 0
     with path.open(encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -633,7 +631,6 @@ def _add_usage(a: Usage, b: Usage) -> Usage:
         cost_usd=a.cost_usd + b.cost_usd,
         tokens=a.tokens + b.tokens,
         wall_secs=a.wall_secs + b.wall_secs,
-        unmeasured_tokens=a.unmeasured_tokens + b.unmeasured_tokens,
     )
 
 
@@ -1313,8 +1310,8 @@ class ClaudeCliDispatcher:
                 elapsed,
                 exc,
                 (
-                    f" (transcript recovered: {usage.unmeasured_tokens:,} tokens)"
-                    if usage.unmeasured_tokens
+                    f" (transcript recovered: {usage.tokens:,} tokens)"
+                    if usage.tokens
                     else " (no transcript recovered)"
                 ),
             )
@@ -1465,19 +1462,15 @@ class ClaudeCliDispatcher:
     ) -> Usage:
         """Read the killed session's transcript — at the path its chosen
         session id names — for its tokens, copy it beside the traces as
-        `-timeout`, and remember the id so a build role can resume it. The
-        cost is NOT derivable (see `transcript_usage_tokens`), so the tokens
-        are booked as UNMEASURED. Log-and-continue on any miss: this must
-        never fail a dispatch."""
+        `-timeout`, and remember the id so a build role can resume it.
+        Log-and-continue on any miss: this must never fail a dispatch."""
         usage = Usage(wall_secs=elapsed_secs)
         try:
             src = self._transcript_dir() / f"{session_id}.jsonl"
             if not src.is_file():
                 return usage
             tokens = transcript_usage_tokens(src)
-            usage = Usage(
-                wall_secs=elapsed_secs, tokens=tokens, unmeasured_tokens=tokens
-            )
+            usage = Usage(wall_secs=elapsed_secs, tokens=tokens)
             self._timed_out_sessions[label] = session_id
             if self._traces_root is not None and self._run_id is not None:
                 dest_dir = (

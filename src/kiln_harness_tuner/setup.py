@@ -1113,7 +1113,6 @@ async def describe_all(
             source="describe_eval",
             lane=SUBSCRIPTION_LANE,
             tokens=result.usage.tokens,
-            unmeasured_tokens=result.usage.unmeasured_tokens,
         )
         if result.data is None:
             error = result.error

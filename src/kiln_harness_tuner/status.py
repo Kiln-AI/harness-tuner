@@ -651,7 +651,6 @@ class RunStatusTracker:
         source: str = "",
         lane: str = "",
         evidence_cost_usd: float | None = None,
-        unmeasured_tokens: int = 0,
         tokens: int = 0,
         **_: object,
     ) -> None:
@@ -669,7 +668,6 @@ class RunStatusTracker:
             # The agent sessions run on the agent CLI's own account: tokens
             # only. Any dollar figure on the event (an older wave log) is not
             # money the run spent, and no total, row or item carries it.
-            self._status.unmeasured_tokens += int(unmeasured_tokens or 0)
             if tokens:
                 self._status.agent_tokens += int(tokens)
                 by_source = self._status.agent_tokens_by_source

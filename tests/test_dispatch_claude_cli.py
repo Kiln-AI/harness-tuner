@@ -1722,7 +1722,7 @@ class TestTimeoutRecovery:
         assert result.status == "failed_infra"
         assert result.error is not None and result.error.error_class == "timeout"
         assert result.usage.cost_usd == 0.0
-        assert result.usage.unmeasured_tokens == 500  # ours, not the sibling's
+        assert result.usage.tokens == 500  # ours, not the sibling's
         (session_id,) = chosen
         uuid.UUID(session_id)  # a valid uuid, as the CLI requires
         dest = traces_dir(tmp_path) / f"batch_plan-loop-{session_id}-timeout.jsonl"
@@ -1730,13 +1730,13 @@ class TestTimeoutRecovery:
         assert "sk-ant-api03-abcdefghijklmnop" not in dest.read_text()
         assert "[REDACTED]" in dest.read_text()
 
-    async def test_timeout_with_no_new_transcript_stays_unmeasured_zero(self, tmp_path):
+    async def test_timeout_with_no_new_transcript_books_no_tokens(self, tmp_path):
         dispatcher, _ = make_wired_dispatcher(
             tmp_path, [DispatchTimeoutError("claude -p exceeded 1s")]
         )
         result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert result.status == "failed_infra"
-        assert result.usage.unmeasured_tokens == 0
+        assert result.usage.tokens == 0
         assert not list(traces_dir(tmp_path).glob("*-timeout.jsonl"))
 
 
@@ -1821,7 +1821,7 @@ class TestResumeOnTimeout:
         chosen = calls[0][calls[0].index("--session-id") + 1]
         assert calls[1][calls[1].index("--resume") + 1] == chosen
         assert "--session-id" not in calls[1]  # resume names the session
-        assert result.usage.unmeasured_tokens == 15
+        assert result.usage.tokens == 15 + 1200  # the transcript, then the resume
 
     async def test_roles_that_create_nothing_are_not_resumed(self, tmp_path):
         src_dir = tmp_path / "projects" / AGENTS_SLUG

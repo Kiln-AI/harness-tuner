@@ -140,10 +140,8 @@ class TestReadingTheOutput:
         # The LAST agent message, not the first progress note.
         assert cli.result_text == "the answer"
         assert cli.error is None
-        # Cached input is inside `input_tokens`; no cost is reported, so
-        # every token is unmeasured.
+        # Cached input is inside `input_tokens`; no cost is reported.
         assert cli.usage.tokens == 60_250
-        assert cli.usage.unmeasured_tokens == 60_250
         assert cli.usage.cost_usd == 0.0
 
     def test_a_failed_turn_is_the_sessions_error(self):
@@ -366,7 +364,7 @@ class TestDispatching:
         result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert result.status == "ok"
         assert result.data is not None and result.data.items[0].id == "w1-1"
-        assert result.usage.unmeasured_tokens == 60_250
+        assert result.usage.tokens == 60_250
         assert result.usage.cost_usd == 0.0
         (call,) = runner.calls
         assert call.cwd == str(tmp_path / "run" / "scratch" / "batch_plan-loop")
@@ -386,7 +384,7 @@ class TestDispatching:
         repair = runner.calls[1].argv
         assert repair[:3] == ["codex", "exec", "resume"]
         assert THREAD in repair
-        assert result.usage.unmeasured_tokens == 2 * 60_250
+        assert result.usage.tokens == 2 * 60_250
 
     async def test_a_quota_failure_stops_the_run(self, tmp_path):
         failed = SubprocessResult(
