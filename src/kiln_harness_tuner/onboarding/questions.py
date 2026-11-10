@@ -217,8 +217,9 @@ class AgentKind:
 # In the order the picker lists them. Only cli.py may name the dispatchers
 # (tests/test_dispatch_boundary.py), so their facts are restated here, and a
 # test holds the two equal: Claude Code's default model is the dispatcher's
-# `AGENT_MODEL`, and `reports_cost` its `REPORTS_COST` (a CLI that reports
-# tokens and no cost can't count toward the budget).
+# `AGENT_MODEL`, and `reports_cost` its `REPORTS_COST` (whether the agents'
+# cost counts toward the budget: not for Codex, which reports no cost, and
+# not for Claude Code, whose cost is what the API would charge).
 _OWN_DEFAULT_MODEL = (
     "Enter uses the CLI's own default model. OpenCode models are PROVIDER/MODEL."
 )
@@ -230,7 +231,7 @@ AGENT_KINDS = (
         "--model",
         "opus",
         "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.",
-        reports_cost=True,
+        reports_cost=False,
     ),
     AgentKind("codex", "Codex", "exec", "-m", "", _OWN_DEFAULT_MODEL, False),
     AgentKind("opencode", "OpenCode", "run", "-m", "", _OWN_DEFAULT_MODEL, True),
@@ -274,6 +275,23 @@ def agents_text(command: str) -> str:
     model = parsed.model or agent.default_model or "default model"
     effort = f" · effort {parsed.effort}" if parsed.effort else ""
     return f"{agent.name} ({base}) · {model}{effort}"
+
+
+def _uncounted_agent(command: str) -> AgentKind | None:
+    """The agent CLI in `command` when the budget does not count its cost
+    (its dispatcher's `REPORTS_COST`), or None."""
+    parsed = _parsed(command)
+    agent = _KINDS[parsed.kind] if parsed is not None else None
+    return agent if agent is not None and not agent.reports_cost else None
+
+
+def limits_budget_text(budget: float | None, command: str) -> str:
+    """The budget on the summary's Limits line: `$50.00 on the task's model
+    calls` when the agents' own cost is not counted."""
+    text = budget_text(budget)
+    if budget is not None and _uncounted_agent(command) is not None:
+        text += " on the task's model calls"
+    return text
 
 
 def _model_refusal(text: str) -> str | None:
@@ -401,20 +419,21 @@ def _choose_agent_cli(ctx: QuestionContext, current: str | None) -> tuple[str, s
 
 
 def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
-    hint = (
-        "The most this run may spend, in USD: the tuner's agents and the task's"
-        " model calls together. No wave starts past it. Type none for no cap."
-    )
-    parsed = _parsed(answers.agent_cli)
-    agent = _KINDS[parsed.kind] if parsed is not None else None
-    # The note follows each dispatcher's `REPORTS_COST`, as the run's own
-    # budget warning does: Codex reports no cost, OpenCode reports each
-    # session's.
-    if agent is not None and not agent.reports_cost:
-        hint += (
-            f" {agent.name} doesn't report its cost, so this caps the task's model"
-            " calls only."
+    # What the budget counts follows each dispatcher's `REPORTS_COST`, as the
+    # run's own budget log line does: Codex reports no cost, Claude Code's
+    # cost is what the API would charge, and OpenCode's cost counts.
+    agent = _uncounted_agent(answers.agent_cli)
+    if agent is not None:
+        counts = (
+            "The most this run may spend on the task's model calls, in USD."
+            f" {agent.name}'s own cost is not counted."
         )
+    else:
+        counts = (
+            "The most this run may spend, in USD: the tuner's agents and the"
+            " task's model calls together."
+        )
+    hint = f"{counts} No wave starts past it. Type none for no cap."
     answer = ctx.terminal.text(
         "Budget for this run",
         default=budget_default(answers.budget_usd),

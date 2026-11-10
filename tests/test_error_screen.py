@@ -303,3 +303,25 @@ def test_an_error_with_no_body_goes_straight_to_its_ending(terminal):
         "  Nothing was spent and no run folder was created.\n\n"
         "kiln-harness-tuner stopped with an error (exit 1)\n"
     )
+
+
+def test_an_uncounted_agent_cost_is_named_apart_from_the_spend(tmp_path):
+    # Claude Code: the agents' cost is not in the budget, so the spend line
+    # is the task's model calls, and the agents' cost follows it.
+    spend = SpendMeter(agent_cost_in_budget=False)
+    spend.event("spend", source="preflight", cost_usd=1.2)
+    spend.event("spend", source="eval_jobs", cost_usd=2.004)
+    progress = RunProgress(cli_checked=True, run_dir=tmp_path, spend=spend)
+    assert ending_lines(progress)[:2] == [
+        "The run stopped. Spent $2.00 so far on the task's model calls.",
+        "The agent sessions reported $1.20 more, which the budget does not count.",
+    ]
+    nothing = RunProgress(
+        cli_checked=True,
+        run_dir=tmp_path,
+        spend=SpendMeter(agent_cost_in_budget=False),
+    )
+    assert ending_lines(nothing)[:2] == [
+        "The run stopped. Spent $0.00 so far on the task's model calls.",
+        f"Run folder: {tmp_path}",
+    ]

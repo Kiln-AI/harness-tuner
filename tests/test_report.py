@@ -22,6 +22,7 @@ from kiln_harness_tuner.report import (
     render_missing_evals_appendix,
     render_spend_appendix,
     render_spend_header,
+    spend_appendix_notes,
 )
 from kiln_harness_tuner.schemas import (
     ErrorInfo,
@@ -721,3 +722,20 @@ async def test_only_the_fallback_path_reads_the_issues_without_retries(tmp_path)
     await writer.write_fallback(ctx, "fatal:KilnTransportError")
 
     assert asked == [None, False]
+
+
+def test_the_spend_appendix_says_when_the_budget_leaves_the_agents_out(tmp_path):
+    writer, tracker = make_writer(tmp_path)
+    tracker.event("run_start", budget_usd=10.0, agent_cost_in_budget=False)
+    spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
+    spend(tracker, "eval_jobs", "provider", 1.25)
+    text = render_spend_appendix(tracker.snapshot())
+    # The agents' cost is still in the table, and a note says it is not counted.
+    assert "| batch_plan | $0.50 | — | $0.50 |" in text
+    note = (
+        "- The budget (`--budget-usd`) counts the Kiln column only: the"
+        " Claude Code cost is shown, but not counted."
+    )
+    assert note in text
+    assert note not in "\n".join(spend_appendix_notes("claude"))
+    assert spend_appendix_notes("claude", agent_cost_in_budget=False)[2] == note

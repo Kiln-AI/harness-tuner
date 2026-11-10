@@ -163,8 +163,9 @@ def change_lines(fields: dict) -> list[str]:
 
 
 def totals_text(status: RunStatus) -> str:
-    """The run's running totals: spend across BOTH lanes (the
-    `spend_total_usd` fold already sums them), elapsed, and time left.
+    """The run's running totals: the spend the budget counts
+    (`RunStatus.budget_spend_usd`: both lanes, or the Kiln lane alone when the
+    agents' cost is not counted), elapsed, and time left.
 
     The `left` segment is omitted when no `run_start` deadline was ever seen
     rather than guessing — `time_remaining_secs` reads 0.0 in that case,
@@ -178,7 +179,7 @@ def totals_text(status: RunStatus) -> str:
     the exit block, and the report's spend appendix is written from the same
     pre-report state. `wave_log.jsonl` has the event. Surfacing it would cost
     a second post-exit totals line beside the exit line's."""
-    text = f"{_fmt_usd(status.spend_total_usd)}{spend_split_text(status)}"
+    text = f"{_fmt_usd(status.budget_spend_usd)}{spend_split_text(status)}"
     text += f" · {_fmt_duration(status.elapsed_secs)} elapsed"
     if status.time_remaining_known:
         text += f" · {_fmt_duration(status.time_remaining_secs)} left"
@@ -215,7 +216,8 @@ def spend_split_text(status: RunStatus) -> str:
     shown beside the agent lane's dollars, never folded in as $0.
 
     Parenthesised after the total rather than replacing it: the total is the
-    number the budget is spent against, and the row is one line wide.
+    number the budget is spent against, and the row is one line wide. An
+    agent lane the budget does not count (Claude Code, Codex) says so.
     Empty while nothing has been spent, so a run's first frames stay quiet;
     money on an unrecognised lane is appended rather than hidden, matching the
     report appendix's "the fold never drops money" rule."""
@@ -227,6 +229,8 @@ def spend_split_text(status: RunStatus) -> str:
     agent = f"{labels[SUBSCRIPTION_LANE]} {_fmt_usd(claude_code)}"
     if unpriced:
         agent += f" + {_fmt_tokens(unpriced)} tokens unpriced"
+    if not status.agent_cost_in_budget:
+        agent += " not in budget"
     parts = [agent, f"{labels[PROVIDER_LANE]} {_fmt_usd(kiln)}"]
     if other:
         parts.append(f"other {_fmt_usd(other)}")

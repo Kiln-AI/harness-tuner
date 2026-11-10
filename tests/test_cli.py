@@ -17,6 +17,7 @@ from rich.console import Console
 import kiln_harness_tuner.cli
 from kiln_harness_tuner.analysis import AnalysisError
 from kiln_harness_tuner.cli import (
+    DISPATCHERS,
     ERROR_TITLES,
     GATEWAY_MODULE,
     INSTALLER_MODULE,
@@ -512,6 +513,7 @@ def test_main_after_the_run_folder_names_spend_folder_and_report(
     async def fake_orchestrate(ctx, guidance, timeout_mins):
         ctx.log.event("spend", source="preflight", cost_usd=1.25)
         ctx.log.event("spend", source="describe_eval", cost_usd=1.95)
+        ctx.log.event("spend", source="eval_jobs", cost_usd=0.4)
         seen["run_dir"] = ctx.run_dir
         if report:
             seen["report"] = await ctx.write_fallback(ctx, "fatal")
@@ -523,8 +525,9 @@ def test_main_after_the_run_folder_names_spend_folder_and_report(
     assert capsys.readouterr().err == (
         "harness-tuner: error: Kiln returned an error\n"
         + JINJA_BODY
-        + "  The run stopped. Spent $3.20 so far"
-        " (agents and the task's model calls).\n"
+        + "  The run stopped. Spent $0.40 so far on the task's model calls.\n"
+        "  The agent sessions reported $3.20 more, which the budget does not"
+        " count.\n"
         f"  Run folder: {seen['run_dir']}\n" + report_line + CLOSING
     )
 
@@ -1463,6 +1466,8 @@ def test_main_wires_dispatcher_with_rendered_configs(monkeypatch, state_dir):
     assert seen["ctx"].quarantine_root == state_dir / "runs" / ".quarantine" / (
         "424242748186-424242613304"
     )
+    # Claude Code's reported cost is not money a subscription pays.
+    assert seen["ctx"].spend.agent_cost_in_budget is False
 
 
 def test_a_codex_run_installs_the_codex_layout(monkeypatch, state_dir):
@@ -1482,6 +1487,12 @@ def test_a_codex_run_installs_the_codex_layout(monkeypatch, state_dir):
     assert (workspace / ".agents" / "skills").resolve() == agents / ".agents" / (
         "skills"
     )
+    assert seen["ctx"].spend.agent_cost_in_budget is False  # no cost reported
+
+
+def test_only_opencode_counts_the_agents_cost_toward_the_budget():
+    counts = {kind: adapter.REPORTS_COST for kind, (adapter, _) in DISPATCHERS.items()}
+    assert counts == {"claude": False, "codex": False, "opencode": True}
 
 
 def test_main_preflight_error_prints_instructive_error(monkeypatch, capsys, tmp_path):
@@ -1516,7 +1527,7 @@ def test_a_handled_error_names_the_run_folder_and_the_report(
     assert capsys.readouterr().err.splitlines() == [
         "harness-tuner: error: The run stopped",
         "  Kiln answered 500 on the baseline run config",
-        "  The run stopped. Spent $0.00 so far (agents and the task's model calls).",
+        "  The run stopped. Spent $0.00 so far on the task's model calls.",
         f"  Run folder: {run_dir}",
         f"  Report: {report}",
         "harness-tuner stopped with an error (exit 1)",

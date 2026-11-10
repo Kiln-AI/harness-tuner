@@ -546,10 +546,12 @@ shows why in red under the field and asks again, keeping what you typed.
   install one ([install.md](install.md) section 4). The model is asked unless
   `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
   cheaper, with weaker plans.
-- **The budget** is the most this run may spend: the tuner's agents and the
-  task's model calls together, and no wave starts past it. Codex doesn't report
-  its cost, so with Codex the budget caps the task's model calls only, and the
-  question says so.
+- **The budget** is the most this run may spend on the task's model calls,
+  and no wave starts past it. With Claude Code and Codex, the budget does not
+  count the agents' own cost: Claude Code reports what the API would charge,
+  not what a subscription pays, and Codex reports no cost. With OpenCode, the
+  budget counts the agents and the task's model calls together. The question
+  says which, and so does the summary's Limits line.
 - **The time limit**: no wave starts after it, and work still running at the
   limit is cancelled, so leave room for a whole wave.
 
@@ -598,7 +600,7 @@ again, and one last question:
 │ Improve      Quality                                                                    │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 · 12 hours                                                          │
+│ Limits       $50.00 on the task's model calls · 12 hours                                │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │
@@ -701,7 +703,7 @@ each question about the run:
 |---|---|
 | Title bar | The task, the run id, the agent CLI and the slot counts. |
 | Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
-| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the spend by lane and per hour; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the spend by lane and per hour, with an agent lane the budget does not count marked `not in budget`; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
 | Run timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
 | Results | One card per eval score that can decide a promotion, then one for cost and one for latency per request. |
 | Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |

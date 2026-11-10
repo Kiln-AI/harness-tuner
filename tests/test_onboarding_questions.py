@@ -340,8 +340,9 @@ def test_the_objective_rows_and_the_hints():
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",
         "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.",
-        "The most this run may spend, in USD: the tuner's agents and the task's"
-        " model calls together. No wave starts past it. Type none for no cap.",
+        "The most this run may spend on the task's model calls, in USD. Claude"
+        " Code's own cost is not counted. No wave starts past it. Type none for"
+        " no cap.",
         "No wave starts after this, and work still running at the limit is"
         " cancelled, so leave room for a whole wave.",
     ]
@@ -516,21 +517,27 @@ def test_a_budget_is_typed_with_or_without_a_dollar_sign():
     assert terminal.step_lines() == ["Budget: $20.00"]
 
 
+_MODEL_CALLS_ONLY = "The most this run may spend on the task's model calls, in USD."
+
+
 @pytest.mark.parametrize(
-    ("agent_cli", "note"),
+    ("agent_cli", "counts"),
     [
+        ("codex exec", f"{_MODEL_CALLS_ONLY} Codex's own cost is not counted."),
+        ("claude -p", f"{_MODEL_CALLS_ONLY} Claude Code's own cost is not counted."),
         (
-            "codex exec",
-            " Codex doesn't report its cost, so this caps the task's model calls only.",
+            "opencode run",
+            "The most this run may spend, in USD: the tuner's agents and the"
+            " task's model calls together.",
         ),
-        ("claude -p", ""),
-        ("opencode run", ""),
     ],
 )
-def test_the_budget_hint_names_a_cli_that_reports_no_cost(agent_cli, note):
+def test_the_budget_hint_says_what_the_budget_counts(agent_cli, counts):
     terminal = ScriptedTerminal(["50"])
     ask_all(answers(agent_cli=agent_cli), context(terminal), given=BUDGET_ONLY)
-    assert terminal.asked[0].hint.endswith(f"Type none for no cap.{note}")
+    assert terminal.asked[0].hint == (
+        f"{counts} No wave starts past it. Type none for no cap."
+    )
 
 
 def test_a_time_limit_is_typed_in_minutes_or_hours():

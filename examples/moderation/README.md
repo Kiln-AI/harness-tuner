@@ -141,8 +141,8 @@ and says where to add it when it doesn't.
    Every agent's read fence denies that folder, because it holds the labels
    of every split.
 
-   The budget is a ceiling, not an estimate. It covers both the agent
-   sessions and the model calls of the task. Read
+   The budget is a ceiling, not an estimate. It covers the model calls of
+   the task. With Claude Code, the agent sessions' cost is not counted. Read
    [docs/costs.md](../../docs/costs.md) to estimate a run.
 
    The loop shows its progress in the terminal. When the run ends, it prints

@@ -254,6 +254,9 @@ worth, so the decision is informed.
   transcripts are files. One of them also changes billing: with an API key
   present, the CLI bills the API instead of the operator's login, and the
   reported cost silently turns from a shadow price into real money.
+  `--budget-usd` does not count that reported cost
+  (`ClaudeCliDispatcher.REPORTS_COST` is False). The run log and the report
+  still show it, marked as not counted.
 - **Per-role model and effort.** Pinned in code so that runs do not differ
   across machines, overridable per role from the CLI. Worth: the agent side is
   where a run's spend concentrates, and the mechanical roles do not need the

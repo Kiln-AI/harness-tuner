@@ -223,6 +223,9 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
     DEFAULT_MODEL = None
     MODEL_DEFAULTS: dict[str, str] = {}
     DEFAULT_EFFORT = OPENCODE_EFFORT
+    # The cost each session reports is what the provider charges, so it
+    # counts toward `--budget-usd`.
+    REPORTS_COST = True
 
     def __init__(
         self,

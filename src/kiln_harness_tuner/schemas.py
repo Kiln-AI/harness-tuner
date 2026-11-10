@@ -67,6 +67,8 @@ ErrorClass = Literal[
 # every `claude -p` dispatch's total_cost_usd — quota burn now, real cost at
 # deployment; provider = eval-lane cost (subject task_run_usage + judge
 # eval_usage) — real money today. Every `spend` event carries one.
+# `--budget-usd` counts the provider lane, and the agent lane only when the
+# agent CLI's dispatcher sets `REPORTS_COST` (`RunStatus.budget_spend_usd`).
 SpendLane = Literal["subscription_equivalent", "provider"]
 SUBSCRIPTION_LANE: SpendLane = "subscription_equivalent"
 PROVIDER_LANE: SpendLane = "provider"
@@ -2082,6 +2084,10 @@ class RunStatus(BaseModel):
     # First-class hole accounting: coverage and hole facts are counted here,
     # not only as prose inside agent findings.
     budget_usd: float | None = None  # --budget-usd, from run_start (None = no cap)
+    # Whether the agent lane counts toward --budget-usd, from run_start: the
+    # dispatcher's `REPORTS_COST`. False for Claude Code, whose cost is what
+    # the API would charge, not what a subscription pays.
+    agent_cost_in_budget: bool = True
     eval_job_error_items: int = 0  # errored dataset items across all eval jobs
     #   (folded from `eval_job_errors` events)
     # The same items by "<split> <error_class>", e.g. {"val rate_limit": 68}:
@@ -2115,6 +2121,19 @@ class RunStatus(BaseModel):
     eval_building: bool = False
     dropped_eval_items: list[DroppedEvalItem] = []
     issues_without_eval: list[IssueWithoutEval] | None = None
+
+    @property
+    def budget_spend_usd(self) -> float:
+        """The spend that counts toward --budget-usd: `spend_total_usd`
+        without the agent lane when `agent_cost_in_budget` is False."""
+        if self.agent_cost_in_budget:
+            return self.spend_total_usd
+        return self.spend_total_usd - self.spend_by_lane.get(SUBSCRIPTION_LANE, 0.0)
+
+    @property
+    def agent_spend_usd(self) -> float:
+        """The agent lane's spend, counted or not."""
+        return self.spend_by_lane.get(SUBSCRIPTION_LANE, 0.0)
 
 
 class ReportInput(BaseModel):

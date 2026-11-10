@@ -815,3 +815,22 @@ def test_item_change_is_folded_onto_the_item():
     assert item.change.changes == ["a", "b"]
     tracker.event("item_change", item_id="w1-1", change="not a dict")
     assert tracker.snapshot().waves[0].items[0].change.summary == "s"
+
+
+def test_the_budget_spend_leaves_out_an_uncounted_agent_lane():
+    # run_start says whether the agent lane counts toward --budget-usd.
+    sub, prov = "subscription_equivalent", "provider"
+    tracker = make_tracker()
+    tracker.event("run_start", budget_usd=10.0, agent_cost_in_budget=False)
+    tracker.event("spend", source="batch_plan", lane=sub, cost_usd=3.0)
+    tracker.event("spend", source="eval_jobs", lane=prov, cost_usd=1.25)
+    status = tracker.snapshot()
+    assert status.agent_cost_in_budget is False
+    assert status.spend_total_usd == 4.25
+    assert status.budget_spend_usd == 1.25
+    assert status.agent_spend_usd == 3.0
+    # Without the field (an older wave log), the agent lane counts.
+    old = make_tracker()
+    old.event("spend", source="batch_plan", lane=sub, cost_usd=3.0)
+    old.event("spend", source="eval_jobs", lane=prov, cost_usd=1.25)
+    assert old.snapshot().budget_spend_usd == 4.25

@@ -365,7 +365,9 @@ class RunModel:
             limit,
             words.duration(limit) if limit else "",
         )
-        spent = status.spend_total_usd
+        # The spend the budget counts (`RunStatus.budget_spend_usd`): the
+        # lanes line under the gauge shows an agent cost it leaves out.
+        spent = status.budget_spend_usd
         spend_gauge = GaugeView(
             words.SPEND_LABEL,
             words.money(spent),
@@ -397,6 +399,8 @@ class RunModel:
             agent_part += (
                 Span(f" {words.unpriced(status.unmeasured_tokens)}", "muted"),
             )
+        if not status.agent_cost_in_budget:
+            agent_part += (Span(f" {words.NOT_IN_BUDGET}", "muted"),)
         parts.append(agent_part)
         if other:
             parts.append((Span("other ", "muted"), Span(words.money(other))))
@@ -728,7 +732,7 @@ class RunModel:
             if step.ended is None:
                 step.ended = s.mono
         if first:
-            spent = self.tracker.status.spend_total_usd
+            spent = self.tracker.status.budget_spend_usd
             if self.cycle_wave is not None and self.cycle_start is not None:
                 self.cycles.append(
                     (s.mono - self.cycle_start, spent - self.cycle_spend)

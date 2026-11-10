@@ -583,3 +583,14 @@ def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_unpriced_tokens():
         agent_cli="opencode",
     )
     assert "OpenCode $0.40" in totals_text(opencode)
+
+
+def test_an_agent_lane_the_budget_does_not_count_is_marked():
+    status = run_status(
+        spend_total_usd=0.5,
+        spend_by_lane={"subscription_equivalent": 0.4, "provider": 0.1},
+        agent_cost_in_budget=False,
+    )
+    text = totals_text(status)
+    # The total is the spend the budget counts: the Kiln lane alone.
+    assert text.startswith("$0.10 (Claude Code $0.40 not in budget · Kiln $0.10)")

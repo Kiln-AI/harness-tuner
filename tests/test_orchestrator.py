@@ -2908,3 +2908,55 @@ async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):
     events = [f for k, f in ctx.log.events if k == "memory_snapshot"]
     assert [e["label"] for e in events] == ["w1-plan-before", "w1-plan-after"]
     assert events[1]["records"] == 3 and events[1]["file"] == files[1]
+
+
+def test_the_spend_meter_leaves_an_uncounted_agent_lane_out_of_the_budget():
+    # Claude Code's reported cost is not money the operator pays: the meter
+    # books it apart, and the budget reads the Kiln lane alone.
+    meter = SpendMeter(agent_cost_in_budget=False)
+    meter.event(
+        "spend", source="batch_plan", lane="subscription_equivalent", cost_usd=4.0
+    )
+    meter.event("spend", source="preflight", cost_usd=1.0)  # lane from source
+    meter.event("spend", source="eval_jobs", lane="provider", cost_usd=0.5)
+    assert meter.total == pytest.approx(0.5)
+    assert meter.uncounted == pytest.approx(5.0)
+    assert meter.provider_total == pytest.approx(0.5)
+    counted = SpendMeter()
+    counted.event(
+        "spend", source="batch_plan", lane="subscription_equivalent", cost_usd=4.0
+    )
+    counted.event("spend", source="eval_jobs", lane="provider", cost_usd=0.5)
+    assert counted.total == pytest.approx(4.5)
+    assert counted.uncounted == 0.0
+
+
+async def test_an_uncounted_agent_lane_leaves_the_budget_alone():
+    # The wrap-up test's run, with the agents' cost not counted: the $6 build
+    # session is not budget spend, so wave 2 is not the wrap-up.
+    ctx = make_ctx(eval_building=True)
+    seed_baseline(ctx.kiln)
+    seed_issue(ctx.kiln)
+    recording = ctx.log
+    meter = SpendMeter(agent_cost_in_budget=False)
+    ctx.log = FanoutLog(recording, meter)
+    ctx.analyzer.log = ctx.log
+    ctx.spend = meter
+    ctx.budget_usd = 10.0
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(eval_only_item("w1-1"))),
+        ok(make_plan(loop_exit="stop")),
+    )
+    d.queue("eval_build", ok(eval_report(), cost_usd=6.0))
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "stop"
+    plan_inputs = d.calls_to("batch_plan")
+    assert [p.should_wrap_up for p in plan_inputs] == [False, False]
+    assert meter.total == pytest.approx(0.0)
+    assert meter.uncounted == pytest.approx(6.0)
+    (run_start,) = [f for k, f in recording.events if k == "run_start"]
+    assert run_start["agent_cost_in_budget"] is False

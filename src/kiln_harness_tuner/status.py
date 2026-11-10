@@ -311,8 +311,11 @@ class RunStatusTracker:
         budget_usd: object = None,
         objective: object = None,
         eval_building: object = None,
+        agent_cost_in_budget: object = None,
         **_: object,
     ) -> None:
+        if isinstance(agent_cost_in_budget, bool):
+            self._status.agent_cost_in_budget = agent_cost_in_budget
         if objective in ("quality", "speed", "cost"):
             self._status.objective = objective  # type: ignore[assignment]
         if isinstance(eval_building, bool):

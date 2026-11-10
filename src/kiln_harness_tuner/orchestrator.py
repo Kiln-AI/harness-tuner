@@ -214,10 +214,18 @@ class SpendMeter:
     """An EventLog sink that accumulates `spend` events into a running total
     — wired into the fan-out beside the
     tracker so the loop can enforce `--budget-usd` at wave boundaries without
-    reaching into the UI tracker."""
+    reaching into the UI tracker.
 
-    def __init__(self) -> None:
+    `total` is the spend that counts toward `--budget-usd`. The agent lane
+    counts only when `agent_cost_in_budget` is True (the dispatcher's
+    `REPORTS_COST`). Otherwise its cost goes to `uncounted` and stays out of
+    the budget."""
+
+    def __init__(self, *, agent_cost_in_budget: bool = True) -> None:
+        self.agent_cost_in_budget = agent_cost_in_budget
         self.total = 0.0
+        # Agent-lane cost the budget does not count.
+        self.uncounted = 0.0
         # The provider lane alone — what spend reconciliation
         # compares with the records (`kiln_harness_tuner.reconcile`).
         self.provider_total = 0.0
@@ -227,8 +235,11 @@ class SpendMeter:
             return
         cost = fields.get("cost_usd")
         if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            self.total += float(cost)
             lane = fields.get("lane") or lane_for_source(str(fields.get("source")))
+            if lane == SUBSCRIPTION_LANE and not self.agent_cost_in_budget:
+                self.uncounted += float(cost)
+                return
+            self.total += float(cost)
             if lane == PROVIDER_LANE:
                 self.provider_total += float(cost)
 
@@ -486,6 +497,9 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         deadline=deadline,
         deadline_iso=(datetime.now() + timedelta(minutes=timeout_mins)).isoformat(),
         budget_usd=ctx.budget_usd,
+        agent_cost_in_budget=(
+            ctx.spend.agent_cost_in_budget if ctx.spend is not None else True
+        ),
         objective=ctx.objective,
         model_policy=ctx.model_policy.summary() if ctx.model_policy else None,
         eval_building=ctx.eval_building,

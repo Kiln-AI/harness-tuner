@@ -22,11 +22,15 @@ in the report's spend appendix.
 
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|
-| Claude Code | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. A Codex session reports tokens, not cost, and so does an OpenCode session on a plan that prices nothing: their tokens are booked as unmeasured ([agent-cli.md](agent-cli.md) sections 10 and 11). |
+| Claude Code | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. Claude Code reports each session's cost as the API would charge it. On a claude.ai subscription that is not money you pay. A Codex session reports tokens, not cost, and so does an OpenCode session on a plan that prices nothing: their tokens are booked as unmeasured ([agent-cli.md](agent-cli.md) sections 10 and 11). |
 | Kiln | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
 
 They are separate invoices, on separate accounts. `--budget-usd` is a ceiling on
-**both together**.
+the **Kiln lane**. It counts the agent lane only with OpenCode, whose sessions
+report what the provider charges. With Claude Code and Codex, the agent lane
+is not counted. The run screen and the log lines still show Claude Code's
+reported cost, marked `not in budget`, and the report's spend appendix shows
+it with a note that the budget does not count it.
 
 Which one dominates is a property of your task, not of the loop: a task whose
 eval corpus is large and whose model is expensive is provider-heavy, and a task

@@ -68,18 +68,27 @@ SPEND_APPENDIX_NOTES = (
 )
 
 
-def spend_appendix_notes(agent_cli: str = "claude") -> tuple[str, ...]:
-    """`SPEND_APPENDIX_NOTES`, with the agent lane's note for `agent_cli`."""
-    if agent_cli == "claude":
-        return SPEND_APPENDIX_NOTES
+def spend_appendix_notes(
+    agent_cli: str = "claude", agent_cost_in_budget: bool = True
+) -> tuple[str, ...]:
+    """`SPEND_APPENDIX_NOTES`, with the agent lane's note for `agent_cli`,
+    and a note when the budget does not count the agent lane."""
     label = spend_lane_labels(agent_cli)[SUBSCRIPTION_LANE]
-    return (
-        SPEND_APPENDIX_NOTES[0],
-        f"- **{label}** $ (`subscription_equivalent`) = the cost each {label}"
-        " session reports. A session that reports tokens only is counted in"
-        " tokens below, not in dollars.",
-        SPEND_APPENDIX_NOTES[2],
-    )
+    if agent_cli == "claude":
+        agent_note = SPEND_APPENDIX_NOTES[1]
+    else:
+        agent_note = (
+            f"- **{label}** $ (`subscription_equivalent`) = the cost each {label}"
+            " session reports. A session that reports tokens only is counted in"
+            " tokens below, not in dollars."
+        )
+    notes = [SPEND_APPENDIX_NOTES[0], agent_note]
+    if not agent_cost_in_budget:
+        notes.append(
+            f"- The budget (`--budget-usd`) counts the Kiln column only: the"
+            f" {label} cost is shown, but not counted."
+        )
+    return (*notes, SPEND_APPENDIX_NOTES[2])
 
 
 def _fmt_usd(value: float) -> str:
@@ -195,7 +204,10 @@ def render_spend_appendix(status: RunStatus) -> str:
             "Codex session reports tokens only, and so does an OpenCode "
             "session on a plan that prices nothing."
         )
-    lines += ["", *spend_appendix_notes(status.agent_cli)]
+    lines += [
+        "",
+        *spend_appendix_notes(status.agent_cli, status.agent_cost_in_budget),
+    ]
     return "\n".join(lines) + "\n"
 
 

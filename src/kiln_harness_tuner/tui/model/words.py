@@ -134,6 +134,8 @@ UNKNOWN = "–"
 TIME_LABEL = "Time"
 SPEND_LABEL = "Spend"
 NO_BUDGET = "no budget"
+# After the agent lane's cost when the budget does not count it.
+NOT_IN_BUDGET = "not in budget"
 BEFORE_WAVE_1 = "before wave 1"
 
 

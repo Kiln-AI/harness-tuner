@@ -317,7 +317,9 @@ def build_parser() -> _Parser:
         type=_budget,
         default=DEFAULT_BUDGET_USD,
         metavar="USD",
-        help="cost ceiling for the run (both lanes); at the ceiling the run"
+        help="cost ceiling for the run: the task's model calls, and the agents'"
+        " cost with opencode run only (the cost of claude -p and codex exec is"
+        " not counted); at the ceiling the run"
         " exits, one projected wave short of it the next wave is the wrap-up"
         f" (default {number_text(DEFAULT_BUDGET_USD)}; none = no ceiling)",
     )
@@ -1034,7 +1036,11 @@ def build_ctx(
         target=target,
         coverage_floor=coverage_floor,
         budget_usd=budget_usd,
-        spend=SpendMeter(),
+        spend=SpendMeter(
+            agent_cost_in_budget=DISPATCHERS[
+                (agent_cli or parse_agent_cli(DEFAULT_AGENT_CLI)).kind
+            ][0].REPORTS_COST
+        ),
         gate_agent=gate_agent,
         recon=recon,
         baseline_audit=baseline_audit,
@@ -1276,11 +1282,13 @@ async def _run(
                 "--max-turns has no %s equivalent and is ignored", adapter.CLI_NAME
             )
         if not adapter.REPORTS_COST and args.budget_usd is not None:
-            # The CLI reports tokens, not cost: agent sessions book $0 and
-            # their tokens as unmeasured, so the cap sees the Kiln side only.
-            logger.warning(
-                "--budget-usd with %s caps Kiln-side spend only: its sessions"
-                " report tokens, not cost",
+            # The agent sessions' cost does not count: Codex reports tokens,
+            # not cost, and the cost Claude Code reports is what the API would
+            # charge, not what a subscription pays. The cap sees the Kiln
+            # side only.
+            logger.info(
+                "--budget-usd caps the task's model calls only: %s session cost"
+                " is not counted",
                 adapter.CLI_NAME,
             )
         policy_copy: Path | None = None
