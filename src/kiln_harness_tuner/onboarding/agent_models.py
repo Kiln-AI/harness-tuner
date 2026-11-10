@@ -24,11 +24,13 @@ class AgentModel:
     description: str | None = None
 
 
+# Claude Code's aliases, each for the latest model of its family. A full
+# model name, such as claude-opus-5-5, is typed after Other.
 CLAUDE_MODELS = (
     AgentModel("opus", "The default. The strongest plans."),
     AgentModel("sonnet", "Cheaper, with weaker plans."),
     AgentModel("haiku", "The cheapest, with the weakest plans."),
-    AgentModel("claude-fable-5-2", "Claude Fable 5.2."),
+    AgentModel("fable", "Claude Fable: the latest Fable model."),
 )
 
 CODEX_MODELS = (

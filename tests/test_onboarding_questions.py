@@ -496,16 +496,16 @@ def test_opencode_has_no_list_so_its_model_is_typed():
 
 
 def test_claude_code_models_are_picked_from_its_list():
-    terminal = ScriptedTerminal(["claude", "claude-fable-5-2", "high"])
+    terminal = ScriptedTerminal(["claude", "fable", "high"])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     model = terminal.asked_about("Model for the agents")
     assert model.kind == "pick"
     assert model.offered == (*(m.name for m in CLAUDE_MODELS), " other")
-    assert "claude-fable-5-2" in model.offered
+    assert "fable" in model.offered
     assert model.default == "opus"
     assert model.hint == "Other to type a model name: an alias or a full name."
     assert [o.label for o in terminal.options[-2]][-1] == "Other…"
-    assert got.agent_cli == "claude -p --model claude-fable-5-2"
+    assert got.agent_cli == "claude -p --model fable"
 
 
 def test_codex_models_are_picked_from_its_list():
