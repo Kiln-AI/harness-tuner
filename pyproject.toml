@@ -34,7 +34,11 @@ dependencies = [
     # range is one minor version: `uv tool install` resolves it afresh,
     # without this repository's lock.
     "questionary>=2.1.1,<2.2",
-    "rich>=13.7",
+    # Textual needs rich 14.2 or later.
+    "rich>=14.2",
+    # The terminal app of an interactive run (`kiln_harness_tuner.tui`). The
+    # plain path does not import it.
+    "textual>=8.2.8,<9",
 ]
 
 [project.urls]
@@ -76,6 +80,9 @@ asyncio_mode = "auto"
 # default loop scope.
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# `-m "not slow"` leaves out the tests that drive the app in a
+# pseudo-terminal (`tests/tui/test_pty.py`). CI runs them all.
+markers = ["slow: a test that drives a real process in a pseudo-terminal"]
 
 [tool.pyright]
 # Anchor type-checking to the package venv — without this, an editor (or a

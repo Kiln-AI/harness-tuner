@@ -15,6 +15,7 @@ from kiln_harness_tuner.logbook import (
     configure_run_logging,
     log_path,
     resolve_level,
+    run_log_configured,
 )
 
 
@@ -97,3 +98,9 @@ def test_resolve_level_reads_the_env_var(tmp_path, monkeypatch):
     path = configure_run_logging(tmp_path / "env")
     logging.getLogger("kiln_harness_tuner.x").debug("from the env")
     assert "from the env" in path.read_text()
+
+
+def test_run_log_configured_says_whether_the_run_log_is_on_the_root_logger(tmp_path):
+    assert not run_log_configured()
+    configure_run_logging(tmp_path)
+    assert run_log_configured()

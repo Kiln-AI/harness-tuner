@@ -69,6 +69,15 @@ def _remove_existing(root: logging.Logger) -> None:
             handler.close()
 
 
+def run_log_configured() -> bool:
+    """Whether `configure_run_logging` has put the run log on the root
+    logger. Until then a log record with no handler goes to stderr."""
+    return any(
+        getattr(handler, "name", None) == _HANDLER_TAG
+        for handler in logging.getLogger().handlers
+    )
+
+
 def configure_run_logging(run_dir: Path, *, level: int | str | None = None) -> Path:
     """Point the root logger at `runs/<run_id>/kiln-harness-tuner.log` and return the
     path.

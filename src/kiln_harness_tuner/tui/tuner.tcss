@@ -1,0 +1,73 @@
+/* The app's stylesheet: ui_design sections 4, 8 and 9 in TCSS. Colors are
+   theme variables only; the themes are in theme.py. */
+
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+/* 4.1 Title bar */
+.title-bar {
+    dock: top;
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+}
+
+/* 4.3 Card */
+Card {
+    height: auto;
+    padding: 0 1;
+    background: $surface;
+    border: round $border-muted;
+    border-title-color: $foreground;
+    border-title-style: none;
+    border-subtitle-color: $text-muted;
+    border-subtitle-style: none;
+    border-subtitle-align: right;
+    &.-live { border: round $primary; }
+}
+
+/* ---- Start-up screen (8) ---- */
+
+#welcome {
+    width: 68;
+    margin: 1 2;
+}
+
+/* ---- Run screen ---- */
+
+#run-title, #run-mode, #run-log {
+    height: auto;
+    padding: 0 1;
+}
+#run-title { margin-top: 1; }
+#run-mode { margin-top: 1; text-style: bold; }
+#run-log { margin-top: 1; }
+
+/* ---- 4.11 Stop dialog ---- */
+
+StopDialog {
+    align: center middle;
+    background: $background 60%;
+}
+#dialog {
+    width: 60;
+    padding: 0 2;
+    background: $panel;
+    border: round $primary;
+    & > #dialog-message { margin: 1 0; }
+}
+#dialog-buttons {
+    height: 1;
+    align-horizontal: right;
+    margin-bottom: 1;
+    & > Button { margin-left: 2; padding: 0 2; }
+}
+#dialog-buttons Button {
+    background: $border-muted;
+    color: $foreground;
+    &:focus { background: $primary; color: $block-cursor-foreground; text-style: bold; }
+    &.-error { color: $text-error; }
+    &.-error:focus { background: $error; color: $block-cursor-foreground; }
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,3 +20,8 @@ class Stamped:
     fields: Mapping[str, Any]
     mono: float
     wall: datetime
+
+    @classmethod
+    def now(cls, kind: str, fields: Mapping[str, Any] | None = None) -> Stamped:
+        """`kind` and `fields`, stamped with this moment."""
+        return cls(kind, fields or {}, time.monotonic(), datetime.now())

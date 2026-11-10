@@ -144,6 +144,9 @@ def test_the_stop_dialog_names_what_is_in_flight():
         "The planner is at work on wave 5. Its work so far is lost, and no"
         " report is written."
     )
+    assert words.stop_question(0, None) == (
+        "The run's work so far is lost, and no report is written."
+    )
     assert words.stopping_detail(4) == "cancelling 4 experiments"
 
 

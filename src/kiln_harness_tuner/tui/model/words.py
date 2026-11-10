@@ -269,6 +269,12 @@ def stopping_detail(live: int) -> str:
     return f"cancelling {plural(live, 'experiment')}"
 
 
+# The stop dialog (functional spec section 9, ui_design section 9).
+STOP_TITLE = "Stop the run?"
+KEEP_RUNNING = "Keep running"
+STOP_THE_RUN = "Stop the run"
+
+
 def stop_question(live: int, planning_wave: int | None) -> str:
     """The stop dialog's message (functional spec section 9)."""
     if not live and planning_wave is not None:
@@ -276,6 +282,9 @@ def stop_question(live: int, planning_wave: int | None) -> str:
             f"The planner is at work on wave {planning_wave}. Its work so far is"
             " lost, and no report is written."
         )
+    if not live:
+        # The run's own start, or a gate: no experiment to name.
+        return "The run's work so far is lost, and no report is written."
     are = "is" if live == 1 else "are"
     return (
         f"{plural(live, 'experiment')} {are} in flight. Their work so far is"
@@ -588,6 +597,7 @@ MEMORY_KINDS = {"lesson": "Lesson", "dead_end": "Dead end", "issue": "New issue"
 
 # ---- the labels the widgets draw around the views ----
 
+TITLE_MARK = "KILN HARNESS TUNER"
 GOAL_ROLES = {"optimize": "▲ optimize", "hold": "═ hold", "watch": "○ watch"}
 GOAL_DATA_LABEL = "data"
 LAST_WAVE_TAG = "LAST WAVE"
