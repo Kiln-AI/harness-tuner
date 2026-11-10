@@ -48,7 +48,12 @@ that came up during and after the recording.
    transforms and more). Audit what Kiln can do against what the tuner's Kiln
    interface exposes. Add the missing APIs, possibly as separate phases. The
    tuner is itself a harness, so its own tools must be tuned the way we would
-   tune a client's.
+   tune a client's. Today the tuner can only attach sub-agents, RAG tools
+   and OpenEnv worlds that already exist. It cannot create or change them.
+   We want to close these gaps. MCP servers are the exception: the tuner
+   does not connect or change them. The planning for this project includes a
+   **ranked gaps document** (`kiln_gaps.md`), which also tracks gaps in Kiln
+   itself.
 3. **Red-flag detection.** Cheap software analysis of the harness and of
    traces, run before and during planning, that hands the tuner the obvious
    problems (section 9).
@@ -90,6 +95,13 @@ Experiments always decide the result. The skill gives ideas for what to try
 and in what order. If an experiment shows a better result, that result is
 final. **Nothing in the skill is a rule of the form "you must do X".** It is
 guidance about which experiments to try, in which order.
+
+**What does not go in the knowledge.** There is a line, set by the chance
+of learning a fact against the cost of learning it. A fact about the current
+moment that the experiment loop finds cheaply does not go in the knowledge.
+Example: current Claude models reject a non-default temperature or top-p.
+The experiment builder learns this from one failed call, and it will change
+over time. The knowledge is for what is expensive to learn by experiment.
 
 **The irony, stated plainly.** This project writes down how to tune
 harnesses, when our principle is that tuning is done by iterative
@@ -247,6 +259,14 @@ seven calls in a row, so one tool does it".
   search, and pick the right terms. A side skill that lists the tools with
   good progressive disclosure is almost always better.
 
+**More tool techniques** (from the research; treat them as techniques in
+tool optimisation):
+
+- **Tool removal.** Fewer tools, and fewer tools that overlap, can raise
+  accuracy. Removing or scoping tools is an experiment.
+- **Error-message design.** A tool error is a prompt. An error that says
+  what was wrong and what to do next lets the agent correct itself.
+
 Tool redesign is large enough to be nearly its own project.
 
 ### 6.4 Model and settings
@@ -255,8 +275,9 @@ Tool redesign is large enough to be nearly its own project.
 schema, or asking for JSON in the prompt), thinking level and others. Do a
 full review of what Kiln supports and document it as part of this project.
 Kiln tries to set good defaults, so most settings stay at default.
-Exceptions exist: one DeepSeek model needed a lower temperature for reliable
-tool calls and JSON. Model cards are sometimes a good source.
+Exceptions exist: one DeepSeek model (which one is not certain, perhaps an
+older Pro model) needed a lower temperature for reliable tool calls and
+JSON. This is an illustration, not a recorded lesson. Model cards are sometimes a good source.
 
 **Model.** Probably the largest single lever. A top model solves most things
 given time. The questions are speed and cost, and hosting cost if it needs a
@@ -372,7 +393,9 @@ models. The input side is like an LLM. The output is a prediction, in
 effect one token for the class. They are very cheap, very fast and capable
 for the price. **Consider them for every classification
 task**, possibly with input transforms. They do nothing for free-text
-output. More uses are coming to the Kiln harness but are not shipped.
+output. In Kiln today, Jev can be used for select tasks only: tasks with a
+classifier shape. Other uses are coming to the Kiln harness but are not
+shipped.
 
 ### 7.5 Context loading
 
@@ -415,8 +438,8 @@ year):
 An agent that makes stateful changes needs a stateful environment for evals.
 Do not run it against production. Evals against a staging MCP server go
 stale even for reads: "how many were there last week" has a different answer
-next week. Kiln supports OpenEnv-style environments (not all of it is merged
-to main), and the Seahaven project can build one. The tuner must sometimes
+next week. Kiln supports OpenEnv-style environments (the support is on main,
+but there is no UI for it yet), and the Seahaven project can build one. The tuner must sometimes
 raise the flag: "these evals fail for an environment reason, because they
 were written against staging three weeks ago".
 
