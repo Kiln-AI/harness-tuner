@@ -282,6 +282,8 @@ A card keeps its size and its place from the start of the wave to its verdict. A
 
 Left out of the cards and kept for the log (decided): the check findings, the stop-rule names, chunk numbers and the plan's predicted effect.
 
+Four of these are too long for a card. The cards use shorter words for them, and the log keeps the words above (decided in the UI design review; the forms are in `ui_design.md` section 7.5).
+
 **Done mode** replaces the cards with the run summary:
 
 - how the run ended, in plain words (time limit, budget, nothing left to try, tripwire, provider error, stopped by you);
