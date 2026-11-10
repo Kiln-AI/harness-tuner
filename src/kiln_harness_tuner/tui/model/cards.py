@@ -554,7 +554,7 @@ def done_view(model: RunModel) -> DoneView:
         report = words.WRITING_REPORT
     shipped = model.confirmed_rc or model.start_rc
     return DoneView(
-        ended=words.how_it_ended(model.exit_reason),
+        ended=words.how_it_ended(model.exit_reason, model.exit_detail),
         summary=summary,
         totals=totals,
         best=best,

@@ -529,6 +529,18 @@ def test_plain_ui_prints_one_line_per_event():
     assert sum("total $" in line for line in lines) == 2
 
 
+def test_plain_exit_line_says_how_little_time_was_left():
+    status = run_status(elapsed_secs=226.0, time_remaining_known=True)
+    detail = "3m46s left after setup, under the 15-minute minimum to start a wave"
+    assert plain_exit_line({"reason": "timeout", "detail": detail}, status) == (
+        f"exit: timeout ({detail}) — total $14.20 · 3m46s elapsed · 1h42m left"
+    )
+    # Only a timeout's detail: a provider error has its own line.
+    assert plain_exit_line(
+        {"reason": "quota_exhausted", "detail": "429"}, status
+    ).startswith("exit: quota_exhausted — total")
+
+
 def test_plain_exit_line_is_the_plain_ui_exit_line():
     status = run_status(elapsed_secs=2483.0, time_remaining_known=True)
     assert plain_exit_line({"reason": "wrap_up"}, status) == (

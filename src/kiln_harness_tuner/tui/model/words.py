@@ -556,10 +556,15 @@ _ENDINGS = {
 }
 
 
-def how_it_ended(reason: str | None) -> str:
+def how_it_ended(reason: str | None, detail: str | None = None) -> str:
+    """How the run ended, with `detail` after it when there is one: `Time
+    limit reached (3m46s left after setup, under the 15-minute minimum to
+    start a wave)`."""
     if reason is None:
         return "The run ended"
     if reason in _ENDINGS:
+        if detail:
+            return f"{_ENDINGS[reason]} ({detail})"
         return _ENDINGS[reason]
     if reason.startswith("fatal:"):
         return f"Failed: {reason.removeprefix('fatal:')}"

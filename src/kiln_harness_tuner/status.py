@@ -176,6 +176,16 @@ def _copy(scores: Sequence[str] | None) -> list[str] | None:
     return list(scores) if scores is not None else None
 
 
+def exit_detail(reason: object, detail: object) -> str | None:
+    """The `exit` event's `detail` as the run screen, the plain log and the
+    report show it: only on a `timeout`, where it says how much time was
+    left (`orchestrator.wave_floor_detail`). Other details stay in the wave
+    log: a provider error has its own line, and a crash its traceback."""
+    if reason != "timeout" or not isinstance(detail, str) or not detail:
+        return None
+    return detail
+
+
 def spend_split(by_lane: Mapping[str, float]) -> tuple[float, float]:
     """`(kiln, other)` from a per-lane fold — the run's own `spend_by_lane`
     or one item's. The agent lane holds no money (`_on_spend`).
@@ -731,5 +741,6 @@ class RunStatusTracker:
         ):
             self._status.baseline_history.append(decision.winner_rc_id)
 
-    def _on_exit(self, reason: str, **_: object) -> None:
+    def _on_exit(self, reason: str, detail: object = None, **_: object) -> None:
         self._status.exit_reason = reason
+        self._status.exit_detail = exit_detail(reason, detail)

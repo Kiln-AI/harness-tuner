@@ -228,8 +228,8 @@ def _without_label(overview: str) -> str:
     return overview
 
 
-def ended(reason: str | None) -> str:
-    return f"Run ended: {words.how_it_ended(reason)}"
+def ended(reason: str | None, detail: str | None = None) -> str:
+    return f"Run ended: {words.how_it_ended(reason, detail)}"
 
 
 def report_written(fallback: bool) -> str:

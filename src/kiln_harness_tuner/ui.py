@@ -28,7 +28,7 @@ from kiln_harness_tuner.schemas import (
     RunStatus,
     spend_lane_labels,
 )
-from kiln_harness_tuner.status import RunStatusTracker, spend_split
+from kiln_harness_tuner.status import RunStatusTracker, exit_detail, spend_split
 
 _FINDING_WIDTH = 60
 # Widest kind noun (`status.item_kind`): "measure" — the column exists to
@@ -197,7 +197,10 @@ def plain_exit_line(fields: Mapping[str, object], status: RunStatus) -> str:
     totals keep moving after `exit` (the clock, and the report writer's
     spend), so a caller builds the line from a snapshot taken while it
     handles that event, as `PlainUi` does."""
-    return f"exit: {fields.get('reason')}{totals_suffix(status)}"
+    reason = fields.get("reason")
+    detail = exit_detail(reason, fields.get("detail"))
+    why = f" ({detail})" if detail else ""
+    return f"exit: {reason}{why}{totals_suffix(status)}"
 
 
 def _fmt_tokens(count: int) -> str:

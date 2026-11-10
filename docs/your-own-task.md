@@ -535,7 +535,7 @@ shows why in red under the field and asks again, keeping what you typed.
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), at least 1 minute, rounded to the nearest minute. |
+| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 30 minutes: setup takes a few minutes, and no wave starts with less than 15 minutes left. Plan on 1 hour or more for more than one wave. |
 | Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
 - **The agent CLI and its model** make one `--agent-cli` command: the model
@@ -551,8 +551,14 @@ shows why in red under the field and asks again, keeping what you typed.
   and no wave starts past it. It never counts the tuner's agents: they run on
   your agent CLI's account, and the run shows their tokens for information.
   The summary's Limits line says so.
-- **The time limit**: no wave starts after it, and work still running at the
-  limit is cancelled, so leave room for a whole wave.
+- **The time limit**: at least 30 minutes. Setup runs first and takes a few
+  minutes, and no wave starts with less than 15 minutes left, so a shorter
+  limit can end the run before its first wave. Plan on 1 hour or more for more
+  than one wave. No wave starts after the limit, and work still running at
+  the limit is cancelled, so leave room for a whole wave. When a run ends
+  because too little time is left, the Done screen, the exit line and the
+  report say how much was left, for example `3m46s left after setup, under
+  the 15-minute minimum to start a wave`.
 
 The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or

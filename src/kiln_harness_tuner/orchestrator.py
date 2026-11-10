@@ -187,6 +187,21 @@ WRAP_UP_WINDOW_SECS = 30 * 60
 # than a planner session plus the cheapest arm, so below this the loop goes
 # straight to the report.
 MIN_WAVE_START_SECS = 15 * 60
+
+
+def wave_floor_detail(left_secs: float, waves_done: int) -> str:
+    """The `exit` event's `detail` when too little time is left to start a
+    wave: `3m46s left after setup, under the 15-minute minimum to start a
+    wave`. The run screen, the plain log and the report show it as it is."""
+    secs = max(int(left_secs), 0)
+    left = f"{secs // 60}m{secs % 60:02d}s" if secs >= 60 else f"{secs}s"
+    after = "setup" if waves_done < 1 else f"wave {waves_done}"
+    return (
+        f"{left} left after {after}, under the {MIN_WAVE_START_SECS // 60}-minute"
+        " minimum to start a wave"
+    )
+
+
 # An item that is ANALYZING at the deadline has already paid for its build
 # and its drives; the analysis is one bounded agent session and the only
 # thing standing between that spend and a stored verdict. Such items get
@@ -709,10 +724,7 @@ async def _run_loop(
             ctx.log.event(
                 "exit",
                 reason=exit_reason,
-                detail=(
-                    f"{int(deadline - cycle_started)}s left, under the "
-                    f"{MIN_WAVE_START_SECS}s floor to start a wave"
-                ),
+                detail=wave_floor_detail(deadline - cycle_started, wave - 1),
             )
             break
         projected = fmean(wave_cycle_secs) if wave_cycle_secs else None

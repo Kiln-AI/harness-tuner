@@ -21,9 +21,11 @@ from kiln_harness_tuner.onboarding.questions import (
     COUNT_ERROR,
     DURATION_ERROR,
     FRACTION_ERROR,
+    MIN_TIME_LIMIT_MINS,
     MODEL_ERROR,
     OBJECTIVES,
     QUESTIONS,
+    TIME_LIMIT_ERROR,
     Answers,
     QuestionContext,
     advanced_changes,
@@ -35,6 +37,7 @@ from kiln_harness_tuner.onboarding.questions import (
     budget_default,
     budget_text,
     changeable,
+    check_time_limit,
     duration_default,
     duration_text,
     guidance_text,
@@ -46,6 +49,7 @@ from kiln_harness_tuner.onboarding.questions import (
     parse_fraction,
 )
 from kiln_harness_tuner.onboarding.summary import parser_defaults
+from kiln_harness_tuner.orchestrator import MIN_WAVE_START_SECS
 
 DEFAULTS = parser_defaults(build_parser().option_dests)
 EVERY_DEST = frozenset().union(*(question.dests for question in QUESTIONS))
@@ -142,10 +146,10 @@ def test_parse_budget_refuses(text):
         ("12h", 720),
         ("1.5h", 90),
         (" 3H ", 180),
-        ("1", 1),
-        ("1.5", 2),  # whole minutes, to the nearest
-        ("2.4", 2),
-        ("0.1h", 6),
+        ("30", 30),
+        ("29.5", 30),  # whole minutes, to the nearest
+        ("30.4", 30),
+        ("0.5h", 30),
         ("2 h", 120),
     ],
 )
@@ -159,6 +163,27 @@ def test_parse_duration_accepts(text, minutes):
 def test_parse_duration_refuses(text):
     with pytest.raises(ValueError, match=f"^{DURATION_ERROR}$"):
         parse_duration(text)
+
+
+@pytest.mark.parametrize("text", ["1", "20m", "29", "29.4", "0.1h", ".45h"])
+def test_parse_duration_refuses_under_30_minutes(text):
+    with pytest.raises(ValueError) as refused:
+        parse_duration(text)
+    assert str(refused.value) == TIME_LIMIT_ERROR
+
+
+def test_the_time_limit_minimum_says_why():
+    assert MIN_TIME_LIMIT_MINS == 30
+    assert check_time_limit(30) == 30
+    with pytest.raises(ValueError):
+        check_time_limit(29)
+    # The words match the loop's own floor to start a wave.
+    assert MIN_WAVE_START_SECS == 15 * 60
+    assert TIME_LIMIT_ERROR == (
+        "Enter at least 30 minutes. Below that the run can end before its"
+        " first wave: setup takes a few minutes, and no wave starts with less"
+        " than 15 minutes left"
+    )
 
 
 @pytest.mark.parametrize(("text", "value"), [("0.1", 0.1), ("1", 1.0), (" .5 ", 0.5)])
@@ -358,8 +383,8 @@ def test_the_objective_rows_and_the_hints():
         "The most this run may spend on the task's model calls, in USD. The"
         " tuner's agents run on your agent CLI's account and are not counted."
         " No wave starts past it. Type none for no cap.",
-        "No wave starts after this, and work still running at the limit is"
-        " cancelled, so leave room for a whole wave.",
+        "At least 30m. Plan on 1h or more for more than one wave. No wave"
+        " starts after the limit, and work still running at it is cancelled.",
     ]
     assert [option.label for option in terminal.options[1]] == [
         "Claude Code: claude -p",
@@ -650,6 +675,18 @@ def test_a_time_limit_is_typed_in_minutes_or_hours():
     assert typed.refusals == [DURATION_ERROR] * 2
     assert got.timeout_mins == 120
     assert terminal.step_lines() == ["Time: 2 hours"]
+
+
+def test_a_time_limit_under_30_minutes_is_refused():
+    typed = Typed("5m", "30m")
+    terminal = ScriptedTerminal([typed])
+    got = ask_all(answers(), context(terminal), given=EVERY_DEST - {"timeout_mins"})
+    assert typed.refusals == [TIME_LIMIT_ERROR]
+    assert got.timeout_mins == 30
+    assert terminal.asked[0].hint == (
+        "At least 30m. Plan on 1h or more for more than one wave. No wave"
+        " starts after the limit, and work still running at it is cancelled."
+    )
 
 
 # ---- the advanced options ----
