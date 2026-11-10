@@ -59,7 +59,7 @@ These are the only building blocks.
 
 ### 4.1 Title bar
 
-One line, docked at the top, on `$panel`. On the left: the mark ("◆ KILN HARNESS TUNER", the ◆ in brand red, the words bold), then the task name and the run id. On the right, muted: the agent CLI and the slot counts. The same bar is on the start-up screen and the run screen.
+One line, docked at the top, on `$panel`. On the left: the mark ("◆ KILN HARNESS TUNER", the ◆ in brand red, the words bold), then the task name and the run id. On the right, muted: the agent CLI and the slot counts. The same bar is on the start-up screen and the run screen. On the start-up screen it shows only what is known: the task name once a task is chosen, and no run id, agent CLI or slot counts.
 
 ### 4.2 Section header
 
@@ -87,7 +87,7 @@ Textual's `ProgressBar` with the percentage and ETA hidden, with a label on the 
 
 ### 4.6 Steps
 
-A one-line row of stage names: `✓ build  ✓ measure  ⠸ analyze  · gate`. Done stages are muted with a green ✓. The current stage is bold `$primary` with a spinner. Later stages are muted with `·`. A stop shows a red ✕ on the stage where it stopped.
+A one-line row of stage names: `✓ build  ✓ measure  ⠸ analyze  · gate`. Done stages are muted with a green ✓. The current stage is bold `$primary` with a spinner. Later stages are muted with `·`. A stop shows a red ✗ on the stage where it stopped.
 
 ### 4.7 Step line
 
@@ -103,7 +103,7 @@ A short label in reverse video, for example ` LAST WAVE ` in `$warning`. Only fo
 
 ### 4.10 Log line
 
-A muted time, a glyph colored by meaning (section 5), and plain text. Promotions are bold. A wave divider is a muted rule with the wave's name.
+A muted time, a glyph colored by meaning (section 5), and plain text. Promotions are bold. A wave divider is a muted rule with the wave's name. A long line wraps under its text column, never under the time. A log line is never cut short: it carries the full wording.
 
 ### 4.11 Dialog
 
@@ -118,10 +118,10 @@ Textual's `Footer`, showing the bindings of the current screen.
 | Glyph | Means |
 |---|---|
 | ✓ | Done, passed |
-| ✕ | Stopped, rejected, failed |
+| ✗ | Stopped, rejected, failed. The one cross: the start-up's ✗ and the run's are the same glyph |
 | ● | Success |
 | ○ | No win |
-| ◆ | Promoted, Best Confirmed |
+| ◆ | Promoted. Always green, on the timeline, in the log and on the cards |
 | ▸ | A wave started |
 | ! | Warning |
 | ? | Assumed answer to an open question |
@@ -135,20 +135,22 @@ Textual's `Footer`, showing the bindings of the current screen.
 
 **Design size:** a full-screen terminal on a laptop, about 210×62. A smaller window scrolls the whole screen vertically. There is no compact design.
 
-**Breakpoints** (`HORIZONTAL_BREAKPOINTS`): at 150 columns and up, Experiments takes the left two-thirds and the Log the right third of the bottom area. Below 150 columns they stack, with the Log under Experiments at a fixed height of 12 rows.
+**Breakpoints** (`HORIZONTAL_BREAKPOINTS`): at 150 columns and up, Experiments takes the left 68% and the Log the rest of the bottom area, and Goal and Time & spend sit side by side. Below 150 columns they stack: the Log goes under Experiments at a fixed height of 12 rows, and Time & spend goes under Goal. Goal needs 62 columns, so it can't share a narrow row.
+
+**The bottom area** is at least as tall as Experiments. When the cards are taller than the space left, the whole screen scrolls; the cards are never cut off.
 
 **Run screen, top to bottom:**
 
 ```
 Title bar                                                        1 row
-Goal (one third)              | Time and spend (two thirds)      6 rows
+Goal (one third, min 62 cols) | Time and spend (two thirds)      6 rows
 Run timeline                                                     5 rows
 Results: header and key, then the card grid                      grows
-Experiments (two thirds)      | Log (one third, full height)     the rest
+Experiments (68%)             | Log (the rest, full height)      the rest
 Footer                                                           1 row
 ```
 
-**Card widths:** Results cards are at least 34 columns wide (about 5 per row at 210 columns). Experiment cards are at least 44 columns wide (about 3 per row in the two-thirds column at 210).
+**Card widths:** Results cards are at least 34 columns wide (5 per row at 210 columns, 3 at 120). Experiment cards are at least 44 columns wide (3 per row in the 68% column at 210, 2 at 120). The grid picks its column count from its width, so cards in one grid always share one width.
 
 ## 7. Run screen sections
 
@@ -174,13 +176,15 @@ A section header "TIME & SPEND", with "wave 4 of ~7" and the [LAST WAVE] tag rig
 A section header "RUN TIMELINE" with a muted legend on the right. Then:
 
 - a row of wave labels ("w1", "w2", …) above their planning segments;
-- the strip: planning in muted `░`, screening in yellow `▒`, experiments in blue `▓`, a gate with a promotion as a foreground `◆`, a gate with no winner as a muted `·`, and projected waves as a faint `┄`;
+- the strip: planning in muted `░`, screening in yellow `▒`, experiments in blue `▓`, a gate with a promotion as a green `◆`, a gate with no winner as a muted `·`, and projected waves as a faint `┄`;
+- setup (preflight, sync, baseline, models, detection, noise) is one muted `░` segment labelled "setup". Wave 0's recon probes, when there are any, are blue `▓` inside it, with no label of their own;
+- projected waves get faint labels ("w5", "w6", …). In the last wave there are no projected labels: the faint `┄` runs on to the time limit, and the report segment is labelled "report" once it starts;
 - the time axis with ticks every 30 minutes;
 - the now marker, a blue `▲`, with the clock time.
 
 ### 7.4 Results
 
-A section header "RESULTS" with the key and the "Compare in Kiln UI ↗" link. The key wraps to its own line below 150 columns. Then a grid of cards, one per concern.
+A section header "RESULTS" with the key and the "Compare in Kiln UI ↗" link. The key sits on the header line when it fits there (the app measures it; it is about 124 columns, and its length depends on the Best Confirmed name). Otherwise it goes on its own line under the header, and wraps between entries, never inside one. Then a grid of cards, one per concern.
 
 ```
 ╭ Refusal honesty · p0 ──────────────────╮
@@ -212,9 +216,20 @@ A section header "EXPERIMENTS" with the mode and the wave ("Running · wave 4 fr
 
 - Line 1–2: the hypothesis (foreground).
 - Line 3: the steps (4.6).
-- Line 4: the judged-item strip, one cell per item: green █ fixed, dim green ▓ held, dim red ░ still failing, red ✕ broke, muted · queued. When the items don't fit, a gauge replaces the strip.
-- Line 5: the result so far, or the verdict when landed, in the functional spec's words.
-- Every card has the same height in every state.
+- Line 4: the judged-item strip, one cell per item: green █ fixed, dim green ▓ held, dim red ░ still failing, red ✗ broke, muted · queued. When the items don't fit, a gauge replaces the strip.
+- Line 5: the result so far, or the verdict when landed. Once landed, line 5 changes only when the gate decides.
+- Every card has the same height in every state. Lines that don't fit end with "…".
+
+**Card copy.** Line 5 has about 40 columns. The functional spec's verdict words are used as they are, except these three, which are too long for a card. The log keeps the full words.
+
+| Functional spec (and the log) | Card |
+|---|---|
+| Stopped: quality clearly worse than its parent | Stopped: quality clearly worse |
+| Stopped: broke too many items that passed | Stopped: broke too many passing items |
+| Stopped: reached its spending cap (inconclusive) | Stopped: spending cap, inconclusive |
+| Stopped: clearly slower / costlier than its parent | Stopped: clearly slower / Stopped: clearly costlier |
+
+"Dead end: \<reason\>" and "Failed: \<error class\>" end with "…" when the reason is long; the log has it in full.
 
 **Card variants**, by item type and state:
 
@@ -224,7 +239,9 @@ A section header "EXPERIMENTS" with the mode and the wave ("Running · wave 4 fr
 | Fix, measuring | concern · kind | hypothesis | steps | item strip and count | fixed and broke so far |
 | Fix, analyzing | concern · kind | hypothesis | steps | item strip and count | fixed and broke |
 | Fix, landed | concern · kind | hypothesis | steps | item strip and count | the verdict, colored by meaning |
-| At the gate | concern · kind | hypothesis | steps with gate current | val progress gauge, "312 of 520 val items" | "◆ At the gate · 7 fixed · 1 broke" |
+| At the gate | concern · kind | hypothesis | steps with gate current | val progress gauge, "312 of 520 val items" | the landed verdict, "● Success · goes to the gate", until the gate decides |
+| Promoted | concern · kind | hypothesis | steps, gate ✓ | item strip and count | "◆ Promoted · now Best Confirmed" in green |
+| Rejected | concern · kind | hypothesis | steps, gate ✗ | item strip and count | "✗ Rejected at val" in red |
 | Merge | "All evals · merge" | "Combine w3-1 and w3-3 on top of w3-4" | steps | as Fix | as Fix |
 | Probe | "Question · probe" | the question | "✓ asked  ⠸ answering" | "3 drives" | "● YES, 3 of 3 drives" |
 | Eval build | concern · eval build | "Build an eval for \<issue\>" | "⠸ build" | – | "Eval built" or the reason |
@@ -232,7 +249,7 @@ A section header "EXPERIMENTS" with the mode and the wave ("Running · wave 4 fr
 | Re-measure | concern · re-measure | "Complete the measurement of \<run config\>" | "⠸ measure" | gauge | "Measured" |
 | Queued | as the type | as the type | all stages `·` | "waiting for an agent slot" | – |
 
-**Starting and Planning modes** show step lines (4.7) above the cards. In Planning, the last wave's cards stay below with a muted header "LAST WAVE · wave 4", until the new plan replaces them.
+**Starting and Planning modes** show step lines (4.7) above the cards. In Starting, the recon probes' cards sit under a muted header "WAVE 0 · recon probes", with "Wave 1 is planned when the recon probes finish." under them. In Planning, the previous wave's cards stay below with a muted header "WAVE 4 · landed", until the new plan replaces them. ("LAST WAVE" is only the tag, so it is not used here.)
 
 **Done mode** shows one wide card titled "RUN COMPLETE" in place of the grid, with the summary lines and links from the functional spec.
 
@@ -245,7 +262,7 @@ A section header "LOG". Textual's `RichLog`, newest at the bottom. It follows th
 15:19 ▸ Wave 4 from w3-4 · 5 experiments, 1 probe
 15:24 + w4-1 adds get_container_for_hold
 15:25 ! w4-4: copied judge text, rebuilding once
-15:29 ✕ w4-6 thinking low: stopped, can't beat its parent
+15:29 ✗ w4-6 thinking low: stopped, can't beat its parent
 15:31 ● w4-2 Refusal honesty: success, goes to the gate
 15:41 ◆ w4-2 promoted · Refusal honesty +7.8 on val
 ```
@@ -256,16 +273,18 @@ One screen, a transcript that grows down, with the title bar on top and the foot
 
 | Part | Look | Textual pieces |
 |---|---|---|
-| Welcome | A card titled "Welcome", with the welcome text | Container with border title |
+| Welcome | A card titled "Kiln Harness Tuner" in bold `$primary`, with the welcome text and the version as the subtitle | Container with border title and subtitle |
 | Step history | Step lines (4.7) | Static rows |
 | Busy | A step line with a blue spinner in place of the glyph | Static with a timer |
 | Problem | A card with a red border and the ✗ title as its border title; body lines, then warnings as `!` lines | Container |
 | Action menu ("What next?") | The question, then rows "r) Check again", one per action, the highlighted row in reverse `$primary`. One key acts at once. | `OptionList` with key bindings |
 | Picker | The question, a filter input, the rows with aligned columns, the highlighted row's description under the list, and the hint line in muted text. Disabled rows are muted with their reason and can't be highlighted. | `Input` and `OptionList` |
 | Text answer | The question, an input with the default pre-filled, the hint, and the validator's message in red under the input | `Input` with a validator |
-| Summary | A card titled "Summary" with the summary lines, the rerun command in a muted line, then "Start the run?" as an action menu | Container, `OptionList` |
+| Summary | A card titled "Ready to start" with the summary lines and the rerun command in muted text, then "Start the run?" as an action menu | Container, `OptionList` |
 
 When an answer is given, its prompt is removed and its step line takes its place. The newest part is always in view.
+
+The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to start", "\<task\> isn't ready to tune yet"). The look changes; the words don't.
 
 ## 9. Stop dialog, stopping and closing
 
@@ -290,7 +309,7 @@ When an answer is given, its prompt is removed and its step line takes its place
 
 | Screen | Keys |
 |---|---|
-| Start-up | The prompt's own keys (functional spec section 5); Ctrl+C stop; Ctrl+D stop |
+| Start-up | The prompt's own keys (functional spec section 5); the footer shows `^c Stop` then `^d Exit` on every part |
 | Run | `c` Compare in Kiln UI, `l` Lineage in Kiln UI, `r` Report (once it exists), `q` / Ctrl+C stop dialog; mouse wheel and Page Up / Page Down scroll the log or the screen |
 | Done | `c`, `l`, `r`, `q` / Enter close |
 | Stop dialog | Tab / arrows move, Enter chooses, Esc keeps running |
@@ -314,5 +333,18 @@ When an answer is given, its prompt is removed and its step line takes its place
 `ui_preview/` holds a small Textual app with hardcoded data that draws every screen in this document. It is design material, not product code, and it is not shipped.
 
 - Run it: see `ui_preview/README.md`.
-- Keys in the preview switch between the start-up parts, the run modes, the card variants, the stop dialog, and the light and dark themes.
+- Keys in the preview switch between the start-up parts, the run modes, the card variants, the stop dialog, and the light and dark themes. They are hidden from the footer, so the footer shows only the real app's keys.
 - `ui_preview/screenshots/` holds SVG screenshots of each screen at 210×62 and at 120×40, made by its screenshot script.
+
+## 13. Textual notes from the preview
+
+Building the preview on Textual 8.2.8 found these. The architecture has to allow for them.
+
+- **Themes** must be registered in `App.__init__`, before the first screen mounts. Theme colors in borders must be hex: a computed color such as `$text-muted` (`auto 60%`) is not valid in a border rule.
+- **Ctrl+C and Ctrl+D** are taken by `Input`, `Screen` and `App` bindings. The app's stop and exit keys need `priority=True`.
+- **A focused `Input`** takes every printable key, priority bindings included. The start-up's text answers and picker filters have the focus, so the only keys there are the prompt's own and the Ctrl keys.
+- **`RichLog`** renders each line at the width it has when written. It must write its lines again on resize and on a theme change, and needs `overflow-x: hidden`.
+- **Layout needs some Python on resize:** the card grids' column counts, the bottom area's minimum height, and the Results key's place.
+- **Render widgets with `shrink`** can cache a width of 0. The bars and the strip size themselves from the container instead.
+- **There is no two-line clamp.** The hypothesis wraps at the card width and cuts its second line with "…" in Python.
+- **A `ModalScreen`** has its own bindings, so it needs its own `Footer`.
