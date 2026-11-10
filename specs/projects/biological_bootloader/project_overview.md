@@ -311,6 +311,17 @@ newer one of the same line is out. The tuner needs access to benchmarks and
 tools that give the latest state, and a maintained set of "reasonable models
 to try in this situation".
 
+**The source of the model guide.** "The best models for the job" is derived
+from Kiln's model file (`ml_model_list.py`). Kiln already publishes that
+list over the air. This repository pulls it in and generates the prompt text
+it needs from it. The benefits:
+
+1. It gives us an over-the-air publishing channel that does not depend on a
+   PyPI release.
+2. We already have a skill that maintains that file.
+
+We may need to add fields to the model file. That is acceptable.
+
 **A provider guide.** The same idea for providers, and it changes as fast.
 Examples: Groq and Cerebras offer extremely fast inference; providers X, Y
 and Z offer zero data retention; Cloudflare is slow; OpenRouter has gotchas.
