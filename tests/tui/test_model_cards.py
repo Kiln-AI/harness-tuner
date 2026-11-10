@@ -211,7 +211,7 @@ def test_a_probe_card(answer, line5, tone):
     assert plain(card.line5) == line5
     assert card.line5[0].tone == tone
     assert card.steps == (("asking", "done"), ("answered", "done"))
-    assert f"w1-1 Does the agent call get_container?: {line5[2:]}" in run.log()
+    assert f"w1-1 Does the agent call get_container? {line5[2:]}" in run.log()
 
 
 def test_an_eval_build_card():

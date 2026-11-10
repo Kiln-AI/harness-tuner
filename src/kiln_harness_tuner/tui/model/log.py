@@ -83,7 +83,9 @@ def item_verdict(item_id: str, subject: str, verdict: Verdict) -> str:
 
 
 def probe_answered(item_id: str, question: str, verdict: Verdict) -> str:
-    return f"{item_id} {question}: {verdict.log}"
+    """The question, then its answer: after a question mark, with no colon."""
+    joint = " " if question.endswith("?") else ": "
+    return f"{item_id} {question}{joint}{verdict.log}"
 
 
 def cut_off(item_ids: Sequence[str], fatal: bool) -> str:

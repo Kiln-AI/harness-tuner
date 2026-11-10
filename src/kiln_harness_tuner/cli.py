@@ -209,8 +209,7 @@ REMOVED_FLAGS = {
         " is still reported"
     ),
     "--no-ui": (
-        "--no-ui was renamed --no-progress: plain log lines instead of the live"
-        " progress display"
+        "--no-ui was renamed --no-progress: plain log lines instead of the run screen"
     ),
 }
 
@@ -312,7 +311,7 @@ def build_parser() -> _Parser:
     parser.add_argument(
         "--no-progress",
         action="store_true",
-        help="plain log lines instead of the live progress display during the run",
+        help="plain log lines instead of the run screen during the run",
     )
     parser.add_argument(
         "--budget-usd",

@@ -16,9 +16,9 @@ you are about to be asked.
 
 ## The two lanes the loop reports
 
-The loop meters its spend in two lanes and keeps them apart everywhere — in the
-live display, in the wave log's `spend` events, and in the report's spend
-appendix.
+The loop meters its spend in two lanes and keeps them apart everywhere — on the
+run screen and in the plain log lines, in the wave log's `spend` events, and
+in the report's spend appendix.
 
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|

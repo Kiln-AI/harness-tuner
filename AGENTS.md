@@ -29,6 +29,8 @@ src/kiln_harness_tuner/
                     opencode run implementations
   gateway/          the loop gateway: the only way loop agents reach Kiln
   skill_installer/  the MCP server that installs a skill bundle atomically
+  tui/              the terminal app (Textual) of an interactive run: the
+                    start-up and run screens, and the run model
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 docs/               the reference documentation
 examples/           the moderation example and a model policy

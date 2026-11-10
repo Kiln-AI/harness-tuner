@@ -80,11 +80,27 @@ async def test_goal_shows_the_three_roles_and_the_data_line(objective, rows):
     run.emit("train_set", items=312)
     run.emit("quarantine", heldout_items=208)
     async with on_screen(run) as (harness, _pilot):
-        lines = text(harness.screen.goal.body).split("\n")
-        assert lines[:3] == rows
-        assert lines[3] == (
-            "  data      train 312 · held out 208 (val and test) · test never read"
+        goal = harness.screen.goal
+        assert text(goal.body).split("\n") == rows
+        assert text(goal.query_one(".goal-data > .label", Static)) == "  data      "
+        assert text(goal.data) == (
+            "train 312 · held out 208 (val and test) · test never read"
         )
+        # At the design size the data line fits on one row, so the Goal is
+        # as tall as Time & spend.
+        assert goal.data.region.height == 1
+        assert goal.region.height == harness.screen.clock.region.height
+
+
+async def test_a_long_data_line_wraps_under_its_own_text():
+    run = wave_one(fix("w1-1"))
+    run.emit("train_set", items=3_120_000)
+    run.emit("quarantine", heldout_items=2_080_000)
+    async with on_screen(run) as (harness, _pilot):
+        goal = harness.screen.goal
+        label = goal.query_one(".goal-data > .label", Static)
+        assert goal.data.region.height == 2
+        assert goal.data.region.x == label.region.x + len("  data      ")
 
 
 async def test_time_and_spend_show_two_gauges_lanes_and_the_wave():
@@ -433,6 +449,51 @@ async def test_the_log_writes_new_lines_only_and_follows_the_end():
         await pilot.pause()
         assert log.scroll_y == 0
         assert log.kept[-1].text == "one more"
+        # Back at the end, it follows the newest line again.
+        log.scroll_end(animate=False)
+        await settled(pilot)
+        run.model.log.append(LogLine("14:35", "!", "warning", "and one more"))
+        run.model.version += 1
+        await harness.shown(pilot)
+        await settled(pilot)
+        assert log.is_vertical_scroll_end
+
+
+def long_log() -> Run:
+    """A run whose log is longer than the log section is tall."""
+    run = running()
+    for n in range(80):
+        run.model.log.append(LogLine("14:33", "!", "warning", f"line {n}"))
+    run.model.version += 1
+    return run
+
+
+async def settled(pilot) -> None:
+    for _ in range(4):
+        await pilot.pause()
+
+
+async def test_the_log_opens_at_its_newest_line():
+    async with on_screen(long_log()) as (harness, pilot):
+        await settled(pilot)
+        log = harness.screen.log_section.lines
+        assert log.max_scroll_y > 0
+        assert log.is_vertical_scroll_end
+
+
+async def test_the_log_follows_after_a_height_change():
+    async with on_screen(long_log()) as (harness, pilot):
+        await settled(pilot)
+        log = harness.screen.log_section.lines
+        await pilot.resize_terminal(210, 50)
+        await settled(pilot)
+        assert log.is_vertical_scroll_end
+        # A reader who scrolled up stays where they are.
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        await pilot.resize_terminal(210, 62)
+        await settled(pilot)
+        assert log.scroll_y == 0
 
 
 async def test_a_divider_and_a_line_wrap_under_their_text():

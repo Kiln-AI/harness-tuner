@@ -215,3 +215,18 @@ def test_a_ui_error_is_logged_once():
         "The display skipped an event it could not read; details in the run log"
     ]
     assert run.model.ui_errors == 2
+
+
+def test_a_probe_line_puts_no_colon_after_a_question_mark():
+    run = Run().standard_start()
+    run.at(3).wave_start(0, probe("r0-1"), probe("r0-2", "Name the tools it calls"))
+    for item_id, answer in (("r0-1", "yes"), ("r0-2", "unclear")):
+        run.emit(
+            "item_probe",
+            item_id=item_id,
+            probe={"answer": answer, "evidence": "", "drives": 3},
+        )
+    assert run.log()[-2:] == [
+        "r0-1 Does the agent call get_container? YES · 3 drives",
+        "r0-2 Name the tools it calls: UNCLEAR · 3 drives",
+    ]

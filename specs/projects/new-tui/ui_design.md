@@ -135,7 +135,7 @@ Textual's `Footer`, showing the bindings of the current screen.
 
 **Design size:** a full-screen terminal on a laptop, about 210×62. A smaller window scrolls the whole screen vertically. There is no compact design.
 
-**Breakpoints** (`HORIZONTAL_BREAKPOINTS`): at 150 columns and up, Experiments takes the left 68% and the Log the rest of the bottom area, and Goal and Time & spend sit side by side. Below 150 columns they stack: the Log goes under Experiments at a fixed height of 12 rows, and Time & spend goes under Goal. Goal needs 62 columns, so it can't share a narrow row.
+**Breakpoints** (`HORIZONTAL_BREAKPOINTS`): at 150 columns and up, Experiments takes the left 68% and the Log the rest of the bottom area, and Goal and Time & spend sit side by side. Below 150 columns they stack: the Log goes under Experiments at a fixed height of 12 rows, and Time & spend goes under Goal. Goal needs 70 columns, so it can't share a narrow row.
 
 **The bottom area** is at least as tall as Experiments. When the cards are taller than the space left, the whole screen scrolls; the cards are never cut off.
 
@@ -143,7 +143,7 @@ Textual's `Footer`, showing the bindings of the current screen.
 
 ```
 Title bar                                                        1 row
-Goal (one third, min 62 cols) | Time and spend (two thirds)      6 rows
+Goal (one third, min 70 cols) | Time and spend (two thirds)      6 rows
 Run timeline                                                     5 rows
 Results: header and key, then the card grid                      grows
 Experiments (68%)             | Log (the rest, full height)      the rest
@@ -362,3 +362,4 @@ Functional spec section 16 lists decisions that change some looks above. Where t
 - Cost and latency cards have no "N in flight" in their subtitle.
 - Run configs are named by their Kiln names, for example "Best Confirmed · val · Hold fields wrapper".
 - A cut-off item shows "✗ Cut off: the run ended" in red.
+- The Goal's data line is "train 312 · held out 208 (val and test) · test never read" (functional spec 16, decision 4), 69 columns with its label. The Goal is at least 70 columns wide, not 62, so at 210 columns the line fits on one row and the Goal is as tall as Time & spend. A longer line wraps under its own text, not under the label.

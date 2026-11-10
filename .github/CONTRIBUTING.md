@@ -71,6 +71,7 @@ src/kiln_harness_tuner/  the orchestrator: CLI, wave loop, measurement, memory
                          shipped as package data
   dispatch/              the agent CLIs: claude -p, codex exec, opencode run
   gateway/               the loop gateway: the only way loop agents reach Kiln
+  tui/                   the terminal app (Textual) of an interactive run
 src/kiln_api_mcp/        the call_kiln_api MCP server, for interactive sessions
 docs/                    the reference documentation
 examples/                the moderation example and a model policy

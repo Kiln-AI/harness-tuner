@@ -164,10 +164,13 @@ RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
     scrollbar-size-vertical: 1;
     scrollbar-gutter: stable;
 }
+/* ui_design 6 and 14: the Goal's data line (functional spec 16.4) needs
+   69 columns, so the Goal takes 70. At 210 columns the line then fits on
+   one row, and the Goal is as tall as Time & spend. */
 #top {
     height: auto;
     margin-top: 1;
-    & > #goal { width: 1fr; min-width: 62; margin-top: 0; }
+    & > #goal { width: 1fr; min-width: 70; margin-top: 0; }
     & > #spend { width: 2fr; margin: 0 0 0 4; }
 }
 #bottom {
@@ -198,8 +201,9 @@ RunScreen.-narrow #bottom {
     & #log-lines { height: 12; }
 }
 
-/* Below 150 columns the Goal (62 columns of text) can't take a third of
-   the width, so Goal and Time & spend stack too. */
+/* Below 150 columns the Goal (70 columns of text, its data line the
+   widest) can't take a third of the width, so Goal and Time & spend stack
+   too. */
 RunScreen.-narrow #top {
     layout: vertical;
     & > #spend { width: 1fr; margin: 1 0 0 0; }
@@ -239,6 +243,11 @@ TierBars { width: 1fr; }
     & > .run-complete-body { height: auto; }
 }
 .goal-rows { height: auto; }
+.goal-data {
+    height: auto;
+    & > .label { width: auto; }
+    & > .goal-data-text { width: 1fr; }
+}
 
 /* ---- 4.11 Stop dialog ---- */
 

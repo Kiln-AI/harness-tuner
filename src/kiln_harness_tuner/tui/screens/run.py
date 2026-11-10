@@ -31,6 +31,7 @@ from kiln_harness_tuner.tui.model.state import (
     DoneView,
     ExperimentsView,
     GaugeLine,
+    GoalRow,
     GoalView,
     Line,
     LogLine,
@@ -115,9 +116,14 @@ ROLE_STYLES = {
 ROLE_WIDTH = max(len(role) for role in words.GOAL_ROLES.values())
 
 
-def goal_content(view: GoalView) -> Content:
-    """7.1: three aligned rows, then the data line."""
-    what_width = max((len(row.what) for row in view.rows), default=0)
+# The data line's label, as wide as the role column and its gap, so the
+# data text starts where the rows' texts do.
+DATA_LABEL = f"  {words.GOAL_DATA_LABEL}".ljust(ROLE_WIDTH) + "  "
+
+
+def goal_content(rows: Sequence[GoalRow]) -> Content:
+    """7.1: the three aligned rows. The data line is a row of its own."""
+    what_width = max((len(row.what) for row in rows), default=0)
     lines = [
         Content.assemble(
             (f"{words.GOAL_ROLES[row.role]:<{ROLE_WIDTH}}", ROLE_STYLES[row.role]),
@@ -126,15 +132,8 @@ def goal_content(view: GoalView) -> Content:
             "  ",
             (row.note, "$text-muted"),
         )
-        for row in view.rows
+        for row in rows
     ]
-    lines.append(
-        Content.assemble(
-            (f"  {words.GOAL_DATA_LABEL}".ljust(ROLE_WIDTH), "$text-muted"),
-            "  ",
-            line_content(view.data),
-        )
-    )
     return Content("\n").join(lines)
 
 
@@ -142,13 +141,20 @@ class GoalSection(Vertical):
     def __init__(self) -> None:
         super().__init__(id="goal", classes="section")
         self.body = Shown(classes="goal-rows")
+        # The split sizes: a long line wraps under its own text, not under
+        # the label.
+        self.data = LineView(classes="goal-data-text")
 
     def compose(self) -> ComposeResult:
         yield SectionHeader(words.GOAL)
         yield self.body
+        with Horizontal(classes="goal-data"):
+            yield Static(Content.styled(DATA_LABEL, "$text-muted"), classes="label")
+            yield self.data
 
     def show(self, view: GoalView) -> None:
-        self.body.show(view, lambda: goal_content(view))
+        self.body.show(view.rows, lambda: goal_content(view.rows))
+        self.data.show(view.data)
 
 
 # ---- Time and spend ----

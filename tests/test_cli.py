@@ -141,7 +141,7 @@ def test_no_ui_was_renamed_no_progress(capsys):
     assert exited.value.code == 2
     assert capsys.readouterr().err.splitlines()[-1] == (
         "harness-tuner: error: --no-ui was renamed --no-progress:"
-        " plain log lines instead of the live progress display"
+        " plain log lines instead of the run screen"
     )
 
 

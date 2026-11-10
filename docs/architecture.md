@@ -21,7 +21,7 @@ terminal
     │    cwd = the agents folder  tools: the loop gateway's typed operations
     │                             (per role, train-only); skills from
     │                             .claude/skills in the agents folder
-    └─ rich live display ────► the person running it
+    └─ terminal app (tui/) ──► the person running it
 
   KILN STUDIO SERVER ──────► the subject model, whose tools reach whatever
                               the task's run config attaches
@@ -111,7 +111,7 @@ Then:
    live run per task and state folder. The kernel releases it when the holder
    dies, so there is no stale-lock reclaim step and no reclaim race. The run
    folder `runs/<run_id>/` is created next, and its path is printed before
-   the live display starts (section 11).
+   the run's first display line (section 11).
 2. **The rendered per-run configuration.** `render_run_configs` writes
    `runs/<run_id>/mcp_config.<role>.json` and
    `runs/<run_id>/settings.<role>.json` for every role (plus the shared
@@ -847,14 +847,30 @@ run lock is what makes that inference safe.
 ## 11. Observability
 
 **`RunStatus`** in [`schemas.py`](../src/kiln_harness_tuner/schemas.py) is the one state
-object. Everything downstream is a view of it: the live display and the report
-writer's input. Another host can render it its own way.
+object. Everything downstream is a view of it and of the events: the
+display and the report writer's input. Another host can render it its own
+way.
 
-- **The live display** (`ui.py`, built on `rich.live`). Completed waves are
-  never erased or rewritten — each freezes into scrollback as-is, and only the
-  active wave's block updates. One pinned totals row, always present.
-  `--no-progress` falls back to plain timestamped lines for a non-interactive
-  terminal.
+- **The display.** It sits in the event fan-out beside the wave log and the
+  tracker, and it never changes the run. Two implementations:
+  - **The terminal app** (`tui/`, built on Textual), when stdin and stdout are
+    both terminals. It shows the start-up and the run in one full-screen app.
+    The app runs on the main thread, the start-up on a thread of its own, and
+    the run on a third thread with its own asyncio loop. The run's display is
+    `TuiSink` (`tui/sink.py`): it stamps each event, puts it on a queue, and
+    never raises into the loop. A timer on the app drains the queue four times
+    a second, folds the events into the run model (`tui/model/`, pure Python,
+    with its own `RunStatusTracker` subclass), and redraws only the widgets
+    whose text changed. Nothing on the run thread waits for the app. The app
+    reaches the run only by cancelling it, the way a signal does: it catches
+    SIGTERM, SIGHUP and SIGINT itself and passes them on. The app looks up the
+    run config names in Kiln on its own loop, at most once every 10 seconds.
+    When it closes, it prints a plain closing block: the start's summary and
+    rerun command, the exit line, Best Confirmed, the report and the run
+    folder, built by the same code as the plain lines.
+  - **`PlainUi`** (`ui.py`): plain timestamped lines, for `--no-progress`, a
+    CI log, and every run with no terminal. The plain path never imports
+    Textual.
 - **The wave log** (`wave_log.py`) is the append-only audit trail under
   `runs/<run_id>/`.
 - **The report** — the report-writer agent returns markdown and **code** writes
@@ -876,13 +892,17 @@ writer's input. Another host can render it its own way.
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
   shapes — an agent's tool result can carry whatever it read.
-- **The terminal lines** (`cli._run` and `cli.main`). When the run folder exists, before
-  the live display: `harness-tuner: run <run_id> — files in <run folder>/`.
-  At a clean finish: `harness-tuner: run finished — report: <path>`. After a
-  reported error, a SIGTERM, a SIGHUP or a Ctrl-C, on stderr:
-  `harness-tuner: run folder: <run folder>` once the folder exists, whose
-  `kiln-harness-tuner.log` holds the details, and, after an error,
-  `harness-tuner: report: <path>` when the fallback report was written.
+- **The terminal lines** (`cli._run` and `cli.main`). When the run folder
+  exists, before the first display line:
+  `harness-tuner: run <run_id> — files in <run folder>/`. In the app, this
+  line and any other write to stdout or stderr go to a stray-output file,
+  which is added to the run log when the app closes; the closing block names
+  the run folder. At a clean finish:
+  `harness-tuner: run finished — report: <path>`. After a SIGTERM, a SIGHUP
+  or a Ctrl-C, on stderr: `harness-tuner: run folder: <run folder>` once the
+  folder exists, whose `kiln-harness-tuner.log` holds the details. After an
+  error, the error screen names the run folder (`Run folder: <path>`) and the
+  fallback report when one was written (`Report: <path>`).
 
 All of these are in the state folder, never in the folder the run was started
 from.
@@ -1154,8 +1174,14 @@ src/kiln_harness_tuner/
   gateway/          the loop gateway: train set, operations, MCP server, hook,
                     and the trace files it writes (trace_files.py)
   skill_installer/  the MCP server that installs a skill bundle atomically
+  tui/              the terminal app (Textual): the entry (entry.py), the
+                    app and its threads, the start-up and run screens, the
+                    widgets and the stylesheet (tuner.tcss, package data),
+                    and the run model (model/, pure Python)
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 tests/              the offline suite
+  tui/              the app's tests: the model, pilot tests of each screen,
+                    the entry, and pseudo-terminal tests (marked slow)
   packaging/        the CI smoke test of the installed wheel, and the
                     fake claude it runs with
 ```
@@ -1196,9 +1222,11 @@ cannot narrow in silence) and `test_docs.py`.
 **The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
 runs in CI, not under pytest, because the suite runs from the checkout and
 cannot see a package that works only from one. CI builds the sdist and the
-wheel with `uv build`, and the script checks what each holds. It installs the
-wheel as a uv tool with a temporary `HOME`, and runs the commands from an
-empty folder. Then it makes a run with a fake `claude` on `PATH`
+wheel with `uv build`, and the script checks what each holds, the app's
+stylesheet included. It installs the wheel as a uv tool with a temporary
+`HOME`, and runs the commands from an empty folder. It imports the terminal
+app on the tool's interpreter and checks that the app's stylesheet is a file
+of the installed package. Then it makes a run with a fake `claude` on `PATH`
 (`tests/packaging/fake_claude.py`) and no Kiln server. The run installs the
 agent files, passes the agent CLI check, takes the lock, renders the configs
 and checks the splits. The fake starts the gateway from the rendered config

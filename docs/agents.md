@@ -202,8 +202,8 @@ from.
 `RcChange` block: a one-sentence summary, the concrete changes one per line,
 what deliberately stayed as the parent had it, the declared-text consistency
 check, and the named target items it was smoked on. That block is the
-one-screen explanation the live display, the experiment record and the report
-all show.
+one-screen explanation that the plain log lines, the experiment record and the
+report all show. The run screen's log shows its one-sentence summary.
 
 The build is **additive**: a new run config, never a mutation of the parent.
 Provenance is stamped at creation. The smoke is for *execution*, not

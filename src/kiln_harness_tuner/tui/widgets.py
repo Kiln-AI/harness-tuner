@@ -816,8 +816,9 @@ def log_renderable(line: LogLine, colors: dict[str, str]) -> RenderableType:
 
 class RunLog(RichLog):
     """4.10 and 7.6: Textual's `RichLog`, newest at the bottom. It writes
-    only the lines it has not written, and follows the newest line only
-    while it is at its end, so a reader who scrolled up stays there.
+    only the lines it has not written. It follows the newest line until the
+    reader scrolls up, so they stay where they are, and again once they
+    scroll back to the end.
     Rich renders each line at the width it has when it is written, with the
     theme's colors then, so on a resize or a theme change it writes all its
     lines again (ui_design 13)."""
@@ -830,12 +831,21 @@ class RunLog(RichLog):
         # How many of the model's lines it has taken (the model only adds).
         self.taken = 0
         self._width = 0
+        # Whether it follows the newest line. Only a scroll changes it: the
+        # reader's, up or back to the end, or its own to the end. A height
+        # change moves the end without a scroll, and a scroll to the end
+        # waits for the next refresh, so "at the end now" is no test of it.
+        self._following = True
 
     def on_mount(self) -> None:
         self.app.theme_changed_signal.subscribe(self, self._on_theme)
 
     def _on_theme(self, _theme: Theme) -> None:
         self.rewrite()
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        self._following = new_value >= self.max_scroll_y
 
     def show(self, lines: Sequence[LogLine]) -> None:
         if len(lines) < self.taken:
@@ -847,19 +857,32 @@ class RunLog(RichLog):
             return
         self.taken = len(lines)
         self.kept.extend(new)
-        self._write(new, follow=self.is_vertical_scroll_end)
+        # Before its first width the log writes nothing: `RichLog` would
+        # hold the lines back and draw them later. The rewrite that the
+        # first width starts writes them all.
+        if self._width:
+            self._write(new)
 
-    def _write(self, lines: Sequence[LogLine], *, follow: bool) -> None:
+    def _write(self, lines: Sequence[LogLine]) -> None:
         colors = self.app.theme_variables
         for line in lines:
-            self.write(log_renderable(line, colors), expand=True, scroll_end=follow)
+            self.write(log_renderable(line, colors), expand=True, scroll_end=False)
+        if self._following:
+            self.scroll_end(animate=False, x_axis=False)
 
     def on_resize(self, event: Resize) -> None:
         if event.size.width != self._width:
             self._width = event.size.width
             self.call_after_refresh(self.rewrite)
+        elif self._following:
+            self.scroll_end(animate=False, x_axis=False)
 
     def rewrite(self) -> None:
-        follow = self.is_vertical_scroll_end
+        if not self._width:
+            return  # the first width rewrites
+        following = self._following
         self.clear()
-        self._write(list(self.kept), follow=follow)
+        # Textual 8.2.8's clear keeps the scroll position; should a later
+        # one scroll to the top, that scroll is no reader's.
+        self._following = following
+        self._write(list(self.kept))
