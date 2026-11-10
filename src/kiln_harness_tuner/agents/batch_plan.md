@@ -30,6 +30,13 @@ candidate: say so in `rejected_summary`, and the report tells the owner to
 create its eval in the Kiln app. When it is `true`, the skill's rules for
 `eval_only` items and `needs_eval` apply as written.
 
+Your input's `dropped_eval_items` lists each item that code dropped from an
+earlier plan of this run, one line each. A dropped item never ran: do not
+count it as an attempt, and do not plan it again. When the list holds items
+from this wave, your last plan had only such items, and this is your second
+and last plan for the wave. Plan items that use evals that exist. If
+nothing is left to do, set `loop_exit`.
+
 Item type `remeasure` (see the output schema): completes an EXISTING run
 config's measurement on named evals — pure code, re-drives only the items
 that never stored a row. Use it when a prior arm's coverage was wiped or

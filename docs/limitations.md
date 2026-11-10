@@ -57,8 +57,9 @@ tested end to end, and an eval it builds can have no val split (see "The
 eval builder's splits" below). Only `--experimental-eval-building` turns it
 on. While it is off, the planner is told so, and code drops each such item
 before its wave runs, with one log line for each
-(`items.drop_eval_building_items`). An issue that no eval measures is then
-left alone. The report's "Issues with no eval" section names it, so that
+(`items.drop_eval_building_items`). The next planner input lists the
+dropped items. When code drops every item of a plan, the planner plans that
+wave once more. An issue that no eval measures is then left alone. The report's "Issues with no eval" section names it, so that
 you can create its eval in the Kiln app.
 
 **The loop never reads test.** That is deliberate — it is how the number you

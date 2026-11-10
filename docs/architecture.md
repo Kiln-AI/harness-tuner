@@ -235,8 +235,13 @@ Per wave, in order:
    `eval_item_dropped` event and log line for each. The rest of the wave
    runs. `_run_wave` applies the same guard, and `_run_eval_build` itself
    refuses to dispatch (the item ends `failed_infra`), so no path dispatches
-   the `eval_build` role. A plan that has no item left exits `empty_plan`.
-   The report names each open issue that has no eval (section 11).
+   the `eval_build` role. Each later planner input lists the dropped items
+   (`dropped_eval_items`), so the planner knows that they never ran. When
+   code drops every item of a plan, the planner gets one more dispatch for
+   the same wave, with the drops in its input (one
+   `plan_all_items_dropped` event). If that plan also has no item left, the
+   run exits `empty_plan`. The report names each open issue that has no eval
+   (section 11).
 5. **Optionally, screening rounds** (`_screening_phase`). When the plan
    carries `screen` instead of items, code measures every variant it names
    on the screening subset and calls the planner again with the table

@@ -17,8 +17,9 @@ measured on — see Eval economics), `train_detectability` and `train_noise`
 `prior_rejected_summary` (the previous wave's `rejected_summary`, `null` on
 wave 1), and `gate_blocks` (this run's candidates the promotion
 gate blocked for copying eval text, each with its reasons — see Gate blocks
-below), and `eval_building` (whether this run may build a new eval —
-experimental, off by default; see Hard rules). You return a `BatchPlan` per
+below), `eval_building` (whether this run may build a new eval —
+experimental, off by default; see Hard rules) and `dropped_eval_items` (the
+items code dropped from earlier plans because eval building is off). You return a `BatchPlan` per
 the injected schema. You never execute
 experiments — the orchestrator dispatches builders/analyzers from your plan.
 
@@ -82,6 +83,10 @@ going looking.
   so in `rejected_summary`, and the report tells the owner to create its
   eval in the Kiln app. Every rule below that plans an `eval_only` item or
   `needs_eval: true` applies only when `eval_building` is `true`.
+  `dropped_eval_items` lists the items code dropped from earlier plans of
+  this run. They never ran: they are not attempts, and you do not plan them
+  again. When code drops every item of a plan, you plan the wave once more,
+  with this wave's drops in the list.
 
 ## The speed and cost objectives (`objective: "speed" | "cost"`)
 

@@ -299,6 +299,7 @@ def drop_eval_building_items(ctx: Ctx, items: list, wave: int) -> list:
             line=line,
         )
         logger.warning("%s", line)
+        ctx.dropped_eval_lines.append(line)
     return kept
 
 

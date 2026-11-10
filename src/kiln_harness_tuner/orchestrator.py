@@ -403,6 +403,9 @@ class Ctx:
     #   `eval_only` item or a `needs_eval` fix before its wave runs
     #   (`items.drop_eval_building_items`). On: both run as planned.
     eval_building: bool = False
+    # Each drop's line, oldest first: every later planner reads them
+    #   (`BatchPlanInput.dropped_eval_items`), so it knows they never ran.
+    dropped_eval_lines: list[str] = field(default_factory=list)
 
 
 def should_wrap(
@@ -906,9 +909,15 @@ async def _dispatch_plan(
     user_guidance: str,
     phase: str,
     prior: str | None,
+    after_drop: bool = False,
 ) -> AgentResult[BatchPlan]:
     """One planning dispatch (a function of its own so the wave's probe phase
-    can call it twice — `plan`, then `replan` with the probe answers)."""
+    can call it twice — `plan`, then `replan` with the probe answers).
+
+    While eval building is off, code drops each planned item that builds an
+    eval. When that leaves a plan with no item, the planner gets one more
+    dispatch (`after_drop`), with the dropped lines in its input, so one
+    planner mistake does not end the run as `empty_plan`."""
     planning_started = ctx.clock()
     replan = phase == "replan"
     ctx.log.event(
@@ -989,6 +998,7 @@ async def _dispatch_plan(
                 train_detectability=detect_rows,
                 train_noise=list(ctx.train_noise),
                 eval_building=ctx.eval_building,
+                dropped_eval_items=list(ctx.dropped_eval_lines),
             ),
             backoffs=LOOP_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,
@@ -1017,6 +1027,23 @@ async def _dispatch_plan(
         # (and its `wave_start` line) carries only the items that will run.
         kept = drop_eval_building_items(ctx, result.data.items, wave)
         if len(kept) != len(result.data.items):
+            if not kept and not after_drop:
+                ctx.log.event(
+                    "plan_all_items_dropped",
+                    wave=wave,
+                    phase=phase,
+                    dropped=len(result.data.items),
+                )
+                return await _dispatch_plan(
+                    ctx,
+                    wave=wave,
+                    wrap_up=wrap_up,
+                    baseline=baseline,
+                    user_guidance=user_guidance,
+                    phase=phase,
+                    prior=prior,
+                    after_drop=True,
+                )
             result = result.model_copy(
                 update={"data": result.data.model_copy(update={"items": kept})}
             )

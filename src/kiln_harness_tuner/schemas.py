@@ -1828,6 +1828,10 @@ class BatchPlanInput(BaseModel):
     #   `eval_only` item and no fix with `needs_eval: true` — code drops
     #   them before the wave runs. True: both are allowed.
     eval_building: bool = False
+    # The `eval_item_dropped` lines of this run, oldest first: each item code
+    #   dropped from an earlier plan because eval building is off. A dropped
+    #   item never ran. Empty when nothing was dropped.
+    dropped_eval_items: list[str] = []
 
 
 class EvalBuildInput(BaseModel):

@@ -1664,6 +1664,13 @@ async def test_eval_building_off_drops_eval_items_and_runs_the_rest(caplog):
     assert [
         r.getMessage() for r in caplog.records if r.name == "kiln_harness_tuner.items"
     ] == [f["line"] for f in dropped]
+    # The next planner is told what was dropped, so it knows they never ran.
+    assert [p.dropped_eval_items for p in d.calls_to("batch_plan")] == [
+        [],
+        [f["line"] for f in dropped],
+    ]
+    # Some items were left, so the wave ran without a second plan.
+    assert not [k for k, _ in ctx.log.events if k == "plan_all_items_dropped"]
     # The wave runs, and shows, only the item that is left.
     (wave_start,) = [f for k, f in ctx.log.events if k == "wave_start"]
     assert [i["item_id"] for i in wave_start["items"]] == ["w1-1"]
@@ -1673,16 +1680,58 @@ async def test_eval_building_off_drops_eval_items_and_runs_the_rest(caplog):
     assert dict(ctx.log.events)["run_start"]["eval_building"] is False
 
 
-async def test_eval_building_off_a_plan_of_eval_items_only_exits_empty():
+async def test_eval_building_off_a_plan_of_eval_items_only_is_planned_again():
+    # One planner mistake must not end the run: when code drops every item,
+    # the planner plans the same wave once more, told what was dropped.
     ctx = make_ctx()
     seed_baseline(ctx.kiln)
-    ctx.dispatch.queue("batch_plan", ok(make_plan(eval_only_item("w1-1"))))
+    seed_active_eval(ctx.kiln)
+    seed_train(ctx.kiln, "rc_cand")
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(eval_only_item("w1-1"))),
+        ok(make_plan(fix_item("w1-2", promotion_candidate=False))),
+        ok(make_plan(loop_exit="done")),
+    )
+    d.queue("create_experiment_rc", rc_ok("rc_cand"))
+    d.queue("analyze_experiment_results", ok(make_result()))
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "done"
+    assert d.calls_to("eval_build") == []
+    (dropped,) = dropped_events(ctx)
+    assert dropped["item_id"] == "w1-1"
+    assert [p.dropped_eval_items for p in d.calls_to("batch_plan")] == [
+        [],
+        [dropped["line"]],
+        [dropped["line"]],
+    ]
+    (all_dropped,) = [f for k, f in ctx.log.events if k == "plan_all_items_dropped"]
+    assert all_dropped == {"wave": 1, "phase": "plan", "dropped": 1}
+    (wave_start,) = [f for k, f in ctx.log.events if k == "wave_start"]
+    assert [i["item_id"] for i in wave_start["items"]] == ["w1-2"]
+
+
+async def test_eval_building_off_a_second_plan_of_eval_items_only_exits_empty():
+    # The second plan is the last one for the wave: no third dispatch.
+    ctx = make_ctx()
+    seed_baseline(ctx.kiln)
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(eval_only_item("w1-1"))),
+        ok(make_plan(eval_only_item("w1-2"))),
+    )
 
     result = await orchestrate(ctx, "", timeout_mins=180)
 
     assert result == "empty_plan"
-    assert ctx.dispatch.calls_to("eval_build") == []
-    assert [f["item_id"] for f in dropped_events(ctx)] == ["w1-1"]
+    assert d.calls_to("eval_build") == []
+    assert len(d.calls_to("batch_plan")) == 2
+    assert [f["item_id"] for f in dropped_events(ctx)] == ["w1-1", "w1-2"]
+    assert len([k for k, _ in ctx.log.events if k == "plan_all_items_dropped"]) == 1
 
 
 async def test_eval_building_off_the_wave_runner_drops_what_any_path_brings():
