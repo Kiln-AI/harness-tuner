@@ -284,10 +284,14 @@ choose a model afterwards.
 rest):
 
 1. **Pick the class and lock one model.** Choose the size, price and latency
-   you want. Try a range of models in that class. Pick one with a reasonable
-   propensity for the task. It does not need to be good, but a 0% pass rate
-   gives no signal. About 20%, with room to reach 65%, is useful. Do not tune
-   on a very large model and expect the result to transfer to a small one.
+   you want. **Unless the budget is high, pick a model from the model guide
+   and start.** The model needs a reasonable propensity for the task. It
+   does not need to be good, but a 0% pass rate gives no signal. About 20%,
+   with room to reach 65%, is useful. Do not tune on a very large model and
+   expect the result to transfer to a small one.
+   - *Optional, for a long-budget tune:* try a range of models in that class
+     first, and pick the one with the best propensity. On a short budget
+     this is a lot of work before the real work starts.
 2. **Tune the harness with the model locked.** Prompt, skills, tools and the
    rest. Changing everything at once is an exponential search. The graph
    exploration covers the harness and leaves the model alone.
