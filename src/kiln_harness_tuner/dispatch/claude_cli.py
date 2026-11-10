@@ -717,15 +717,6 @@ class ClaudeCliDispatcher:
     DEFAULT_EFFORT = AGENT_EFFORT
     # False: `--max-turns` has no equivalent and is ignored (cli.py warns).
     HAS_MAX_TURNS = True
-    # Whether the cost the sessions report counts toward `--budget-usd`.
-    # False: `--budget-usd` caps the Kiln side only. Claude Code reports
-    # `total_cost_usd`, but on a claude.ai subscription that is what the API
-    # would charge, not money the operator pays. The cost is still booked in
-    # the agent lane, so the run log and the report show it, but the spend
-    # meter does not count it (`orchestrator.SpendMeter`). A CLI that reports
-    # tokens and no cost (Codex) is False too: its sessions book their
-    # tokens as unmeasured.
-    REPORTS_COST = False
 
     def __init__(
         self,
@@ -1485,8 +1476,9 @@ class ClaudeCliDispatcher:
             src = self._transcript_dir() / f"{session_id}.jsonl"
             if not src.is_file():
                 return usage
+            tokens = transcript_usage_tokens(src)
             usage = Usage(
-                wall_secs=elapsed_secs, unmeasured_tokens=transcript_usage_tokens(src)
+                wall_secs=elapsed_secs, tokens=tokens, unmeasured_tokens=tokens
             )
             self._timed_out_sessions[label] = session_id
             if self._traces_root is not None and self._run_id is not None:

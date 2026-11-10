@@ -61,34 +61,23 @@ SPEND_APPENDIX_HEADING = "## Appendix: spend by source and lane (code-computed)"
 # `spend` events in `wave_log.jsonl` beside the report actually say.
 SPEND_APPENDIX_NOTES = (
     "- **Kiln** $ (`provider`) = real money today (Kiln eval jobs: subject "
-    "`task_run_usage` + judge `eval_usage`).",
-    "- **Claude Code** $ (`subscription_equivalent`) = `claude -p` session "
-    "cost (`total_cost_usd`) — quota burn now, real cost at deployment.",
+    "`task_run_usage` + judge `eval_usage`). The budget (`--budget-usd`) "
+    "counts this column.",
+    "- **Claude Code** tokens (`subscription_equivalent`) = the tokens each "
+    "agent session used, a rough count for information. The agents run on "
+    "the agent CLI's own account, so the budget does not count them.",
     "- Excludes this report-writing session and any prior aborted runs.",
 )
 
 
-def spend_appendix_notes(
-    agent_cli: str = "claude", agent_cost_in_budget: bool = True
-) -> tuple[str, ...]:
-    """`SPEND_APPENDIX_NOTES`, with the agent lane's note for `agent_cli`,
-    and a note when the budget does not count the agent lane."""
+def spend_appendix_notes(agent_cli: str = "claude") -> tuple[str, ...]:
+    """`SPEND_APPENDIX_NOTES`, with the agent lane named for `agent_cli`."""
     label = spend_lane_labels(agent_cli)[SUBSCRIPTION_LANE]
-    if agent_cli == "claude":
-        agent_note = SPEND_APPENDIX_NOTES[1]
-    else:
-        agent_note = (
-            f"- **{label}** $ (`subscription_equivalent`) = the cost each {label}"
-            " session reports. A session that reports tokens only is counted in"
-            " tokens below, not in dollars."
-        )
-    notes = [SPEND_APPENDIX_NOTES[0], agent_note]
-    if not agent_cost_in_budget:
-        notes.append(
-            f"- The budget (`--budget-usd`) counts the Kiln column only: the"
-            f" {label} cost is shown, but not counted."
-        )
-    return (*notes, SPEND_APPENDIX_NOTES[2])
+    return (
+        SPEND_APPENDIX_NOTES[0],
+        SPEND_APPENDIX_NOTES[1].replace("**Claude Code**", f"**{label}**"),
+        SPEND_APPENDIX_NOTES[2],
+    )
 
 
 def _fmt_usd(value: float) -> str:
@@ -145,21 +134,23 @@ def render_spend_header(status: RunStatus) -> str:
 
 
 def render_spend_appendix(status: RunStatus) -> str:
-    """The code-computed per-source × per-lane spend table,
-    under a code-computed budget/elapsed/exit header.
-    Rows in fold (chronological) order; the two known lanes are always
-    columns, any unexpected lane key gets its own column instead of vanishing
-    (the fold never drops money)."""
-    lanes = [SUBSCRIPTION_LANE, PROVIDER_LANE]
+    """The code-computed per-source spend table, under a code-computed
+    budget/elapsed/exit header. Rows in fold (chronological) order. The
+    money columns are the Kiln lane and any unexpected lane key, which gets
+    its own column instead of vanishing (the fold never drops money). The
+    agent lane is a column of tokens, not dollars: it is not in the budget."""
+    lanes = [PROVIDER_LANE]
     lanes += sorted(
         {
             lane
             for fold in status.spend_by_source.values()
             for lane in fold
-            if lane not in lanes
+            if lane not in (PROVIDER_LANE, SUBSCRIPTION_LANE)
         }
     )
     lane_titles = spend_lane_labels(status.agent_cli)
+    agent_title = f"{lane_titles[SUBSCRIPTION_LANE]} tokens"
+    tokens = status.agent_tokens_by_source
     lines = [
         SPEND_APPENDIX_HEADING,
         "",
@@ -168,26 +159,24 @@ def render_spend_appendix(status: RunStatus) -> str:
         # rule and the section it belongs to.
         render_spend_header(status),
         "",
-        "| source | " + " | ".join(lane_titles.get(x, x) for x in lanes) + " | total |",
+        "| source | "
+        + " | ".join(lane_titles.get(x, x) for x in lanes)
+        + f" | {agent_title} |",
         "|---|" + "---:|" * (len(lanes) + 1),
     ]
     for source, fold in status.spend_by_source.items():
         cells = [_fmt_cell(fold.get(lane)) for lane in lanes]
-        lines.append(
-            f"| {source} | "
-            + " | ".join(cells)
-            + f" | {_fmt_usd(sum(fold.values()))} |"
-        )
+        count = tokens.get(source)
+        cells.append(f"{count:,}" if count else "—")
+        lines.append(f"| {source} | " + " | ".join(cells) + " |")
     totals = [
-        sum(fold.get(lane, 0.0) for fold in status.spend_by_source.values())
+        _fmt_usd(sum(fold.get(lane, 0.0) for fold in status.spend_by_source.values()))
         for lane in lanes
     ]
     lines.append(
-        "| **total** | "
-        + " | ".join(_fmt_usd(t) for t in totals)
-        + f" | {_fmt_usd(sum(totals))} |"
+        "| **total** | " + " | ".join(totals) + f" | {status.agent_tokens:,} |"
     )
-    # Budget honesty: the two numbers the table cannot carry.
+    # Budget honesty: the number the table cannot carry.
     if status.evidence_spend_usd > status.spend_total_usd + 0.005:
         lines.append(
             f"- Evidence read this run: {_fmt_usd(status.evidence_spend_usd)} of "
@@ -195,19 +184,7 @@ def render_spend_appendix(status: RunStatus) -> str:
             "for by earlier runs included; the table books only what this run "
             "spent."
         )
-    if status.unmeasured_tokens:
-        lines.append(
-            f"- {status.unmeasured_tokens:,} tokens of agent sessions whose "
-            "cost could not be read are NOT in the "
-            f"{lane_titles[SUBSCRIPTION_LANE]} column: a "
-            "session killed at its wall-clock cap never reports its cost, a "
-            "Codex session reports tokens only, and so does an OpenCode "
-            "session on a plan that prices nothing."
-        )
-    lines += [
-        "",
-        *spend_appendix_notes(status.agent_cli, status.agent_cost_in_budget),
-    ]
+    lines += ["", *spend_appendix_notes(status.agent_cli)]
     return "\n".join(lines) + "\n"
 
 
@@ -937,7 +914,7 @@ def render_fallback_report(status: RunStatus) -> str:
         "",
         f"- project `{status.project_id}` · task `{status.task_id}`",
         f"- guidance: {status.guidance!r}",
-        f"- total spend: ${status.spend_total_usd:.2f}",
+        f"- total spend: ${status.budget_spend_usd:.2f} (the task's model calls)",
         f"- baseline history: {' → '.join(status.baseline_history) or '(none)'}",
     ]
     if status.janitor_stamped:  # startup sweep
@@ -1094,6 +1071,7 @@ class ReportWriter:
             source="report_writer",
             lane=SUBSCRIPTION_LANE,
             cost_usd=result.usage.cost_usd,
+            tokens=result.usage.tokens,
             unmeasured_tokens=result.usage.unmeasured_tokens,
         )
         # Conditioned on `result.data` directly (not a derived bool) so the

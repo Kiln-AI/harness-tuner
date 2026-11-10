@@ -164,8 +164,8 @@ def change_lines(fields: dict) -> list[str]:
 
 def totals_text(status: RunStatus) -> str:
     """The run's running totals: the spend the budget counts
-    (`RunStatus.budget_spend_usd`: both lanes, or the Kiln lane alone when the
-    agents' cost is not counted), elapsed, and time left.
+    (`RunStatus.budget_spend_usd`: the agent lane is never in it), the agent
+    tokens beside it, elapsed, and time left.
 
     The `left` segment is omitted when no `run_start` deadline was ever seen
     rather than guessing — `time_remaining_secs` reads 0.0 in that case,
@@ -209,31 +209,27 @@ def _fmt_tokens(count: int) -> str:
 
 
 def spend_split_text(status: RunStatus) -> str:
-    """` (Claude Code $x · Kiln $y)` — the two things the run's money is:
-    the agent sessions, named for the run's agent CLI, vs the provider tokens
-    Kiln burns on the drives and eval jobs this run triggers. Agent tokens
-    with no cost to read (a Codex session, a plan that prices nothing) are
-    shown beside the agent lane's dollars, never folded in as $0.
+    """` (Kiln $y · Claude Code ~1.2M tokens)` — the provider money Kiln
+    burns on the drives and eval jobs this run triggers, and the agent
+    sessions' tokens, named for the run's agent CLI. The agents run on the
+    agent CLI's own account: their tokens are a rough count for information,
+    never dollars and never in the budget.
 
     Parenthesised after the total rather than replacing it: the total is the
-    number the budget is spent against, and the row is one line wide. An
-    agent lane the budget does not count (Claude Code, Codex) says so.
+    number the budget is spent against, and the row is one line wide.
     Empty while nothing has been spent, so a run's first frames stay quiet;
     money on an unrecognised lane is appended rather than hidden, matching the
     report appendix's "the fold never drops money" rule."""
-    claude_code, kiln, other = spend_split(status.spend_by_lane)
-    unpriced = status.unmeasured_tokens
-    if not (claude_code or kiln or other or unpriced):
+    _agent, kiln, other = spend_split(status.spend_by_lane)
+    tokens = status.agent_tokens
+    if not (kiln or other or tokens):
         return ""
     labels = spend_lane_labels(status.agent_cli)
-    agent = f"{labels[SUBSCRIPTION_LANE]} {_fmt_usd(claude_code)}"
-    if unpriced:
-        agent += f" + {_fmt_tokens(unpriced)} tokens unpriced"
-    if not status.agent_cost_in_budget:
-        agent += " not in budget"
-    parts = [agent, f"{labels[PROVIDER_LANE]} {_fmt_usd(kiln)}"]
+    parts = [f"{labels[PROVIDER_LANE]} {_fmt_usd(kiln)}"]
     if other:
         parts.append(f"other {_fmt_usd(other)}")
+    if tokens:
+        parts.append(f"{labels[SUBSCRIPTION_LANE]} ~{_fmt_tokens(tokens)} tokens")
     return " (" + " · ".join(parts) + ")"
 
 

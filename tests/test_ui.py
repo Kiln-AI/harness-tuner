@@ -465,6 +465,7 @@ def test_plain_ui_prints_one_line_per_event():
             item_id="w1-1",
             source="create_experiment_rc",
             lane="subscription_equivalent",
+            tokens=48_000,
         )
         emit(
             "dispatch_retry",
@@ -517,7 +518,8 @@ def test_plain_ui_prints_one_line_per_event():
     # Plain mode states the same totals at each wave boundary and
     # at exit — and nowhere else (no ticking).
     totals = (
-        "— total $1.50 (Claude Code $1.50 · Kiln $0.00) · 41m23s elapsed · 2h18m left"
+        "— total $0.00 (Kiln $0.00 · Claude Code ~48k tokens) · 41m23s elapsed"
+        " · 2h18m left"
     )
     assert f"wave 1 done {totals}" in lines[14]
     assert "tripwire on wave 1: 3× rate_limit" in lines[15]
@@ -567,30 +569,21 @@ def test_change_lines_render_summary_changes_unchanged_and_check():
     assert change_lines({"item_id": "w1-1"}) == []
 
 
-def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_unpriced_tokens():
+def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_its_tokens():
     status = run_status(
         spend_total_usd=0.12,
         spend_by_lane={"subscription_equivalent": 0.0, "provider": 0.12},
-        unmeasured_tokens=1_234_567,
+        agent_tokens=1_234_567,
         agent_cli="codex",
     )
     text = totals_text(status)
-    assert "Codex $0.00 + 1.2M tokens unpriced" in text
-    assert "Kiln $0.12" in text and "Claude Code" not in text
+    assert text.startswith("$0.12 (Kiln $0.12 · Codex ~1.2M tokens)")
+    assert "Claude Code" not in text
     opencode = run_status(
         spend_total_usd=0.5,
         spend_by_lane={"subscription_equivalent": 0.4, "provider": 0.1},
+        agent_tokens=2_000,
         agent_cli="opencode",
     )
-    assert "OpenCode $0.40" in totals_text(opencode)
-
-
-def test_an_agent_lane_the_budget_does_not_count_is_marked():
-    status = run_status(
-        spend_total_usd=0.5,
-        spend_by_lane={"subscription_equivalent": 0.4, "provider": 0.1},
-        agent_cost_in_budget=False,
-    )
-    text = totals_text(status)
-    # The total is the spend the budget counts: the Kiln lane alone.
-    assert text.startswith("$0.10 (Claude Code $0.40 not in budget · Kiln $0.10)")
+    # The agents' cost is never in the total, nor shown in dollars.
+    assert totals_text(opencode).startswith("$0.10 (Kiln $0.10 · OpenCode ~2k tokens)")

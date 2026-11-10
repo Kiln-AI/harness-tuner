@@ -147,8 +147,7 @@ def test_after_the_agent_cli_check_only_its_test_prompt_was_spent():
 
 def test_after_the_run_folder_the_ending_has_spend_folder_and_report(tmp_path):
     spend = SpendMeter()
-    spend.event("spend", source="preflight", cost_usd=1.2)
-    spend.event("spend", source="eval_job", cost_usd=2.004)
+    spend.event("spend", source="eval_job", cost_usd=3.204)
     report = tmp_path / "reports" / "kiln-harness-tuner-261107-1412.md"
     progress = RunProgress(
         cli_checked=True,
@@ -157,7 +156,7 @@ def test_after_the_run_folder_the_ending_has_spend_folder_and_report(tmp_path):
         report_path=report,
     )
     without_report = [
-        "The run stopped. Spent $3.20 so far (agents and the task's model calls).",
+        "The run stopped. Spent $3.20 so far on the task's model calls.",
         f"Run folder: {tmp_path / 'runs' / '261107-1412'}",
     ]
     # The report line only once the report file is there.
@@ -170,7 +169,7 @@ def test_after_the_run_folder_the_ending_has_spend_folder_and_report(tmp_path):
 def test_a_run_folder_with_no_spend_meter_yet_spent_nothing(tmp_path):
     progress = RunProgress(cli_checked=True, run_dir=tmp_path)
     assert ending_lines(progress)[0] == (
-        "The run stopped. Spent $0.00 so far (agents and the task's model calls)."
+        "The run stopped. Spent $0.00 so far on the task's model calls."
     )
 
 
@@ -305,23 +304,14 @@ def test_an_error_with_no_body_goes_straight_to_its_ending(terminal):
     )
 
 
-def test_an_uncounted_agent_cost_is_named_apart_from_the_spend(tmp_path):
-    # Claude Code: the agents' cost is not in the budget, so the spend line
-    # is the task's model calls, and the agents' cost follows it.
-    spend = SpendMeter(agent_cost_in_budget=False)
-    spend.event("spend", source="preflight", cost_usd=1.2)
+def test_the_agents_tokens_are_named_apart_from_the_spend(tmp_path):
+    # The agents run on the agent CLI's account: their tokens follow the
+    # spend line, for information, and are not in it.
+    spend = SpendMeter()
+    spend.event("spend", source="preflight", cost_usd=1.2, tokens=1_234_567)
     spend.event("spend", source="eval_jobs", cost_usd=2.004)
     progress = RunProgress(cli_checked=True, run_dir=tmp_path, spend=spend)
     assert ending_lines(progress)[:2] == [
         "The run stopped. Spent $2.00 so far on the task's model calls.",
-        "The agent sessions reported $1.20 more, which the budget does not count.",
-    ]
-    nothing = RunProgress(
-        cli_checked=True,
-        run_dir=tmp_path,
-        spend=SpendMeter(agent_cost_in_budget=False),
-    )
-    assert ending_lines(nothing)[:2] == [
-        "The run stopped. Spent $0.00 so far on the task's model calls.",
-        f"Run folder: {tmp_path}",
+        "The agents used about 1,234,567 tokens, which the budget does not count.",
     ]

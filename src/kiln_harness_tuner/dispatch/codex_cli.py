@@ -296,7 +296,6 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
     MODEL_DEFAULTS: dict[str, str] = {}
     DEFAULT_EFFORT = CODEX_EFFORT
     HAS_MAX_TURNS = False
-    REPORTS_COST = False
 
     def __init__(
         self,

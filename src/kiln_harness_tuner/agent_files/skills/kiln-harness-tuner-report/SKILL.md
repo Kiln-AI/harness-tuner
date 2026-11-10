@@ -217,8 +217,10 @@ deliberate) · still open, worth the next run.>
 it gates, re-ask condition.>
 
 ## Spend
-<narrate: both lanes named with what they mean (Kiln $ = real money today;
-Claude Code $ = quota burn now, real cost at deployment),
+<narrate: both lanes named with what they mean (Kiln $ = real money today,
+and the only spend the budget counts; the agent lane = the agents' tokens,
+`agent_tokens`, a rough count on the agent CLI's own account, never in the
+budget — name it in tokens, not dollars),
 notable line items (expensive evals, val passes), anything unusual. Code
 appends the appendix after your markdown — the budget/elapsed/exit header
 and the per-source × per-lane table — point at it, NEVER rebuild it or

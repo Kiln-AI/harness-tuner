@@ -290,7 +290,7 @@ def test_spend_accumulates_per_item_and_run_total():
     tracker.event("spend", item_id="unknown", source="eval_jobs", cost_usd=0.25)
     status = tracker.snapshot()
     assert status.spend_total_usd == 2.0
-    assert status.waves[0].items[0].spend_usd == 1.25
+    assert status.waves[0].items[0].spend_usd == 0.25  # the agent build: tokens
 
 
 def test_spend_fold_retains_source_and_lane():
@@ -372,7 +372,7 @@ def test_item_spend_keeps_its_own_lane_split():
     tracker.event("spend", item_id="w1-1", source="create_experiment_rc", cost_usd=2.0)
     tracker.event("spend", item_id="w1-1", source="eval_jobs", cost_usd=5.0)
     item = tracker.snapshot().waves[0].items[0]
-    assert item.spend_usd == 7.0
+    assert item.spend_usd == 5.0  # an item's money is Kiln's: agents are tokens
     assert item.spend_by_lane == {
         "subscription_equivalent": 2.0,
         "provider": 5.0,
@@ -817,20 +817,15 @@ def test_item_change_is_folded_onto_the_item():
     assert tracker.snapshot().waves[0].items[0].change.summary == "s"
 
 
-def test_the_budget_spend_leaves_out_an_uncounted_agent_lane():
-    # run_start says whether the agent lane counts toward --budget-usd.
+def test_the_agent_lane_is_tokens_and_never_in_the_budget_spend():
     sub, prov = "subscription_equivalent", "provider"
     tracker = make_tracker()
-    tracker.event("run_start", budget_usd=10.0, agent_cost_in_budget=False)
-    tracker.event("spend", source="batch_plan", lane=sub, cost_usd=3.0)
+    tracker.event("spend", source="batch_plan", lane=sub, cost_usd=3.0, tokens=900)
+    tracker.event("spend", source="batch_plan", lane=sub, tokens=100)
+    tracker.event("spend", source="preflight", tokens=50)  # lane from source
     tracker.event("spend", source="eval_jobs", lane=prov, cost_usd=1.25)
     status = tracker.snapshot()
-    assert status.agent_cost_in_budget is False
     assert status.spend_total_usd == 4.25
     assert status.budget_spend_usd == 1.25
-    assert status.agent_spend_usd == 3.0
-    # Without the field (an older wave log), the agent lane counts.
-    old = make_tracker()
-    old.event("spend", source="batch_plan", lane=sub, cost_usd=3.0)
-    old.event("spend", source="eval_jobs", lane=prov, cost_usd=1.25)
-    assert old.snapshot().budget_spend_usd == 4.25
+    assert status.agent_tokens == 1050
+    assert status.agent_tokens_by_source == {"batch_plan": 1000, "preflight": 50}

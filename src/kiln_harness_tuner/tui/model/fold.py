@@ -29,6 +29,7 @@ from kiln_harness_tuner.schemas import (
     ProbeResult,
     PromotionDecision,
     ScreenResult,
+    lane_for_source,
     spend_lane_labels,
 )
 from kiln_harness_tuner.status import spend_split
@@ -387,23 +388,19 @@ class RunModel:
     def _lanes(self, spent: float, elapsed: float) -> Line:
         status = self.tracker.status
         labels = spend_lane_labels(status.agent_cli)
-        agent, kiln, other = spend_split(status.spend_by_lane)
+        _agent, kiln, other = spend_split(status.spend_by_lane)
         parts: list[Line] = [
             (Span(f"{labels[PROVIDER_LANE]} ", "muted"), Span(words.money(kiln))),
         ]
-        agent_part: Line = (
-            Span(f"{labels[SUBSCRIPTION_LANE]} ", "muted"),
-            Span(words.money(agent)),
-        )
-        if status.unmeasured_tokens:
-            agent_part += (
-                Span(f" {words.unpriced(status.unmeasured_tokens)}", "muted"),
-            )
-        if not status.agent_cost_in_budget:
-            agent_part += (Span(f" {words.NOT_IN_BUDGET}", "muted"),)
-        parts.append(agent_part)
         if other:
             parts.append((Span("other ", "muted"), Span(words.money(other))))
+        # The agents' tokens: a rough count, not money, not in the budget.
+        parts.append(
+            (
+                Span(f"{labels[SUBSCRIPTION_LANE]} ", "muted"),
+                Span(words.tokens(status.agent_tokens)),
+            )
+        )
         main_waves = any(w.wave >= 1 for w in self.waves)
         if main_waves and self.exit_reason is None and elapsed > 0:
             parts.append((Span(words.burn(spent / (elapsed / 3600))),))
@@ -1074,9 +1071,12 @@ class RunModel:
     def _on_spend(self, s: Stamped, f: Mapping[str, Any]) -> None:
         # The tracker folds the run's money; an item's own spend is kept on
         # the item, which outlives the tracker's last wave.
+        # Kiln money only: the agent lane is tokens, not in the budget.
         item = self.item(f.get("item_id"))
         cost = _number(f.get("cost_usd"))
-        if item is not None and cost is not None:
+        source = str(f.get("source") or "")
+        lane = f.get("lane") or lane_for_source(source)
+        if item is not None and cost is not None and lane != SUBSCRIPTION_LANE:
             item.spend_usd += cost
 
     # ---- the promotion gate ----

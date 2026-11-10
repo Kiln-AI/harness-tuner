@@ -144,7 +144,7 @@ def summary_lines(
     ]
     if baseline is not None:
         lines.append(("Starts from", _baseline_text(baseline)))
-    budget = limits_budget_text(answers.budget_usd, answers.agent_cli)
+    budget = limits_budget_text(answers.budget_usd)
     limits = f"{budget} · {duration_text(answers.timeout_mins)}"
     return [
         *lines,

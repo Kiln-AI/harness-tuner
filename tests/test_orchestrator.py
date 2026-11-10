@@ -2345,13 +2345,30 @@ async def test_budget_exhausted_exits_before_a_wave():
     assert exit_event["spent_usd"] == pytest.approx(12.0)
 
 
+class _BuildAsKilnSpend:
+    """Books each eval build's cost again as Kiln spend: the budget counts
+    the Kiln lane only, and this is the cheapest wave with Kiln spend."""
+
+    def __init__(self, meter: SpendMeter) -> None:
+        self.meter = meter
+
+    def event(self, kind: str, **fields: object) -> None:
+        if kind == "spend" and fields.get("source") == "eval_build":
+            self.meter.event(
+                "spend",
+                source="eval_jobs",
+                lane="provider",
+                cost_usd=fields["cost_usd"],
+            )
+
+
 async def test_budget_within_one_projected_wave_forces_wrap_up():
     ctx = make_ctx(eval_building=True)
     seed_baseline(ctx.kiln)
     seed_issue(ctx.kiln)
     recording = ctx.log
     meter = SpendMeter()
-    ctx.log = FanoutLog(recording, meter)
+    ctx.log = FanoutLog(recording, meter, _BuildAsKilnSpend(meter))
     ctx.analyzer.log = ctx.log
     ctx.spend = meter
     ctx.budget_usd = 10.0
@@ -2910,35 +2927,32 @@ async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):
     assert events[1]["records"] == 3 and events[1]["file"] == files[1]
 
 
-def test_the_spend_meter_leaves_an_uncounted_agent_lane_out_of_the_budget():
-    # Claude Code's reported cost is not money the operator pays: the meter
-    # books it apart, and the budget reads the Kiln lane alone.
-    meter = SpendMeter(agent_cost_in_budget=False)
+def test_the_spend_meter_never_counts_the_agent_lane():
+    # The agents run on the agent CLI's own account: the meter sums their
+    # tokens for information, and the budget reads the Kiln lane alone.
+    meter = SpendMeter()
     meter.event(
-        "spend", source="batch_plan", lane="subscription_equivalent", cost_usd=4.0
+        "spend",
+        source="batch_plan",
+        lane="subscription_equivalent",
+        cost_usd=4.0,
+        tokens=900,
     )
-    meter.event("spend", source="preflight", cost_usd=1.0)  # lane from source
+    meter.event("spend", source="preflight", cost_usd=1.0, tokens=100)
     meter.event("spend", source="eval_jobs", lane="provider", cost_usd=0.5)
     assert meter.total == pytest.approx(0.5)
-    assert meter.uncounted == pytest.approx(5.0)
     assert meter.provider_total == pytest.approx(0.5)
-    counted = SpendMeter()
-    counted.event(
-        "spend", source="batch_plan", lane="subscription_equivalent", cost_usd=4.0
-    )
-    counted.event("spend", source="eval_jobs", lane="provider", cost_usd=0.5)
-    assert counted.total == pytest.approx(4.5)
-    assert counted.uncounted == 0.0
+    assert meter.agent_tokens == 1000
 
 
-async def test_an_uncounted_agent_lane_leaves_the_budget_alone():
-    # The wrap-up test's run, with the agents' cost not counted: the $6 build
-    # session is not budget spend, so wave 2 is not the wrap-up.
+async def test_agent_sessions_leave_the_budget_alone():
+    # The wrap-up test's run with the $6 on the agent side: a build session
+    # is not budget spend, so wave 2 is not the wrap-up.
     ctx = make_ctx(eval_building=True)
     seed_baseline(ctx.kiln)
     seed_issue(ctx.kiln)
     recording = ctx.log
-    meter = SpendMeter(agent_cost_in_budget=False)
+    meter = SpendMeter()
     ctx.log = FanoutLog(recording, meter)
     ctx.analyzer.log = ctx.log
     ctx.spend = meter
@@ -2957,6 +2971,3 @@ async def test_an_uncounted_agent_lane_leaves_the_budget_alone():
     plan_inputs = d.calls_to("batch_plan")
     assert [p.should_wrap_up for p in plan_inputs] == [False, False]
     assert meter.total == pytest.approx(0.0)
-    assert meter.uncounted == pytest.approx(6.0)
-    (run_start,) = [f for k, f in recording.events if k == "run_start"]
-    assert run_start["agent_cost_in_budget"] is False

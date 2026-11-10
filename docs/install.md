@@ -717,7 +717,7 @@ line:
   HTTP 500: Internal Server Error
 
   The run stopped. Spent $3.20 so far on the task's model calls.
-  The agent sessions reported $1.95 more, which the budget does not count.
+  The agents used about 1,240,000 tokens, which the budget does not count.
   Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261107-1412
   Report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261107-1412.md
 

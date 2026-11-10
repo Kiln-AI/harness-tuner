@@ -216,16 +216,15 @@ class SpendMeter:
     tracker so the loop can enforce `--budget-usd` at wave boundaries without
     reaching into the UI tracker.
 
-    `total` is the spend that counts toward `--budget-usd`. The agent lane
-    counts only when `agent_cost_in_budget` is True (the dispatcher's
-    `REPORTS_COST`). Otherwise its cost goes to `uncounted` and stays out of
-    the budget."""
+    `total` is the spend that counts toward `--budget-usd`: everything but
+    the agent lane. The agent sessions run on the agent CLI's own account,
+    so their cost is not counted, for every agent CLI. Their tokens are
+    summed in `agent_tokens`, for information only."""
 
-    def __init__(self, *, agent_cost_in_budget: bool = True) -> None:
-        self.agent_cost_in_budget = agent_cost_in_budget
+    def __init__(self) -> None:
         self.total = 0.0
-        # Agent-lane cost the budget does not count.
-        self.uncounted = 0.0
+        # The agent sessions' tokens: a rough count, not in the budget.
+        self.agent_tokens = 0
         # The provider lane alone — what spend reconciliation
         # compares with the records (`kiln_harness_tuner.reconcile`).
         self.provider_total = 0.0
@@ -233,12 +232,14 @@ class SpendMeter:
     def event(self, kind: str, **fields: object) -> None:
         if kind != "spend":
             return
+        lane = fields.get("lane") or lane_for_source(str(fields.get("source")))
+        if lane == SUBSCRIPTION_LANE:
+            tokens = fields.get("tokens")
+            if isinstance(tokens, int) and not isinstance(tokens, bool):
+                self.agent_tokens += tokens
+            return
         cost = fields.get("cost_usd")
         if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            lane = fields.get("lane") or lane_for_source(str(fields.get("source")))
-            if lane == SUBSCRIPTION_LANE and not self.agent_cost_in_budget:
-                self.uncounted += float(cost)
-                return
             self.total += float(cost)
             if lane == PROVIDER_LANE:
                 self.provider_total += float(cost)
@@ -497,9 +498,6 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         deadline=deadline,
         deadline_iso=(datetime.now() + timedelta(minutes=timeout_mins)).isoformat(),
         budget_usd=ctx.budget_usd,
-        agent_cost_in_budget=(
-            ctx.spend.agent_cost_in_budget if ctx.spend is not None else True
-        ),
         objective=ctx.objective,
         model_policy=ctx.model_policy.summary() if ctx.model_policy else None,
         eval_building=ctx.eval_building,
@@ -517,6 +515,7 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
                 source="circuit_breaker",
                 lane=SUBSCRIPTION_LANE,
                 cost_usd=exc.usage.cost_usd,
+                tokens=exc.usage.tokens,
                 unmeasured_tokens=exc.usage.unmeasured_tokens,
             )
         stop_line = quota_stop_line(exc.error.error_class, exc.error.detail)
@@ -605,6 +604,7 @@ async def _run_loop(
         source="preflight",
         lane=SUBSCRIPTION_LANE,
         cost_usd=preflight_usage.cost_usd,
+        tokens=preflight_usage.tokens,
         unmeasured_tokens=preflight_usage.unmeasured_tokens,
     )
     # The setup phase: seed the baseline record, sync the
@@ -1045,6 +1045,7 @@ async def _dispatch_plan(
         source="batch_plan",
         lane=SUBSCRIPTION_LANE,
         cost_usd=result.usage.cost_usd,
+        tokens=result.usage.tokens,
         unmeasured_tokens=result.usage.unmeasured_tokens,
     )
     if result.data is not None:
@@ -1639,6 +1640,7 @@ async def _run_promotion_gate(
         source="promote_best",
         lane=SUBSCRIPTION_LANE,
         cost_usd=decision_result.usage.cost_usd,
+        tokens=decision_result.usage.tokens,
         unmeasured_tokens=decision_result.usage.unmeasured_tokens,
     )
     if decision_result.data is None:
@@ -1961,6 +1963,7 @@ async def _integrity_review(
         source="integrity_review",
         lane=SUBSCRIPTION_LANE,
         cost_usd=result.usage.cost_usd,
+        tokens=result.usage.tokens,
         unmeasured_tokens=result.usage.unmeasured_tokens,
     )
     if result.data is None:

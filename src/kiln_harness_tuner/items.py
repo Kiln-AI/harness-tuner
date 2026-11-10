@@ -344,6 +344,7 @@ async def _run_eval_build(
         source="eval_build",
         lane=SUBSCRIPTION_LANE,
         cost_usd=rep.usage.cost_usd,
+        tokens=rep.usage.tokens,
         unmeasured_tokens=rep.usage.unmeasured_tokens,
     )
     return rep
@@ -575,6 +576,7 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
             source="probe",
             lane=SUBSCRIPTION_LANE,
             cost_usd=rep.usage.cost_usd,
+            tokens=rep.usage.tokens,
             unmeasured_tokens=rep.usage.unmeasured_tokens,
         )
         if rep.data is None:
@@ -910,6 +912,7 @@ async def _execute_plan_item(
         source="analyze_experiment_results",
         lane=SUBSCRIPTION_LANE,
         cost_usd=res.usage.cost_usd,
+        tokens=res.usage.tokens,
         unmeasured_tokens=res.usage.unmeasured_tokens,
     )
     if res.data is None:
@@ -1024,6 +1027,7 @@ async def _build_rc(
         source="create_experiment_rc",
         lane=SUBSCRIPTION_LANE,
         cost_usd=rc.usage.cost_usd,
+        tokens=rc.usage.tokens,
         unmeasured_tokens=rc.usage.unmeasured_tokens,
     )
     # One (usd, secs) sample per build, by technique — the planner's

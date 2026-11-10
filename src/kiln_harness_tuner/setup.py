@@ -1113,6 +1113,7 @@ async def describe_all(
             source="describe_eval",
             lane=SUBSCRIPTION_LANE,
             cost_usd=result.usage.cost_usd,
+            tokens=result.usage.tokens,
             unmeasured_tokens=result.usage.unmeasured_tokens,
         )
         if result.data is None:

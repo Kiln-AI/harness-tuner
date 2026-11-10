@@ -311,11 +311,8 @@ class RunStatusTracker:
         budget_usd: object = None,
         objective: object = None,
         eval_building: object = None,
-        agent_cost_in_budget: object = None,
         **_: object,
     ) -> None:
-        if isinstance(agent_cost_in_budget, bool):
-            self._status.agent_cost_in_budget = agent_cost_in_budget
         if objective in ("quality", "speed", "cost"):
             self._status.objective = objective  # type: ignore[assignment]
         if isinstance(eval_building, bool):
@@ -656,6 +653,7 @@ class RunStatusTracker:
         lane: str = "",
         evidence_cost_usd: float | None = None,
         unmeasured_tokens: int = 0,
+        tokens: int = 0,
         **_: object,
     ) -> None:
         self._status.spend_total_usd += cost_usd
@@ -678,9 +676,14 @@ class RunStatusTracker:
         by_lane[lane_key] = by_lane.get(lane_key, 0.0) + cost_usd
         source_fold = self._status.spend_by_source.setdefault(source_key, {})
         source_fold[lane_key] = source_fold.get(lane_key, 0.0) + cost_usd
+        if lane_key == SUBSCRIPTION_LANE and tokens:
+            self._status.agent_tokens += int(tokens)
+            by_source = self._status.agent_tokens_by_source
+            by_source[source_key] = by_source.get(source_key, 0) + int(tokens)
         item = self._find_item(item_id) if item_id is not None else None
         if item is not None:
-            item.spend_usd += cost_usd
+            if lane_key != SUBSCRIPTION_LANE:  # an item's money: Kiln only
+                item.spend_usd += cost_usd
             item.spend_by_lane[lane_key] = (
                 item.spend_by_lane.get(lane_key, 0.0) + cost_usd
             )

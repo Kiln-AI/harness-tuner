@@ -49,7 +49,10 @@ def test_a_building_card_shows_the_time_in_its_state():
     card = run.card("w1-1")
     assert card.steps[0] == ("build", "current")
     assert card.line4 == NoteLine("an agent is writing the change · 3m00s")
-    assert (card.subtitle, card.live) == ("w1-1 · $0.40", True)
+    # The agent's cost is not money the card shows: only Kiln's is.
+    assert (card.subtitle, card.live) == ("w1-1", True)
+    run.emit("spend", item_id="w1-1", source="eval_jobs", cost_usd=0.4)
+    assert run.card("w1-1").subtitle == "w1-1 · $0.40"
 
 
 def test_a_rebuild_shows_the_check_that_forced_it():

@@ -324,6 +324,7 @@ async def test_eval_only_emits_building_eval_and_outcome_events():
         "source": "eval_build",
         "lane": "subscription_equivalent",
         "cost_usd": 2.0,
+        "tokens": 0,
         "unmeasured_tokens": 0,
     }
 
