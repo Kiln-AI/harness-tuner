@@ -36,8 +36,10 @@ from kiln_harness_tuner.analysis import AnalysisError, Analyzer
 from kiln_harness_tuner.contract import ContractPreflightError
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.agent_cli import (
+    CLAUDE_EFFORTS,
     DEFAULT_AGENT_CLI,
     AgentCli,
+    claude_effort_problem,
     parse_agent_cli,
 )
 from kiln_harness_tuner.dispatch.claude_cli import (
@@ -543,6 +545,23 @@ def parse_role_overrides(pairs: Sequence[str], flag: str) -> dict[str, str]:
             )
         overrides[role] = value
     return overrides
+
+
+def check_role_efforts(agent_cli: AgentCli, efforts: dict[str, str]) -> None:
+    """Refuse a `--agent-effort` level that Claude Code does not have: it
+    would ignore it and use its own default. Codex refuses an unknown level
+    itself, in the start-up check; OpenCode ignores a variant the model does
+    not have."""
+    if agent_cli.kind != "claude":
+        return
+    for role, effort in efforts.items():
+        problem = claude_effort_problem(effort)
+        if problem is not None:
+            raise ConfigRenderError(
+                f"--agent-effort {role}: {problem}.\n"
+                f"fix: pass one of {', '.join(CLAUDE_EFFORTS)}, e.g."
+                f" --agent-effort {role}=high."
+            )
 
 
 def load_model_policy(path: str | None) -> ModelPolicy | None:
@@ -1234,6 +1253,7 @@ async def _run(
     target = target_from_args(args)
     models = parse_role_overrides(args.agent_model, "--agent-model")
     efforts = parse_role_overrides(args.agent_effort, "--agent-effort")
+    check_role_efforts(agent_cli, efforts)
     # Before the run lock and the run directory: a CLI that cannot answer
     # leaves nothing behind.
     await check_agent_cli(agent_cli, target, agents_dir, models, efforts)

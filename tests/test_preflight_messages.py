@@ -49,7 +49,7 @@ FIX_MARKER = "\nfix: "
 # Measured from the tree, and stated so the guard cannot narrow in silence: a
 # raise site that is deleted or renamed out of the set fails here instead of
 # quietly leaving this test asserting less than it did.
-EXPECTED_SITES = 20
+EXPECTED_SITES = 21
 
 
 def _message_literals(source: str) -> list[tuple[str, str]]:

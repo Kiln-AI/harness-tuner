@@ -12,8 +12,10 @@ from test_dispatch_claude_cli import TARGET, FakeRunner, ok_proc
 
 from kiln_harness_tuner.cli import (
     DISPATCHERS,
+    ConfigRenderError,
     build_parser,
     check_agent_cli,
+    check_role_efforts,
     make_dispatcher,
 )
 from kiln_harness_tuner.dispatch.agent_cli import DEFAULT_AGENT_CLI, parse_agent_cli
@@ -65,6 +67,11 @@ class TestParsing:
         cli = parse_agent_cli(text)
         assert cli.effort == "xhigh"
         assert cli.options == ("-c", "a.b=1")
+
+    def test_an_unknown_claude_effort_is_refused(self):
+        # Claude Code would ignore it with a warning and use its own default.
+        with pytest.raises(ValueError, match="not a Claude Code effort level"):
+            parse_agent_cli("claude -p --effort extreme")
 
     def test_opencode_with_a_model_and_a_variant(self):
         cli = parse_agent_cli(
@@ -147,6 +154,15 @@ def test_a_codex_effort_reaches_every_session():
     assert "model_reasoning_effort=" not in " ".join(dispatcher._cli_options)
     assert 'model_reasoning_effort="xhigh"' in argv
     assert 'model_reasoning_effort="low"' in dispatcher._argv("batch_plan")
+
+
+def test_a_role_effort_claude_code_lacks_is_refused():
+    claude = parse_agent_cli("claude -p")
+    check_role_efforts(claude, {"batch_plan": "max"})
+    with pytest.raises(ConfigRenderError, match="--agent-effort batch_plan"):
+        check_role_efforts(claude, {"batch_plan": "ultra"})
+    # Codex checks its own levels in the start-up prompt.
+    check_role_efforts(parse_agent_cli("codex exec"), {"batch_plan": "ultra"})
 
 
 def claude_answer(text: str, is_error: bool = False) -> str:

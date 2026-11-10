@@ -21,6 +21,7 @@ from dataclasses import dataclass, fields
 from typing import TypeVar
 
 from kiln_harness_tuner.dispatch.agent_cli import (
+    CLAUDE_EFFORTS,
     CODEX_EFFORT_KEY,
     AgentCli,
     parse_agent_cli,
@@ -219,6 +220,7 @@ class AgentKind:
     reports_cost: bool
     # The thinking levels the picker lists. Empty: the level is typed.
     efforts: tuple[str, ...] = ()
+    other_effort: bool = False  # Other… types a level the list doesn't have
     default_effort: str = "high"  # the dispatcher's `DEFAULT_EFFORT`
 
     @property
@@ -232,9 +234,9 @@ class AgentKind:
 # `AGENT_MODEL`, `reports_cost` its `REPORTS_COST` (a CLI that reports
 # tokens and no cost can't count toward the budget), and `default_effort` its
 # `DEFAULT_EFFORT`.
-# The thinking levels that Claude Code's `--effort` and every listed Codex
-# model take. Some Codex models also take `ultra`, which Other can type.
-_LEVELS = ("low", "medium", "high", "xhigh", "max")
+# The thinking levels every listed Codex model takes. Codex also takes
+# `none`, `minimal` and, on some models, `ultra`, which Other can type.
+_CODEX_LEVELS = ("low", "medium", "high", "xhigh", "max")
 _CODEX_MODEL_HINT = (
     "Enter uses Codex's own default model. For example gpt-6.1-sol. The models:"
     f" {CODEX_MODELS_URL}"
@@ -253,10 +255,18 @@ AGENT_KINDS = (
         "Enter keeps opus. An alias, such as sonnet, or a full model name, such as"
         " claude-fable-5-2.",
         reports_cost=True,
-        efforts=_LEVELS,
+        efforts=CLAUDE_EFFORTS,
     ),
     AgentKind(
-        "codex", "Codex", "exec", "-m", "", _CODEX_MODEL_HINT, False, efforts=_LEVELS
+        "codex",
+        "Codex",
+        "exec",
+        "-m",
+        "",
+        _CODEX_MODEL_HINT,
+        False,
+        efforts=_CODEX_LEVELS,
+        other_effort=True,
     ),
     AgentKind("opencode", "OpenCode", "run", "-m", "", _OPENCODE_MODEL_HINT, True),
 )
@@ -482,15 +492,19 @@ def _ask_effort(agent: AgentKind, effort: str, ctx: QuestionContext) -> str:
             Option(level, level, description=_LEVEL_TEXT.get(level))
             for level in agent.efforts
         ]
-        options.append(Option(_OTHER_MODEL, "Other…", description="Type a level name."))
         hint = "How much each agent reasons before it answers."
-        if agent.kind == "codex":
+        if agent.other_effort:
+            options.append(
+                Option(_OTHER_MODEL, "Other…", description="Type a level name.")
+            )
             hint += " Some models also take ultra: Other to type it."
         picked = ctx.terminal.pick(
             EFFORT_QUESTION,
             options,
             hint=hint,
-            default=effort if effort in agent.efforts else _OTHER_MODEL,
+            default=effort
+            if effort in agent.efforts
+            else (_OTHER_MODEL if agent.other_effort else None),
         )
         if picked != _OTHER_MODEL:
             return picked

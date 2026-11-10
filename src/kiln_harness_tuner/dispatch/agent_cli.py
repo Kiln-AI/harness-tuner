@@ -71,6 +71,21 @@ def _pop_option(
     return value, rest
 
 
+# The levels Claude Code's `--effort` takes. Claude Code ignores any other
+# value with a warning and uses its own default, so the tuner refuses it.
+CLAUDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
+def claude_effort_problem(effort: str) -> str | None:
+    """Why `effort` can't be a Claude Code level, or None when it can."""
+    if effort in CLAUDE_EFFORTS:
+        return None
+    return (
+        f"{effort!r} is not a Claude Code effort level. Claude Code would"
+        f" ignore it and use its own default. Levels: {', '.join(CLAUDE_EFFORTS)}"
+    )
+
+
 # Codex sets its effort as a config key: `-c model_reasoning_effort=high`.
 CODEX_CONFIG_OPTIONS = ("-c", "--config")
 CODEX_EFFORT_KEY = "model_reasoning_effort"
@@ -131,6 +146,10 @@ def parse_agent_cli(text: str) -> AgentCli:
         effort, rest = _pop_codex_effort(rest)
     elif effort_names:
         effort, rest = _pop_option(rest, effort_names)
+    if kind == "claude" and effort:
+        problem = claude_effort_problem(effort)
+        if problem is not None:
+            raise ValueError(problem)
     return AgentCli(
         text=text,
         kind=kind,

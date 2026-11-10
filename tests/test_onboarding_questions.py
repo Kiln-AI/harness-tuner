@@ -504,7 +504,7 @@ def test_claude_code_models_are_picked_from_its_list():
     assert "claude-fable-5-2" in model.offered
     assert model.default == "opus"
     assert model.hint == "Other to type a model name: an alias or a full name."
-    assert [o.label for o in terminal.options[-1]][-1] == "Other…"
+    assert [o.label for o in terminal.options[-2]][-1] == "Other…"
     assert got.agent_cli == "claude -p --model claude-fable-5-2"
 
 
@@ -584,6 +584,16 @@ def test_the_thinking_level_is_picked_and_starts_on_high():
     assert terminal.step_lines()[-1] == (
         "Agents: Codex (codex exec) · gpt-6.1-sol · effort xhigh"
     )
+
+
+def test_claude_code_levels_have_no_other():
+    # Claude Code ignores a level it doesn't know, so only its own are offered.
+    terminal = ScriptedTerminal(["claude", "opus", "max"])
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    level = terminal.asked_about("Thinking level for the agents")
+    assert level.offered == ("low", "medium", "high", "xhigh", "max")
+    assert level.hint == "How much each agent reasons before it answers."
+    assert got.agent_cli == "claude -p --effort max"
 
 
 def test_high_leaves_the_level_out_of_the_command():
