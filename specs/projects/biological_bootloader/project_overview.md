@@ -33,8 +33,8 @@ to try next**. The better that sense, the better Harness Tuner is.
 ## 2. What we build
 
 This project starts "the grand tutorial for harness optimisation" for the
-agent that does the optimisation. It has two halves, and a third piece that
-came up during the recording.
+agent that does the optimisation. It has two halves, and two more pieces
+that came up during and after the recording.
 
 1. **The knowledge: a skill.** A progressive-disclosure skill (`SKILL.md`
    plus resource files) that the tuner's agents read while they look at the
@@ -52,6 +52,21 @@ came up during the recording.
 3. **Red-flag detection.** Cheap software analysis of the harness and of
    traces, run before and during planning, that hands the tuner the obvious
    problems (section 9).
+4. **A system to keep the knowledge up to date.** The knowledge and guidance
+   must be easy to maintain. In recursive fashion, this is probably a skill
+   in this repository. It is not for the Harness Tuner loop agents. It is
+   for the coding agents that build Harness Tuner. A skill is often built
+   well, and then the next agent starts to break it. The "skill design"
+   rules must be written down, so that a request such as "read this blog
+   post and add this approach to our tuner" keeps the skill's quality,
+   format and rules. It must prevent two common mistakes:
+   - **Over-indexing on the new request.** The agent puts the new item at
+     the top level, or deletes older approaches. The maintenance skill must
+     direct each addition to the right level, so that quality is consistent
+     over time.
+   - **Silent conflict.** When a new approach conflicts with an existing
+     approach X, that is an explicit decision: deprecate X, or describe when
+     to use each.
 
 The spec we are building towards adds that skill and adds those APIs.
 
@@ -343,9 +358,10 @@ but valuable in specific cases, mostly classification.
 ### 7.4 Decision models (Jev)
 
 Jev started the "decision model" category. There are now many (Luna
-Decisions, Cloudflare Clef, Kev and others). They are very fast "system 1" models. The input side is like an LLM. The output is a
-prediction, in effect one token for the class. They are very cheap, very
-fast and capable for the price. **Consider them for every classification
+Decisions, Cloudflare Clef, Kev and others). They are very fast "system 1"
+models. The input side is like an LLM. The output is a prediction, in
+effect one token for the class. They are very cheap, very fast and capable
+for the price. **Consider them for every classification
 task**, possibly with input transforms. They do nothing for free-text
 output. More uses are coming to the Kiln harness but are not shipped.
 
