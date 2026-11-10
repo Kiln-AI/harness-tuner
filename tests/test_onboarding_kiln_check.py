@@ -170,7 +170,6 @@ def test_kiln_not_running_not_guided_fails_with_the_plain_message():
         start(kiln, terminal)
     title, body = NOT_RUNNING
     assert str(error.value) == "\n".join([title, *(f"  {line}" for line in body)])
-    assert error.value.shown is False
     assert kiln.paths() == ["/ping"]
 
 
@@ -345,7 +344,7 @@ def test_the_unreadable_api_list_warning_follows_the_step_and_the_start_goes_on(
     assert terminal.questions == [ADVANCED_PROMPT, START_PROMPT]
 
 
-def test_the_default_terminal_without_a_tty_is_the_plain_one(capsys):
+def test_with_no_terminal_the_start_is_plain(capsys):
     prepare_start(
         flags(PROJECT_ID, TASK_ID, FOLDER),
         [],

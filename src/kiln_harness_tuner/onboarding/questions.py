@@ -427,7 +427,7 @@ def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
 
 def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
-        "Time limit",
+        "Time limit (1h, 24h, 45m)",
         default=duration_default(answers.timeout_mins),
         hint="No wave starts after this, and work still running at the limit is"
         " cancelled, so leave room for a whole wave.",

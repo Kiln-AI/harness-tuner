@@ -1,7 +1,8 @@
-"""Shared test helpers: the loop fixtures (items + orchestrator) and
-the `baseline_record` builder the memory-format and setup-phase suites both
-seed their singleton with."""
+"""Shared test helpers: the loop fixtures (items + orchestrator), the
+`baseline_record` builder the memory-format and setup-phase suites both
+seed their singleton with, and a stream that says whether it is a terminal."""
 
+import io
 import logging
 from datetime import datetime
 
@@ -29,6 +30,18 @@ FIXED_NOW = datetime(2026, 7, 22, 14, 0)
 TARGET = TargetBlock(
     project_path="/tmp/proj", project_id="p1", task_id="t1", kiln_host="http://h"
 )
+
+
+class TtyStream(io.StringIO):
+    """A text stream whose `isatty()` answers `tty`: a stand-in for stdin or
+    stdout in the tests of what a terminal changes."""
+
+    def __init__(self, tty: bool):
+        super().__init__()
+        self.tty = tty
+
+    def isatty(self) -> bool:
+        return self.tty
 
 
 def baseline_record(

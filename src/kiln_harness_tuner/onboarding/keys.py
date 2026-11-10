@@ -94,6 +94,7 @@ class Baseline:
     name: str
     model: str | None
     provider: str | None  # Kiln's display name
+    rc_id: str
 
 
 def _text(value: Any) -> str | None:
@@ -183,6 +184,7 @@ def _baseline(row: dict[str, Any] | None) -> Baseline | None:
         _run_config_name(row),
         model or None,
         provider_name(provider) if provider else None,
+        _run_config_id(row),
     )
 
 

@@ -44,6 +44,7 @@ from kiln_harness_tuner.schemas import (
     WinRef,
 )
 from kiln_harness_tuner.setup import EvalSplitAuditError, SetupPreconditionError
+from kiln_harness_tuner.status import item_summary
 from kiln_harness_tuner.wave_log import FanoutLog
 
 BASELINE_OVERVIEW = "Baseline: run config rc_base — promoted 07-15 by EXP 0715-w1-1"
@@ -1871,24 +1872,23 @@ async def test_run_start_and_enriched_wave_start_events():
     # Audit-trail twin: wall-clock ISO, parseable (a raw monotonic float is
     # uninterpretable in the wave log).
     datetime.fromisoformat(run_start["deadline_iso"])
-    wave_starts = [f for k, f in ctx.log.events if k == "wave_start"]
-    assert wave_starts == [
-        {
-            "wave": 1,
-            "should_wrap_up": False,
-            "baseline_rc_id": "rc_base",
-            "plan_headline": "1 experiment, 1 eval-only",
-            "rejected_summary": "nothing else worth it",
-            "items": [
-                {
-                    "item_id": "w1-1",
-                    "kind": "fix",
-                    "label": "retry-skill for 429s (issue_1)",
-                },
-                {"item_id": "w1-2", "kind": "eval", "label": "build eval for issue_2"},
-            ],
-        }
+    (wave_start,) = [f for k, f in ctx.log.events if k == "wave_start"]
+    assert {k: v for k, v in wave_start.items() if k != "items"} == {
+        "wave": 1,
+        "should_wrap_up": False,
+        "baseline_rc_id": "rc_base",
+        "plan_headline": "1 experiment, 1 eval-only",
+        "rejected_summary": "nothing else worth it",
+    }
+    assert [
+        {k: item[k] for k in ("item_id", "kind", "label")}
+        for item in wave_start["items"]
+    ] == [
+        {"item_id": "w1-1", "kind": "fix", "label": "retry-skill for 429s (issue_1)"},
+        {"item_id": "w1-2", "kind": "eval", "label": "build eval for issue_2"},
     ]
+    # Each entry also carries the item's details (`status.item_details`).
+    assert wave_start["items"] == [item_summary(i) for i in wave_plan.items]
     # Dispatch spend rides the wave log/UI via `spend` events.
     spends = [(f["source"], f["cost_usd"]) for k, f in ctx.log.events if k == "spend"]
     assert ("batch_plan", 0.4) in spends

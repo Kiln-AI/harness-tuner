@@ -1,5 +1,5 @@
 """The shared problem loop (`resolve_problem`), `Problem`'s menu and plain
-error, and the display helpers."""
+error, the picker's row rule, and the display helpers."""
 
 from pathlib import Path
 
@@ -10,7 +10,9 @@ from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStop
 from kiln_harness_tuner.onboarding.terminal import (
     Action,
     ActionKind,
+    Option,
     Problem,
+    aligned_rows,
     english_list,
     plural,
     resolve_problem,
@@ -157,6 +159,23 @@ def test_the_plain_error_leaves_out_a_link_the_body_already_gives():
     assert problem.error().body == ("Download it from https://k/dl.",)
     # Actions that open nothing add nothing.
     assert Problem("None", (), actions=(DEMO,)).error().body == ()
+
+
+def test_pick_rows_are_aligned_across_options():
+    projects = [
+        Option("p1", "Forum Moderation", ("424242975950", "~/Kiln Projects/Forum")),
+        Option("p2", "Support Triage", ("118230554411", "~/Kiln Projects/Support")),
+        Option("p3", "Spam", ("731954460212", "")),
+    ]
+    assert aligned_rows(projects) == [
+        "Forum Moderation   424242975950   ~/Kiln Projects/Forum",
+        "Support Triage     118230554411   ~/Kiln Projects/Support",
+        "Spam               731954460212",
+    ]
+    assert aligned_rows([Option(1, "a"), Option(2, "bb", ("x",))]) == [
+        "a",
+        "bb   x",
+    ]
 
 
 def test_tilde_shows_the_home_folder_as_a_tilde():

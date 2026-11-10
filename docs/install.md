@@ -230,41 +230,46 @@ and the MCP server all have to agree on one host.
 
 `harness-tuner` makes this check itself, first, on the host it was given
 (`--kiln-host`, default `http://localhost:8757`). It runs before any agent
-session, model call or run folder, and it costs nothing. What it prints, and
+session, model call or run folder, and it costs nothing. What it shows, and
 how its menu works, depend on whether the start is guided
-([Guided or not](#guided-or-not) below); the examples here are a guided start.
+([Guided or not](#guided-or-not) below). The examples here are a guided start,
+in the terminal app: a failed check is a card with a red border, and a
+`What next?` menu follows it.
 
 **Kiln answers.** One `GET /ping`, with a 5-second timeout. When nothing
 answers:
 
 ```
-✗ Kiln isn't running at http://localhost:8757
+╭─ ✗ Kiln isn't running at http://localhost:8757 ────────────────────────────────╮
+│ The tuner works through the Kiln app, so Kiln has to be open on this computer. │
+│   1. Install Kiln if you don't have it: https://kiln.tech/download ↗           │
+│   2. Open the Kiln app and wait for its window to appear.                      │
+│ Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.       │
+╰────────────────────────────────────────────────────────────────────────────────╯
 
-  The tuner works through the Kiln app, so Kiln has to be open on this computer.
-    1. Install Kiln if you don't have it: https://kiln.tech/download
-    2. Open the Kiln app and wait for its window to appear.
-  Kiln on another port? Exit and pass --kiln-host http://localhost:<port>.
-
-? What next?
- » r) Check again (Kiln is open now)
-   d) Open the download page
-   x) Exit
+What next?
+ r) Check again (Kiln is open now)
+ d) Open the download page
+ x) Exit
 ```
+
+The `↗` marks a link: a click on it opens the page. The first row of the menu
+is highlighted.
 
 When something answers but not with Kiln's `"pong"` (another program on the
 port, or the wrong `--kiln-host`):
 
 ```
-✗ Something other than Kiln is answering at http://localhost:8757
+╭─ ✗ Something other than Kiln is answering at http://localhost:8757 ──────────────────╮
+│ GET /ping returned HTTP 404, so this isn't the Kiln app.                             │
+│   1. If Kiln is running on another port, exit and pass --kiln-host with its address. │
+│   2. Otherwise close the program using this port, then open the Kiln app.            │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-  GET /ping returned HTTP 404, so this isn't the Kiln app.
-    1. If Kiln is running on another port, exit and pass --kiln-host with its address.
-    2. Otherwise close the program using this port, then open the Kiln app.
-
-? What next?
- » r) Check again
-   d) Open the download page
-   x) Exit
+What next?
+ r) Check again
+ d) Open the download page
+ x) Exit
 ```
 
 The explanation names the HTTP status, or says `returned an unexpected
@@ -276,18 +281,18 @@ are there: the memory API, the eval-job API and run-config provenance. When any
 is missing:
 
 ```
-✗ Kiln 1.0.3 is too old for the tuner
+╭─ ✗ Kiln 1.0.3 is too old for the tuner ─────────────────────────────────────────────────╮
+│ The tuner needs the memory API and run-config provenance, which this Kiln doesn't have. │
+│   1. Update Kiln: in the app, open Settings → Check for update,                         │
+│      or download the latest version from https://kiln.tech/download ↗.                  │
+│   2. Quit and reopen Kiln so the update takes effect.                                   │
+╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-  The tuner needs the memory API and run-config provenance, which this Kiln doesn't have.
-    1. Update Kiln: in the app, open Settings → Check for update,
-       or download the latest version from https://kiln.tech/download.
-    2. Quit and reopen Kiln so the update takes effect.
-
-? What next?
- » r) Check again (I've updated and reopened Kiln)
-   u) Open Kiln's update page
-   d) Open the download page
-   x) Exit
+What next?
+ r) Check again (I've updated and reopened Kiln)
+ u) Open Kiln's update page
+ d) Open the download page
+ x) Exit
 ```
 
 The explanation names only the APIs that are missing. `u` opens Kiln's own
@@ -310,10 +315,10 @@ warns and goes on, and a later call to a missing API fails with its own error:
 ```
 
 **Not guided** (CI, a script, a pipe, another agent, or `--no-interaction`),
-there is no menu. The title goes to stderr as
-`harness-tuner: error: <title>`, then the explanation, with the address
-of each page the menu would have opened when the explanation doesn't already
-give it, and the CLI exits 1 without reading any input:
+there is no menu. The error goes to stderr: the title, then the explanation,
+with the address of each page the menu would have opened when the explanation
+doesn't already give it. The CLI exits 1 without reading any input. Where
+stderr is not a terminal, it reads:
 
 ```
 harness-tuner: error: Kiln isn't running at http://localhost:8757
@@ -474,15 +479,15 @@ still asked), and the step line says so:
 With none installed:
 
 ```
-✗ No agent CLI is installed
+╭─ ✗ No agent CLI is installed ────────────────────────────────────────────────╮
+│ The tuner's agents run through an agent CLI, signed in with its own account: │
+│ Claude Code (claude), Codex (codex) or OpenCode (opencode).                  │
+│ docs/install.md section 4 has the install and sign-in steps for each.        │
+╰──────────────────────────────────────────────────────────────────────────────╯
 
-  The tuner's agents run through an agent CLI, signed in with its own account:
-  Claude Code (claude), Codex (codex) or OpenCode (opencode).
-  docs/install.md section 4 has the install and sign-in steps for each.
-
-? What next?
- » r) Check again (I've installed one)
-   x) Exit
+What next?
+ r) Check again (I've installed one)
+ x) Exit
 ```
 
 The question finds a CLI, not its sign-in. Whichever CLI the start ends with,
@@ -534,17 +539,17 @@ When nothing the run calls takes a key, it reads `none needed (local models
 only)`. When keys are missing, a guided start shows:
 
 ```
-✗ Kiln is missing 2 API keys this run needs
+╭─ ✗ Kiln is missing 2 API keys this run needs ─────────────────────────────╮
+│ The tuner calls these providers through Kiln, which needs a key for each: │
+│   • Fireworks AI: used by the task's run config "Baseline"                │
+│   • OpenAI: used by eval "Tone"'s judge                                   │
+│ Add the keys in Kiln under Settings → AI Providers.                       │
+╰───────────────────────────────────────────────────────────────────────────╯
 
-  The tuner calls these providers through Kiln, which needs a key for each:
-    • Fireworks AI: used by the task's run config "Baseline"
-    • OpenAI: used by eval "Tone"'s judge
-  Add the keys in Kiln under Settings → AI Providers.
-
-? What next?
- » r) Check again (I've added the keys)
-   p) Open AI Providers in Kiln
-   x) Exit
+What next?
+ r) Check again (I've added the keys)
+ p) Open AI Providers in Kiln
+ x) Exit
 ```
 
 - `p` opens the AI Providers page, `http://localhost:8757/settings/providers`
@@ -616,50 +621,94 @@ start is **guided** when its stdin and its stdout are both terminals and
 `--no-interaction` isn't given. Without a terminal (CI, a script, a pipe,
 another agent) it is never guided, flag or not.
 
-**A guided start** opens with a box that names the tool, its version and what
-it does, then prints one step line per finished step:
-`✓` in green for a step that passed, `✗` in red for a check that failed, and
-`!` in yellow for a warning, each with a fixed-width label. While it calls
-Kiln, a spinner says what it is doing, such as `Reading projects…` or
-`Checking Kiln at http://localhost:8757…`, and it disappears when the call
-ends. Colour is off when `NO_COLOR` is set or stdout isn't a terminal.
+**In a terminal, `harness-tuner` opens a full-screen terminal app.** The app
+shows the start and then the run, and the terminal shows its scrollback again
+when the app closes. "A terminal" here means that stdin and stdout are both
+terminals:
 
-A failed check is a `✗` block: the title, what to do, and a `What next?` menu.
+| Where it runs | The start | The run |
+|---|---|---|
+| A terminal | Guided, in the app | The run screen, in the app |
+| A terminal, with `--no-interaction` | Step lines in the app, and no questions | The run screen, in the app |
+| A terminal, with `--no-progress` | Guided, in the app. Then the app closes. | Plain log lines |
+| A terminal, with both flags | Plain step lines | Plain log lines |
+| No terminal | Plain step lines | Plain log lines |
 
-- Each action has one key that acts at once, with no Enter. Arrow keys and
-  Enter work too. The menu is erased after the choice.
-- `r` runs the check again, with its spinner. If it still fails, the block is
-  printed again, so you see what is still wrong. Nothing polls: it checks only
-  when you ask.
+The app reads its keys from stdin and draws on a real terminal. So a run with
+stdin redirected (`harness-tuner < /dev/null`), or with stdout piped, gets
+plain lines, and `FORCE_COLOR` or `TTY_COMPATIBLE` does not change that.
+[your-own-task.md](your-own-task.md) section 5.5 describes the run screen.
+
+**A guided start** opens with a card that names the tool, its version and
+what it does. Then each finished step leaves one step line: `✓` in green for
+a step that passed, `✗` in red for a check that failed, and `!` in yellow for
+a warning, each with a fixed-width label. While it calls Kiln, a spinner line
+says what it is doing, such as `Reading projects…` or
+`Checking Kiln at http://localhost:8757…`. The spinner line goes when the call
+ends. The newest line is always in view, and the title bar names the task
+once the start has it. Colour is off when `NO_COLOR` is set.
+
+```
+╭─ Kiln Harness Tuner ─────────────────────────────────────────────╮
+│ Automatically improves an AI agent by tuning its harness: the    │
+│ prompt, model, tools, skills and settings around it.             │
+╰───────────────────────────────────────────────────────── v0.1.0 ─╯
+
+⠸ Checking Kiln at http://localhost:8757…
+```
+
+A failed check is a card with a red border: the `✗` title on the border, then
+what to do. A `What next?` menu follows it.
+
+- Each action has one key that acts at once, with no Enter. The arrow keys
+  and Enter work too. The highlighted row is in reverse blue. When you choose,
+  the menu goes.
+- `r` runs the check again, with its spinner. If it still fails, a new card
+  shows what is still wrong. Nothing polls: it checks only when you ask.
 - An Open action opens your browser only where a graphical one can be
-  expected: macOS, Windows, or Linux with `DISPLAY` or `WAYLAND_DISPLAY` set.
-  There it prints `Opening <url>` and opens the page. Elsewhere, such as over
-  SSH, it prints `Open this link in your browser: <url>` and starts no
-  browser. Then the menu asks again.
+  expected: macOS, or Linux with `DISPLAY` or `WAYLAND_DISPLAY` set,
+  and not over SSH. There the app shows `Opening <url>` and opens the page.
+  Elsewhere it shows `Open this link in your browser: <url>` and starts no
+  browser. Then the menu asks again. A link in the app also opens with a
+  click.
 - `x` stops with exit code 1.
-- At any prompt, Ctrl-C stops with exit code 130 and Ctrl-D with exit code 1.
-  Both print `harness-tuner: stopped.`
+- At any time in the start, Ctrl-C stops with exit code 130 and Ctrl-D with
+  exit code 1, also while a check runs. Both print `harness-tuner: stopped.`
+  The footer shows the two keys.
 
 Once the checks pass, a guided start asks the questions its flags didn't
 answer, and shows a summary before it starts the run
 ([your-own-task.md](your-own-task.md) section 5).
 
-**A start that isn't guided** asks nothing and waits for nothing. It runs the
-same checks in the same order, and prints the step lines as plain text, with no
-symbols, colour or spinners. It prints no welcome box.
+**When the app closes**, it prints a plain closing block to the terminal,
+because the app's own screen goes with it. The block holds the start's
+summary, the command that runs it again (after a guided start), and, after a
+run, the run's last lines ([your-own-task.md](your-own-task.md) section 5.5). With
+`--no-progress`, the app closes once you start the run: the block prints, and
+the run's plain log lines follow it.
 
-- A failed check prints its title to stderr as
-  `harness-tuner: error: <title>`, then its explanation, and the CLI
-  exits 1.
+**A start that isn't guided** asks nothing and waits for nothing. It runs the
+same checks in the same order, and every option not given takes its default.
+
+- **Without a terminal, or with both flags**, it prints the step lines as
+  plain text, with no symbols, colour or spinners, and no welcome card. Then
+  it prints the summary, and the run starts.
+- **In a terminal with `--no-interaction` alone**, the app shows the welcome
+  card, the step lines, the spinners and the summary card, as for a guided
+  start. It asks no question, shows no menu and no command to run it again,
+  and the run screen follows the summary.
+- A failed check stops the start, and the CLI exits 1. Its error goes to
+  stderr in the form below: a red `✗` title where stderr is a terminal, else
+  `harness-tuner: error: <title>`. In the app, the error prints once the app
+  has closed.
 - A missing `--project-id` or `--task-id`, when Kiln has more than one to
   choose from, is an error that lists them
   ([your-own-task.md](your-own-task.md) section 5).
-- Every option not given takes its default. The summary is printed, and the
-  run starts.
 
 **An error that stops the start or the run** is shown the same way every
-time, on stderr. On a terminal it is a red `✗` title, the error's own lines,
-what the stop left behind, and a last line:
+time, on stderr (in the app, once the app has closed). On a terminal it is a
+red `✗` title, the error's own lines, what the stop left behind, and a last
+line:
 
 ```
 ✗ Kiln returned an error
@@ -683,15 +732,16 @@ harness-tuner stopped with an error (exit 1)
   far, its run folder, and its report when one was written.
 - **Without a terminal** the same lines are plain text, and the first line is
   `harness-tuner: error: <title>`.
-- A failed check that a guided start has already shown as a `✗` block is not
-  shown again. Only the last line follows it.
+- A guided start shows an error that stops it as a card in the app first. The
+  card goes with the app, so the error prints in full when the app closes.
 
-A guided start writes its steps, its prompts and its summary to stdout. A
-start that isn't guided writes its step lines and summary to stdout, and its
-errors and warnings to stderr. The exit code is 1 for a failed check (not
-guided), `x` or Ctrl-D at a prompt, an unknown ID, or a failed demo copy or
-import; 2 for an argparse error, such as `--demo-project` with a project flag;
-and 130 for Ctrl-C.
+The app draws on the terminal, and its closing block goes to stdout. A plain
+start (without a terminal, or with both flags) writes its step lines and
+summary to stdout, and its warnings to stderr. The stop lines
+(`harness-tuner: stopped.`) and the errors always go to stderr. The exit
+code is 1 for a failed check (not guided), `x` or Ctrl-D in the start, an
+unknown ID, or a failed demo copy or import; 2 for an argparse error, such as
+`--demo-project` with a project flag; and 130 for Ctrl-C.
 
 Two flags control the two parts, the start and the run, and they are
 independent:
@@ -699,13 +749,11 @@ independent:
 | Controls | Flag | Effect |
 |---|---|---|
 | The start, before the run | `--no-interaction` | Never asks a question or waits. |
-| The run itself | `--no-progress` | Plain log lines instead of the live progress display. |
+| The run itself | `--no-progress` | Plain log lines instead of the run screen. |
 
-In a terminal, `--no-interaction` alone gives a start that asks nothing and
-then the live display; `--no-progress` alone gives a guided start and then
-plain log lines. Without a terminal you need neither: the start isn't guided,
-and the run falls back to plain log lines on its own. `--no-progress` was
-called `--no-ui`; the old name now stops with exit code 2 and says so.
+Without a terminal you need neither: the start isn't guided, and the run
+shows plain log lines on its own. `--no-progress` was called `--no-ui`; the
+old name now stops with exit code 2 and says so.
 
 ## Try the demo
 
@@ -721,15 +769,13 @@ harness-tuner --demo-project
 ```
 
 In a terminal, the start checks Kiln, makes the copy, checks it, and asks its
-questions. With each pre-filled answer accepted, the screen ends like this:
+questions. With each pre-filled answer accepted, the app shows this:
 
 ```
-╭──────────────────────────────────────────────────────────────────╮
-│ Kiln Harness Tuner                                        v0.1.0 │
-│                                                                  │
+╭─ Kiln Harness Tuner ─────────────────────────────────────────────╮
 │ Automatically improves an AI agent by tuning its harness: the    │
 │ prompt, model, tools, skills and settings around it.             │
-╰──────────────────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────── v0.1.0 ─╯
 
 ✓ Kiln      1.2.0 at http://localhost:8757
 ✓ Demo      ~/Kiln Projects/Forum Moderation, imported as project 731954460212
@@ -744,29 +790,30 @@ questions. With each pre-filled answer accepted, the screen ends like this:
 ✓ Time      12 hours
 ✓ Advanced  defaults
 
-Ready to start
-  Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212)
-  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter
-  Improve      Quality
-  Guidance     "Improve the moderation decisions. Keep the output format."
-  Agents       Claude Code (claude -p) · opus
-  Limits       $50.00 · 12 hours
-  Advanced     defaults
+╭─ Ready to start ────────────────────────────────────────────────────────────────────────╮
+│ Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212) │
+│ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
+│ Improve      Quality                                                                    │
+│ Guidance     "Improve the moderation decisions. Keep the output format."                │
+│ Agents       Claude Code (claude -p) · opus                                             │
+│ Limits       $50.00 · 12 hours                                                          │
+│ Advanced     defaults                                                                   │
+│                                                                                         │
+│ To run this again with the same answers and no questions:                               │
+│ harness-tuner \                                                                         │
+│   --project-id 731954460212 --task-id 424242783061 \                                    │
+│   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
+│   --objective quality \                                                                 │
+│   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
+│   --agent-cli 'claude -p' \                                                             │
+│   --budget-usd 50 --timeout-mins 720 \                                                  │
+│   --no-interaction                                                                      │
+╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-To run this again with the same answers and no questions:
-  harness-tuner \
-    --project-id 731954460212 --task-id 424242783061 \
-    --project-path '/Users/you/Kiln Projects/Forum Moderation' \
-    --objective quality \
-    --guidance 'Improve the moderation decisions. Keep the output format.' \
-    --agent-cli 'claude -p' \
-    --budget-usd 50 --timeout-mins 720 \
-    --no-interaction
-
-? Start the run?
- » s) Start the run
-   e) Change an answer
-   x) Exit
+Start the run?
+ s) Start the run
+ e) Change an answer
+ x) Exit
 ```
 
 - **The questions.** The project and the task are the copy's, so they aren't
@@ -831,12 +878,17 @@ already there.
                                        agent CLI's sessions read
 ```
 
-A run prints where its files are. When the run folder exists, before the
-live display starts:
+A run prints where its files are. With plain log lines, it prints this line
+when the run folder exists, before the run's first log line:
 
 ```
 harness-tuner: run 260601-0930 — files in /home/you/.kiln_ai/harness_tuner/runs/260601-0930/
 ```
+
+In the app, that line goes to the run folder's `kiln-harness-tuner.log`, and
+the title bar shows the run id. When the app closes, its closing block names
+the run folder as `Run folder: <run folder>`
+([your-own-task.md](your-own-task.md) section 5.5).
 
 At a clean finish:
 
@@ -847,8 +899,10 @@ harness-tuner: run finished — report: /home/you/.kiln_ai/harness_tuner/reports
 When a run stops after its folder exists, it names that folder. On an error,
 the error screen shows `Run folder: <run folder>`, and `Report: <path>` when
 the error exit wrote a fallback report ([Guided or not](#guided-or-not)). On
-Ctrl-C, SIGTERM or SIGHUP it prints `harness-tuner: run folder: <run folder>`.
-That folder's `kiln-harness-tuner.log` holds the details.
+a stop (Ctrl-C, "Stop the run" in the app, SIGTERM or SIGHUP) it prints
+`harness-tuner: run folder: <run folder>`. That folder's
+`kiln-harness-tuner.log` holds the details. The run log also holds anything
+that was written to stdout or stderr while the app was open.
 
 **The agents folder.** Before its first session, a run checks
 `agents/<cli>/<version>/` against the package's agent files, for its own

@@ -1,0 +1,277 @@
+/* The app's stylesheet: ui_design sections 4, 8 and 9 in TCSS. Colors are
+   theme variables only; the themes are in theme.py. */
+
+Screen {
+    background: $background;
+    color: $foreground;
+}
+
+/* 4.9 Links: blue, underlined. The ↗ is in the text. */
+Static {
+    link-color: $text-primary;
+    link-background: transparent;
+    link-style: underline;
+    link-color-hover: $text-primary;
+    link-background-hover: $boost;
+    link-style-hover: underline bold;
+}
+
+/* 4.1 Title bar */
+.title-bar, TitleBar {
+    dock: top;
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+}
+TitleBar {
+    & > .title-mark { width: auto; }
+    & > .title-context { width: 1fr; margin-left: 3; }
+    & > .title-meta { width: auto; }
+}
+
+/* 4.3 Card */
+Card {
+    height: auto;
+    padding: 0 1;
+    background: $surface;
+    border: round $border-muted;
+    border-title-color: $foreground;
+    border-title-style: none;
+    border-subtitle-color: $text-muted;
+    border-subtitle-style: none;
+    border-subtitle-align: right;
+    &.-live { border: round $primary; }
+}
+
+/* ---- Start-up screen (8) ---- */
+
+/* The transcript scrolls; its column is at most 128 cells wide, and every
+   part in it at most as wide as the column, so text wraps, never cut. */
+#transcript {
+    padding: 1 2 0 2;
+    scrollbar-size-vertical: 1;
+}
+#column {
+    height: auto;
+    max-width: 128;
+}
+#welcome {
+    width: 68;
+    max-width: 100%;
+    margin-bottom: 1;
+}
+.startup-card {
+    width: auto;
+    max-width: 100%;
+    margin: 1 0;
+    & > Static { width: auto; max-width: 100%; }
+}
+.-problem { border: round $error; }
+.said { margin-top: 1; }
+
+.prompt {
+    height: auto;
+    margin-top: 1;
+    & > .description { margin-top: 1; }
+}
+
+/* Action menus and pickers: OptionList without its box; the highlighted
+   row in reverse $primary, focused or not. */
+OptionList.menu {
+    width: auto;
+    min-width: 30;
+    max-width: 100%;
+    max-height: 20;
+    height: auto;
+    border: none;
+    padding: 0;
+    background: transparent;
+    &:focus { border: none; background-tint: transparent; }
+    & > .option-list--option-highlighted {
+        color: $block-cursor-foreground;
+        background: $primary;
+        text-style: bold;
+    }
+    &:focus > .option-list--option-highlighted {
+        color: $block-cursor-foreground;
+        background: $primary;
+        text-style: bold;
+    }
+    & > .option-list--option-disabled { color: $text-muted; }
+}
+
+/* Inputs: rounded like cards, blue with focus, red when refused. */
+Input {
+    width: 72;
+    max-width: 100%;
+    height: 3;
+    padding: 0 1;
+    background: $surface;
+    border: round $border-muted;
+    &:focus { border: round $primary; background-tint: transparent; }
+    &.-invalid { border: round $error; }
+    &.-invalid:focus { border: round $error; }
+}
+
+/* ---- Run screen (6, 7) ---- */
+
+/* 4.2 Section header: no border, one blank line between sections */
+SectionHeader {
+    height: 1;
+    & > .header-title { width: auto; }
+    & > .header-context { width: 1fr; margin-left: 3; text-wrap: nowrap; text-overflow: ellipsis; }
+    & > .header-meta { width: auto; margin-left: 2; }
+}
+.section {
+    height: auto;
+    margin-top: 1;
+}
+
+CardGrid {
+    height: auto;
+    grid-size: 3;
+    grid-rows: auto;
+    grid-gutter: 1 1;
+}
+
+/* 4.5 Gauge, and every ProgressBar */
+ProgressBar {
+    width: 1fr;
+    & > Bar { width: 1fr; }
+    & > Bar > .bar--bar { color: $primary; background: $border-muted; }
+    & > Bar > .bar--complete { color: $primary; background: $border-muted; }
+}
+RunScreen.-done ProgressBar > Bar > .bar--bar { color: $foreground; }
+RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
+.gauge {
+    height: 1;
+    & > .gauge-label { width: 6; color: $text-muted; }
+    & > .gauge-value { width: 8; text-align: right; text-style: bold; }
+    & > ProgressBar { margin: 0 2; }
+    & > .gauge-limit { width: 9; text-align: right; color: $text-muted; }
+}
+.gauge-note {
+    padding-left: 16;
+    color: $text-muted;
+}
+
+/* The layout (6) */
+/* The scrollbars keep their column when they are not shown: else a
+   scrollbar that comes or goes changes the width under it, and the log
+   writes all its lines again (ui_design 13). */
+#body {
+    padding: 0 1;
+    scrollbar-size-vertical: 1;
+    scrollbar-gutter: stable;
+}
+/* ui_design 6 and 14: the Goal's data line (functional spec 16.4) needs
+   69 columns, so the Goal takes 70. At 210 columns the line then fits on
+   one row, and the Goal is as tall as Time & spend. */
+#top {
+    height: auto;
+    margin-top: 1;
+    & > #goal { width: 1fr; min-width: 70; margin-top: 0; }
+    & > #spend { width: 2fr; margin: 0 0 0 4; }
+}
+#bottom {
+    margin-top: 1;
+    height: auto;
+    layout: vertical;
+}
+#log-lines {
+    background: transparent;
+    overflow-x: hidden;
+    padding: 0;
+    scrollbar-size-vertical: 1;
+    scrollbar-gutter: stable;
+    &:focus { background-tint: transparent; }
+}
+
+/* At 150 columns and up: Experiments 68%, the Log the rest, full height.
+   Below: stacked, the Log 12 rows high. */
+RunScreen.-wide #bottom {
+    layout: horizontal;
+    height: 1fr;
+    & > #experiments { width: 68%; height: auto; margin-top: 0; }
+    & > #log { width: 1fr; height: 100%; margin: 0 0 0 2; }
+    & #log-lines { height: 1fr; }
+}
+RunScreen.-narrow #bottom {
+    & > #experiments { margin-top: 0; }
+    & #log-lines { height: 12; }
+}
+
+/* Below 150 columns the Goal (70 columns of text, its data line the
+   widest) can't take a third of the width, so Goal and Time & spend stack
+   too. */
+RunScreen.-narrow #top {
+    layout: vertical;
+    & > #spend { width: 1fr; margin: 1 0 0 0; }
+}
+
+/* 7.4 Results */
+#results-key { margin-bottom: 0; }
+TierBars { width: 1fr; }
+
+/* 7.5 Experiments */
+.experiment-card {
+    & > .card-line { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    & > .line4 { height: 1; }
+    & > .line4 > .line4-label {
+        width: auto;
+        margin-left: 1;
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
+    & > .line4.-note > .line4-label { width: 1fr; margin-left: 0; }
+}
+.step-lines {
+    height: auto;
+    margin-bottom: 1;
+    & > .step-line { height: auto; }
+}
+.subhead {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+.wave-note {
+    color: $text-muted;
+    margin-top: 1;
+}
+#run-complete {
+    width: 1fr;
+    & > .run-complete-body { height: auto; }
+}
+.goal-rows { height: auto; }
+.goal-data {
+    height: auto;
+    & > .label { width: auto; }
+    & > .goal-data-text { width: 1fr; }
+}
+
+/* ---- 4.11 Stop dialog ---- */
+
+StopDialog {
+    align: center middle;
+    background: $background 60%;
+}
+#dialog {
+    width: 60;
+    padding: 0 2;
+    background: $panel;
+    border: round $primary;
+    & > #dialog-message { margin: 1 0; }
+}
+#dialog-buttons {
+    height: 1;
+    align-horizontal: right;
+    margin-bottom: 1;
+    & > Button { margin-left: 2; padding: 0 2; }
+}
+#dialog-buttons Button {
+    background: $border-muted;
+    color: $foreground;
+    &:focus { background: $primary; color: $block-cursor-foreground; text-style: bold; }
+    &.-error { color: $text-error; }
+    &.-error:focus { background: $error; color: $block-cursor-foreground; }
+}

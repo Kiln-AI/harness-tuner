@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Tuner TUI Sketchbook</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Geist+Mono:wght@400;700&family=Noto+Sans+Symbols+2&display=swap">
+<style>
+/* Layout: one reading column of stacked terminal "plates"; each plate is a real cell grid, notes and a pick bar beneath. */
+:root{
+  --bg:#edf0ef; --surface:#fbfcfc; --ink:#151a19; --muted:#56625f; --line:#d2d9d7; --accent:#2b7a6d; --accent-ink:#ffffff; --accent-soft:#d9ebe7;
+  --in:#1d7a45; --maybe:#8d6300; --out:#b3261e;
+  --font-display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body:"IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono:"Geist Mono", "Noto Sans Symbols 2", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* terminal palette: dark terminal by default, whatever the page theme */
+  --t-bg:#0f1216; --t-bar:#171b21; --t-fg:#d6dae0; --t-dim:#7c8490; --t-faint:#3a414b;
+  --t-good:#5fd38d; --t-good2:#2f6a49; --t-bad:#ff6f6f; --t-bad2:#7d3838; --t-warn:#e9c46a;
+  --t-run:#5cc8f0; --t-acc:#ff9a5c; --t-acc2:#8d5434; --t-agent:#b9a3ff; --t-sel:#232a35;
+  --t-l1:#1d4d62; --t-l2:#3f3470; --t-l3:#5e4a17; --t-l4:#1f5638; --t-l5:#5f3420; --t-lfg:#eef3f7;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0d1110; --surface:#141a19; --ink:#e2e8e6; --muted:#98a4a1; --line:#27302e; --accent:#6cc3b2; --accent-ink:#0a1412; --accent-soft:#1b302c;
+  --in:#5fcf8c; --maybe:#e3bb56; --out:#ff8a80; color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#0d1110; --surface:#141a19; --ink:#e2e8e6; --muted:#98a4a1; --line:#27302e; --accent:#6cc3b2; --accent-ink:#0a1412; --accent-soft:#1b302c;
+  --in:#5fcf8c; --maybe:#e3bb56; --out:#ff8a80; color-scheme: dark; }
+body.light-terms{
+  --t-bg:#fbfbf8; --t-bar:#eeefeb; --t-fg:#1d222a; --t-dim:#69717d; --t-faint:#c6ccd4;
+  --t-good:#14803b; --t-good2:#93c9a6; --t-bad:#c4302a; --t-bad2:#eaa49f; --t-warn:#8f6000;
+  --t-run:#076c9f; --t-acc:#c24e19; --t-acc2:#e8b393; --t-agent:#6a46c0; --t-sel:#e6eaef;
+  --t-l1:#cfe8f3; --t-l2:#e2dbf7; --t-l3:#f3e6c3; --t-l4:#d3ecdc; --t-l5:#f6d9c9; --t-lfg:#1d222a;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55;margin:0}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+a{color:var(--accent)}
+a:focus-visible,button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--surface);border-bottom:1px solid var(--line);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.top-in{max-width:1120px;margin:0 auto;display:flex;flex-wrap:wrap;gap:10px 20px;align-items:center;padding-block:10px}
+.brand{font-family:var(--font-display);font-weight:700;font-size:17px;letter-spacing:-.01em;margin-right:auto}
+.brand span{color:var(--muted);font-weight:500}
+.ctl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;border:0;background:transparent;color:var(--ink);padding:4px 10px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.count{font-family:var(--font-mono);font-size:12px;color:var(--muted);text-decoration:none}
+.count b{color:var(--ink)}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:8px 80px}
+h1,h2,h3{font-family:var(--font-display);text-wrap:balance;letter-spacing:-.015em;margin:0}
+h1{font-size:clamp(30px,4.6vw,48px);line-height:1.08;font-weight:700;max-width:22ch}
+h2{font-size:clamp(23px,2.6vw,30px);line-height:1.15;font-weight:700}
+h3{font-size:18px;font-weight:700;line-height:1.25}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.hero{padding-block:44px 28px;display:grid;gap:18px}
+.lede{font-size:17px;max-width:66ch;color:var(--ink);margin:0}
+.steps{list-style:none;margin:8px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.steps li{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface);display:grid;gap:2px}
+.steps .n{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.steps .st{font-size:12px;font-family:var(--font-mono)}
+.steps li.now{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.steps li.now .st{color:var(--accent)}
+.steps li.done .st{color:var(--in)}
+.sec{padding-block:40px 8px;display:grid;gap:18px}
+.sec-head{display:grid;gap:6px;max-width:72ch}
+.sec-head p{margin:0;color:var(--muted)}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.rule{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:6px;align-content:start}
+.rule p{margin:0;font-size:14px;color:var(--muted)}
+.rule h3{font-size:16px}
+.chip{font-family:var(--font-mono);font-size:12.5px;background:var(--t-bg);color:var(--t-fg);padding:2px 7px;border-radius:5px;white-space:pre;justify-self:start}
+.inv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.inv-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px 10px}
+.inv-card h3{font-size:16px;margin-bottom:6px}
+.inv-card ul{list-style:none;margin:0;padding:0;display:grid}
+.inv-card li{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.inv-card li:first-child{border-top:0}
+.inv-card li .why{grid-column:1/-1;color:var(--muted);font-size:13px;line-height:1.45}
+.inv-card li .nm{font-weight:600}
+.src{font-family:var(--font-mono);font-size:11px;padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);align-self:center;white-space:nowrap}
+.src.brief{color:var(--accent);border-color:var(--accent)}
+.inv-card a.jump{font-family:var(--font-mono);font-size:12px;text-decoration:none}
+.toc{display:flex;flex-wrap:wrap;gap:6px}
+.toc a{font-family:var(--font-mono);font-size:12.5px;text-decoration:none;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.toc a:hover{border-color:var(--accent)}
+.comp{padding-block:48px 8px;display:grid;gap:20px;border-top:1px solid var(--line);margin-top:24px}
+.comp-head{display:grid;gap:6px;max-width:76ch}
+.comp-head .q{margin:0;font-size:16px;color:var(--muted)}
+.comp-head .q b{color:var(--ink);font-weight:600}
+.variant{display:grid;gap:10px;min-width:0}
+.vhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.vid{font-family:var(--font-mono);font-size:13px;color:var(--accent);font-weight:700}
+.tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 6px}
+.tag.anim{color:var(--accent);border-color:var(--accent)}
+.term{background:var(--t-bg);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0}
+.tbar{display:flex;justify-content:space-between;gap:12px;background:var(--t-bar);color:var(--t-dim);font-family:var(--font-mono);font-size:11.5px;padding:5px 12px}
+.scroll{overflow-x:auto}
+.scr{font-family:var(--font-mono);font-size:13px;line-height:1.32;color:var(--t-fg);white-space:pre;margin:0;padding:14px 16px 16px;font-variant-numeric:tabular-nums;width:max-content;min-width:100%}
+.scr .w{display:inline-block;width:1ch;text-align:center}
+.scr .fb,.scr .lb,.scr .xb{height:1.32em;vertical-align:top}
+.scr .fb{background:currentColor}
+.scr .lb{background:linear-gradient(to top,currentColor calc(var(--h)*12.5%),transparent 0)}
+.scr .xb{background:linear-gradient(to right,currentColor calc(var(--h)*12.5%),transparent 0)}
+.scr .bgv .lb{background-color:var(--t-agent)}
+.scr .d{color:var(--t-dim)} .scr .f{color:var(--t-faint)} .scr .fg{color:var(--t-fg)}
+.scr .g{color:var(--t-good)} .scr .gd{color:var(--t-good2)} .scr .r{color:var(--t-bad)} .scr .rd{color:var(--t-bad2)}
+.scr .y{color:var(--t-warn)} .scr .c{color:var(--t-run)} .scr .a{color:var(--t-acc)} .scr .a2{color:var(--t-acc2)}
+.scr .vio{color:var(--t-agent)} .scr .v{color:var(--t-agent);font-style:italic}
+.scr .b{font-weight:700} .scr .u{text-decoration:underline;text-underline-offset:2px} .scr .s{text-decoration:line-through}
+.scr .inv{background:var(--t-fg);color:var(--t-bg)} .scr .inv.a{background:var(--t-acc);color:var(--t-bg)} .scr .inv.c{background:var(--t-run);color:var(--t-bg)} .scr .inv.g{background:var(--t-good);color:var(--t-bg)} .scr .inv.d{background:var(--t-faint);color:var(--t-fg)}
+.scr .sel{background:var(--t-sel)} .scr .bgv{background:var(--t-agent)}
+.scr .L1{background:var(--t-l1);color:var(--t-lfg)} .scr .L2{background:var(--t-l2);color:var(--t-lfg)} .scr .L3{background:var(--t-l3);color:var(--t-lfg)} .scr .L4{background:var(--t-l4);color:var(--t-lfg)} .scr .L5{background:var(--t-l5);color:var(--t-lfg)}
+.vnotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:4px 22px;font-size:14px;color:var(--muted)}
+.vnotes p{margin:0;min-width:0}
+.vnotes b{color:var(--ink);font-weight:600}
+.pick{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.pick .seg button{padding:5px 14px;font-weight:500}
+.pick .seg button[data-v="in"][aria-pressed="true"]{background:var(--in);color:var(--surface)}
+.pick .seg button[data-v="maybe"][aria-pressed="true"]{background:var(--maybe);color:var(--surface)}
+.pick .seg button[data-v="out"][aria-pressed="true"]{background:var(--out);color:var(--surface)}
+.notebtn{font:inherit;font-size:13px;border:0;background:none;color:var(--accent);cursor:pointer;padding:4px 2px}
+.others{display:flex;gap:4px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.who{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:10.5px;font-weight:600;color:#fff;position:relative}
+.who i{position:absolute;right:-3px;bottom:-3px;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--surface)}
+.who i.in{background:var(--in)} .who i.maybe{background:var(--maybe)} .who i.out{background:var(--out)}
+textarea.note{width:100%;min-height:58px;font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;resize:vertical}
+.ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.idea{background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:6px;align-content:start}
+.idea p{margin:0;font-size:14px;color:var(--muted)}
+.summary{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;display:grid;gap:14px}
+.sum-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.sum-cols h3{font-size:15px;display:flex;gap:8px;align-items:baseline}
+.sum-cols ul{margin:6px 0 0;padding-left:18px;font-size:14px}
+.sum-cols li{margin:2px 0}
+.sum-cols .k{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.btn{font:inherit;font-size:14px;font-weight:600;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);padding:8px 14px;cursor:pointer}
+.status{font-size:13px;color:var(--muted)}
+.copybox{width:100%;min-height:120px;font-family:var(--font-mono);font-size:12px}
+@media (max-width:560px){ .scr{font-size:11.5px;padding:12px} .brand span{display:none} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+
+<header class="top"><div class="top-in">
+  <div class="brand">Tuner TUI Sketchbook <span>· round 1</span></div>
+  <div class="ctl"><span id="lbl-term">Terminal</span><div class="seg" role="group" aria-labelledby="lbl-term"><button id="t-dark" aria-pressed="true">Dark</button><button id="t-light" aria-pressed="false">Light</button></div></div>
+  <div class="ctl"><span id="lbl-mo">Motion</span><div class="seg" role="group" aria-labelledby="lbl-mo"><button id="m-play" aria-pressed="true">Play</button><button id="m-pause" aria-pressed="false">Pause</button></div></div>
+  <a class="count" href="#picks" id="topcount"><b>0</b> of 0 picked</a>
+</div></header>
+
+<main class="wrap">
+<section class="hero">
+  <div class="eyebrow">Harness Tuner · the live run · design exploration</div>
+  <h1>What should a tuning run look like in the terminal?</h1>
+  <p class="lede">These are component sketches, not a layout. Each one is drawn on a real terminal cell grid, using sample data from an invented freight-depot agent. Most components get three or four treatments so we can go wide before we converge. Mark each sketch In, Maybe or Out, and add a note where it matters. The whole-screen comps get built from whatever survives.</p>
+  <ol class="steps">
+    <li class="done"><span class="n">Step 1</span><b>List what a run could show</b><span class="st">done · below</span></li>
+    <li class="done"><span class="n">Step 2</span><b>Sketch each component several ways</b><span class="st">done · this page</span></li>
+    <li class="now"><span class="n">Step 3</span><b>Pick what's in and out</b><span class="st">you · mark sketches here</span></li>
+    <li><span class="n">Step 4</span><b>Whole-screen comps</b><span class="st">next</span></li>
+  </ol>
+</section>
+
+<section class="sec" id="language">
+  <div class="sec-head"><div class="eyebrow">Shared rules</div><h2>A visual language every sketch follows</h2>
+  <p>These are proposals too, and worth agreeing on before the layouts. They come from how the tuner works: agents do the thinking, code does the measuring, and nothing counts until val confirms it.</p></div>
+  <div class="rules">
+    <div class="rule"><h3>Agent words look different from code numbers</h3><span class="chip"><span style="color:var(--t-agent);font-style:italic">"trim get_container to 6 fields"</span>  <span style="color:var(--t-good)">▲5</span> fixed</span><p>Hypotheses, plans and lessons are violet italic. Measured numbers are plain. A reader can always tell a claim from a result.</p></div>
+    <div class="rule"><h3>Bright means flipped, dim means unchanged</h3><span class="chip"><span style="color:var(--t-good)">█</span> fixed  <span style="color:var(--t-good2)">▓</span> held  <span style="color:var(--t-bad2)">░</span> still failing  <span style="color:var(--t-bad)">✕</span> broke</span><p>Hue says pass or fail; brightness says whether the candidate changed it. Your eye goes to what changed.</p></div>
+    <div class="rule"><h3>One ember thing: the champion</h3><span class="chip"><span style="color:var(--t-acc);font-weight:700">◆ w3-4</span> champion  <span style="color:var(--t-dim)">◇ start</span></span><p>The current baseline is the only ember-bold element on screen. When it changes hands, that is the one moment the screen celebrates.</p></div>
+    <div class="rule"><h3>Cyan means in flight</h3><span class="chip"><span style="color:var(--t-run)">◐ ⠸ ━━━━━━╸</span>  everything else is settled</span><p>Anything cyan will change soon. A still screen with no cyan means the run is waiting or done.</p></div>
+    <div class="rule"><h3>Never color alone</h3><span class="chip"><span style="color:var(--t-good)">▲</span> <span style="color:var(--t-bad)">▼</span> <span style="color:var(--t-good)">✓</span> <span style="color:var(--t-bad)">✕</span> ◆ ★ ◉ ● ○ ◐</span><p>Every state has a glyph, so the screen still reads on light terminals, for colorblind people, and under <code>NO_COLOR</code>. Toggle Light at the top to check.</p></div>
+    <div class="rule"><h3>Say where a number came from</h3><span class="chip">85.7 <span style="color:var(--t-dim)">val</span>   88.5 <span style="color:var(--t-dim)">train</span></span><p>Single experiments are measured on train, on their target evals only. Champions are confirmed on val. The display keeps that difference visible.</p></div>
+  </div>
+  <div class="variant">
+    <div class="vhead"><span class="vid">LEGEND</span><h3>Glyphs used across the sketches</h3></div>
+    <div class="term"><div class="tbar"><span>harness-tuner · legend</span><span></span></div><div class="scroll"><pre class="scr" data-mock="legend"></pre></div></div>
+  </div>
+</section>
+
+<section class="sec" id="inventory">
+  <div class="sec-head"><div class="eyebrow">Step 1</div><h2>What a run could show</h2>
+  <p>Your brief, expanded. <span class="src brief">brief</span> marks items from your list; <span class="src">new</span> marks additions. Each links to its sketches. A few ideas need the loop to do something new, and they are marked as such.</p></div>
+  <div class="inv-grid" id="inv"></div>
+</section>
+
+<section class="sec" id="sketch-index">
+  <div class="sec-head"><div class="eyebrow">Step 2</div><h2>Component sketches</h2>
+  <p>Fifteen components, with two to five treatments each. Plates marked <span class="tag anim">live</span> animate the way the real screen would update. Widths are given in terminal columns; most fit 100.</p></div>
+  <nav class="toc" id="toc" aria-label="Components"></nav>
+</section>
+
+<div id="components"></div>
+
+<section class="sec" id="more-ideas">
+  <div class="sec-head"><div class="eyebrow">Not sketched</div><h2>Ideas that change the loop, not just the screen</h2>
+  <p>These need the tuner to do something new. They belong in the in/out conversation, but they are product decisions more than display ones.</p></div>
+  <div class="ideas" id="ideas"></div>
+</section>
+
+<section class="sec" id="picks">
+  <div class="sec-head"><div class="eyebrow">Step 3</div><h2>Your picks</h2>
+  <p id="store-status" class="status">Picks save as you click.</p></div>
+  <div class="summary">
+    <div class="sum-cols" id="sum"></div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button class="btn" id="copy">Copy picks as text</button><span class="status" id="copy-status"></span></div>
+    <textarea class="copybox note" id="copybox" hidden readonly aria-label="Picks as text"></textarea>
+  </div>
+</section>
+</main>
+
+<script>
+/* ============================== cell-grid toolkit ============================== */
+const RE=/\{([a-zA-Z0-9 -]+)\|([^}]*)\}/g;
+const strip=s=>s.replace(RE,'$2');
+const len=s=>[...strip(s)].length;
+const rep=(c,n)=>c.repeat(Math.max(0,Math.floor(n)));
+const pad=(s,w)=>s+rep(' ',w-len(s));
+const padL=(s,w)=>rep(' ',w-len(s))+s;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const SP='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', spin=t=>SP[Math.floor(t*10)%10];
+const SPK='▁▂▃▄▅▆▇█';
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+/* Block elements are drawn as filled cells, the way terminals render them: edge to edge, no line gaps. */
+const LOWER='▁▂▃▄▅▆▇',LEFTB='▏▎▍▌▋▊▉';
+function wide(s){let o='';for(const ch of s){const cp=ch.codePointAt(0);
+  if(ch==='█')o+='<span class="w fb"></span>';else if(LOWER.includes(ch))o+=`<span class="w lb" style="--h:${LOWER.indexOf(ch)+1}"></span>`;else if(LEFTB.includes(ch))o+=`<span class="w xb" style="--h:${LEFTB.indexOf(ch)+1}"></span>`;
+  else o+=(cp>0x7f&&!(cp>=0x2500&&cp<=0x259f))?`<span class="w">${ch}</span>`:ch}return o}
+function toHTML(line){let o='',last=0,m;RE.lastIndex=0;while((m=RE.exec(line))){o+=wide(esc(line.slice(last,m.index)));o+=`<span class="${m[1]}">${wide(esc(m[2]))}</span>`;last=RE.lastIndex}return o+wide(esc(line.slice(last)))}
+function runs(cells){let o='',cur=null,buf='';const fl=()=>{if(buf)o+=cur?`{${cur}|${buf}}`:buf;buf=''};for(const c of cells){const k=c.cls||'';if(k!==cur){fl();cur=k}buf+=c.ch}fl();return o}
+function box(w,lines,o={}){const bc=o.bc||'f',inner=w-4;const tp=o.title?` ${o.title} `:'',rp=o.right?` ${o.right} `:'',bp=o.bottom?` ${o.bottom} `:'';
+  const top=`{${bc}|╭─}${tp}{${bc}|${rep('─',w-4-len(tp)-len(rp))}}${rp}{${bc}|─╮}`;
+  const bot=`{${bc}|╰${rep('─',w-3-len(bp))}}${bp}{${bc}|─╯}`;
+  return [top,...lines.map(l=>`{${bc}|│} ${pad(l,inner)} {${bc}|│}`),bot]}
+function hcat(blocks,gap='  '){const ws=blocks.map(b=>Math.max(0,...b.map(len)));const h=Math.max(...blocks.map(b=>b.length));const out=[];for(let i=0;i<h;i++)out.push(blocks.map((b,j)=>pad(b[i]||'',ws[j])).join(gap).replace(/\s+$/,''));return out}
+function hb(frac,w,cls='fg'){const e=Math.round(clamp(frac,0,1)*w*8),full=Math.floor(e/8),part=e%8,P=['','▏','▎','▍','▌','▋','▊','▉'];const used=full+(part?1:0);return `{${cls}|${rep('█',full)}${part?P[part]:''}}{f|${rep('·',w-used)}}`}
+function gauge(f,W,cls='c',proj=null){const n=clamp(Math.round(f*W),1,W);let s=`{${cls}|${rep('━',n-1)}╸}`;if(proj!=null){const p=Math.round(proj*W);s+=`{d|${rep('┄',p-n)}}{f|${rep('─',W-Math.max(p,n))}}`}else s+=`{f|${rep('─',W-n)}}`;return s}
+function hm(m){m=Math.round(m);return `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}m`}
+function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+class Canvas{constructor(w,h){this.w=w;this.h=h;this.dots=new Array(w*h).fill(0);this.dc=new Array(w*h).fill('');this.tx=new Array(w*h).fill(null);this.bg=new Array(w*h).fill(null)}
+  dot(x,y,cls){x=Math.round(x);y=Math.round(y);if(x<0||y<0||x>=2*this.w||y>=4*this.h)return;const i=(y>>2)*this.w+(x>>1);this.dots[i]|=[[1,2,4,64],[8,16,32,128]][x&1][y&3];if(cls)this.dc[i]=cls}
+  line(x0,y0,x1,y1,cls){const n=Math.ceil(Math.max(Math.abs(x1-x0),Math.abs(y1-y0)))+1;for(let k=0;k<=n;k++){const t=k/n;this.dot(x0+(x1-x0)*t,y0+(y1-y0)*t,cls)}}
+  put(cx,cy,s,cls,soft){[...s].forEach((ch,k)=>{const x=cx+k;if(x<0||x>=this.w||cy<0||cy>=this.h)return;const i=cy*this.w+x;if(soft&&this.tx[i])return;this.tx[i]={ch,cls,pt:!soft}})}
+  shade(cx,cy,ch,cls){if(cx>=0&&cx<this.w&&cy>=0&&cy<this.h)this.bg[cy*this.w+cx]={ch,cls}}
+  rows(){const out=[];for(let y=0;y<this.h;y++){const cells=[];for(let x=0;x<this.w;x++){const i=y*this.w+x;if(this.tx[i])cells.push(this.tx[i]);else if(this.dots[i])cells.push({ch:String.fromCodePoint(0x2800+this.dots[i]),cls:this.dc[i]});else if(this.bg[i])cells.push(this.bg[i]);else cells.push({ch:' ',cls:''})}out.push(runs(cells))}return out}}
+
+/* ============================== sample run data ============================== */
+const ITEM={F:{ch:'█',cls:'g'},H:{ch:'▓',cls:'gd'},S:{ch:'░',cls:'rd'},B:{ch:'✕',cls:'r'},Q:{ch:'·',cls:'f'},J:{ch:'▚',cls:'c'}};
+function strip8(codes){return runs([...codes].map(c=>ITEM[c]||{ch:' ',cls:''}))}
+const PTS=[['start',.042,71.0,8.4,'start'],['w1-1',.048,70.2,9.0,''],['w1-2',.043,73.5,8.3,''],['w1-3',.040,74.8,8.1,''],
+ ['w2-1',.041,79.0,8.2,'promo'],['w2-2',.044,77.1,8.8,''],['w2-3',.042,71.5,8.5,''],
+ ['s3·c1',.014,74.0,3.4,''],['s3·c3',.016,75.5,3.9,''],['s3·c4',.012,79.4,3.1,'fast'],['s3·c5',.015,68.0,3.6,''],['s3·c6',.035,78.6,6.5,''],['s3·c2',.030,76.0,5.8,''],
+ ['w3-1',.040,82.0,8.0,''],['w3-2',.043,80.1,8.6,''],['w3-3',.036,81.2,7.4,''],['w3-4',.031,85.7,6.9,'champ'],['w3-5',.019,82.6,4.4,'value'],['w3-6',.024,84.9,4.8,'bal'],
+ ['w4-6',.028,83.1,6.0,''],['w4-1',.030,86.4,6.5,'new'],['w4-2',.032,87.9,7.1,'new']];
+function scatter(o){
+  const {W,H,xi,xl,xr,yb,yt,n,labels,flash}=o;const cv=new Canvas(W,H);const L=Math.log;
+  const P=PTS.slice(0,n).map(p=>({id:p[0],x:(L(p[xi])-L(xl))/(L(xr)-L(xl))*(2*W-1),y:(yt-p[2])/(yt-yb)*(4*H-1),k:p[4],raw:p}));
+  const sorted=[...P].sort((a,b)=>b.x-a.x);let best=-1e9;const fr=[];for(const p of sorted){if(-p.y>best){best=-p.y;fr.push(p)}}fr.sort((a,b)=>a.x-b.x);
+  for(let i=0;i<fr.length-1;i++){const a=fr[i],b=fr[i+1];cv.line(a.x,a.y,b.x,a.y,'a2');cv.line(b.x,a.y,b.x,b.y,'a2')}
+  const onF=new Set(fr.map(p=>p.id));const G={start:['◇','d'],champ:['◆','a b'],bal:['◉','c'],value:['$','y b'],fast:['»','y b'],new:['◐','c'],promo:['◆','a2']};
+  for(const p of P){const cx=Math.floor(p.x/2),cy=Math.floor(p.y/4);const g=G[p.k]||(onF.has(p.id)?['●','fg']:['•','d']);cv.put(cx,cy,g[0],g[1])}
+  if(labels)for(const p of P){const cx=Math.floor(p.x/2),cy=Math.floor(p.y/4);const lab={champ:'w3-4 champion',bal:'w3-6 balanced',value:'w3-5 value',fast:'s3·c4 fastest',start:'start',new:p.id}[p.k];if(!lab)continue;const right=cx+2+lab.length<W;cv.put(right?cx+2:cx-lab.length-1,cy,lab,p.k==='champ'?'a':(p.k==='new'?'c':'d'),true)}
+  if(flash){const p=P[P.length-1];if(p&&onF.has(p.id)){const cx=Math.floor(p.x/2),cy=Math.floor(p.y/4);cv.put(cx+2,Math.max(0,cy-1),'frontier moved','c b',true)}}
+  return {rows:cv.rows(),frontier:fr.length};
+}
+
+/* ============================== mock registry ============================== */
+const MOCKS={};function M(id,fn,o={}){MOCKS[id]={fn,anim:!!o.anim,rest:o.rest??0}}
+
+M('legend',()=>[
+ ` {d|STATE}     {d|◇} start   {a b|◆} champion (baseline now)   {g|★} best single`,
+ ` {d|WINNERS}   {c|◉} balanced pick   {y b|$} best value   {y b|»} fastest`,
+ ` {d|VERDICT}   {g|●} win   {d|○} no win   {r|✕} stopped or dead end   {c|◐} running   {c|⠸} working   {d|·} untried`,
+ ` {d|ITEMS}     {g|█} fixed   {gd|▓} held   {rd|░} still failing   {r|✕} broke   {c|▚} judging   {f|·} queued`,
+ ` {d|DELTA}     {g|▲} better   {r|▼} worse   {d|·} no clear change   {f|░░} not measured`,
+ ` {d|TEXT}      plain = measured by code   {v|violet italic = an agent wrote it}`,
+]);
+
+/* ---------- C1 mission ---------- */
+M('c1a',()=>[
+ `{inv a b| ◆ TUNING }{inv| Depot Ops Desk } {b|optimize} {g b|QUALITY ▲}  {d|hold} {y|no eval drops}  {d|watch} cost · latency  {d|│ claude ×4}`,
+ `{d|guidance ›} {v|"Fix escalation first. Don't touch the output format."}  {d|· test sealed · run 261109-1412}`,
+]);
+M('c1b',()=>{
+  const q=box(48,[`{g b|TARGET EVALS}  {g|▲ optimize}  each arm's aim`,`{b|ALL EVALS   }  {y|═ hold    }  none may drop`,`{b|COST        }  {d|○ watch   }  from stored runs`,`{b|LATENCY     }  {d|○ watch   }  from stored runs`],{title:'{b|--objective quality}',right:'{c|◂ this run}'});
+  const c=box(48,[`{g b|COST        }  {g|▲ optimize}  cheaper, on val`,`{b|QUALITY     }  {y|═ hold    }  net items ≥ 0`,`{b|LATENCY     }  {d|○ watch   }  timed in pairs`,``],{title:'{d|--objective cost}'});
+  return [...hcat([q,c],'  '),'',` {b|DATA}   train 312 {c|${rep('━',18)}}  val 104 {a|${rep('━',6)}}  test 104 {f|${rep('▒',6)}} {b|sealed}{d|: no part of the loop reads it}`];
+});
+M('c1c',()=>box(86,[
+ `{v|"Fix escalation first. Don't touch the output format. Prefer cheaper models}`,
+ `{v| if quality holds."}`,``,
+ `{d|HOW WAVE 4'S PLANNER USED IT}`,
+ `{g|✓} escalation first    2 of 6 items target E5 escalation {d|· w4-3, w4-5}`,
+ `{g|✓} output format       3 ideas dropped because they change output keys`,
+ `{y|◐} cheaper models      haiku-5-5 survived the w3 screen {d|· w3-5 is the value pick}`,``,
+ `{d|reaches every planner verbatim · the promotion gate reads it too}`],{title:'{b|GUIDANCE}',right:'{d|you, at launch}'}));
+
+/* ---------- C2 money & time ---------- */
+M('c2a',t=>{
+  const el=72+Math.floor((t*0.7)%10),burn=15.3,spent=18.4+(el-72)*burn/60,W=56;
+  const atEnd=spent+(180-el)/60*burn,lasts=el+(50-spent)/burn*60;
+  const pre=` {b|SPEND} ${padL('$'+spent.toFixed(2),7)}  `;
+  return [
+   ` {b|CLOCK}  ${padL(hm(el),6)}  ${gauge(el/180,W)}  3h00m   {d|ends 17:12}`,
+   `${pre}${gauge(spent/50,W,'c',atEnd/50)}  $50.00  {d|$${burn.toFixed(2)}/h}`,
+   `${rep(' ',len(pre)+Math.round(atEnd/50*W)-1)}{d|▲ $${atEnd.toFixed(2)} when the clock runs out}`,
+   ``,
+   ` {c|▸} {b|The clock binds first.} At this burn the budget would last to ${hm(lasts)}.`,`   {d|About 3 more waves fit; the last one is planned as the wrap-up.}`];
+},{anim:true,rest:0});
+M('c2b',()=>{
+  const W=64,H=8,now=26,r=rng(11);let k=0,a=0;const K=[],A=[];
+  const plan=[[8,12],[31,34],[48,51],[64,67]],gate=[[28,31],[45,48],[62,64]];
+  for(let x=0;x<=now;x++){const m=x*180/W;const ip=plan.some(([s,e])=>m>=s&&m<e),ig=gate.some(([s,e])=>m>=s&&m<e);a+=ip?.55:.1+r()*.1;k+=ig?1.1:(m<8?.05:.3+r()*.3);K.push(k);A.push(a)}
+  const ks=12.3/K[now],as=6.1/A[now];for(let x=0;x<=now;x++){K[x]*=ks;A[x]*=as}
+  const E=64/50,BL=' ▁▂▃▄▅▆▇█',out=[];
+  out.push(` {d|$50 }{f|┤}{y|${rep('┄',W)}} {y|budget}`);
+  for(let row=H-1;row>=0;row--){const lo=row*8,cells=[];
+    for(let x=0;x<W;x++){
+      if(x<=now){const hk=K[x]*E,ht=(K[x]+A[x])*E,kf=clamp(hk-lo,0,8),tf=clamp(ht-lo,0,8);
+        if(tf<=0.2)cells.push({ch:' '});else if(kf>=8)cells.push({ch:'█',cls:'c'});
+        else if(kf>0.4)cells.push({ch:BL[Math.round(kf)],cls:tf-kf>0.5?'c bgv':'c'});
+        else cells.push({ch:BL[clamp(Math.round(tf),1,8)],cls:'vio'});}
+      else{const pt=(18.4+(x-now)*0.717)*E;cells.push(Math.floor(pt/8)===row?{ch:'·',cls:'d'}:{ch:' '})}}
+    const lab=row===Math.floor(H/2)-1?'$25 ':'    ';out.push(` {d|${lab}}{f|${lab.trim()?'┤':'│'}}${runs(cells)}`)}
+  const ax=Array(W).fill('─');[3,11,17,23].forEach(c=>ax[c]='┴');[17,23].forEach(c=>ax[c]='★');
+  out.push(`     {f|└}${runs(ax.map(c=>({ch:c,cls:c==='★'?'a':'f'})))}`);
+  const lb=Array(W).fill(' ');const putL=(c,s)=>[...s].forEach((ch,i)=>{if(c+i<W)lb[c+i]=ch});putL(3,'w1');putL(11,'w2');putL(17,'w3');putL(23,'w4');putL(26,' ▲now');putL(W-3,'3h');
+  out.push(`      {d|${lb.join('')}}`);
+  out.push(``,` {c|█} Kiln, provider keys $12.30   {vio|█} Claude Code, subscription $6.10   {d|· projected}   {a|★} promotion`);
+  return out;
+});
+M('c2c',()=>{
+  const C=[['train measurement',8.10,'c','█'],['builds',3.40,'vio','█'],['val gates',3.30,'a','█'],['screens',1.60,'y','█'],['planning',1.20,'vio','▓'],['probes',0.30,'g','█'],['lost to cancels & errors',0.50,'r','█']];
+  const W=52,tot=18.4;let raw=C.map(c=>c[1]/tot*W),n=raw.map(Math.floor);let left=W-n.reduce((s,x)=>s+x,0);raw.map((x,i)=>[x-Math.floor(x),i]).sort((a,b)=>b[0]-a[0]).slice(0,left).forEach(([,i])=>n[i]++);
+  const bar=C.map((c,i)=>`{${c[2]}|${rep(c[3],n[i])}}`).join('');
+  const leg=C.map(c=>`{${c[2]}|${c[3]}} ${c[0]} $${c[1].toFixed(2)}`);
+  const sv=Math.round(11.7/tot*W);
+  return [` {b|WHERE $18.40 WENT}`,` ${bar}`,` ${leg.slice(0,3).join('   ')}`,` ${leg.slice(3,6).join('   ')}`,` ${leg.slice(6).join('   ')}`,``,
+   ` {b|WHAT IT DIDN'T SPEND}  {d|same scale}`,
+   ` {g|${rep('░',sv)}}${rep(' ',W-sv)}  {g|≈ $11.70} saved by early stops {d|· 9 arms}`,
+   ` {d|${rep('▒',W-1)}▸}  {b|$26.80} prior evidence reused {d|· 2 earlier runs}`];
+});
+M('c2d',t=>[
+ ` {b|AGENTS}  {c|■■■}{f|□}  3/4   build {c|w4-3} · review {c|w4-4} · analyze {c|w4-2}  {c|${spin(t)}}`,
+ ` {b|EVALS }  {c|■■■■}  4/4   {y|2 queued} {d|· eval slots are the bottleneck this wave}`,
+ ` {b|LIMITS}  anthropic {g|ok} · openai {y|429 ×3 in 10m} · google {g|ok}    {d|tripwire 0 of 2}`,
+ ` {b|QUOTA }  claude 5h window  {c|${rep('━',20)}}{f|${rep('─',12)}}  61%   {d|resets 16:40}`,
+],{anim:true});
+
+/* ---------- C3 scoreboard ---------- */
+const GOALS=[
+ ['p0','refusal honesty','71.2%','84.6%','88.5%','w4-2 ◐ train',.775,.68],
+ ['p1','hold placement','62.0%','74.0%','79.0%','w4-1 ◐ train',.705,.65],
+ ['p2','tone & policy','4.10','4.30','4.50','w3-3',.5,.375],
+ ['p1','output format','93.0%','97.0%','99.0%','w3-1',.667,.667],
+ ['p2','escalation','55.0%','55.0%','68.0%','w3-2 ✕ val',0,.15],
+ [' $','cost / request','$.042','$.031','$.012','s3·c4',.367,.6],
+ ['ms','latency p50','8.4s','6.9s','3.1s','s3·c4',.283,.68]];
+function ladder(c,b,W){const ci=Math.round(c*(W-1));let bi=Math.round(b*(W-1));if(bi===ci)bi=Math.min(W-2,ci+1);const cells=[];
+  for(let i=0;i<W;i++){let ch=i<=ci?'━':'─',cls=i<=ci?'a2':'f';if(i===0){ch='◇';cls='d'}if(i===W-1){ch='★';cls='g'}if(i===bi){ch='◉';cls='c'}if(i===ci){ch='◆';cls='a b'}cells.push({ch,cls})}return runs(cells)}
+M('c3a',()=>{const W=40;const o=[` {d|${pad('GOAL',21)}${padL('START',6)}  ${pad('worse ◂ start … best seen ▸ better',W)}  ${padL('NOW',6)}  ${padL('BEST',6)}}`];
+  for(const g of GOALS)o.push(` {d|${pad(g[0],3)}}${pad(g[1],18)}${padL(g[2],6)}  ${ladder(g[6],g[7],W)}  {a b|${padL(g[3],6)}}  {g|${padL(g[4],6)}} {d|${g[5]}}`);
+  o.push('',` {d|◇} start  {a b|◆} champion w3-4  {c|◉} balanced w3-6  {g|★} best single`,` {d|each row runs from start to the best result seen for that goal}`);return o});
+M('c3b',()=>{const rows=[
+ ['p0 refusal honesty','71.2%','84.6% {g|+13.4}','88.5% {g|+17.3} {d|w4-2 ◐}','83.0% {g|+11.8}','▁▁▅▇▇'],
+ ['p1 hold placement','62.0%','74.0% {g|+12.0}','79.0% {g|+17.0} {d|w4-1 ◐}','73.0% {g|+11.0}','▁▃▃▆▆'],
+ ['p2 tone & policy','4.10','4.30 {g|+0.20}','4.50 {g|+0.40} {d|w3-3}','4.25 {g|+0.15}','▁▁▄▅▅'],
+ ['p1 output format','93.0%','97.0% {g|+4.0}','99.0% {g|+6.0} {d|w3-1}','97.0% {g|+4.0}','▁▆▆▆▆'],
+ ['p2 escalation','55.0%','55.0% {d|±0}','68.0% {g|+13.0} {d|w3-2 ✕ val}','57.0% {g|+2.0}','▁▁▁▁▁'],
+ [' $ cost / request','$.042','$.031 {g|−26%}','$.012 {g|−71%} {d|s3·c4}','$.024 {g|−43%}','▇▇▇▅▅'],
+ ['ms latency p50','8.4s','6.9s {g|−18%}','3.1s {g|−63%} {d|s3·c4}','4.8s {g|−43%}','▇▇▇▆▆']];
+  const o=[` {d|${pad('',20)}${padL('START',7)}   }{a b|${pad('◆ CHAMPION w3-4',17)}}{g|${pad('★ BEST SINGLE',27)}}{c|${pad('◉ BALANCED w3-6',17)}}{d|w0→w4}`,
+   ` {d|${pad('',20)}${padL('',7)}   ${pad('val-confirmed',17)}${pad('train, target evals',27)}${pad('val-confirmed',17)}}`];
+  for(const r of rows)o.push(` ${pad(r[0],20)}${padL(r[1],7)}   ${pad(r[2],17)}${pad(r[3],27)}${pad(r[4],17)}{a2|${r[5]}}`);return o});
+M('c3c',()=>{
+  const card=(title,id,model,q,c,l,qv,cv,lv,line1,line2,tc)=>box(25,[`${id}  {d|${model}}`,``,`qual ${hb(q,10)} ${qv}`,`cost ${hb(c,10)} ${cv}`,`time ${hb(l,10)} ${lv}`,``,line1,line2],{title:`{${tc}|${title}}`});
+  return [...hcat([
+   card('BEST QUALITY','{a b|◆ w3-4}','sonnet-5-5',.785,.367,.283,'85.7','.031','6.9s','{g|+14.7} quality','{d|all 5 evals held}','a b'),
+   card('BEST VALUE','{y b|$ w3-5}','haiku-5-5',.63,.767,.755,'82.6','.019','4.4s','{g|−55%} cost','{y|▼} tone −0.10','y b'),
+   card('BALANCED','{c|◉ w3-6}','sonnet·low',.745,.6,.68,'84.9','.024','4.8s','{g|+13.9} {d|·} {g|−43%}','{d|all 5 evals held}','c b'),
+   card('FASTEST','{y b|» s3·c4}','haiku·off',.47,1,1,'79.4','.012','3.1s','{g|−63%} latency','{y|▼} escalation −4','y b')],' '),
+   ``,` {d|leaders so far · any can change at the next gate}                         {inv c b| c } compare all four in Kiln {c|↗}`]});
+M('c3d',()=>{
+  const cols=['s3·c4','w2-1','w2-3','w3-1','w3-2','w3-3','w3-4','w3-5','w3-6','w4-1','w4-2'],mk=['{y b|»}','{a2|◆}','{r|✕}','{g|●}','{r|✕}','{g|●}','{a b|◆}','{y b|$}','{c|◉}','{c|◐}','{c|◐}'];
+  const GL={A:'{g b|▲▲}',a:'{g|▲ }',0:'{d|· }',v:'{r|▼ }',V:'{r b|▼▼}','-':'{f|░░}'};
+  const rows=[['p0 refusal','vA-A--AaA-A'],['p1 hold','000--AAaaA-'],['p2 tone','0a---aav0--'],['p1 format','0a-a--a0a--'],['p2 escalation','V0--A-00a--'],[' $ cost','A000vaaAA00'],['ms latency','A0v0vaaAAa0']];
+  const o=[` ${pad('',15)}${cols.map(c=>pad(c,7)).join('')}`,` ${pad('',15)}${mk.map(m=>pad(m,7)).join('')}`];
+  for(const [n,s] of rows)o.push(` ${pad(n,15)}${[...s].map(ch=>pad(GL[ch],7)).join('')}`);
+  o.push('',` {g b|▲▲} big win  {g|▲} win  {d|·} no clear change  {r|▼} loss  {f|░░} not run`,` {d|An experiment runs only the evals it targets. Candidates get every eval on val at the gate,}`,` {d|and cost and latency are read from stored runs for all of them.}`);return o});
+M('c3e',()=>{
+  const R=[['p0 refusal honesty',64,18],['p1 hold placement',64,24],['p2 tone & policy',48,7],['p1 output format',64,4],['p2 escalation',40,18]];
+  const o=[` {b|HEADROOM}  {d|can each eval show a win? · a win needs at least 6 items fixed in one direction}`,``,
+   ` {d|${pad('',20)} ${padL('train',6)}  ${padL('fails',6)}  ${rep(' ',5)}▾ 6}`];
+  for(const [n,tr,f] of R){const ok=f>=6,barc=f>=10?'c':(ok?'y':'r');const st=f>=10?'{g|✓ room to win}':ok?'{y|✓ just enough}':'{r|✕ cannot show a win · guards only}';
+    o.push(` ${pad(n,20)} ${padL(String(tr),6)}  ${padL(String(f),6)}  {${barc}|${rep('█',Math.min(f,26))}}${rep(' ',27-Math.min(f,26))}${st}`)}
+  o.push('',` {d|noise check: re-running the baseline on 40 items flips 4.1% of verdicts.}`,` {d|Guard losses are judged against that rate.}`);return o});
+
+/* ---------- C4 frontier ---------- */
+M('c4a',t=>{
+  const P=16,tt=t%P,n=clamp(Math.floor(tt/0.5)+1,1,PTS.length),age=tt-(n-1)*0.5;
+  const W=62,H=16;const s=scatter({W,H,xi:1,xl:.06,xr:.0095,yb:66,yt:90,n,labels:true,flash:age<2.5&&n>=PTS.length-1});
+  const ylab={0:'90%',4:'84%',8:'78%',12:'72%',15:'66%'};const o=[` {b|QUALITY × COST} {d|· every run config measured · up and right is better}`,``];
+  s.rows.forEach((r,i)=>o.push(` {d|${padL(ylab[i]||'',4)}} {f|${ylab[i]?'┤':'│'}}${r}`));
+  const ax=Array(W).fill('─'),lb=Array(W).fill(' ');const L=Math.log;
+  [[.06,'$.06'],[.04,'$.04'],[.03,'$.03'],[.02,'$.02'],[.015,'$.015'],[.01,'$.01']].forEach(([c,l])=>{const x=Math.floor((L(c)-L(.06))/(L(.0095)-L(.06))*(2*W-1)/2);ax[x]='┬';const s0=Math.min(x,W-l.length);[...l].forEach((ch,i)=>{lb[s0+i]=ch})});
+  o.push(`      {f|└${ax.join('')}}`,`       {d|${lb.join('')}}`,`       {d|← pricier${rep(' ',W-26)}cost / request  cheaper →}`,``,
+   ` {d|frontier} ${s.frontier} configs   {a b|◆} champion   {c|◉} balanced   {y b|$} value   {y b|»} fastest   {c|◐} running   {d|• dominated}`);return o},{anim:true,rest:13});
+M('c4b',()=>{
+  const W=38,H=9,mk=(xi,xl,xr,title,tl)=>{const s=scatter({W,H,xi,xl,xr,yb:66,yt:90,n:PTS.length,labels:false});const o=[`{b|${title}}`];s.rows.forEach((r,i)=>o.push(`{f|│}${r}`));o.push(`{f|└${rep('─',W)}}`,`{d|${tl}}`);return o};
+  return hcat([mk(1,.06,.0095,'QUALITY × COST','← pricier              cheaper →'),mk(3,10.5,2.8,'QUALITY × LATENCY','← slower                faster →')],'    ').map(l=>' '+l).concat(['',` {d|same points, two trade-offs. The champion} {a b|◆} {d|is on both frontiers;}`,` {d|the fastest} {y b|»} {d|is on one. Press} {b|a} {d|to cycle the axes.}`])});
+
+/* ---------- C5 the loop ---------- */
+M('c5a',t=>{
+  const W=26,pos=Math.floor((t*6)%(W-2));const bot=Array(W-2).fill('─');bot[Math.floor((W-2)/2)]='◀';const dotAt=W-3-pos;bot[dotAt]='●';
+  const L=14,sp=rep(' ',L);
+  return [
+   `${sp}       {g|✓} {b|PLAN} {d|· 3m12s · 6 items}`,
+   `${sp}{f|╭${rep('─',11)}▶${rep('─',W-14)}╮}`,
+   `${sp}{f|│}${rep(' ',W-2)}{f|│}`,
+   `{d|${padL('○ GATE · val',L-1)}} {f|▲}   {d|wave 4 from} {a b|◆ w3-4}   {f|▼} {d|– SCREEN · none asked}`,
+   `${sp}{f|│}${rep(' ',W-2)}{f|│}`,
+   `${sp}{c|╰}${runs(bot.map(ch=>({ch,cls:ch==='●'?'c b':'c'})))}{c|╯}`,
+   `${sp}   {c|${spin(t)}} {c b|ITEMS} 21m04s {d|·} 2 of 6 landed`,
+   ``,` {d|wave 4 of about 7 · the loop goes clockwise: plan, optional screen, items in parallel, promotion gate}`]},{anim:true});
+M('c5b',t=>{
+  const W=84,toC=m=>Math.round(m*W/180),now=72;const bar=Array(W).fill(null).map(()=>({ch:' ',cls:''})),lb=Array(W).fill(' ');
+  const seg=[[0,4,'▒','d'],[4,8,'▒','y'],[8,12,'░','vio'],[12,28,'▓','c'],[28,31,'·','d'],[31,34,'░','vio'],[34,45,'▓','c'],[45,48,'★','a b'],[48,51,'░','vio'],[51,55,'▒','y'],[55,62,'▓','c'],[62,64,'★','a b'],[64,67,'░','vio'],[67,72,'▓','c']];
+  for(const [s,e,ch,cls] of seg){for(let x=toC(s);x<Math.max(toC(s)+1,toC(e));x++)bar[x]={ch:(ch==='★'&&x>toC(s))?' ':ch,cls}}
+  for(let x=toC(now)+1;x<W;x++)bar[x]={ch:'┄',cls:'f'};bar[toC(now)]={ch:spin(t),cls:'c b'};
+  [[100,'┆'],[128,'┆'],[168,'┆']].forEach(([m,c])=>bar[toC(m)]={ch:c,cls:'d'});
+  const putL=(c,s)=>[...s].forEach((ch,i)=>{if(c+i<W)lb[c+i]=ch});putL(0,'setup');putL(toC(8),'w1');putL(toC(31),'w2');putL(toC(48),'w3');putL(toC(64),'w4');putL(toC(76),'w5');putL(toC(104),'w6');putL(toC(131),'w7 wrap-up');putL(toC(169),'report');
+  const ax=Array(W+1).fill('─');const al=Array(W+4).fill(' ');[0,30,60,90,120,150,180].forEach((m,i)=>{const x=Math.min(W,toC(m));ax[x]=i===0?'├':(m===180?'┤':'┼');[...['0','30m','1h','1h30','2h','2h30','3h'][i]].forEach((ch,k)=>{if(x+k<al.length)al[x+k]=ch})});
+  const cl=toC(now);
+  return [` {d|${lb.join('')}}`,` ${runs(bar)}`,` {f|${ax.join('')}}`,` {d|${al.join('')}}`,` ${rep(' ',cl)}{c|▲ now 1h12m}`,``,
+   ` {d|▒} setup & recon  {vio|░} planning  {y|▒} screen  {c|▓} items  {a b|★} promoted at gate  {d|·} gate, no winner  {f|┄} projected`]},{anim:true});
+M('c5c',t=>{
+  const W=77,c=m=>Math.round((m-48)*3.2);
+  const lanes=[['agent 1',[[48,51,'plan w3','L5'],[55,57.5,'build w3-1','L1'],[60.5,62,'analyze','L1'],[62,63.6,'gate','L5'],[64,67,'plan w4','L5'],[67,69.5,'build w4-1','L2'],[69.5,72,'build w4-3','L3',1]]],
+   ['agent 2',[[55,58,'build w3-3','L4'],[61,62.5,'analyze','L4'],[67,69,'build w4-2','L1'],[69,70.5,'review','L1'],[70.5,72,'analyze','L1',1]]],
+   ['agent 3',[[55,58.5,'build w3-2','L3'],[61.5,62.8,'analyze','L3'],[67,70,'build w4-4 merge','L4'],[70,72,'review','L4',1]]],
+   ['agent 4',[[55,56.2,'probe','L2'],[67,68.2,'probe w4-5','L2'],[68.2,69.4,'analyze','L2']]],
+   ['eval 1',[[51,55,'screen s3','L5'],[57.5,60.5,'w3-1 train','L1'],[62,64,'val','L5'],[69.5,72,'w4-1 c2','L2',1]]],
+   ['eval 2',[[51,55,'screen s3','L5'],[58,61,'w3-3 train','L4'],[62,64,'val','L5'],[69,71.4,'w4-2 c3','L1'],[71.4,72,'w4-6','L3',1]]],
+   ['eval 3',[[51,55,'screen s3','L5'],[58.5,61.5,'w3-2 train','L3'],[62,64,'val','L5'],[69.8,72,'w4-1 c3','L2',1]]],
+   ['eval 4',[[51,55,'screen s3','L5'],[56,61,'w3-1 train c2','L1'],[62,64,'val','L5'],[70.6,72,'w4-6','L3',1]]]];
+  const o=[` ${pad('',9)}{d|${(()=>{const a=Array(W+6).fill(' ');[[50,'15:02'],[55,'15:07'],[60,'15:12'],[65,'15:17'],[70,'15:22']].forEach(([m,l])=>[...l].forEach((ch,i)=>a[c(m)+i]=ch));return a.join('')})()}}`];
+  for(const [name,segs] of lanes){const cells=Array(W).fill(null).map(()=>({ch:'·',cls:'f'}));
+    for(const [s,e,l,cl,run] of segs){const a=c(s),b=Math.max(a+1,c(e));const txt=(' '+l+' '+rep(' ',80)).slice(0,b-a);[...txt].forEach((ch,i)=>{if(a+i<W)cells[a+i]={ch,cls:cl}});if(run)cells[Math.min(W,b)-1]={ch:spin(t),cls:cl}}
+    o.push(` ${pad(name,9)}${runs(cells)}${segs.some(s=>s[4])?' {c|▸}':''}`);if(name==='agent 4')o.push(` ${pad('',9)}{f|${rep('╌',W)}}`)}
+  o.push('',` {d|last 24 min · agent slots idle 21% · eval slots idle 4% · eval queue peaked at 3}`,` {c|▸} {b|eval slots bound this wave.} {d|More eval slots would help more than more agents.}`);return o},{anim:true});
+
+/* ---------- C6 planning ---------- */
+M('c6a',t=>{
+  const P=17,tt=t%P,reads=['issues','lessons','dead ends','prior results','open questions','guidance','budget','drafting items'];const ri=Math.min(reads.length-1,Math.floor(tt/1.3));
+  const items=[['w4-1','fix','wrapper','E2 hold'],['w4-2','fix','prompt','E1 refusal'],['w4-3','fix','skill','E5 escalation'],['w4-4','merge','w3-1 + w3-3',''],['w4-5','probe','haiku×skill',''],['w4-6','fix','thinking','cost']];
+  const shown=tt<7?0:Math.min(6,Math.floor((tt-7)/1.1)+1),done=tt>=14.5;
+  const mem=[['issues','8'],['lessons','6'],['dead ends','4'],['prior results','23'],['open questions','1'],['guidance','✓'],['budget','$31.60']];
+  const conn=['━━╮','━━┤','━━┤','━━┼━━━▶','━━┤','━━┤','━━╯'];
+  const left=['{d|MEMORY IN}',...mem.map((m,i)=>{const hot=!done&&ri===i;return `{${hot?'c b':'fg'}|${pad(m[0],15)}}{${hot?'c b':'d'}|${padL(m[1],7)}} {${hot?'c':'f'}|${conn[i]}}`}),''];
+  const sec=120+Math.floor(tt*8);const el=`${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`;
+  const mid=['{d|PLANNER · claude}','',...box(28,[done?'{g|✓} {b|plan ready}':`{c|${spin(t)}} ${el}`,done?`{d|${el} · 6 items}`:`{d|reading} ${reads[ri]}…`,`${shown} item${shown===1?'':'s'} drafted`],{bc:done?'g':'c'}),'',''];
+  const right=[`{d|WAVE 4 PLAN}${done?' {g|✓}':''}`,...items.map((it,i)=>i<shown?`{b|${it[0]}} ${pad(it[1],6)}${pad(it[2],12)}{d|${it[3]}}`:`{f|${rep('░',30)}}`),''];
+  const out=[];for(let i=0;i<8;i++){out.push(' '+pad(left[i]||'',31)+pad(mid[i]||'',30)+(i===4?`{${done?'g':'c'}|━━▶} `:'    ')+(right[i]||''))}
+  return out},{anim:true,rest:16});
+M('c6b',t=>{
+  const L=[`{d|⏺} Read memory {d|· issues (8) · lessons (6) · dead ends (4)}`,`{d|⏺} Read memory {d|· experiments w3-1 … w3-6 (6 verdicts)}`,
+   `  {v|The E5 misses share one shape: a 409 with hold_reason that the model reads as success.}`,`{d|⏺} Grep {b|"hold_reason"} {d|runs/261109-1412/scratch/traces → 31 matches in 12 files}`,
+   `{d|⏺} Read {d|traces/w3-2/E5/item-0412.json}`,`  {v|w3-2's skill never loaded on 4 of the 9 failures. Probe skill loading before building on it.}`,
+   `{d|⏺} Skill {d|experiment-costing}`,`{d|⏺} Cost {d|· 6 items ≈ $9.80 of $31.60 left · leaves room for 2 more waves}`,
+   `  {v|Guidance says escalation first: 2 of 6 items go to E5.}`,`{d|⏺} Write plan {d|· 5 experiments · 1 probe · no screen}`];
+  const P=16,tt=t%P,n=clamp(Math.floor(tt/1.2)+1,1,L.length),vis=L.slice(Math.max(0,n-8),n);
+  const sec=134+Math.floor(tt*4);const o=[` {b|PLANNER} {d|· wave 4 ·} ${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s {c|${spin(t)}}${rep(' ',40)}{d|p prompt · t full transcript}`,` {f|${rep('─',96)}}`];
+  vis.forEach(l=>o.push(' '+l));for(let i=vis.length;i<8;i++)o.push('');o.push(` {c|${n<L.length?'▍':'✓'}}`);return o},{anim:true,rest:12.5});
+const lr=(l,r,w=90)=>pad(l,w-len(r))+r;
+M('c6c',()=>box(94,[
+ lr(`{b|w4-1}  fix    wrapper    E2 hold placement`,'{a|◆ candidate}'),
+ `      {d|⤷} {v|get_container returns 4KB and buries hold_status. Return the 6 hold fields.}`,
+ `        {d|predicts} 5 of 8 failing hold items fixed`,
+ lr(`{b|w4-2}  fix    prompt     E1 refusal honesty`,'{a|◆ candidate}'),
+ `      {d|⤷} {v|State that a 2xx with a refusal body is still a refusal.}`,
+ lr(`{b|w4-3}  fix    skill      E5 escalation`,'{a|◆ candidate}'),
+ `      {d|⤷} {v|Move the escalation table into a skill the prompt names by name.}`,
+ lr(`{b|w4-4}  merge  w3-1 + w3-3 onto ◆ w3-4`,'{a|◆ candidate}'),
+ `{b|w4-5}  probe  {v|Does haiku-5-5 load an attached skill under JSON output mode?}`,
+ lr(`{b|w4-6}  fix    thinking   low on sonnet-5-5 · cost`,'{d|knowledge only}'),
+ `{f|${rep('─',90)}}`,
+ `{d|considered, not run}  few-shot for E2 {d|(dead end ×2)} · gpt-5-mini {d|(model policy)}`,
+ `{d|asks you}             {y|?} {v|May the agent decline a hold when no supervisor id is on file?}`],
+ {title:'{b|WAVE 4 PLAN}',right:'{v|"Trim tool output for E2, escalate via skills, merge the w3 wins"}',bottom:'{d|p prompt · enter item · esc close}'}));
+
+/* ---------- C7 experiments ---------- */
+function dots(done,cur,stop){let s='';for(let i=0;i<5;i++){if(i<done)s+='{fg|●}';else if(i===cur)s+=stop?'{r|✕}':'{c|◐}';else s+=stop?'{f|·}':'{f|○}'}return s}
+M('c7a',t=>{
+  const p=Math.min(36,14+Math.floor((t%24)/1.4)),s=spin(t);
+  const H=` {d|${pad('ID',6)}${pad('KIND',7)}${pad('LEVER',9)}${pad('TARGET',12)}${pad('STAGE',16)}${pad('PROGRESS',28)}${pad('SPEND',12)}SIGNAL}`;
+  const row=(id,k,l,tg,st,lab,prog,sp,sig)=>` {b|${pad(id,6)}}${pad(k,7)}${pad(l,9)}${pad(tg,12)}${st} ${pad(lab,10)}${pad(prog,28)}${pad(sp,12)}${sig}`;
+  return [H,
+   row('w4-1','fix','wrapper','E2 hold',dots(2,2),'{c|measure}',`${gauge(p/36,14)} ${p}/36`,'$1.20/$4.00',`{g|▲${Math.min(6,5+Math.floor(p/30))}} {d|▼0}`),
+   row('w4-2','fix','prompt','E1 refusal',dots(3,3),`{c|analyze ${s}}`,`{c|${rep('━',14)}} 36/36`,'$2.10/$4.00','{g|▲7} {r|▼1}'),
+   row('w4-3','fix','skill','E5 escalate',dots(0,0),`{c|build ${s}}`,'{v|Write skills/escalation.md}','$0.40',''),
+   row('w4-4','merge','w3-1+3','all evals',dots(1,1),`{c|checks}`,`generality {g|✓} judge-copy {c|${s}}`,'$0.90',''),
+   row('w4-5','probe','','haiku×skill',dots(5,-1),'{d|done}','{g b|YES} 3/3 drives loaded it','$0.20',''),
+   row('w4-6','fix','thinking','cost',dots(2,2,true),'{r|stopped}','futility · look 1 · 12/36','$0.70/$4.00',''),
+   '',` {d|stages: build · checks · measure · analyze · verdict}`]},{anim:true,rest:3});
+M('c7b',t=>{const s=spin(t);return [
+ ` {c|◐} {b|w4-1}  wrapper · E2 hold placement               {c|measuring} 14/36 judged     {g|▲5} {d|▼0}   {d|$1.20}`,
+ `      {d|╰} {v|get_container returns 4KB and buries hold_status; return the 6 hold fields}`,
+ ` {c|◐} {b|w4-2}  prompt · E1 refusal honesty               {c|analyzing ${s}}               {g|▲7} {r|▼1}   {d|$2.10}`,
+ `      {d|╰} {v|a 2xx with a refusal body is still a refusal}`,
+ ` {c|◐} {b|w4-3}  skill · E5 escalation                     {c|building ${s}} {d|3m10s}`,
+ `      {d|╰} {v|move the escalation table into a skill the prompt names}`,
+ ` {r|✕} {b|w4-6}  thinking low · cost                       {r|stopped} {d|futility at look 1}           {d|$0.70}`,
+ `      {d|╰} {v|lower thinking keeps quality and cuts cost}  {d|— it did not: 3 targets lost}`]},{anim:true});
+M('c7c',t=>{const s=spin(t);const col=(h,n,cards)=>[`{d|${h}} {f|${n}}`,...cards.flatMap(c=>box(19,c,{bc:c.bc||'f'}))];
+  const B=x=>{x.bc='c';return x};
+  return hcat([col('BUILD','1',[B(['{b|w4-3} skill',`E5 {c|${s}} 3m10s`])]),col('CHECKS','1',[B(['{b|w4-4} merge',`judge-copy {c|${s}}`])]),
+   col('MEASURE','1',[B(['{b|w4-1} wrapper','{c|▰▰▰▰▱▱▱▱▱▱} 14'])]),col('ANALYZE','1',[B(['{b|w4-2} prompt',`{g|▲7} {r|▼1} {c|${s}}`])]),
+   col('LANDED','2',[['{b|w4-5} probe','{g b|YES} 3/3'],['{b|w4-6} thinking','{r|✕} futility']])],' ').map(l=>' '+l).concat(['',` {d|columns fill left to right; a pile-up in MEASURE means eval slots are full}`])},{anim:true});
+M('c7d',()=>box(96,[
+ `{d|hypothesis}  {v|get_container returns 4KB and buries hold_status. A wrapper that returns}`,
+ `            {v|the 6 hold fields fixes the missed-hold failures.}`,
+ `{d|issue     }  E2 misses hold_status in get_container {d|(p1) · 3rd attempt, 1st wrapper}`,
+ `{d|parent    }  {a b|◆ w3-4} champion {d|‹ w2-1 ‹ start}`,
+ `{d|changed   }  {g|+} tool    get_container_for_hold {d|wrapper · 41 lines}`,
+ `            {y|~} prompt  1 line {d|"check holds with get_container_for_hold"}`,
+ `{d|checks    }  generality {g|✓}   judge-copy {g|✓}   reference {g|✓}   lever applied {g|✓}`,
+ `{d|items     }  targets ${strip8('FFFSFFSF')}   guards ${strip8('HHHH')}   rest ${strip8('HJ'+'Q'.repeat(22))}`,
+ `            chunk 2 of 3 · 14 of 36 judged · net {g|+4.1} {d|[+1.2, +7.0]}`,
+ `{d|stop rules}  futility {g|ok}   residual {g|ok · 6 of 8}   targets {y|1 named item still failing}`,
+ `{d|spend     }  $1.20 of the $4.00 cap {d|· build $0.40 · measure $0.80}`],
+ {title:'{b|w4-1} {d|· fix · wrapper}',right:'{c u|open in Kiln ↗}',bottom:'{d|esc back · o open · t traces · d diff}'}));
+
+/* ---------- C8 items ---------- */
+const EV8=[['E1 refusal','FFFFFFSS','HHHB','HHFHHHHSHHHH'],['E2 hold','FFFFSFSS','HHHH','HHHHFHHHHHHH'],['E3 tone','FSSFSS','HHHH','HHHHHHHHHHHHHH'],['E4 format','FFSS','HHHH','HHHHHHHBHHHHHHHH'],['E5 escalation','SSFSSSFS','HHHH','HHSHHHHHHHHH']];
+M('c8a',t=>{
+  const P=18,k=Math.floor((t%P)*3.2);const o=[` {b|w4-4} {d|· merge w3-1 + w3-3 onto} {a b|◆ w3-4} {d|· a merge runs every eval}`,` ${pad('',15)}{d|${pad('targets',10)}${pad('guards',7)}rest of train}`];
+  EV8.forEach(([n,tg,gd,rs],e)=>{const all=tg+gd+rs,shown=clamp(k-e*3,0,all.length);let fx=0,br=0;
+    const cells=[...all].map((c,i)=>{if(i<shown){if(c==='F')fx++;if(c==='B')br++;return c}return i<shown+2&&shown<all.length?'J':'Q'});
+    const seg=(a,b,w)=>pad(strip8(cells.slice(a,b).join('')),w);
+    o.push(` ${pad(n,15)}${seg(0,tg.length,10)}${seg(tg.length,tg.length+gd.length,7)}${seg(tg.length+gd.length,all.length,17)} {g|▲${fx}} {${br?'r':'d'}|▼${br}}  {d|${padL(String(shown),2)}/${all.length}}`)});
+  o.push('',` {g|█} fixed  {gd|▓} held  {rd|░} still failing  {r|✕} broke  {c|▚} judging  {f|·} queued     {d|bright = the candidate flipped it}`);return o},{anim:true,rest:16});
+M('c8b',()=>{
+  const tb=(name,H,B,F,S,net,p,sig)=>[`{b|${name}} {d|· ${H+B+F+S} judged}`,`{d|${pad('',14)}${pad('cand. pass',17)}cand. fail}`,
+   `{d|parent pass}   ${pad(`{gd|${rep('▓',H)}} ${H}`,17)}{r|${rep('✕',B)}} ${B} {d|${B?'← broke':''}}`,
+   `{d|parent fail}   ${pad(`{g|${rep('█',F)}} ${F}`,17)}{rd|${rep('░',S)}} ${S}`,`{d|${pad('',14)}↑ fixed}`,`net {g|+${net}} {d|· one-sided p = ${p}} ${sig}`];
+  return hcat([tb('E1 refusal honesty',13,1,7,3,6,'0.035','{g|✓}'),tb('E2 hold placement',15,0,5,4,5,'0.031','{g|✓}')],'      ').map(l=>' '+l).concat(['',` {d|the four cells the paired test reads. Only the off-diagonal cells (fixed, broke) move the verdict.}`])});
+M('c8c',t=>[
+ ` {b|w4-1} {d|· E2 hold placement · chunks of 12 · stop rules are checked after each chunk}`,``,
+ ` {d|chunk 1}   ${pad(strip8('FFFSFFSF')+' '+strip8('HHHH'),18)}{g|✓} {d|look 1} residual 6 of 8 fixed {d|(needs half)} · guards 4 of 4`,
+ ` {d|chunk 2}   ${pad(strip8('HHJJQQQQQQQQ'),18)}{c|${spin(t)}} {d|look 2 after 12 more · futility · eval_metric · targets}`,
+ ` {d|chunk 3}   ${pad(strip8('QQQQQQQQQQQQ'),18)}{d|queued · runs only if look 2 passes}`,``,
+ ` {d|planned 36 of the 64 train items · the $4.00 cap sets the plan · each look splits the 5% error budget}`],{anim:true});
+
+/* ---------- C9 stop rules ---------- */
+M('c9a',t=>{
+  const W=56,H=12,X=36,cv=new Canvas(W,H),yv=n=>(12-n)/18*(4*H-1),xv=i=>i/X*(2*W-1);
+  const steps=[1,1,0,1,1,1,0,1,0,0,0,0,0,1,0,0,0,-1,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,-1,0,1];
+  const fut=i=>-6+i*0.21,sig=i=>i<3?99:2.1*Math.sqrt(i);
+  for(let cx=0;cx<W;cx++)for(let cy=0;cy<H;cy++){const i=(cx*2+1)/(2*W-1)*X,ytop=cy*4;const net=12-ytop/(4*H-1)*18;if(net<fut(i)-0.6)cv.shade(cx,cy,'░','rd')}
+  for(let i=0;i<X;i+=0.25){cv.dot(xv(i),yv(fut(i)),'r');if(sig(i)<12)cv.dot(xv(i),yv(sig(i)),'gd')}
+  [12,24].forEach(i=>{for(let y=0;y<4*H;y+=3)cv.dot(xv(i),y,'f')});
+  const P=14,n=clamp(Math.floor((t%P)*3.4),1,X);let v=0,px=0,py=yv(0);for(let i=0;i<n;i++){v+=steps[i];const x=xv(i+1),y=yv(v);cv.line(px,py,x,y,'c');px=x;py=y}
+  cv.put(Math.floor(px/2),Math.floor(py/4),'●','c b');
+  const lab={0:'+12',3:' +6',7:'  0',11:' −6'};const rr=cv.rows();const o=[` {b|w4-1} {d|· E2 · net items fixed vs parent as items are judged}`,``];
+  rr.forEach((r,i)=>o.push(` {d|${padL(lab[i]||'',3)}} {f|${lab[i]?'┤':'│'}}${r}${i===2?'  {gd|clearly better (info)}':i===9?'  {r|stop: futile}':i===5?`  {c b|net ${v>=0?'+':''}${v}} {d|at ${n}}`:''}`));
+  const ax=Array(W).fill('─');[0,Math.round(12/X*(W-1)),Math.round(24/X*(W-1)),W-1].forEach(x=>ax[x]='┴');
+  o.push(`     {f|└${ax.join('')}}`,`      {d|0${rep(' ',Math.round(12/X*(W-1))-1)}12 look 1${rep(' ',Math.round(12/X*(W-1))-8)}24 look 2${rep(' ',W-Math.round(24/X*(W-1))-10)}36}`,``,
+   ` {d|the floor rises as items run out: below it, even winning every remaining item cannot beat the parent}`);return o},{anim:true,rest:13});
+M('c9b',t=>{const W=44;const g=(f,col)=>{const p=Math.round(f*(W-1));return `{d|stop} {r|◀}${runs(Array.from({length:W},(_,i)=>({ch:i===p?'●':'━',cls:i===p?col+' b':(i<p?(f<.25?'r':f<.5?'y':'gd'):'f')})))}{f|▶}`};
+  const wob=Math.sin(t*0.8)*0.03;return [
+  ` {b|w4-1}  {d|E2  }  ${g(.62+wob,'g')}  {d|slack} 4 items`,
+  ` {b|w4-2}  {d|E1  }  ${g(.86,'g')}  {d|measured, analyzing}`,
+  ` {b|w4-4}  {d|all }  ${g(.31-wob,'y')}  {y|1 guard broke of 4}`,
+  ` {b|w4-6}  {d|cost}  ${g(0,'r')}  {r|STOPPED} {d|futility, look 1}`,``,
+  ` {d|the dot is distance from the nearest stop rule · left edge = a rule fires at the next look}`]},{anim:true});
+M('c9c',t=>box(92,[
+ `{d|${pad('RULE',13)}${pad('FIRES WHEN',44)}NOW}`,
+ `${pad('eval_metric',13)}${pad('quality is clearly worse than the parent',44)}{g|✓ far} {d|p = 0.61}`,
+ `${pad('futility',13)}${pad('the target eval can no longer end above parent',44)}{g|✓} 4 items of slack`,
+ `${pad('residual',13)}${pad('fewer than half of the parent\'s failures fixed',44)}{g|✓} 6 of 8 fixed`,
+ `${pad('',13)}${pad('or guards break more often than noise explains',44)}{g|✓} 0 of 4 broke`,
+ `${pad('targets',13)}${pad('a named target item still fails after chunk 1',44)}{y|!} item-0412`,
+ ``,`{d|next look after 24 judged · 10 to go} {c|${spin(t)}}`],{title:'{b|STOP RULES} {d|· w4-1 · quality objective}'}),{anim:true});
+
+/* ---------- C10 screening ---------- */
+M('c10a',t=>{
+  const P=17,tt=t%P;const R1=[['haiku·off','×0.29','0 lost'],['haiku@bedrock','×0.31','0 lost'],['haiku·low','×0.33','1 lost'],['sonnet·off','×0.71','0 lost'],['gemini-flash','×0.35','✕ 5 guards'],['sonnet·low','×0.83','✕ not cheaper'],['gemini·low','×0.38','✕ 4 guards'],['gpt-5-mini','×1.04','✕ not cheaper']];
+  const R2=[['haiku·off','×0.29','0 lost'],['haiku@bedrock','×0.30','1 lost'],['haiku·low','×0.34','✕ 3 guards'],['sonnet·off','×0.72','✕ not cheaper']];
+  const R3=[['haiku·off','×0.29','★ 1 of 40'],['haiku@bedrock','×0.30','2nd · 1 of 40']];
+  const col=(rows,shownAt,elimAt,w)=>rows.map((r,i)=>{if(tt<shownAt+i*0.3)return `{f|${rep('░',w-4)}}`;const el=r[2].startsWith('✕')&&tt>=elimAt,star=r[2].startsWith('★')&&tt>=elimAt;
+    const nm=pad(r[0],13)+' '+r[1];if(el)return `{d s|${nm}} {r|${r[2]}}`;if(star)return `{y b|${nm}} {y b|${r[2]}}`;return `${nm} {d|${r[2].startsWith('✕')||r[2].startsWith('★')?'…':r[2]}}`});
+  const c1=['{b|ROUND 1} {d|· 16 items/eval}',...col(R1,0,3.2,34)],c2=['{b|ROUND 2} {d|· 32 items/eval}',...col(R2,4.5,7.8,34)],c3=['{b|ROUND 3} {d|· 64 items/eval}',...col(R3,9,12,30)];
+  const o=[` {b|SCREEN} {d|· wave 3 · cheaper models with quality held · successive halving on E1, E2, E5}`,``,...hcat([c1,c2,c3],' ').map(l=>' '+l)];
+  o.push('',tt>=12?` {y b|★ haiku-5-5, thinking off} {d|survives: cost ×0.29, latency ×0.37, 1 guard lost of 40 → built as s3·c4}`:` {c|${spin(t)}} {d|screening… no build needed: models, providers, thinking and sampling are config changes}`);return o},{anim:true,rest:15});
+M('c10b',()=>{const H=` {d|${pad('CANDIDATE',22)}${pad('ROUND',7)}${pad('COST ×',9)}${pad('LATENCY ×',11)}${pad('GUARDS LOST',13)}${pad('FIXED',7)}${pad('NET',16)}VERDICT}`;
+  const r=(a,b,c,d,e,f,g,h)=>` ${pad(a,22)}${pad(b,7)}${pad(c,9)}${pad(d,11)}${pad(e,13)}${pad(f,7)}${pad(g,16)}${h}`;
+  return [H,r('{b|haiku·off}','3','{g|0.29 ▲}','{g|0.37 ▲}','1 / 40','3','+0.5 {d|[−3, +4]}','{y b|★ survives}'),r('haiku@bedrock','3','{g|0.30 ▲}','{g|0.41 ▲}','1 / 40','2','−0.2 {d|[−4, +3]}','{d|2nd}'),
+   r('haiku·low','2','{g|0.34 ▲}','{g|0.45 ▲}','{r|3 / 24}','1','{r|−4.1}','{r|✕ guard losses}'),r('sonnet·off','2','0.72','{g|0.66 ▲}','0 / 24','1','+0.8','{r|✕ not cheaper}'),
+   r('gemini-3-flash','1','{g|0.35 ▲}','{g|0.52 ▲}','{r|5 / 24}','0','{r|−6.2}','{r|✕ guard losses}'),r('gpt-5-mini','1','{r|1.04 ▼}','0.88','0 / 24','0','±0','{r|✕ not cheaper}'),'',
+   ` {d|sorted cheapest first under the cost objective · s to change sort · enter for the candidate's items}`]});
+
+/* ---------- C11 promotion gate ---------- */
+function forest(d,lo,hi){const W=41,c=v=>Math.round((clamp(v,-10,10)+10)/20*(W-1));const cells=Array.from({length:W},(_,i)=>({ch:i===20?'┊':((i===10||i===30)?'·':' '),cls:'f'}));
+  const col=lo>0?'g':hi<0?'r':'fg';for(let i=c(lo);i<=c(hi);i++)cells[i]={ch:'─',cls:col};cells[c(lo)]={ch:'├',cls:col};cells[c(hi)]={ch:'┤',cls:col};cells[c(d)]={ch:'●',cls:col+' b'};return runs(cells)}
+M('c11a',()=>{const R=[['p0 refusal honesty',4.8,.9,8.6,'{g|▲ beyond doubt}'],['p1 hold placement',-.9,-4.1,2.3,'{d|· flat}'],['p2 tone ≥ 4 of 5',.4,-2,2.8,'{d|· flat}'],['p1 output format',0,-1,1,'{d|· flat}'],['p2 escalation',1.1,-3,5.2,'{d|· flat}']];
+  const sc=Array(41).fill(' ');[[0,'−10'],[9,'−5'],[20,'0'],[29,'+5'],[38,'+10']].forEach(([x,s])=>[...s].forEach((ch,i)=>sc[x+i]=ch));
+  const o=[` {b|PROMOTION GATE} {d|· wave 4 · val, 104 items per eval ·} {b|w4-2} {d|against champion} {a b|◆ w3-4}`,``,` ${pad('',20)}{d|${sc.join('')}}   {d|Δ pts}`];
+  for(const [n,d,lo,hi,tag] of R)o.push(` ${pad(n,20)}${forest(d,lo,hi)}  ${padL((d>0?'+':'')+d.toFixed(1),5)} {d|${pad(`[${lo>0?'+':''}${lo.toFixed(1)}, ${hi>0?'+':''}${hi.toFixed(1)}]`,13)}} ${tag}`);
+  o.push('',` {d|rule}       {g|✓} no eval down beyond doubt   {g|✓} a target eval up beyond doubt`,` ${' '.repeat(11)}{g|✓} coverage 100% {d|(floor 95%)}`,
+   ` {d|integrity}  {g|✓} no judge text copied   {d|output length +4% · same output keys · no new write actions}`,
+   ` {d|watched}    {d|cost $.032 vs $.031 · latency 7.1s vs 6.9s}`,``,` {inv a b| PROMOTED } {b|w4-2} becomes the champion. {d|Its val numbers go to the val record; the planner never reads them.}`);return o});
+M('c11b',t=>{const P=10,tt=t%P,fl=tt<2.4&&Math.floor(tt*2.5)%2===0,grow=tt<1.2?2:tt<2.4?3:4;
+  const chain=['{d|◇ start}','{a2|◆ w2-1}','{a2|◆ w3-4}','{a b|◆ w4-2}'].slice(0,grow).join(' {a2|━━} ');
+  const rule=fl?`{inv a|${rep(' ',98)}}`:`{a|${rep('━',98)}}`;
+  return [rule,
+   lr(`   {a b|◆ NEW CHAMPION}  {b|w4-2}  {d|prompt · E1 refusal honesty}`,'{d|wave 4 gate · 15:41}',97),
+   `     {v|"State that a 2xx with a refusal body is still a refusal."}`,
+   `     ${pad(chain,62)}{d|quality} {g b|+16.1} {d|since start, on val}`,
+   `     {d|val vs w3-4}   refusal {g b|+4.8 ▲}   hold −0.9   tone +0.4   format 0.0   escalation +1.1`,rule,
+   ``,` {d|one BEL on promotion (off with --quiet) · the banner stays in scrollback as the record}`]},{anim:true,rest:6});
+M('c11c',()=>{const sc=(d,lo,hi)=>{const W=33,c=v=>Math.round((clamp(v,-6,12)+6)/18*(W-1));const z=c(0);const cells=Array.from({length:W},(_,i)=>({ch:i===z?'┊':' ',cls:'f'}));const col=lo>0?'g':'fg';for(let i=c(lo);i<=c(hi);i++)cells[i]={ch:'─',cls:col};cells[c(lo)]={ch:'├',cls:col};cells[c(hi)]={ch:'┤',cls:col};cells[c(d)]={ch:'●',cls:col+' b'};return runs(cells)};
+  return box(96,[`{b|w3-2}  {d|skill · E5 escalation · built from} {a2|◆ w2-1}`,``,
+   `{d|train}  +6 items {d|[+2, +10]}   ${sc(6,2,10)}  {g|▲ clear win}`,`{d|val  }  +1 item  {d|[−3, +5] }   ${sc(1,-3,5)}  {d|· not beyond doubt}`,``,
+   `{d|The train win did not hold on items the builder never saw. That is what the gate is for.}`,
+   `{d|The planner is told it failed at val, never why: val details stay out of memory.}`],{title:'{r b|✕ REJECTED AT VAL}',right:'{d|wave 3 gate}'})});
+
+/* ---------- C12 graph ---------- */
+M('c12a',()=>{const G=[
+ ['{c|◐}','w4-1','wrapper · E2 hold','{c|measuring 14/36}'],['{a2|│} {c|◐}','w4-2','prompt · E1 refusal','{c|analyzing}'],['{a2|│} {f|│} {c|◐}','w4-4','merge w3-1 + w3-3','{c|checks}'],
+ ['{a2|│} {f|│ ├─┬─╮}','','',''],['{a2|│} {f|│ │ │ │} {r|✕}','w4-6','thinking low · cost','{r|stopped: futility}'],['{a2|├}{f|─┴─┴─┼─┼─╯}','','',''],
+ ['{a b|◆}{f|     │ │}','w3-4','wrapper · E2 hold','{a b|PROMOTED wave 3 · champion}'],['{a2|│}{f|     }{g|●}{f| │}','w3-1','prompt · E4 format','{g|win} {d|· pooled}'],['{a2|│}{f|     │ }{g|●}','w3-3','tool desc · E2 hold','{g|win} {d|· pooled}'],
+ ['{a2|│}{f|     │ │ }{r|✕}','w3-2','skill · E5 escalation','{r|rejected at val}'],['{a2|├}{f|─────┴─┴─╯}','','','{d|▸ 2 more in wave 3: w3-5, w3-6}'],
+ ['{a2|◆}','w2-1','prompt · E1 refusal','{a2|PROMOTED wave 2}'],['{a2|│} {r|✕}','w2-3','few-shot · E2 hold','{r|dead end}'],['{a2|│} {f|│} {d|○}','w2-2','tool desc · E2 hold','{d|no win}'],
+ ['{a2|│} {f|│ │} {g|●}','w1-3','wrapper · E2 hold','{g|win} {d|· knowledge}'],['{a2|│} {f|│ │ │} {d|○}','w1-2','prompt · E1 refusal','{d|no win}'],['{a2|│} {f|│ │ │ │} {r|✕}','w1-1','thinking high','{r|stopped: quality worse}'],
+ ['{a2|├}{f|─┴─┴─┴─┴─╯}','','',''],['{d|◇}','start','baseline','{d|rc 0003}']];
+  return G.map(([g,id,d,s])=>` ${pad(g,13)}{b|${pad(id,6)}} ${pad(d,24)}${s}`).concat(['',` {d|newest at top · lane 1 is the champion line ·} {c|l} {d|opens this in Kiln's lineage view} {c|↗}`])});
+M('c12b',()=>{const W=34,col=(rows,foot)=>[...rows,'',`{d|${foot}}`].map(l=>pad(l,W));
+  const c1=col(['{d|├} {r|✕} w1-1 thinking high','{d|├} {d|○} w1-2 prompt · E1','{d|├} {g|●} w1-3 wrapper · E2','{d|├} {a2|◆} {b|w2-1} prompt · E1 {a2|━━▶}','{d|├} {d|○} w2-2 tool desc · E2','{d|╰} {r|✕} w2-3 few-shot · E2'],'6 tried · 1 promoted');
+  const c2=col(['{d|├} {g|●} w3-1 prompt · E4','{d|├} {r|✕} w3-2 skill · E5 {d|val}','{d|├} {g|●} w3-3 tool desc · E2','{d|├} {a b|◆} {b|w3-4} wrapper · E2 {a2|━▶}','{d|├} {g|●} w3-5 haiku swap','{d|╰} {g|●} w3-6 sonnet·low'],'6 tried · 1 promoted · 8 screened');
+  const c3=col(['{d|├} {c|◐} w4-1 wrapper · E2','{d|├} {c|◐} w4-2 prompt · E1','{d|├} {c|◐} w4-3 skill · E5','{d|├} {c|◐} w4-4 merge w3-1+3','{d|├} {g|●} w4-5 probe: YES','{d|╰} {r|✕} w4-6 thinking low'],'4 running · 1 stopped');
+  const top=' '+pad(`{d|◇ start} {a2|${rep('━',W-9)}}`,W+1)+pad(`{a2|◆ w2-1} {a2|${rep('━',W-10)}}`,W+1)+`{a b|◆ w3-4} {a2|━━━} {c|◐ wave 4 running}`;
+  return [top,' '+pad('{d|│}',W+1)+pad('{a2|│}',W+1)+'{a|│}',...hcat([c1,c2,c3],' ').map(l=>' '+l),'',` {d|the champion line across the top; everything tried from each champion hangs below it}`]});
+M('c12c',()=>[
+ ` {f|╭─} {b|w4-4} {d|· merge ·} {g|●} w3-1 {d|+} {g|●} w3-3 {d|onto} {a b|◆ w3-4} {d|‹} {a2|◆ w2-1} {d|‹} {d|◇ start} {f|${rep('─',34)}╮}`,``,
+ ` {b|w4-1}  {d|‹} {a b|◆ w3-4} {d|‹} {a2|◆ w2-1} {d|‹} {d|◇ start}                   {d|3 hops · built on 2 promotions}`,
+ ` {b|w3-2}  {d|‹} {a2|◆ w2-1} {d|‹} {d|◇ start}                            {d|sibling of the champion}`,``,
+ ` {d|for headers and focus cards, where a full graph will not fit ·} {c u|lineage ↗}  {c u|compare with parents ↗}`]);
+
+/* ---------- C13 knowledge ---------- */
+M('c13a',()=>{const R=[['{g|■ FIXED     }','p0','E1','reports a release as done when the API refused it','','{a2|◆ w2-1}'],['{g|■ FIXED     }','p1','E2','holds the wrong container when two share a bay','','{a2|◆ w3-4}'],
+ ['{c|◐ WORKING   }','p1','E2','misses hold_status buried in get_container','×3','{c|w4-1}'],['{c|◐ WORKING   }','p2','E5','does not escalate on a 409 with hold_reason','×2','{c|w4-3}'],
+ ['{g|● POOLED    }','p1','E4','drops the eta field on split shipments','×1','{d|win w3-1 → merge w4-4}'],['{fg|○ OPEN      }','p2','E3','apologizes three or more times per conversation','',''],
+ ['{y|? UNMEASURED}','—','—','invents a supervisor id when none is on file','','{y|needs an eval}'],['{d|– WONT_FIX  }','p3','E3','uses metric units for US depots','','{d|not reproduced}']];
+  return [` {b|ISSUES} {d|· 8 · 2 fixed · 2 working · 1 pooled · 1 open · 1 unmeasured · 1 won't fix}`,``,...R.map(r=>` ${r[0]} {d|${r[1]} ${r[2]}}  ${pad('{v|'+r[3]+'}',50)} {d|${pad(r[4],3)}} ${r[5]}`),``,` {d|issues are the planner's fuel: one failure class of one eval each}`]});
+M('c13b',()=>{const C=['prompt','skill','tool desc','wrapper','model','thinking','sampling','rag'];
+  const R=[['p0 E1 refusal',['{a2|◆}{d|○}{c|◐}','·','·','·','·','{r|✕}','·','·']],['p1 E2 hold',['{r|✕}','·','{d|○}{g|●}','{g|●}{a b|◆}{c|◐}','·','·','·','·']],['p2 E3 tone',['·','·','·','·','·','·','·','{d|○}']],
+   ['p1 E4 format',['{g|●}','·','·','·','·','·','·','·']],['p2 E5 escalate',['·','{r|✕}{c|◐}','·','·','·','·','·','·']],[' $ cost',['·','·','·','·','{g|●}{g|●}','{g|●}{r|✕}','·','·']],['ms latency',['·','·','·','·','{g|●}','{g|●}','·','·']]];
+  return [` ${pad('',16)}{d|${C.map(c=>pad(c,11)).join('')}}`,...R.map(([n,cs])=>` ${pad(n,16)}${cs.map(c=>pad(c==='·'?'{f|·}':c,11)).join('')}`),``,
+   ` {a b|◆} promoted  {g|●} win  {d|○} no win  {r|✕} dead end or stopped  {c|◐} running  {f|·} untried`,` {d|one glyph per attempt, oldest first}`,
+   ` {d|two misses on one surface push the planner to another class of change.}`,` {d|E2 shows it: prompt and few-shot failed, then tools won.}`]});
+M('c13c',t=>[
+ ` {b|LEARNED THIS RUN}`,
+ ` {d|w3} {fg|lesson  } {v|haiku-5-5 skips skills unless the prompt names them by name}`,
+ ` {d|w3} {r|dead end} {v|few-shot examples for E2: no net change, twice. Retired for this task.}`,
+ ` {d|w4} {fg|lesson  } {v|trimming tool output beats adding prompt rules for E2}`,
+ ` {d|w4} {fg|probe   } haiku-5-5 loads attached skills under JSON mode → {g b|YES} {d|3 of 3}`,``,
+ ` {y|${Math.floor(t*1.5)%2?'▌':' '}} {y b|NEEDS YOU} {v|May the agent decline a hold when no supervisor id is on file?}`,
+ `   {d|The planner parked 2 ideas on this. Answer in the next run's --guidance, or in Kiln} {c u|↗}`],{anim:true});
+
+/* ---------- C14 links ---------- */
+M('c14a',()=>[
+ ` {a b|◆} champion  {a b u|w3-4}  wrapper · E2 hold        85.7 {d|val}      {c u|Compare ↗}  {c u|Lineage ↗}`,
+ ` {c|◐} running   {u|w4-1}  wrapper · E2 hold        {c|14/36}          {c u|traces ↗}   {c u|run config ↗}`,
+ ...box(64,[`{d|⌘-click}  {fg|http://localhost:8757/…/run_configs/424242000017}`]).map(l=>rep(' ',17)+l),``,
+ ` {d|OSC 8 hyperlinks: the text is the link. iTerm2, WezTerm, kitty, Ghostty, Windows Terminal and VS Code}`,
+ ` {d|show them; other terminals show plain text, so every link also has a key.}`]);
+M('c14b',t=>{const sel=Math.floor(t/1.6)%5;const R=[['★','{a b|◆}','w3-4','wrapper · E2','85.7','$.031','6.9s'],['★','{c|◉}','w3-6','sonnet·low + tools','84.9','$.024','4.8s'],['★','{y b|$}','w3-5','haiku swap','82.6','$.019','4.4s'],[' ','{g|●}','w3-1','prompt · E4','{d|—}','$.041','8.1s'],[' ','{r|✕}','w3-2','skill · E5','{r|val ✕}','$.043','8.6s']];
+  return [` {b|EXPERIMENTS}${rep(' ',36)}{d|space mark · c compare · o open · l lineage}`,
+   ...R.map((r,i)=>{const line=` ${i===sel?'{c b|▶}':' '} {y b|${r[0]}} ${r[1]} {b|${r[2]}}  ${pad(r[3],20)}${padL(r[4],7)}  ${r[5]}  ${r[6]}`;return i===sel?`{sel|${strip(line)}}`:line}),
+   ``,` {d|3 marked ›} {inv c b| c } {b|Compare in Kiln}`,` {g|✓} Opened Compare with 3 run configs in your browser.`,
+   ` {d|no browser on this machine? the URL is printed, and port 8757 forwards over ssh:}`,` {fg|http://localhost:8757/…/compare?run_configs=w3-4,w3-6,w3-5}`]},{anim:true});
+
+/* ---------- C15 jazz ---------- */
+M('c15a',t=>{const pr=Math.round(((t*0.02)%0.15+0.4)*36);return [
+ ` {f|╭${rep('─',14)}╮╭${rep('─',38)}╮╭${rep('─',12)}╮}`,
+ ` {f|│} {d|${pad('zsh',12)}} {f|││} {c|${spin(t)}} {fg|▲+14.7 · $18/$50 · w4 · 1h12m}      {f|││} {d|${pad('vim',10)}} {f|│}`,
+ ` {f|╰${rep('─',14)}╯╰}{c|${rep('━',pr)}}{f|${rep('─',38-pr)}╯╰${rep('─',12)}╯}`,
+ ` {d|OSC 0 sets the tab title · OSC 9;4 fills tab or taskbar progress where supported}`,``,
+ ...box(60,[lr('{b|Harness Tuner}','{d|now}',56),`{a b|◆} New champion {b|w4-2} · refusal honesty {g|+4.8} on val`,`{d|wave 4 · 1h31m · $24.10 of $50}`]).map(l=>rep(' ',6)+l),
+ ` {d|desktop notification (OSC 9 / OSC 777) on: a new champion · a question that needs you · the run ending}`]},{anim:true});
+const FONT={'0':['###','#.#','#.#','#.#','###'],'1':['.#.','##.','.#.','.#.','###'],'2':['###','..#','###','#..','###'],'3':['###','..#','.##','..#','###'],'4':['#.#','#.#','###','..#','..#'],'5':['###','#..','###','..#','###'],'6':['###','#..','###','#.#','###'],'7':['###','..#','..#','..#','..#'],'8':['###','#.#','###','#.#','###'],'9':['###','#.#','###','..#','###'],'+':['...','.#.','###','.#.','...'],'.':['...','...','...','...','.#.']};
+function big(s,cls){const rows=['','','','',''];for(const ch of s){const g=FONT[ch];for(let r=0;r<5;r++)rows[r]+=[...g[r]].map(p=>p==='#'?'██':'  ').join('')+'  '}return rows.map(r=>`{${cls}|${r}}`)}
+M('c15b',t=>{const b=big('+14.7','g b');return [` {d|QUALITY SINCE START} {d|· p0-weighted · val-confirmed}${rep(' ',24)}{d|wave 4 · 1h12m · $18.40}`,``,...b.map(r=>'   '+r+(r===b[4]?'  {g|pts}':'')),``,
+ `   {a2|▁▁▁▄▄▄▆▆▇} {d|champion by wave}       {a b|◆ w3-4} {d|holds ·} {c|${spin(t)} testing 4 challengers}`,``,
+ `   {d|cost} {g|−26%}   {d|latency} {g|−18%}   {d|2 promotions · 23 experiments · 9 stopped early}`,``,` {d|z toggles · built to read from across the room}`]},{anim:true});
+M('c15c',()=>box(98,[
+ `7 waves · 38 experiments · 4 promotions · 12 stopped early {d|(saved ≈ $21)} · test untouched`,``,
+ `{d|${pad('PICK ONE',18)}${pad('QUALITY',14)}${pad('COST / REQ',15)}${pad('LATENCY',14)}RUN CONFIG}`,
+ `{a b|${pad('◆ best quality',18)}}${pad('88.2 {g|+17.2}',14)}${pad('$.033 {g|−21%}',15)}${pad('7.0s {g|−17%}',14)}{b|w6-3} {d|sonnet-5-5}`,
+ `{y b|${pad('$ best value',18)}}${pad('84.0 {g|+13.0}',14)}${pad('$.017 {g|−60%}',15)}${pad('4.4s {g|−48%}',14)}{b|w5-2} {d|haiku-5-5}`,
+ `{c|${pad('◉ balanced',18)}}${pad('86.9 {g|+15.9}',14)}${pad('$.024 {g|−43%}',15)}${pad('4.9s {g|−42%}',14)}{b|w6-1} {d|sonnet·low}`,
+ `{y b|${pad('» fastest',18)}}${pad('80.1 {g|+9.1}',14)}${pad('$.012 {g|−71%}',15)}${pad('3.0s {g|−64%}',14)}{b|w5-4} {d|haiku·off}`,``,
+ `{d|report} reports/kiln-harness-tuner-261109-1412.md`,
+ `{c u|Compare all four ↗}   {c u|Lineage ↗}   {c u|Report ↗}      {d|next: run your test split on the pick}`],
+ {title:'{g b|RUN COMPLETE} {d|· 261109-1412 · 2h58m · $46.20 of $50}',right:'{d|exit: time}'}));
+
+/* ============================== page content ============================== */
+const COMPS=[
+ {id:'c1',name:'Mission strip',q:'<b>What are we optimizing, and what must not break?</b> The objective, the guardrails, your guidance and the data rule.',v:[
+  ['c1a','Status line','Objective, guardrail, what is only watched, run identity and guidance in two rows.','Cheapest in rows. Long guidance gets clipped.','Nothing new.'],
+  ['c1b','Objective cards','The three roles a goal can play (optimize, hold, watch) and how they flip between objectives, plus split sizes with test sealed.','Six rows for something that never changes. Could live behind a ? overlay.','Nothing new.'],
+  ['c1c','Guidance receipt','Your steering, and what the planner did with each clause.','Builds trust that guidance was heard. Most useful when a clause was not followed.','A planner output field mapping guidance to items.']]},
+ {id:'c2',name:'Money, time and capacity',q:'<b>Will we run out of money or time first, and where is the money going?</b>',v:[
+  ['c2a','Twin gauges','Clock and spend on one scale, with spend projected to the deadline, so it is obvious which limit binds.','Small and always useful. Projection is a straight line, so it is wrong around val gates.','A burn-rate projection in code.'],
+  ['c2b','Burn chart','Spend over time by lane (Kiln provider keys vs Claude Code subscription), wave boundaries, promotions and the projection.','11 rows. Stacks two lanes in one cell using foreground and background color.','Nothing new: spend events carry the lane.'],
+  ['c2c','Where it went','Spend by activity, what early stops saved, and prior evidence reused from earlier runs at no cost.','The savings line is the best argument that the loop is frugal. It is an estimate.','A savings estimate: planned items × cost per item, minus actual.'],
+  ['c2d','Capacity meters','Agent and eval slots busy or queued, provider rate limits, the subscription window and the tripwire.','htop-style and dense. Quota needs data the agent CLI may not expose.','Per-slot state; quota only if the CLI reports it.']]},
+ {id:'c3',name:'Scoreboard',q:'<b>For each goal: where did we start, what is the champion, what is the best seen, and what is the balanced pick?</b>',v:[
+  ['c3a','Ladder','Per goal, how much of the best-known gain the champion holds, with the balanced pick on the same track.','Each row has its own scale: good for "how far along", bad for "how much".','Nothing new.'],
+  ['c3b','Delta table','Exact values and deltas, who holds each best, whether it is train or val, and the champion by wave.','The spreadsheet answer. Dense but unambiguous.','Nothing new.'],
+  ['c3c','Four winners','The README\'s four picks (best quality, best value, balanced, fastest) as cards, with one key to compare them in Kiln.','Leaders shift during the run, so they need a "so far" label.','The four-winner selection running live, not only in the report.'],
+  ['c3d','Coverage grid','Every experiment against every goal. Shows plainly that most experiments only run their target evals.','Wide. Caps at about 12 columns, then scrolls.','Nothing new.'],
+  ['c3e','Headroom','Whether each eval can show a win at all, and the noise rate guard losses are judged against.','Mostly a start-of-run view, but it explains later "why no progress on E4".','Nothing new: the detectability check computes it.']]},
+ {id:'c4',name:'Trade-off frontier',q:'<b>Which configs are worth considering at all?</b> Quality against cost and latency, with the frontier drawn.',v:[
+  ['c4a','Braille frontier','Every measured config as a point, the frontier as a staircase, the champion and the winners labelled. New points land live and the frontier redraws.','Cleanest "jazz with a point". 20 rows, so it wants its own tab or a wide right pane.','Nothing new.'],
+  ['c4b','Small multiples','Quality × cost and quality × latency side by side, smaller, no labels.','Shows that a config can be on one frontier and not the other. Labels are lost.','Nothing new.']]},
+ {id:'c5',name:'The loop and the clock',q:'<b>Where are we in the loop, and how has the run spent its time?</b> Includes total experiments and the wave count.',v:[
+  ['c5a','Loop ring','Plan, screen, items and gate as a ring, with the active edge pulsing. Says which champion the wave started from.','Teaches the loop to a new user. Uses 9 rows to say one word.','Nothing new.'],
+  ['c5b','Run timeline','The whole run on one axis: setup, waves, screens, gates, promotions, projected waves and the wrap-up wave.','The best single summary of "how is this run going". 5 rows.','Nothing new.'],
+  ['c5c','Slot lanes','What every agent and eval slot did over the last 24 minutes. Exposes the bottleneck.','A debugging view more than a watching view. Suggests a concurrency change.','Per-slot start and end events.']]},
+ {id:'c6',name:'Planning',q:'<b>What is the planner looking at, and what is it about to try?</b> Includes the planner prompt.',v:[
+  ['c6a','Memory in, plan out','What the planner was fed (issues, lessons, dead ends, results, guidance, budget), then the plan forming item by item.','Makes a silent 3-minute phase feel alive. Item-by-item needs streaming.','Streaming the plan as it forms, or a reveal at the end.'],
+  ['c6b','Transcript tail','The planner\'s tool calls and reasoning as they happen, in Claude Code\'s own visual idiom. p opens the full prompt.','The most honest view. Can be noisy; tail of 8 lines.','Streaming the agent session (today it is copied to traces/ afterwards).'],
+  ['c6c','Plan card','The wave plan: each hypothesis, its prediction, what was considered and rejected, and a question for you.','The best artifact of planning. Static once written.','Nothing new: BatchPlan has all of it.']]},
+ {id:'c7',name:'Experiments, live',q:'<b>What is running now, and how is each one doing?</b> Hypothesis, lever, status, spend.',v:[
+  ['c7a','One-line rows','Stage dots, progress, spend against the arm\'s cap and the signal so far. One row per item.','Densest. Hypotheses are hidden.','Nothing new.'],
+  ['c7b','Two-line rows','Adds the hypothesis in the agent\'s words under each row.','Twice the rows. Reads like a lab notebook.','Nothing new.'],
+  ['c7c','Stage board','Kanban by stage. Shows where items pile up.','Fun, but wastes width when most items are in one stage.','Nothing new.'],
+  ['c7d','Focus card','Everything about one experiment: hypothesis, issue, parent, what changed, checks, items, stop rules, spend.','The detail view behind enter. Needs a diffstat of the run config.','A run-config diff summary (the build already writes RcChange).']]},
+ {id:'c8',name:'Judged items',q:'<b>Is the candidate fixing what it set out to fix, without breaking what worked?</b>',v:[
+  ['c8a','Item strip','Each judged item is a cell: targets, guards, then the rest. Bright cells flipped. Fills as judges return.','The signature visual: the pixels are the eval items. 7 rows for a merge across 5 evals.','Per-item results as they arrive (eval-job polling).'],
+  ['c8b','Flip table','The 2×2 the paired test reads: held, broke, fixed, still failing.','Explains the statistics. Nerdy; best in the focus card.','Nothing new.'],
+  ['c8c','Chunk ladder','Measurement as chunks of 12 with the stop-rule check at each look.','Shows the sequential process. Overlaps with C9.','Nothing new.']]},
+ {id:'c9',name:'Stop rules',q:'<b>How close is each arm to being stopped?</b>',v:[
+  ['c9a','Boundary chart','The arm\'s net against a rising futility floor and an informational significance curve, with looks marked.','Real tension, tied to a real rule. 18 rows; focus card or its own tab.','Exposing each rule\'s threshold over n.'],
+  ['c9b','Tug of war','One line per running arm: distance to the nearest stop rule.','Compact and glanceable. Hides which rule.','A per-rule slack value.'],
+  ['c9c','Rule checklist','Every stop rule for the objective, what fires it, and the slack now.','Plain and exact. Best inside the focus card.','A per-rule slack value.']]},
+ {id:'c10',name:'Screening',q:'<b>Which cheap config changes (model, provider, thinking) survive?</b>',v:[
+  ['c10a','Halving ladder','Candidates eliminated round by round with the reason; the survivor is built.','Makes successive halving legible and a little dramatic.','Nothing new: screening_round events.'],
+  ['c10b','Screen table','Every candidate with cost and latency ratios, guard losses, fixes, net and verdict.','The exact view. Sortable.','Nothing new.']]},
+ {id:'c11',name:'Promotion gate',q:'<b>Did the candidate hold up on val, and is there a new champion?</b>',v:[
+  ['c11a','Val forest plot','Each eval\'s change on val with its interval against zero, the promotion rule, integrity checks and the verdict.','The most important decision in the run, shown as the rule actually sees it.','Nothing new.'],
+  ['c11b','Champion moment','The one celebratory beat: a flash, the lineage chain extends, val deltas, a bell.','Rare by design (once per gate at most), so it can afford to be loud.','Nothing new.'],
+  ['c11c','Rejected at val','Train said yes, val said no, side by side on one scale.','Teaches why the gate exists. Says plainly that val details stay sealed from the planner.','Nothing new.']]},
+ {id:'c12',name:'Experiment graph',q:'<b>What are we building on?</b> Past experiments, lineage and merges. Kiln has the full view; this is the terminal\'s version.',v:[
+  ['c12a','Git-style graph','Lineage in the git log --graph idiom: lanes, merges, promotions, verdicts.','Every developer can read it. Gets tall; collapses waves.','Nothing new: derived_from_ids.'],
+  ['c12b','Champion spine','The promotion chain across the top, with everything tried from each champion hanging below it.','Answers "how many tries per win". Loses merge edges.','Nothing new.'],
+  ['c12c','Breadcrumb','One experiment\'s ancestry in one line, for headers and focus cards.','Tiny. Pairs with any of the others.','Nothing new.']]},
+ {id:'c13',name:'Knowledge',q:'<b>What has the run learned, where has it searched, and what does it need from you?</b>',v:[
+  ['c13a','Issue board','Every issue with its lifecycle (unmeasured, open, working, pooled, fixed, won\'t fix), eval, priority, attempts.','Issues are the planner\'s fuel, so this is progress in the planner\'s own terms.','Nothing new: memory records.'],
+  ['c13b','Lever map','Issues against classes of change, with one glyph per attempt. Shows where the search has been.','Unique to this tuner. Makes "moved from prompt to tools" visible.','Nothing new: lever attempts per issue.'],
+  ['c13c','Lessons and questions','Lessons, dead ends and probe answers as they are written, and a pinned question that only you can answer.','The human-interesting prose of the run.','Nothing new to show it. Answering in the TUI would need loop support.']]},
+ {id:'c14',name:'Deep links into Kiln',q:'<b>How do we hand off to Kiln\'s Compare and Lineage views?</b>',v:[
+  ['c14a','Inline links','OSC 8 hyperlinks on ids and view names; ⌘-click opens Kiln. Keys as the fallback.','Feels native in modern terminals. Invisible in old ones.','Stable Kiln URLs for compare, lineage and a run config.'],
+  ['c14b','Compare basket','Mark configs with space, open them together with c. Prints the URL for ssh sessions.','Turns the TUI into a launcher for the pretty views.','A compare URL that takes a list of run configs.']]},
+ {id:'c15',name:'Living with a long run',q:'<b>A run takes hours. How does it reach you when you are not looking?</b>',v:[
+  ['c15a','Tab and notifications','The tab title carries the headline; OSC 9;4 fills the tab progress; a desktop notification on promotion, question or finish.','Small effort, big payoff. Support varies by terminal.','Nothing new.'],
+  ['c15b','Big-number mode','Press z: the headline delta in block digits, champion by wave, and little else.','For a second monitor or across the room. Pure glance.','Nothing new.'],
+  ['c15c','Run complete','What stays in scrollback after exit: the four picks, totals, savings and links.','Replaces today\'s "where it is" printout. The thing people screenshot.','Nothing new.']]}];
+
+const INV=[
+ ['Mission and guardrails',[['Objective','what is optimized, what is held, what is only watched','brief','c1'],['Guidance and how it was used','your steering text, and which items it shaped','new','c1c'],['Data honesty','train, val, test sizes; test is sealed','new','c1b'],['Run identity','task, run id, agent CLI, model policy','new','c1a']]],
+ ['Money, time, capacity',[['Total spend','by lane: Kiln provider keys vs Claude Code subscription','brief','c2'],['Which limit binds first','burn rate, projection, waves left, the wrap-up wave','new','c2a'],['Where it went','by activity; savings from early stops; prior evidence reused','new','c2c'],['Slots and limits','agents and evals busy or queued; rate limits; tripwire','new','c2d']]],
+ ['Scoreboard',[['Per goal: baseline, best single, balanced','each eval, cost, latency','brief','c3'],['Four winners','best quality, best value, balanced, fastest (from the README)','new','c3c'],['Frontier','quality against cost and latency','new','c4'],['Coverage honesty','experiments run only their target evals','new','c3d'],['Headroom','evals that cannot show a win; noise rate','new','c3e']]],
+ ['The wave',[['Experiments run, past ones we build on','counts, lineage, champions','brief','c5'],['Where in the loop','plan, screen, items, gate','new','c5a'],['Run timeline','waves, gates, promotions, projection','new','c5b'],['Planning','the prompt, the live transcript, the plan and what it rejected','brief','c6'],['Screening rounds','model and thinking candidates, halving','new','c10'],['Promotion gate','val showdown, new champion, rejections','new','c11']]],
+ ['One experiment',[['Hypothesis and status','building, checks, measuring, analyzing, success, fail, stopped','brief','c7'],['What changed','a diffstat of the run config','new','c7d'],['Checks before spend','generality, judge-copy, reference, lever applied','new','c7d'],['Items as judged','fixed, broke, held, still failing','new','c8'],['Distance to a stop rule','futility floor, slack','new','c9']]],
+ ['Knowledge',[['Issues','lifecycle and attempts','new','c13a'],['Lever coverage','issue × class of change','new','c13b'],['Lessons, dead ends, questions for you','including what needs a human answer','new','c13c']]],
+ ['Graph and links',[['Experiment graph','in the terminal, plus a link to Kiln\'s lineage view','brief','c12'],['Deep links','Compare, Lineage, one run config, traces','brief','c14']]],
+ ['Living with a long run',[['Jazz','graphics tied to the goal: item strips, the frontier, the champion moment','brief','c8a'],['Tab title, progress, notifications','reach you when you are not looking','new','c15a'],['Glance mode','big numbers for a second monitor','new','c15b'],['End of run','the four picks and links, left in scrollback','new','c15c']]]];
+
+const IDEAS=[['Detach and reattach','The display is already a view of the wave log, so <code>harness-tuner attach &lt;run&gt;</code> could reopen a running or finished run from another terminal, and scrub through it like a replay.'],
+ ['Steer mid-run','Add guidance for the next wave without restarting. The planner already reads guidance every wave; it would need a file or socket the TUI writes to.'],
+ ['Answer the planner\'s questions','When an open question appears, answer it in the TUI and have the answer reach the next planner. Today the answer goes into the next run\'s --guidance.'],
+ ['Stop after this wave','A key that lets the current wave finish and its gate run, then writes the report. Avoids the expensive mid-wave cancel at a hard deadline.'],
+ ['Pin an experiment','Mark an in-flight arm as one you care about; the screen keeps its focus card open and notifies you when it lands.'],
+ ['Run-to-run memory','On a second run, open with what earlier runs left behind: the champion inherited, lessons, dead ends, and how many prior experiments this run builds on.']];
+
+/* ============================== render page ============================== */
+const allVariants=[];
+function el(tag,attrs={},html=''){const e=document.createElement(tag);for(const k in attrs)e.setAttribute(k,attrs[k]);if(html)e.innerHTML=html;return e}
+function renderInventory(){const g=document.getElementById('inv');for(const [title,items] of INV){const c=el('div',{class:'inv-card'});c.appendChild(el('h3',{},title));const ul=el('ul');
+  for(const [nm,why,src,to] of items){const isV=/[a-z]$/.test(to);const comp=isV?to.slice(0,-1):to;const label=isV?`${comp.toUpperCase()}·${to.slice(-1).toUpperCase()}`:to.toUpperCase();
+    ul.appendChild(el('li',{},`<span class="nm">${nm}</span><span style="display:flex;gap:8px;align-items:center"><span class="src ${src==='brief'?'brief':''}">${src}</span><a class="jump" href="#${to}">${label} →</a></span><span class="why">${why}</span>`))}
+  c.appendChild(ul);g.appendChild(c)}}
+function renderComps(){const host=document.getElementById('components'),toc=document.getElementById('toc');
+  COMPS.forEach(c=>{toc.appendChild(el('a',{href:'#'+c.id},`${c.id.toUpperCase()} ${c.name}`));
+    const s=el('section',{class:'comp',id:c.id});s.appendChild(el('div',{class:'comp-head'},`<div class="eyebrow">${c.id.toUpperCase()} · ${c.v.length} sketches</div><h2>${c.name}</h2><p class="q">${c.q}</p>`));
+    c.v.forEach(([id,name,shows,trade,needs])=>{const mk=MOCKS[id];const letter=id.slice(-1).toUpperCase();allVariants.push({id,name,comp:c.id,label:`${c.id.toUpperCase()}·${letter}`});
+      const a=el('article',{class:'variant',id});
+      a.innerHTML=`<div class="vhead"><span class="vid">${c.id.toUpperCase()}·${letter}</span><h3>${name}</h3><span class="tags">${mk&&mk.anim?'<span class="tag anim">live</span>':''}<span class="tag" data-dims="${id}"></span></span></div>
+       <div class="term"><div class="tbar"><span>harness-tuner · ${c.name.toLowerCase()}</span><span data-dims2="${id}"></span></div><div class="scroll"><pre class="scr" data-mock="${id}" aria-label="Terminal sketch: ${name}"></pre></div></div>
+       <div class="vnotes"><p><b>Shows</b> ${shows}</p><p><b>Trade-off</b> ${trade}</p><p><b>Needs from the loop</b> ${needs}</p></div>
+       <div class="pick"><div class="seg" role="group" aria-label="Pick for ${c.id.toUpperCase()}·${letter} ${name}"><button data-v="in" aria-pressed="false">In</button><button data-v="maybe" aria-pressed="false">Maybe</button><button data-v="out" aria-pressed="false">Out</button></div><button class="notebtn" aria-expanded="false">Add note</button><span class="others" data-others="${id}"></span></div>
+       <textarea class="note" id="note-${id}" hidden placeholder="What would make this better, or why it's out" aria-label="Note for ${name}"></textarea>`;
+      s.appendChild(a)});host.appendChild(s)})}
+function renderIdeas(){const g=document.getElementById('ideas');IDEAS.forEach(([h,p])=>g.appendChild(el('div',{class:'idea'},`<h3>${h}</h3><p>${p}</p>`)))}
+
+/* ============================== animation ============================== */
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let playing=!reduce;const T0=performance.now();let frozen=0;const visible=new Set();
+const tNow=()=>playing?(performance.now()-T0)/1000:frozen;
+function draw(pre,t){const id=pre.dataset.mock,mk=MOCKS[id];if(!mk)return;const lines=mk.fn(mk.anim?mk.rest+t:0);pre.innerHTML=lines.map(toHTML).join('\n');
+  if(!pre.dataset.sized){pre.dataset.sized=1;const cols=Math.max(...lines.map(len)),rows=lines.length;document.querySelectorAll(`[data-dims="${id}"],[data-dims2="${id}"]`).forEach(e=>e.textContent=`${cols}×${rows}`)}}
+function drawAll(){document.querySelectorAll('pre[data-mock]').forEach(p=>draw(p,0))}
+function tick(){if(!playing)return;const t=tNow();visible.forEach(p=>{if(MOCKS[p.dataset.mock]?.anim)draw(p,t)})}
+
+/* ============================== picks ============================== */
+const S={picks:{},notes:{},mode:'local',others:{},db:null,user:null,uid:null,writing:Promise.resolve(),saveTimer:null};
+const LS='tuner-tui-sketchbook-picks';
+function loadLocal(){try{const j=JSON.parse(localStorage.getItem(LS)||'{}');S.picks=j.picks||{};S.notes=j.notes||{}}catch(e){}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify({picks:S.picks,notes:S.notes}))}catch(e){}}
+function queueSave(){saveLocal();if(!S.db||!S.uid)return;clearTimeout(S.saveTimer);S.saveTimer=setTimeout(()=>{const body={picks:{...S.picks},notes:{...S.notes},updated:new Date().toISOString()};
+  S.writing=S.writing.then(()=>S.db.doc('picks/'+S.uid).set(body)).catch(e=>{setStatus('error')})},700)}
+function setStatus(m){S.mode=m;const e=document.getElementById('store-status');
+  e.textContent=m==='shared'?'Picks save to this page as you click, and Claude can read them. Other people\'s picks show as initials beside each sketch.':
+   m==='slow'?'Picks are saved in this browser; the page store has not answered yet.':
+   m==='error'?'The page store refused the last save. Your picks are kept in this browser; use Copy picks as text to send them.':
+   'Picks are saved in this browser only. Use Copy picks as text and paste them to Claude.'}
+function applyPicksUI(){document.querySelectorAll('article.variant').forEach(a=>{const id=a.id,v=S.picks[id];a.querySelectorAll('.pick .seg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===v)));
+  const ta=a.querySelector('textarea.note');if(document.activeElement!==ta)ta.value=S.notes[id]||'';if(S.notes[id]){ta.hidden=false;a.querySelector('.notebtn').textContent='Note';a.querySelector('.notebtn').setAttribute('aria-expanded','true')}});renderSummary()}
+function renderSummary(){const n=Object.values(S.picks).filter(Boolean).length,tot=allVariants.length;document.getElementById('topcount').innerHTML=`<b>${n}</b> of ${tot} picked`;
+  const groups={in:[],maybe:[],out:[]};allVariants.forEach(v=>{const p=S.picks[v.id];if(groups[p])groups[p].push(v)});
+  const lab={in:'In',maybe:'Maybe',out:'Out'},col={in:'var(--in)',maybe:'var(--maybe)',out:'var(--out)'};
+  const sum=document.getElementById('sum');sum.innerHTML='';for(const k of ['in','maybe','out']){const d=el('div');d.appendChild(el('h3',{},`<span style="color:${col[k]}">${lab[k]}</span> <span class="k">${groups[k].length}</span>`));const ul=el('ul');
+   if(!groups[k].length)ul.appendChild(el('li',{class:'k'},'none yet'));groups[k].forEach(v=>{const li=el('li');const a=el('a',{href:'#'+v.id});a.textContent=`${v.label} ${v.name}`;li.appendChild(a);if(S.notes[v.id]){const s=el('span',{class:'k'});s.textContent=' — '+S.notes[v.id];li.appendChild(s)}ul.appendChild(li)});d.appendChild(ul);sum.appendChild(d)}}
+function picksText(){const L=['Tuner TUI Sketchbook — picks',''];for(const k of ['in','maybe','out']){L.push(k.toUpperCase());allVariants.filter(v=>S.picks[v.id]===k).forEach(v=>L.push(`- ${v.label} ${v.name}${S.notes[v.id]?' — '+S.notes[v.id]:''}`));L.push('')}
+  const un=allVariants.filter(v=>!S.picks[v.id]);L.push(`UNPICKED: ${un.length}`);allVariants.filter(v=>!S.picks[v.id]&&S.notes[v.id]).forEach(v=>L.push(`- note on ${v.label} ${v.name}: ${S.notes[v.id]}`));return L.join('\n')}
+async function renderOthers(){const ids=Object.keys(S.others);let ps={};if(S.user&&ids.length){try{ps=await S.user.profiles(ids)}catch(e){}}
+  document.querySelectorAll('[data-others]').forEach(span=>{const vid=span.dataset.others;span.innerHTML='';ids.forEach(uid=>{const d=S.others[uid];const v=d?.picks?.[vid];if(!v)return;const p=ps[uid]||{};const w=el('span',{class:'who'});w.style.background=p.color||'#777';
+    const nm=p.name||'Someone';w.textContent=(nm[0]||'?').toUpperCase();w.title=`${nm}: ${v}${d.notes?.[vid]?' — '+d.notes[vid]:''}`;const dot=el('i',{class:v});w.appendChild(dot);span.appendChild(w)})})}
+async function initStore(){loadLocal();applyPicksUI();setStatus('local');
+  if(!window.claude||typeof window.claude.use!=='function')return;
+  let db=null,user=null;try{[db,user]=await Promise.all([window.claude.use('db'),window.claude.use('user')])}catch(e){}
+  if(!db||!user)return;let uid=null;try{uid=await user.id()}catch(e){}if(!uid)return;
+  S.db=db;S.user=user;S.uid=uid;setStatus('slow');let first=true;const timer=setTimeout(()=>{if(first)setStatus('slow')},10000);
+  try{db.collection('picks').onSnapshot(snap=>{const others={};let mine=null;snap.docs.forEach(d=>{if(d.id===uid)mine=d.data();else others[d.id]=d.data()});
+    if(first&&!snap.metadata.fromCache){first=false;clearTimeout(timer);
+      if(mine){S.picks={...(mine.picks||{}),...S.picks};S.notes={...(mine.notes||{}),...S.notes};const changed=JSON.stringify(S.picks)!==JSON.stringify(mine.picks||{})||JSON.stringify(S.notes)!==JSON.stringify(mine.notes||{});applyPicksUI();if(changed)queueSave()}
+      else if(Object.keys(S.picks).length||Object.keys(S.notes).length)queueSave();setStatus('shared')}
+    S.others=others;renderOthers()},err=>{clearTimeout(timer);setStatus('local')})}catch(e){setStatus('local')}}
+
+/* ============================== wire up ============================== */
+renderInventory();renderComps();renderIdeas();drawAll();
+document.querySelectorAll('pre[data-mock]').forEach(p=>{const r=p.getBoundingClientRect();if(r.top<innerHeight&&r.bottom>0)visible.add(p)});
+if('IntersectionObserver' in window){const io=new IntersectionObserver(es=>es.forEach(e=>e.isIntersecting?visible.add(e.target):visible.delete(e.target)),{rootMargin:'100px'});document.querySelectorAll('pre[data-mock]').forEach(p=>io.observe(p))}
+setInterval(tick,100);
+const setPressed=(a,b,on)=>{a.setAttribute('aria-pressed',String(on));b.setAttribute('aria-pressed',String(!on))};
+const td=document.getElementById('t-dark'),tl=document.getElementById('t-light');
+function setTerm(light){document.body.classList.toggle('light-terms',light);setPressed(tl,td,light);try{localStorage.setItem('tuner-tui-term',light?'light':'dark')}catch(e){}}
+td.onclick=()=>setTerm(false);tl.onclick=()=>setTerm(true);try{if(localStorage.getItem('tuner-tui-term')==='light')setTerm(true)}catch(e){}
+const mp=document.getElementById('m-play'),mz=document.getElementById('m-pause');
+function setPlay(on){if(!on)frozen=tNow();playing=on;setPressed(mp,mz,on);if(!on)drawAllAt(frozen)}
+function drawAllAt(t){document.querySelectorAll('pre[data-mock]').forEach(p=>{if(MOCKS[p.dataset.mock]?.anim)draw(p,t)})}
+mp.onclick=()=>setPlay(true);mz.onclick=()=>setPlay(false);setPressed(mp,mz,playing);
+document.getElementById('components').addEventListener('click',e=>{const b=e.target.closest('.pick .seg button');if(b){const id=b.closest('article').id;S.picks[id]=S.picks[id]===b.dataset.v?undefined:b.dataset.v;if(!S.picks[id])delete S.picks[id];applyPicksUI();queueSave();return}
+  const n=e.target.closest('.notebtn');if(n){const ta=n.closest('article').querySelector('textarea.note');ta.hidden=!ta.hidden;n.setAttribute('aria-expanded',String(!ta.hidden));if(!ta.hidden)ta.focus()}});
+document.getElementById('components').addEventListener('input',e=>{if(e.target.matches('textarea.note')){const id=e.target.closest('article').id;const v=e.target.value.trim();if(v)S.notes[id]=e.target.value;else delete S.notes[id];renderSummary();queueSave()}});
+document.getElementById('copy').onclick=()=>{const txt=picksText(),box=document.getElementById('copybox'),st=document.getElementById('copy-status');
+  const fallback=()=>{box.hidden=false;box.value=txt;box.focus();box.select();st.textContent='Select all and copy from the box below.'};
+  try{navigator.clipboard.writeText(txt).then(()=>{st.textContent='Copied. Paste it into the chat with Claude.'},fallback)}catch(e){fallback()}};
+initStore();
+</script>
+
+</body></html>

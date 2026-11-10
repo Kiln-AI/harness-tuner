@@ -58,8 +58,8 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--no-interaction` | off | Never ask a question or wait. The start runs the same checks, and stops at the first failed one with its message on stderr (exit 1). A missing `--project-id` or `--task-id` with more than one choice is an error that lists them. Each option that you do not give takes its default. Without a terminal (CI, a script, a pipe, another agent), the start never asks, with or without this flag. It changes only the start. `--no-progress` controls the display during the run. |
-| `--no-progress` | off | Plain timestamped log lines instead of the live progress display during the run. Use it for a terminal that is not interactive, or for a CI log. It changes only the display during the run. `--no-interaction` controls the start. |
+| `--no-interaction` | off | Never ask a question or wait. The start runs the same checks, and stops at the first failed one with its message on stderr (exit 1). A missing `--project-id` or `--task-id` with more than one choice is an error that lists them. Each option that you do not give takes its default. Without a terminal (CI, a script, a pipe, another agent), the start never asks, with or without this flag. In a terminal, the start's step lines still show in the app, and the run screen follows. It changes only the start. `--no-progress` controls the display during the run. |
+| `--no-progress` | off | Plain timestamped log lines instead of the run screen during the run ([your-own-task.md](your-own-task.md) section 5.5). Use it for a CI log, or to keep the run's lines in the terminal's scrollback. In a terminal, the guided start still runs in the app, which closes when the run starts. It changes only the display during the run. `--no-interaction` controls the start. |
 
 ### What the run improves
 

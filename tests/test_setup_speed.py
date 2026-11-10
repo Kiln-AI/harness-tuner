@@ -216,23 +216,22 @@ class TestMeasureTheBaselineFirst:
         assert ctx.measure_baseline_first is True
 
 
-def test_the_setup_lines_print_in_both_displays():
+def test_the_setup_lines_print_in_the_plain_display():
     from io import StringIO
 
     from rich.console import Console
 
     from kiln_harness_tuner.status import RunStatusTracker
-    from kiln_harness_tuner.ui import LiveUi, PlainUi
+    from kiln_harness_tuner.ui import PlainUi
 
-    for ui_class in (PlainUi, LiveUi):
-        out = StringIO()
-        tracker = RunStatusTracker(project_id="p", task_id="t", guidance="")
-        ui = ui_class(tracker, console=Console(file=out, width=200))
-        for kind in ("baseline_measured", "baseline_speed", "probe_rcs_archived"):
-            ui.event(kind, line=f"{kind} line")
-        text = out.getvalue()
-        for kind in ("baseline_measured", "baseline_speed", "probe_rcs_archived"):
-            assert f"{kind} line" in text, (ui_class, kind)
+    out = StringIO()
+    tracker = RunStatusTracker(project_id="p", task_id="t", guidance="")
+    ui = PlainUi(tracker, console=Console(file=out, width=200))
+    for kind in ("baseline_measured", "baseline_speed", "probe_rcs_archived"):
+        ui.event(kind, line=f"{kind} line")
+    text = out.getvalue()
+    for kind in ("baseline_measured", "baseline_speed", "probe_rcs_archived"):
+        assert f"{kind} line" in text, kind
 
 
 # ---- probe run configs leave the project at wave end ----

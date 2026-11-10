@@ -55,7 +55,7 @@ CORE_QUESTIONS = [
     "Which agent CLI should run the tuner's agents?",
     "Model for the agents",
     "Budget for this run",
-    "Time limit",
+    "Time limit (1h, 24h, 45m)",
 ]
 ADVANCED_PROMPT = (
     "Advanced options: any model · 4 evals and 4 agents at once"

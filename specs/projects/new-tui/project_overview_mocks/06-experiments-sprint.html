@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Tuner Experiments Section</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Geist+Mono:wght@400;700&family=Noto+Sans+Symbols+2&display=swap">
+<style>
+/* Layout: plain page; a content debate, then stacked terminal plates. */
+:root{
+  --bg:#f3f4f2; --panel:#ffffff; --ink:#1b1f1e; --muted:#5e6866; --line:#d8dddb; --accent:#2f6f8f;
+  --in:#1d7a45; --maybe:#8d6300; --out:#b3261e;
+  --font-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono:"Geist Mono", "Noto Sans Symbols 2", ui-monospace, Menlo, Consolas, monospace;
+  --t-bg:#0f1216; --t-bar:#171b21; --t-fg:#d6dae0; --t-dim:#7c8490; --t-faint:#3a414b; --t-faint2:#2a3038;
+  --t-good:#5fd38d; --t-good2:#2f6a49; --t-bad:#ff6f6f; --t-bad2:#7d3838; --t-run:#5cc8f0; --t-warn:#e9c46a; --s1:#e6e9ee;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4; --in:#5fcf8c; --maybe:#e3bb56; --out:#ff8a80; color-scheme: dark; } }
+:root[data-theme="dark"]{ --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4; --in:#5fcf8c; --maybe:#e3bb56; --out:#ff8a80; color-scheme: dark; }
+body.light-terms{--t-bg:#fbfbf8;--t-bar:#eeefeb;--t-fg:#1d222a;--t-dim:#69717d;--t-faint:#c6ccd4;--t-faint2:#e2e5e9;--t-good:#14803b;--t-good2:#93c9a6;--t-bad:#c4302a;--t-bad2:#eaa49f;--t-run:#076c9f;--t-warn:#8f6000;--s1:#1d222a}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5;margin:0}
+.wrap{max-width:1300px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 72px;display:grid;gap:26px}
+h1{font-size:28px;line-height:1.15;margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:19px;margin:0;font-weight:600;text-wrap:balance}
+h3{font-size:15px;margin:0;font-weight:600}
+p{margin:0;max-width:76ch}
+.muted{color:var(--muted)}
+.head{display:grid;gap:10px}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.debate{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:8px;align-content:start}
+.col h3 span{font-family:var(--font-mono);font-size:12px;margin-left:6px}
+.col ul{margin:0;padding-left:18px;display:grid;gap:6px}
+.col li{font-size:14px;color:var(--muted)}
+.col li b{color:var(--ink);font-weight:600}
+.col.in h3{color:var(--in)} .col.maybe h3{color:var(--maybe)} .col.out h3{color:var(--out)}
+.controls{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;font-size:14px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line)}
+.ctl{display:flex;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex-wrap:wrap}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--panel);color:var(--ink);padding:5px 11px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.plate{display:grid;gap:8px;min-width:0}
+.cap{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+.vid{font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--accent)}
+.tag{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 6px}
+.take{font-size:14px;color:var(--muted);max-width:80ch}
+.take b{color:var(--ink);font-weight:600}
+.term{background:var(--t-bg);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0;justify-self:start;max-width:100%}
+.tbar{display:flex;justify-content:space-between;gap:12px;background:var(--t-bar);color:var(--t-dim);font-family:var(--font-mono);font-size:11.5px;padding:5px 12px}
+.scroll{overflow-x:auto}
+.scr{font-family:var(--font-mono);font-size:var(--fs,13px);line-height:1.32;color:var(--t-fg);white-space:pre;margin:0;padding:12px 14px 14px;font-variant-numeric:tabular-nums;width:max-content}
+.scr .w{display:inline-block;width:1ch;text-align:center}
+.scr .fb,.scr .xb{height:1.32em;vertical-align:top}
+.scr .fb{background:currentColor}
+.scr .xb{background:linear-gradient(to right,currentColor calc(var(--h)*12.5%),transparent 0)}
+.scr .d{color:var(--t-dim)} .scr .f{color:var(--t-faint)} .scr .ff{color:var(--t-faint2)} .scr .fg{color:var(--t-fg)}
+.scr .g{color:var(--t-good)} .scr .gd{color:var(--t-good2)} .scr .r{color:var(--t-bad)} .scr .rd{color:var(--t-bad2)} .scr .c{color:var(--t-run)} .scr .y{color:var(--t-warn)} .scr .s1{color:var(--s1)}
+.scr .b{font-weight:700} .scr .i{font-style:italic} .scr .u{text-decoration:underline;text-underline-offset:2px}
+</style>
+
+<main class="wrap">
+  <header class="head">
+    <div class="eyebrow">Kiln Harness Tuner · experiments section · design sprint</div>
+    <h1>Running experiments</h1>
+    <p>The section's job is to answer four questions for each experiment in the wave: <b>what is being tried, on which concern, how far along it is, and whether it is working.</b> The current version fails because every row leads with an id and jargon and mixes five number formats on one line. Below: what should be in it, then five ways to draw it.</p>
+  </header>
+
+  <section class="debate" aria-label="What goes in the section">
+    <div class="col in"><h3>In <span>the four questions</span></h3><ul>
+      <li><b>What is being tried:</b> the hypothesis, as the item's title, in plain words. It is the thing a person remembers.</li>
+      <li><b>Which concern:</b> the same name as its Results card, so the eye can go from one to the other.</li>
+      <li><b>How far along:</b> build, measure, analyze, then a verdict. Shown as steps, not a word.</li>
+      <li><b>Is it working:</b> items judged out of planned, and how many it fixed and broke so far, spelled out ("5 fixed · 0 broke"), not "+5 −0".</li>
+      <li><b>How it ended:</b> in plain words. "Stopped: can't beat its parent", not "futility".</li>
+    </ul></div>
+    <div class="col maybe"><h3>Maybe <span>secondary, dim</span></h3><ul>
+      <li><b>Kind of change</b> (prompt, skill, tool wrapper, model, thinking) as a small tag.</li>
+      <li><b>Id</b> (w4-1): needed to match the log and Kiln, so keep it, but last and dim.</li>
+      <li><b>Spend against its cap:</b> matters when money is tight.</li>
+      <li><b>Item strip:</b> each judged item as a cell. Lovely, and wide.</li>
+    </ul></div>
+    <div class="col out"><h3>Out <span>go to the log or Kiln</span></h3><ul>
+      <li><b>Check details</b> (generality, judge-copy findings). Show only "rebuilding once"; the log has why.</li>
+      <li><b>Stop-rule names</b> (futility, residual). Translate them.</li>
+      <li><b>Chunk numbers</b> ("chunk 2 of 3"). Items judged out of planned says the same thing.</li>
+      <li><b>Predicted effect</b> from the plan. Interesting once, noise after.</li>
+    </ul></div>
+  </section>
+
+  <div class="controls">
+    <div class="ctl"><span id="l-m">Moment in the wave</span><div class="seg" role="group" aria-labelledby="l-m"><button data-m="E" aria-pressed="false">Just started</button><button data-m="M" aria-pressed="true">Mid wave</button><button data-m="L" aria-pressed="false">Landing</button></div></div>
+    <div class="ctl"><span id="l-w">Width</span><div class="seg" role="group" aria-labelledby="l-w"><button data-w="108" aria-pressed="true">108 cols (beside the log)</button><button data-w="160" aria-pressed="false">160 cols (full width)</button></div></div>
+    <div class="ctl"><span id="l-t">Terminal</span><div class="seg" role="group" aria-labelledby="l-t"><button data-t="dark" aria-pressed="true">Dark</button><button data-t="light" aria-pressed="false">Light</button></div></div>
+  </div>
+
+  <div id="plates" style="display:grid;gap:34px"></div>
+</main>
+
+<script>
+/* ---------- cell-grid toolkit ---------- */
+const RE=/\{([a-zA-Z0-9 -]+)\|([^}]*)\}/g;
+const strip=s=>s.replace(RE,'$2'),len=s=>[...strip(s)].length,rep=(c,n)=>c.repeat(Math.max(0,Math.floor(n)));
+const pad=(s,w)=>s+rep(' ',w-len(s)),padL=(s,w)=>rep(' ',w-len(s))+s;
+const clip=(s,w)=>[...s].length>w?[...s].slice(0,Math.max(0,w-1)).join('')+'…':s;
+const SP='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',spin=t=>SP[Math.floor(t*10)%10];
+const LEFTB='▏▎▍▌▋▊▉';
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function wide(s){let o='';for(const ch of s){const cp=ch.codePointAt(0);
+  if(ch==='█')o+='<span class="w fb"></span>';else if(LEFTB.includes(ch))o+=`<span class="w xb" style="--h:${LEFTB.indexOf(ch)+1}"></span>`;
+  else o+=(cp>0x7f&&!(cp>=0x2500&&cp<=0x259f))?`<span class="w">${ch}</span>`:ch}return o}
+function toHTML(line){let o='',last=0,m;RE.lastIndex=0;while((m=RE.exec(line))){o+=wide(esc(line.slice(last,m.index)));o+=`<span class="${m[1]}">${wide(esc(m[2]))}</span>`;last=RE.lastIndex}return o+wide(esc(line.slice(last)))}
+function runs(cells){let o='',cur=null,buf='';const fl=()=>{if(buf)o+=cur?`{${cur}|${buf}}`:buf;buf=''};for(const c of cells){const k=c.cls||'';if(k!==cur){fl();cur=k}buf+=c.ch}fl();return o}
+function box(w,lines,o={}){const bc=o.bc||'f',inner=w-4;const tp=o.title?` ${o.title} `:'',rp=o.right?` ${o.right} `:'',bp=o.bottom?` ${o.bottom} `:'';
+  return [`{${bc}|╭─}${tp}{${bc}|${rep('─',w-4-len(tp)-len(rp))}}${rp}{${bc}|─╮}`,...lines.map(l=>`{${bc}|│} ${pad(l,inner)} {${bc}|│}`),`{${bc}|╰${rep('─',w-3-len(bp))}}${bp}{${bc}|─╯}`]}
+function hcat(blocks,gap=' '){const ws=blocks.map(b=>Math.max(0,...b.map(len)));const h=Math.max(...blocks.map(b=>b.length));const out=[];for(let i=0;i<h;i++)out.push(blocks.map((b,j)=>pad(b[i]||'',ws[j])).join(gap).replace(/\s+$/,''));return out}
+function gauge(f,W,cls='c'){const n=Math.max(1,Math.min(W,Math.round(f*W)));return `{${cls}|${rep('━',n-1)}╸}{f|${rep('─',W-n)}}`}
+function sec(W,title,mid='',right=''){const head=` {b|${title}}${mid?'  '+mid:''} `;const r=right?` ${right}`:'';return head+`{ff|${rep('─',Math.max(2,W-len(head)-len(r)-1))}}`+r}
+function wrap(text,w,max=2){const words=text.split(' '),out=[];let cur='';for(const wd of words){if((cur+' '+wd).trim().length>w){out.push(cur.trim());cur=wd}else cur+=' '+wd}if(cur.trim())out.push(cur.trim());
+  if(out.length>max){out.length=max;out[max-1]=clip(out[max-1]+' …',w)}return out}
+const LINK=s=>`{c u|${s} ↗}`;
+
+/* ---------- the wave's items at three moments ---------- */
+const BASE=[
+ {id:'w4-1',type:'fix',lever:'wrapper',target:'Hold placement',hyp:'Return only the 6 hold fields from get_container, so the model stops missing hold_status'},
+ {id:'w4-2',type:'fix',lever:'prompt',target:'Refusal honesty',hyp:'Treat a 2xx response with a refusal in the body as a refusal'},
+ {id:'w4-3',type:'fix',lever:'skill',target:'Escalation',hyp:'Move the escalation table into a skill the prompt names by name'},
+ {id:'w4-4',type:'merge',lever:'merge',target:'All 5 evals',hyp:'Combine the w3-1 and w3-3 wins on top of w3-4'},
+ {id:'w4-5',type:'probe',lever:'probe',target:'Question',hyp:'Does haiku-5-5 load an attached skill under JSON output mode?'},
+ {id:'w4-6',type:'fix',lever:'thinking',target:'Cost / request',hyp:'Lower thinking keeps quality and cuts cost'}];
+const S={
+ E:{elapsed:'3m10s',items:{
+  'w4-1':{st:'build',el:'1m50s',spend:0.20,cap:4},'w4-2':{st:'build',el:'2m40s',spend:0.30,cap:4},'w4-3':{st:'queued'},
+  'w4-4':{st:'build',el:'2m05s',spend:0.25,cap:6},'w4-5':{st:'probe',j:1,n:3,spend:0.05},'w4-6':{st:'queued'}}},
+ M:{elapsed:'12m40s',items:{
+  'w4-1':{st:'measure',bt:'4m10s',j:14,n:36,fx:5,br:0,strip:'FFSFSFFSHHHHHH',spend:1.20,cap:4},
+  'w4-2':{st:'analyze',bt:'3m40s',el:'40s',j:36,n:36,fx:7,br:1,strip:'FFFFFFSSHHHBHHFHHHHSHHHHHHHHHHHHHHHH',spend:2.10,cap:4},
+  'w4-3':{st:'build',el:'3m10s',spend:0.40,cap:4},
+  'w4-4':{st:'build',el:'5m02s',rebuild:true,spend:0.90,cap:6},
+  'w4-5':{st:'done',v:'yes',vt:'YES, 3 of 3 drives',spend:0.20},
+  'w4-6':{st:'done',v:'stop',vt:"Stopped: can't beat its parent",j:12,n:36,fx:1,br:1,strip:'FSSSSSSSHHBH',spend:0.70,cap:4}}},
+ L:{elapsed:'17m30s',items:{
+  'w4-1':{st:'done',v:'win',vt:'Success',j:36,n:36,fx:5,br:0,strip:'FFSFSFFSHHHHHHHHHHHHHHHHHHHHHHHHHHHH',spend:2.30,cap:4},
+  'w4-2':{st:'done',v:'win',vt:'Success · goes to the gate',gate:true,j:36,n:36,fx:7,br:1,strip:'FFFFFFSSHHHBHHFHHHHSHHHHHHHHHHHHHHHH',spend:2.40,cap:4},
+  'w4-3':{st:'analyze',bt:'6m20s',el:'1m05s',j:24,n:24,fx:2,br:1,strip:'FSSFSSSSHHBHHHHHHHHHHHHH',spend:1.60,cap:4},
+  'w4-4':{st:'measure',bt:'9m40s',j:52,n:120,fx:6,br:1,spend:3.10,cap:6},
+  'w4-5':{st:'done',v:'yes',vt:'YES, 3 of 3 drives',spend:0.20},
+  'w4-6':{st:'done',v:'stop',vt:"Stopped: can't beat its parent",j:12,n:36,fx:1,br:1,strip:'FSSSSSSSHHBH',spend:0.70,cap:4}}}};
+let moment='M',W=108,light=false;
+const items=()=>BASE.map(b=>({...b,...S[moment].items[b.id]}));
+
+/* ---------- shared pieces ---------- */
+const TYPE={fix:'',merge:'merge',probe:'question'};
+function counts(list){const c={queued:0,build:0,measure:0,analyze:0,done:0,probe:0};list.forEach(i=>c[i.st]++);return c}
+function header(W,t){const c=counts(items()),parts=[];
+  if(c.queued)parts.push(`{d|${c.queued} queued}`);if(c.build)parts.push(`{c|${c.build} building}`);if(c.measure+c.probe)parts.push(`{c|${c.measure+c.probe} measuring}`);if(c.analyze)parts.push(`{c|${c.analyze} analyzing}`);if(c.done)parts.push(`${c.done} landed`);
+  return sec(W,'EXPERIMENTS',`{b|Wave 4} {d|from} {s1|w3-4} {d|·} 6 items: ${parts.join(' {d|·} ')}`,W>=150?`{d|${S[moment].elapsed} in}  ${LINK('Traces in Kiln UI')}`:`{d|${S[moment].elapsed} in}`)}
+const sig=(i,sofar)=>`{g|${i.fx} fixed} {d|·} {${i.br?'r':'d'}|${i.br} broke}${sofar?' {d|so far}':''}`;
+const judged=i=>`{d|${i.j} of ${i.n} judged}`;
+function verdict(i){return {win:`{g|● ${i.vt}}`,nowin:`{d|○ ${i.vt}}`,stop:`{r|✕ ${i.vt}}`,yes:`{g|● ${i.vt}}`}[i.v]}
+function statusLine(i,t,w){switch(i.st){
+  case 'queued':return `{d|◌ Queued · waiting for an agent slot}`;
+  case 'build':return i.rebuild?`{c|${spin(t)} Building} {d|· ${i.el} ·} {y|rebuilding once} {d|· a check found copied text}`:`{c|${spin(t)} Building} {d|· an agent is writing the change · ${i.el}}`;
+  case 'probe':return `{c|${spin(t)} Probing} {d|· ${i.j} of ${i.n} drives}`;
+  case 'measure':return `{c|Measuring} ${gauge(i.j/i.n,12)} ${judged(i)} {d|·} ${sig(i,true)}`;
+  case 'analyze':return `{c|${spin(t)} Analyzing} {d|· ${i.j} of ${i.n} judged ·} ${sig(i,false)}`;
+  case 'done':return i.j!=null?`${verdict(i)} {d|·} ${judged(i)} {d|·} ${sig(i,false)}`:verdict(i)}}
+const ITEM={F:['█','g'],H:['▓','gd'],S:['░','rd'],B:['✕','r'],Q:['·','ff'],J:['▚','c']};
+function stripCells(i,w){if(!i.strip)return '';const n=i.n;if(n>w)return '';const codes=[...i.strip];const live=i.st==='measure';const cells=[];
+  for(let k=0;k<n;k++){const c=k<codes.length?codes[k]:(live&&k<codes.length+2?'J':'Q');cells.push({ch:ITEM[c][0],cls:ITEM[c][1]})}return runs(cells)}
+function steps(i,t){if(i.type==='probe'){return i.st==='done'?`{g|✓} {d|asked}  {g|✓} {d|answered}`:`{g|✓} {d|asked}  {c|${spin(t)}} {c b|answering}`}
+  const order=['build','measure','analyze'],names=['build','measure','analyze'];const cur=i.st==='queued'?-1:i.st==='done'?3:order.indexOf(i.st);
+  return order.map((s,k)=>{if(i.st==='done'&&i.v==='stop'&&k===1)return `{r|✕} {d|${names[k]}}`;if(i.st==='done'&&i.v==='stop'&&k>1)return `{ff|·} {ff|${names[k]}}`;
+    if(k<cur)return `{g|✓} {d|${names[k]}}`;if(k===cur)return `{c|${spin(t)}} {c b|${names[k]}}`;return `{ff|·} {f|${names[k]}}`}).join('  ')}
+const glyph=i=>i.st==='done'?({win:'{g|●}',nowin:'{d|○}',stop:'{r|✕}',yes:'{g|●}'}[i.v]):i.st==='queued'?'{d|◌}':'{c|◐}';
+const spend=i=>i.spend!=null?`{d|$${i.spend.toFixed(2)}${i.cap?` of $${i.cap}`:''}}`:'';
+
+/* ---------- A: sentence rows ---------- */
+function vA(W,t){const L=[header(W,t)];items().forEach(i=>{const right=`{d|${i.id} · ${i.lever}}`;
+  const hypW=W-len(right)-24;L.push(` ${glyph(i)} {b|${pad(clip(i.target,16),17)}}${pad(clip(i.hyp,hypW),hypW+1)}${padL(right,len(right)+3)}`);
+  L.push(`   ${pad('',17)}${pad(statusLine(i,t),W-38)}${padL(spend(i),16)}`)});return L}
+
+/* ---------- B: pipeline table ---------- */
+function vB(W,t){const wide=W>=150;const C=wide?{item:64,b:16,m:30,a:14,r:30}:{item:36,b:13,m:22,a:11,r:22};const L=[header(W,t),
+  ` {d|${pad('',3)}${pad('EXPERIMENT',C.item)}${pad('BUILD',C.b)}${pad('MEASURE',C.m)}${pad('ANALYZE',C.a)}${pad('RESULT',C.r)}}`];
+  items().forEach(i=>{const probe=i.type==='probe';
+    const b=probe?'{ff|—}':i.st==='queued'?'{d|queued}':i.st==='build'?(i.rebuild?`{y|↻} {d|rebuild ${i.el}}`:`{c|${spin(t)}} ${i.el}`):`{g|✓} {d|${i.bt||'done'}}`;
+    const m=i.st==='queued'||i.st==='build'?'{ff|·}':probe?(i.st==='done'?'{g|✓} {d|3 drives}':`{c|${spin(t)}} ${i.j} of ${i.n} drives`):i.st==='measure'?`${gauge(i.j/i.n,wide?14:9)} ${i.j}/${i.n}`:(i.v==='stop'?`{r|✕} {d|${i.j}/${i.n}}`:`{g|✓} {d|${i.j}/${i.n}}`);
+    const a=probe?'{ff|—}':i.st==='analyze'?`{c|${spin(t)}} ${i.el}`:i.st==='done'&&i.v!=='stop'?'{g|✓}':'{ff|·}';
+    const r=i.st==='measure'?sig(i,wide):i.st==='analyze'?sig(i,false):i.st==='done'?(probe?'{g|YES}':i.v==='stop'?`{r|✕ stopped} {d|· can't win}`:`{g|● success}${i.gate?' {d|→ gate}':''} {d|·} {g|${i.fx}}{d|/}{${i.br?'r':'d'}|${i.br}}`):'{ff|—}';
+    const title=`{b|${clip(i.target,16)}} {d|${clip(i.hyp,C.item-len(clip(i.target,16))-3)}}`;
+    L.push(` ${glyph(i)} ${pad(title,C.item)}${pad(b,C.b)}${pad(m,C.m)}${pad(a,C.a)}${pad(r,C.r)}`)});
+  L.push('',` {d|fixed/broke = items the change fixed and broke against its parent, out of those judged}`);return L}
+
+/* ---------- C: cards (like Results F) ---------- */
+function vC(W,t){const per=W>=150?3:2,cw=Math.floor((W-1-(per-1))/per),inner=cw-4,L=[header(W,t)];
+  const cards=items().map(i=>{const h=wrap(i.hyp,inner,2);while(h.length<2)h.push('');
+    let line4='';if(i.st==='measure'||i.st==='analyze'||(i.st==='done'&&i.j!=null)){const s=stripCells(i,inner-10);line4=s?`${s} {d|${i.j}/${i.n}}`:`${gauge(i.j/i.n,inner-12)} {d|${i.j}/${i.n}}`}
+    else if(i.st==='build')line4=i.rebuild?`{y|↻ rebuilding once} {d|· ${i.el}}`:`{c|${spin(t)}} {d|agent writing the change · ${i.el}}`;else if(i.st==='queued')line4='{d|waiting for an agent slot}';else if(i.st==='probe')line4=`{d|${i.j} of ${i.n} drives}`;else line4='';
+    const line5=i.st==='done'?(i.j!=null?`${verdict(i)}`:verdict(i)):(i.st==='measure'||i.st==='analyze')?sig(i,i.st==='measure'):'';
+    const running=i.st!=='done'&&i.st!=='queued';
+    return box(cw,[...h.map(x=>`{fg|${x}}`),steps(i,t),line4,pad(line5,inner-len(spend(i)))+spend(i)],{title:`{b|${clip(i.target,inner-14)}}${i.type!=='fix'?` {d|· ${TYPE[i.type]}}`:` {d|· ${i.lever}}`}`,right:`{d|${i.id}}`,bc:running?'c':'f'})});
+  for(let k=0;k<cards.length;k+=per)hcat(cards.slice(k,k+per),' ').forEach(l=>L.push(' '+l));return L}
+
+/* ---------- D: stage board ---------- */
+function vD(W,t){const cols=[['QUEUED · BUILDING',i=>i.st==='queued'||i.st==='build'],['MEASURING',i=>i.st==='measure'||i.st==='probe'],['ANALYZING',i=>i.st==='analyze'],['LANDED',i=>i.st==='done']];
+  const cw=Math.floor((W-1-3*3)/4),L=[header(W,t),''];const blocks=cols.map(([name,f])=>{const its=items().filter(f);const b=[`{d|${name}} {b|${its.length}}`,`{ff|${rep('─',cw)}}`];
+    its.forEach(i=>{b.push(`${glyph(i)} {b|${clip(i.target,cw-2)}}`);wrap(i.hyp,cw-2,2).forEach(x=>b.push(`  {d|${x}}`));
+      const det=i.st==='queued'?'{d|waiting for a slot}':i.st==='build'?(i.rebuild?`{y|↻ rebuilding} {d|${i.el}}`:`{c|${spin(t)}} {d|${i.el}}`):i.st==='probe'?`{d|${i.j} of ${i.n} drives}`:i.st==='measure'?`${gauge(i.j/i.n,Math.max(4,cw-12))} {d|${i.j}/${i.n}}`:i.st==='analyze'?sig(i,false):(i.type==='probe'?'{g|YES}':i.v==='stop'?"{r|can't beat parent}":`{g|${i.fx} fixed} {d|·} {${i.br?'r':'d'}|${i.br} broke}`);
+      b.push(`  ${det}`);if(i.st==='measure')b.push(`  ${sig(i,true)}`);b.push('')});return b.map(x=>pad(x,cw))});
+  hcat(blocks,'   ').forEach(l=>L.push(' '+l));return L}
+
+/* ---------- E: focus on what is moving, landed items folded ---------- */
+function stateBar(w){const c=counts(items());const segs=[['queued',c.queued,'ff','░'],['building',c.build,'c','▒'],['measuring',c.measure+c.probe,'c','▓'],['analyzing',c.analyze,'c','█'],['landed',c.done,'g','█']];
+  const per=Math.floor(w/6);return segs.filter(s=>s[1]).map(s=>`{${s[2]}|${rep(s[3],per*s[1])}}`).join('')+'  '+segs.filter(s=>s[1]).map(s=>`{d|${s[1]} ${s[0]}}`).join(' {ff|·} ')}
+function vE(W,t){const L=[header(W,t),` ${stateBar(W>=150?48:36)}`,''];const act=items().filter(i=>i.st!=='done'),done=items().filter(i=>i.st==='done');
+  act.forEach(i=>{L.push(` ${glyph(i)} {b|${i.target}}  {fg|${clip(i.hyp,W-len(i.target)-20)}}${padL(`{d|${i.id}}`,8)}`);
+    L.push(`     ${steps(i,t)}     ${statusLine(i,t).replace(/^\{c\|[^}]*\}\s*/,'')}`);
+    const s=(i.st==='measure'||i.st==='analyze')?stripCells(i,W-30):'';if(s)L.push(`     ${s}  {d|${i.j} of ${i.n}}`);L.push('')});
+  if(done.length){L.push(` {d|LANDED THIS WAVE}`);done.forEach(i=>L.push(`   ${glyph(i)} ${pad(`{b|${clip(i.target,16)}}`,18)}${pad(`{d|${clip(i.hyp,W>=150?70:40)}}`,W>=150?72:42)}${i.type==='probe'?'{g|YES}':i.v==='stop'?"{r|stopped · can't beat its parent}":`{g|success}${i.gate?' {d|→ gate}':''} {d|·} ${sig(i,false)}`}`))}
+  return L}
+
+const PLATES=[
+ ['A','Sentence rows','vA','Each item reads as a sentence: the concern in bold, then what is being tried. The line under it says where it is and how it is going, in words. Two lines per item.','Most readable for someone glancing. Status lines vary in length, so the eye has to read, not scan.'],
+ ['B','Pipeline table','vB','One line per item. The stages are columns, so you scan down a column to see what is building, measuring or done. Results get their own column.','Best for scanning many items. The hypothesis gets clipped; the stage columns use width even when empty.'],
+ ['C','Cards','vC','Same treatment as the Results cards: concern and kind of change on the border, the hypothesis inside, stage steps, the judged-item strip, and the result so far. Running cards have a cyan border.','Most consistent with Results and nicest to look at. Tallest: about 7 rows per card row.'],
+ ['D','Stage board','vD','Columns by stage, items move left to right as they progress. Each item shows its concern, hypothesis and one line of progress.','Shows the flow of the wave at a glance. Wastes width when most items sit in one stage.'],
+ ['E','Focus on what is moving','vE','A stage bar for the whole wave, then only the items still in progress, with steps and the item strip. Landed items fold to one line each at the bottom.','Puts attention where things change. Items jump between the two groups as they land.']];
+const host=document.getElementById('plates');
+PLATES.forEach(([id,name,fn,desc,take])=>{const d=document.createElement('section');d.className='plate';
+  d.innerHTML=`<div class="cap"><span class="vid">${id}</span><h2>${name}</h2><span class="tag" id="dim-${fn}"></span></div><p class="muted">${desc}</p><p class="take"><b>Trade-off.</b> ${take}</p><div class="term"><div class="tbar"><span>kiln-harness-tuner · experiments</span><span></span></div><div class="scroll"><pre class="scr" id="p-${fn}" aria-label="Terminal render: ${name}"></pre></div></div>`;host.appendChild(d)});
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches,T0=performance.now();
+const FN={vA,vB,vC,vD,vE};
+function draw(){const t=reduce?0.35:(performance.now()-T0)/1000;PLATES.forEach(([,,fn])=>{const L=FN[fn](W,t).map(l=>pad(l,W));const pre=document.getElementById('p-'+fn);pre.style.setProperty('--fs',W>130?'11px':'13px');
+  pre.innerHTML=L.map(toHTML).join('\n');document.getElementById('dim-'+fn).textContent=`${W} cols × ${L.length} rows`})}
+function sync(){const set=(sel,f)=>document.querySelectorAll(sel).forEach(b=>b.setAttribute('aria-pressed',String(f(b))));
+  set('[data-m]',b=>b.dataset.m===moment);set('[data-w]',b=>+b.dataset.w===W);set('[data-t]',b=>(b.dataset.t==='light')===light);document.body.classList.toggle('light-terms',light)}
+document.querySelector('.controls').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.m)moment=b.dataset.m;if(b.dataset.w)W=+b.dataset.w;if(b.dataset.t)light=b.dataset.t==='light';sync();draw()});
+sync();draw();if(!reduce)setInterval(draw,150);
+</script>
+
+</body></html>

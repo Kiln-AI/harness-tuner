@@ -38,7 +38,13 @@ from kiln_harness_tuner.analysis import (
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
-from kiln_harness_tuner.measure import Candidate, Measured, MeasureSpec, measure
+from kiln_harness_tuner.measure import (
+    Candidate,
+    Measured,
+    MeasureSpec,
+    arm_estimates,
+    measure,
+)
 from kiln_harness_tuner.memory import (
     IssueWriteRefused,
     MemoryRecordNotFoundError,
@@ -78,6 +84,7 @@ from kiln_harness_tuner.schemas import (
     RemeasureItem,
     ResidualMiss,
     Usage,
+    dump_or_none,
 )
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_kind
@@ -858,6 +865,16 @@ async def _execute_plan_item(
     if measurement.latency is not None or measurement.cost is not None:
         bundle.latency = measurement.latency  # the engine's paired timing
         bundle.cost = measurement.cost
+    ctx.log.event(
+        "arm_results",
+        item_id=item.id,
+        rc_id=rc_id,
+        parent_rc_id=parent_rc_id,
+        per_eval=[row.model_dump(mode="json") for row in bundle.per_eval],
+        latency=dump_or_none(bundle.latency),
+        cost=dump_or_none(bundle.cost),
+        errors=[error.model_dump(mode="json") for error in bundle.errors],
+    )
 
     if not bundle.per_eval and bundle.errors:
         # Total measurement hole: every targeted pair came back with zero rows —
@@ -1592,6 +1609,7 @@ async def _measure_arm(
             else f"{item.id}: {measured.line}"
         ),
     )
+    ctx.log.event("arm_estimates", **arm_estimates(measured, item.id, parent_rc_id))
     return measured
 
 

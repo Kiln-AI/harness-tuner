@@ -2,8 +2,9 @@
 
 The offline suite runs from the checkout, so it cannot catch a package that
 works only from one. This script checks what the sdist and the wheel hold,
-installs the wheel as a uv tool into temporary folders, and makes a real run
-from an empty folder. A fake `claude` (`fake_claude.py`) stands in for Claude
+installs the wheel as a uv tool into temporary folders, checks that the
+terminal app imports from it with its stylesheet, and makes a real run from an
+empty folder. A fake `claude` (`fake_claude.py`) stands in for Claude
 Code, and a fake Kiln (`fake_kiln_server.py`) answers the reads of the
 start-up checks from the run's copy of the demo project. The run gets through
 the start-up checks, the agent-file install, the agent CLI check, the lock,
@@ -69,10 +70,13 @@ SDIST_ENTRIES = frozenset(
     {"src", "pyproject.toml", "README.md", "PKG-INFO", ".gitignore"}
 )
 INSTRUCTIONS = "kiln_harness_tuner/agent_files/AGENTS.md"
+# The terminal app's stylesheet: package data the app reads at start-up.
+TUI_STYLESHEET = "kiln_harness_tuner/tui/tuner.tcss"
 WHEEL_FILES = (
     INSTRUCTIONS,
     "kiln_harness_tuner/agent_files/skills/kiln-api/SKILL.md",
     "kiln_harness_tuner/agent_files/claude/.mcp.json",
+    TUI_STYLESHEET,
 )
 # Package data: the wheel holds every file git tracks under these folders.
 PACKAGE_DATA = (
@@ -84,6 +88,11 @@ WHEEL_PACKAGES = frozenset({"kiln_harness_tuner", "kiln_api_mcp"})
 GATEWAY_SERVER = "kiln_harness_tuner_gateway"
 GATEWAY_ARGS = ["-P", "-m", "kiln_harness_tuner.gateway.server"]
 CLI_CHECK_WORD = "KILN-HARNESS-TUNER-READY"
+# Run on the tool's interpreter: the app imports, and names its stylesheet.
+TUI_PROBE = (
+    "import pathlib, kiln_harness_tuner.tui.entry, kiln_harness_tuner.tui.app as app;"
+    " print(pathlib.Path(app.TunerApp.CSS_PATH).resolve())"
+)
 TAIL_LINES = 40
 
 
@@ -221,7 +230,7 @@ def check_wheel(wheel: Path, version: str) -> bytes:
     if extra:
         fail("wheel", f"{wheel.name} ships {extra} (no tests/, no examples/)")
     ok(
-        "wheel holds the agent files, role templates and demo project"
+        "wheel holds the agent files, role templates, demo project and app stylesheet"
         f" ({len(tracked)} tracked files) and only {', '.join(sorted(tops))}"
     )
     return instructions
@@ -325,6 +334,29 @@ def check_commands(
     if written:
         fail(check, f"it wrote {written}; it writes no instructions file")
     ok("harness-tuner-install-agents --agent-cli claude --dest: skills and MCP config")
+
+
+def check_tui(tool: Tool, tmp: Path, env: dict[str, str]) -> None:
+    """The terminal app imports from the installed wheel, and its stylesheet
+    is a file of the installed package. The runs below are piped, so they
+    never start the app."""
+    check = "tui"
+    proc = run(
+        check,
+        [str(tool.python), "-P", "-c", TUI_PROBE],
+        env={**env, "HOME": str(tmp / "home")},
+        cwd=tmp / "cwd",
+    )
+    stylesheet = Path(proc.stdout.strip())
+    installed = (tmp / "tools" / TOOL_NAME).resolve()
+    if installed not in stylesheet.parents:
+        fail(check, f"the app's stylesheet is {stylesheet}, not under {installed}")
+    if not stylesheet.is_file():
+        fail(check, f"the app's stylesheet {stylesheet} is not a file")
+    ok(
+        "import kiln_harness_tuner.tui.entry and .app,"
+        f" with its stylesheet {stylesheet.name}"
+    )
 
 
 def read_json(check: str, path: Path) -> Any:
@@ -559,6 +591,7 @@ def main(argv: list[str] | None = None) -> int:
         env = base_env(uv)
         tool = install_tool(uv, wheel, tmp, env)
         check_commands(tool, uvx, wheel, tmp, env)
+        check_tui(tool, tmp, env)
         for dry in (
             DryRun(
                 label="override",

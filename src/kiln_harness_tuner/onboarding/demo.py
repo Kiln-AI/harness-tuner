@@ -35,6 +35,9 @@ DEMO_TASK_ID = "424242783061"
 # kiln_server's project_api.py, `~/Kiln Projects`.
 KILN_PROJECTS_DIR = "Kiln Projects"
 IMPORT_PATH = "/api/import_project"
+# What the start says while it copies the demo: the one step a stop can't
+# cut short on the start-up thread (`tui/bridge.py`).
+COPYING = "Copying the demo project…"
 PROJECT_FILE = "project.kiln"
 # The demo's own guidance, which a guided start pre-fills: the guidance the
 # moderation example runs with.
@@ -134,8 +137,9 @@ def make_demo(*, terminal: Terminal, run: KilnRunner, home: Path) -> DemoProject
     """Copy the packaged demo into a new folder under `home`'s Kiln
     projects folder, and import the copy into Kiln. Raises
     `OnboardingError` when the copy or the import fails, after deleting the
-    folder this call made: it holds nothing but the copy."""
-    with terminal.busy("Copying the demo project…"):
+    folder this call made: it holds nothing but the copy. A stop during the
+    import deletes it too."""
+    with terminal.busy(COPYING):
         folder, project_id = _copy_demo(run, home)
     try:
         with terminal.busy("Importing it into Kiln…"):
@@ -146,6 +150,11 @@ def make_demo(*, terminal: Terminal, run: KilnRunner, home: Path) -> DemoProject
             "Kiln didn't import the demo project",
             (_kiln_says(exc), f"The copy at {folder} was deleted."),
         ) from exc
+    except BaseException:
+        # A Ctrl-C: in the app it lands here, at the first Kiln read after
+        # the copy, which nothing can interrupt on the start-up thread.
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
     kiln_id = imported.get("id") if isinstance(imported, dict) else None
     if isinstance(kiln_id, str) and kiln_id.strip():
         project_id = kiln_id.strip()

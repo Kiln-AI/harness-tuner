@@ -43,12 +43,13 @@ far, which is backward-looking: a wave much longer than the mean still runs into
 the deadline and loses its unfinished items there. What the loop guarantees is
 narrower than `--timeout-mins` sounds.
 
-**Per-eval progress inside one eval job is not live.** The status model, the
-tracker and both renderers handle an `eval_progress` count, and nothing emits
-one: an eval job is driven by a single long poll that returns only at a
-terminal state. What is live is coarser: a measured candidate shows its
-chunks (`measure_chunk`, for example `chunk 3/9 · 24 judged`), and the
-baseline measurement prints items done of total every 30 seconds.
+**Per-eval progress inside one eval job is not live.** The status model and
+the tracker have an `eval_progress` count, and nothing emits one: an eval job
+is driven by a single long poll that returns only at a terminal state. What is
+live is coarser: a measured candidate shows its judged items chunk by chunk
+(`measure_chunk`). The run screen shows one cell per judged item, and the plain
+lines show the chunk, for example `chunk 3/9 · 24 judged`. The baseline
+measurement prints items done of total every 30 seconds.
 
 **The loop does not build evals by default.** Eval building — an
 `eval_only` item, or a fix with `needs_eval: true`, which starts the

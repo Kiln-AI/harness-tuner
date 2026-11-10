@@ -15,10 +15,14 @@ from conftest import (
 
 from kiln_harness_tuner.schemas import (
     DroppedEvalItem,
+    EvalTarget,
     ExperimentItem,
     ItemOutcome,
     MergeWork,
+    ProbeCheck,
+    ProbeItem,
     PromotionDecision,
+    RemeasureItem,
     SetupReport,
     UnloadableEval,
     WinRef,
@@ -84,15 +88,115 @@ def test_run_id_scheme():
     assert make_run_id(datetime(2026, 7, 23, 14, 2)) == "260723-1402"
 
 
+NO_DETAILS = {
+    "hypothesis": None,
+    "technique": None,
+    "issue_memory_id": None,
+    "wildcard": None,
+    "needs_eval": None,
+    "eval_id": None,
+    "targets": None,
+    "promotion_candidate": None,
+    "max_usd": None,
+    "merge_wins": None,
+    "probe": None,
+    "remeasure": None,
+    "measure": None,
+    "parent_rc_id": None,
+    "existing_rc_id": None,
+}
+
+
 def test_item_kind_and_label_fix():
-    item = fix_item("w1-1")
+    item = fix_item("w1-1", parent_rc_id="rc_fork")
     assert item_kind(item) == "fix"
     assert item_label(item) == "retry-skill for 429s (issue_1)"
     assert item_summary(item) == {
         "item_id": "w1-1",
         "kind": "fix",
         "label": "retry-skill for 429s (issue_1)",
+        **NO_DETAILS,
+        "type": "experiment",
+        "hypothesis": "retry-skill for 429s",
+        "technique": "prompt",
+        "issue_memory_id": "issue_1",
+        "wildcard": False,
+        "needs_eval": False,
+        "eval_id": "eval_1",
+        "targets": [{"eval_id": "eval_1", "scores": None}],
+        "promotion_candidate": True,
+        "parent_rc_id": "rc_fork",
     }
+
+
+def test_wave_start_details_are_copies_of_the_items_lists():
+    # The loop appends a `needs_eval` fix's new eval to its targets during
+    # the wave; the event it emitted at wave start must not change.
+    item = fix_item("w1-1")
+    item.evaluation_target[0].scores = ["accuracy"]
+    summary = item_summary(item)
+    item.evaluation_target[0].scores.append("tone")
+    item.evaluation_target.append(EvalTarget(eval_id="eval_new"))
+    assert summary["targets"] == [{"eval_id": "eval_1", "scores": ["accuracy"]}]
+
+
+def test_wave_start_details_of_a_merge():
+    item = merge_item()
+    item.max_usd, item.budget_reason = 4.0, "two evals"
+    assert item_summary(item) == {
+        "item_id": "w2-1",
+        "kind": "merge",
+        "label": "EXP 0722-w1-1 + EXP 0722-w1-3",
+        **NO_DETAILS,
+        "type": "experiment",
+        "targets": [],
+        "promotion_candidate": True,
+        "max_usd": 4.0,
+        "merge_wins": [
+            {"experiment_memory_id": "EXP 0722-w1-1", "rc_id": "rc_a"},
+            {"experiment_memory_id": "EXP 0722-w1-3", "rc_id": "rc_b"},
+        ],
+    }
+
+
+def test_wave_start_details_of_the_other_item_types():
+    details = item_summary(eval_only_item("w1-3", "mem_102"))
+    assert details["type"] == "eval_only"
+    assert details["issue_memory_id"] == "mem_102"
+    remeasure = RemeasureItem(
+        id="w2-4", type="remeasure", rc_id="rc_x", eval_ids=["e1", "e2"], reason="r"
+    )
+    assert item_summary(remeasure)["remeasure"] == {
+        "rc_id": "rc_x",
+        "eval_ids": ["e1", "e2"],
+    }
+    probe = ProbeItem(
+        id="w2-5",
+        type="probe",
+        question="does it call the tool?",
+        method="attach a tool",
+        parent_rc_id="rc_p",
+        max_drives=2,
+        for_idea="tool arm",
+        reason="r",
+    )
+    summary = item_summary(probe)
+    assert summary == {
+        "item_id": "w2-5",
+        "kind": "probe",
+        "label": "probe: does it call the tool?",
+        **NO_DETAILS,
+        "type": "probe",
+        "probe": {
+            "question": "does it call the tool?",
+            "max_drives": 2,
+            "for_idea": "tool arm",
+            "code": False,
+        },
+        "parent_rc_id": "rc_p",
+    }
+    probe.check = ProbeCheck(count="tool_calls")
+    assert item_summary(probe)["probe"]["code"] is True
 
 
 def test_item_kind_and_label_merge():
@@ -115,6 +219,10 @@ def test_item_kind_and_label_measure_issue_baseline():
         "item_id": "w2-3",
         "kind": "measure",
         "label": "measure baseline for mem_84 (eval 424242966189)",
+        **NO_DETAILS,
+        "type": "measure_issue_baseline",
+        "issue_memory_id": "mem_84",
+        "measure": {"eval_id": "424242966189", "scores": None},
     }
 
 

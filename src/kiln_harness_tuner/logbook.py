@@ -12,8 +12,8 @@ Design notes:
 - **Root logger, file handler.** Attaching at the root is what makes third-party
   warnings (httpx, asyncio, pydantic) land in the file too — the point is to
   catch what we did NOT think to log.
-- **Nothing is added to stderr.** The live UI owns the terminal; a second
-  handler writing there would tear through `rich.live`'s frame. The file is the
+- **Nothing is added to stderr.** The display owns the terminal; a second
+  handler writing there would tear through the app's screen. The file is the
   only sink this module installs.
 - **Idempotent.** `configure_run_logging` removes a handler it installed before
   re-installing, so a second call in one process (tests, a future in-process
@@ -67,6 +67,15 @@ def _remove_existing(root: logging.Logger) -> None:
         if getattr(handler, "name", None) == _HANDLER_TAG:
             root.removeHandler(handler)
             handler.close()
+
+
+def run_log_configured() -> bool:
+    """Whether `configure_run_logging` has put the run log on the root
+    logger. Until then a log record with no handler goes to stderr."""
+    return any(
+        getattr(handler, "name", None) == _HANDLER_TAG
+        for handler in logging.getLogger().handlers
+    )
 
 
 def configure_run_logging(run_dir: Path, *, level: int | str | None = None) -> Path:

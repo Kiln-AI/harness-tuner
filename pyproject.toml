@@ -25,16 +25,11 @@ dependencies = [
     "mcp>=1.10.1,<2",
     "pydantic>=2.7",
     "pyyaml>=6.0",
-    # The guided start's pickers, action menus and text questions. The
-    # terminal reaches past questionary's public API: it sets
-    # `Question.application.key_bindings`, and its picker reads and moves
-    # the select's `InquirerControl` (`filtered_choices`, `found_in_search`,
-    # `search_filter`, `pointed_at`, `is_answered`, `add_search_character`).
-    # Those hold in 2.1.1, and a minor release may change them, so the
-    # range is one minor version: `uv tool install` resolves it afresh,
-    # without this repository's lock.
-    "questionary>=2.1.1,<2.2",
-    "rich>=13.7",
+    # Textual needs rich 14.2 or later.
+    "rich>=14.2",
+    # The terminal app of an interactive run (`kiln_harness_tuner.tui`). The
+    # plain path does not import it.
+    "textual>=8.2.8,<9",
 ]
 
 [project.urls]
@@ -76,6 +71,9 @@ asyncio_mode = "auto"
 # default loop scope.
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# `-m "not slow"` leaves out the tests that drive the app in a
+# pseudo-terminal (`tests/tui/test_pty.py`). CI runs them all.
+markers = ["slow: a test that drives a real process in a pseudo-terminal"]
 
 [tool.pyright]
 # Anchor type-checking to the package venv — without this, an editor (or a

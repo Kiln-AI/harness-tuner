@@ -19,19 +19,19 @@ problem at once. In a guided start ([install.md](install.md#guided-or-not)) a
 task missing both reads:
 
 ```
-✗ Forum Moderation isn't ready to tune yet
+╭─ ✗ Forum Moderation isn't ready to tune yet ──────────────────────────────────╮
+│ The tuner starts from one of the task's run configs and measures every change │
+│ with its evals. This task is missing:                                         │
+│   • A run config: the model and prompt the tuner starts from.                 │
+│   • An eval it can measure: an active eval with a default judge set.          │
+╰───────────────────────────────────────────────────────────────────────────────╯
 
-  The tuner starts from one of the task's run configs and measures every change
-  with its evals. This task is missing:
-    • A run config: the model and prompt the tuner starts from.
-    • An eval it can measure: an active eval with a default judge set.
-
-? What next?
- » r) Check again (I've fixed it in Kiln)
-   c) Open Run configs in Kiln
-   e) Open Evals in Kiln
-   t) Pick a different task
-   x) Exit
+What next?
+ r) Check again (I've fixed it in Kiln)
+ c) Open Run configs in Kiln
+ e) Open Evals in Kiln
+ t) Pick a different task
+ x) Exit
 ```
 
 - **One action per link.** `c` opens the task's run configs in Kiln
@@ -401,20 +401,18 @@ steps come before any agent session, model call or run folder, in this order:
 8. The summary. A guided start then shows the command that runs it again, and
    asks whether to start.
 
-Then the run itself starts. The loop prints its run folder, shows its progress
-in the terminal, runs waves until the budget, the clock or the planner ends it,
-writes a report, and prints the report's path.
+Then the run itself starts. It runs waves until the budget, the clock or the
+planner ends it, writes a report, and prints the report's path. In a terminal
+the run screen shows its progress (section 5.5); otherwise plain log lines do.
 
 Each finished step leaves one line, so a guided start that has picked its
 project and task reads:
 
 ```
-╭──────────────────────────────────────────────────────────────────╮
-│ Kiln Harness Tuner                                        v0.1.0 │
-│                                                                  │
+╭─ Kiln Harness Tuner ─────────────────────────────────────────────╮
 │ Automatically improves an AI agent by tuning its harness: the    │
 │ prompt, model, tools, skills and settings around it.             │
-╰──────────────────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────── v0.1.0 ─╯
 
 ✓ Kiln      1.2.0 at http://localhost:8757
 ✓ Project   Forum Moderation (424242975950)
@@ -434,17 +432,22 @@ The projects are listed in the order Kiln returns them, with their IDs and
 folders in aligned columns:
 
 ```
-? Which project do you want to tune? ↑↓ move · type to filter · Enter pick
- » Forum Moderation   424242975950   ~/Kiln Projects/Forum Moderation
-   Support Triage     118230554411   ~/Kiln Projects/Support Triage
+Which project do you want to tune?
+╭──────────────────────────────────────────────────────────────────────╮
+│ type to filter                                                       │
+╰──────────────────────────────────────────────────────────────────────╯
+ Forum Moderation   424242975950   ~/Kiln Projects/Forum Moderation
+ Support Triage     118230554411   ~/Kiln Projects/Support Triage
+
+↑↓ move · type to filter · Enter pick
 ```
 
-The arrow keys move, typing filters the rows on their name or ID, and Enter
-picks; a long list scrolls. After the pick the list is erased, and a step line
-takes its place: `✓ Project   Forum Moderation (424242975950)`. The task
-picker works the same way, under `? Which task in Forum Moderation?`, and
-shows the task's description from Kiln under the highlighted row. With only
-one choice there is no question, and the step line says why:
+The arrow keys move the highlight, typing filters the rows on their name or
+ID, and Enter picks; a long list scrolls. After the pick the picker goes, and
+a step line takes its place: `✓ Project   Forum Moderation (424242975950)`.
+The task picker works the same way, under `Which task in Forum Moderation?`,
+and shows the task's description from Kiln under the list. With only one
+choice there is no question, and the step line says why:
 
 ```
 ✓ Project   Forum Moderation (424242975950) · the only project in Kiln
@@ -466,16 +469,16 @@ A project or task given by a flag gets its step line too.
 or a reason to use the demo:
 
 ```
-✗ Kiln has no projects yet
+╭─ ✗ Kiln has no projects yet ───────────────────────────────────────────────────╮
+│ The tuner works on a task in a Kiln project. Create one in Kiln, or start with │
+│ the demo: a small moderation task with its evals and data already set up.      │
+╰────────────────────────────────────────────────────────────────────────────────╯
 
-  The tuner works on a task in a Kiln project. Create one in Kiln, or start with
-  the demo: a small moderation task with its evals and data already set up.
-
-? What next?
- » m) Use the demo project
-   o) Open Kiln to create a project
-   r) Check again
-   x) Exit
+What next?
+ m) Use the demo project
+ o) Open Kiln to create a project
+ r) Check again
+ x) Exit
 ```
 
 `m` does exactly what `--demo-project` does, then the start goes on. `o` opens
@@ -487,7 +490,7 @@ A project with no tasks reads `✗ Forum Moderation has no tasks yet`, with
 `x) Exit`.
 
 **When it can't choose**, it stops with exit code 1 and says why, in a guided
-start as a `✗` block and otherwise on stderr. A wrong ID is a typo to fix, not
+start as a `✗` card and otherwise on stderr. A wrong ID is a typo to fix, not
 a question to ask:
 
 - An ID Kiln doesn't have: `Kiln has no project 999`,
@@ -522,7 +525,7 @@ Once the checks pass, a guided start asks what matters for the run. **A flag on
 the command line answers its question**: the question is skipped, even when the
 flag spells out the default value. Each question starts pre-filled, Enter
 accepts it, and a step line records the answer. An answer that isn't valid
-shows why under the field and asks again, keeping what you typed.
+shows why in red under the field and asks again, keeping what you typed.
 
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
@@ -557,9 +560,9 @@ The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
 **Advanced options** are one menu, with their current values on its line:
 
 ```
-? Advanced options: any model · 4 evals and 4 agents at once · no minimum effect · no noise check
- » Enter) Keep these
-   c) Customize
+Advanced options: any model · 4 evals and 4 agents at once · no minimum effect · no noise check
+ Enter) Keep these
+ c) Customize
 ```
 
 `c` asks each of these in turn, pre-filled with its current value. One given by
@@ -589,29 +592,30 @@ A guided start ends with a summary, the command that runs the same start
 again, and one last question:
 
 ```
-Ready to start
-  Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950)
-  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter
-  Improve      Quality
-  Guidance     "Improve the moderation decisions. Keep the output format."
-  Agents       Claude Code (claude -p) · opus
-  Limits       $50.00 · 12 hours
-  Advanced     defaults
+╭─ Ready to start ────────────────────────────────────────────────────────────────────────╮
+│ Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950) │
+│ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
+│ Improve      Quality                                                                    │
+│ Guidance     "Improve the moderation decisions. Keep the output format."                │
+│ Agents       Claude Code (claude -p) · opus                                             │
+│ Limits       $50.00 · 12 hours                                                          │
+│ Advanced     defaults                                                                   │
+│                                                                                         │
+│ To run this again with the same answers and no questions:                               │
+│ harness-tuner \                                                                         │
+│   --project-id 424242975950 --task-id 424242783061 \                                    │
+│   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
+│   --objective quality \                                                                 │
+│   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
+│   --agent-cli 'claude -p' \                                                             │
+│   --budget-usd 50 --timeout-mins 720 \                                                  │
+│   --no-interaction                                                                      │
+╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-To run this again with the same answers and no questions:
-  harness-tuner \
-    --project-id 424242975950 --task-id 424242783061 \
-    --project-path '/Users/you/Kiln Projects/Forum Moderation' \
-    --objective quality \
-    --guidance 'Improve the moderation decisions. Keep the output format.' \
-    --agent-cli 'claude -p' \
-    --budget-usd 50 --timeout-mins 720 \
-    --no-interaction
-
-? Start the run?
- » s) Start the run
-   e) Change an answer
-   x) Exit
+Start the run?
+ s) Start the run
+ e) Change an answer
+ x) Exit
 ```
 
 - **Starts from** is the run config the run starts from (section 2.1), with
@@ -625,7 +629,8 @@ To run this again with the same answers and no questions:
   check first. It is offered when there is such a question. **`x`** stops with
   exit code 1.
 
-**The command to run it again** is printed here and nowhere else. It is your
+**The command to run it again** is shown here, and the closing block prints it
+again when the app closes (section 5.5). It is your
 command line with every flag the start fills in replaced by its answer
 (`--demo-project` by the copy's IDs and folder), every other flag kept as typed
 (`--no-progress`, `--agent-model`, …), and `--no-interaction` added, so it asks
@@ -667,20 +672,120 @@ model it is not trivial. Price it with [costs.md](costs.md) and the
 [`experiment-costing`](../src/kiln_harness_tuner/agent_files/skills/experiment-costing/SKILL.md) skill
 behind it, rather than against a figure from somebody else's task.
 
-**Stopping a run.** In the foreground, Ctrl-C. Start a run in the background
-with `--no-interaction`, as the printed command does: in the background, a
-guided start stops at its first question, waiting for the terminal. A run
-started in the background (`harness-tuner … &`, `nohup`) does not
-receive the terminal's Ctrl-C, and a shell without job control — a script, an
-agent's shell — starts it with SIGINT ignored, so `kill -INT` does nothing
-either. Send SIGTERM instead: `kill <pid>`. The loop also stops cleanly on
-SIGHUP, which a closing terminal sends. On either signal it cancels the run
-the way Ctrl-C does: every `claude -p` child is killed, the server's eval jobs
-are cancelled, the run lock is released and the report is written; the exit
-code is 143 for SIGTERM and 129 for SIGHUP. On Ctrl-C, SIGTERM or SIGHUP it
-also prints the run folder (`harness-tuner: run folder: …`), whose log holds
-the details. `kill -9` skips all of that and leaves the children running to
-their own time caps.
+**Stopping a run.** In the foreground, Ctrl-C. With plain log lines it stops
+the run at once. In the app it opens the stop dialog first (section 5.5).
+Start a run in the background with `--no-interaction --no-progress`: in the
+background, a guided start stops at its first question, waiting for the
+terminal, and the app needs the terminal too. A run started in the background
+(`harness-tuner … &`, `nohup`) does not receive the terminal's Ctrl-C, and a
+shell without job control — a script, an agent's shell — starts it with
+SIGINT ignored, so `kill -INT` does nothing either. Send SIGTERM instead:
+`kill <pid>`. The loop also stops cleanly on SIGHUP, which a closing terminal
+sends. On either signal it cancels the run the way Ctrl-C does: every
+`claude -p` child is killed, the server's eval jobs are cancelled and the run
+lock is released. No report is written: a stop asks the run to end now. The
+exit code is 130 for Ctrl-C, 143 for SIGTERM and 129 for SIGHUP. On Ctrl-C,
+SIGTERM or SIGHUP it also prints the run folder
+(`harness-tuner: run folder: …`), whose log holds the details. In the app, a
+signal stops the run with no dialog, and a second signal closes the app at
+once: the rest of the stop then shows as plain lines. `kill -9` skips all of
+that and leaves the children running to their own time caps.
+
+### 5.5 Watching the run
+
+In a terminal, the run shows on the app's run screen
+([install.md](install.md#guided-or-not)). It is one view, with one section for
+each question about the run:
+
+| Section | What it shows |
+|---|---|
+| Title bar | The task, the run id, the agent CLI and the slot counts. |
+| Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the spend by lane and per hour; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
+| Run timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
+| Results | One card per eval score that can decide a promotion, then one for cost and one for latency per request. |
+| Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |
+| Log | One line per notable event, newest at the bottom. A rule marks each wave. |
+
+**A Results card** has three bars:
+
+- **Start**: the run config the run began from. It is measured on train until
+  the first promotion gate, then on val. The key on the Results line says
+  which.
+- **Best Confirmed**: the current baseline, which a promotion gate confirmed
+  on val. It is one run config, which you can ship.
+- **Best Unconfirmed**: for this concern, the best experiment since the last
+  promotion, measured on train. Its number is an estimate of the change
+  against its parent, and each card can name a different run config. It shows
+  only where it beats Best Confirmed, and it clears at each promotion.
+
+Green means better, red means worse, and every state also has a glyph or a
+word.
+
+**An experiment card** shows what the item tries, the concern it targets, its
+steps (build, measure, analyze, and gate for a promotion candidate) and how
+it goes: one cell per judged item, and how many it fixed and broke so far. A
+finished card shows its verdict in plain words, for example
+`Success · goes to the gate`, `Stopped: can't beat its parent` or
+`Promoted · now Best Confirmed`. A card keeps its place until the next wave's
+plan replaces the cards.
+
+**Keys and links:**
+
+| Key | What it does |
+|---|---|
+| `c` | Opens Compare in Kiln UI: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
+| `l` | Opens Lineage in Kiln UI: the run configs of the task and where each came from. |
+| `r` | Opens the report. The key shows once the report is written. |
+| `q`, Ctrl-C | Opens the stop dialog. At the end, `q` or Enter closes the app. |
+
+A link on the screen (underlined, with `↗`) also opens with a click. With no
+graphical browser, or over SSH, nothing opens: the log shows
+`Open this link in your browser: <url>` instead. The mouse wheel scrolls the
+log. Below 150 columns, Time & spend moves under Goal and the log under
+Experiments. A small window scrolls, and nothing is cut off. The app follows
+the terminal's light or dark background.
+
+**The stop dialog** asks `Stop the run?` and says what a stop loses, for
+example `4 experiments are in flight. Their work so far is lost, and no report
+is written.` **Keep running** has the focus, and Esc also keeps the run going.
+**Stop the run** does what Ctrl-C does to a run with plain log lines (section
+5.4): the Experiments header shows `Stopping…` until the run has stopped, and
+the exit code is 130.
+
+**At the end** the Experiments section shows the run summary: how the run
+ended, the time, the spend against the budget, the waves, experiments,
+promotions and early stops, Best Confirmed, the report, and the links. Its
+last line is the next step: run your test split on Best Confirmed, which the
+tuner never read. The app stays open until you press `q` or Enter.
+
+**The closing block.** When the app closes, it prints a plain block to the
+terminal, because the app's screen goes with it. It holds the start's summary
+and, after a guided start, the command that runs it again. Then come the run's
+exit line, Best Confirmed, the report (or `no report` after a stop) and the
+run folder:
+
+```
+Ready to start
+  Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950)
+  …
+
+To run this again with the same answers and no questions:
+  harness-tuner \
+    --project-id 424242975950 --task-id 424242783061 \
+    …
+    --no-interaction
+
+exit: timeout — total $43.30 (Claude Code $16.10 · Kiln $27.20) · 2h41m elapsed · 19m left
+Best Confirmed: refusal rule in prompt · w2-1 (424242002001)
+report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
+Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261109-1412
+harness-tuner: run finished — report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
+```
+
+The exit line and the report line are the ones a run with plain lines prints
+at the same moments. An error prints after the block, as
+[install.md](install.md#guided-or-not) shows.
 
 ### Every flag
 

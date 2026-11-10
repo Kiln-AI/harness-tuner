@@ -1,12 +1,12 @@
 """`prepare_start`: the start-up checks, then the questions and the summary,
 all before the run itself.
 
-The flow is synchronous on purpose. `asyncio.run` installs its own SIGINT
-handler, and while the event loop's thread waits at a prompt that handler
-only cancels the main task: the first Ctrl-C at a prompt would do nothing
-visible. So each prompt runs its own prompt_toolkit loop with no asyncio
-loop running, and each batch of Kiln reads runs in its own short
-`asyncio.run` through a `KilnRunner`, with no prompt inside it.
+The flow is synchronous on purpose: no asyncio loop runs while it waits at a
+prompt, and each batch of Kiln reads runs in its own short `asyncio.run`
+through a `KilnRunner`, with no prompt inside it. A plain start runs it on
+the main thread. A guided start runs it on a thread of its own behind the
+terminal app, whose terminal waits for each answer and whose runner the app
+can cancel (`kiln_harness_tuner.tui.bridge`).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.onboarding.choose import Selection, select
-from kiln_harness_tuner.onboarding.console import default_terminal
+from kiln_harness_tuner.onboarding.console import PlainTerminal
 from kiln_harness_tuner.onboarding.demo import make_demo
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.keys import (
@@ -80,6 +80,20 @@ WELCOME_DESCRIPTION = (
 )
 
 
+@dataclass(frozen=True)
+class StartReport:
+    """What a start chose and last said, for a display that keeps it after
+    the start's own lines are gone: the names the run is about, its
+    baseline run config, and the summary and the rerun command."""
+
+    project_name: str
+    task_name: str
+    baseline_rc_id: str | None  # None when the key check found no baseline
+    baseline_name: str | None
+    summary: str
+    rerun: str | None  # None when the start isn't guided: it says none
+
+
 class KilnRunner(Protocol):
     """Runs one batch of Kiln reads to completion and returns its result.
 
@@ -113,6 +127,7 @@ def prepare_start(
     runner: KilnRunner | None = None,
     home: Path | None = None,
     which: Callable[[str], str | None] = shutil.which,
+    report: Callable[[StartReport], None] | None = None,
 ) -> argparse.Namespace:
     """Check that Kiln answers and is new enough, make and import a copy of
     the demo when `args.demo_project` asks for one, choose the project and
@@ -124,8 +139,8 @@ def prepare_start(
     the summary only. Returns `args` with the project, the task, the folder
     and every answer filled in.
 
-    The start is guided when stdin and stdout are terminals and
-    `args.no_interaction` is false; `terminal` overrides that choice.
+    The start is guided when its `terminal` is interactive: the app passes
+    its own. With no `terminal` it is a plain start (`PlainTerminal`).
 
     `argv` is the command line as typed, and `option_dests` the parser's
     long options: they say which flags were given, whose questions are
@@ -134,13 +149,14 @@ def prepare_start(
     runs; it is cli's, so a bad file reads the same here as in the run. The
     demo's copies go in `home`'s `Kiln Projects/` folder; `home` is
     `Path.home()` by default. `which` finds the agent CLIs on PATH.
+    `report`, when given, gets the `StartReport` once, just before the
+    start returns, and never when it stops or fails.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
-    guided, or an unknown ID); a guided start has shown it already, and
-    marks it `shown`. Raises `OnboardingStopped` when the user stops,
-    Ctrl-C included."""
+    guided, or an unknown ID); a guided start also shows it as a block.
+    Raises `OnboardingStopped` when the user stops, Ctrl-C included."""
     if terminal is None:
-        terminal = default_terminal(prog, no_interaction=args.no_interaction)
+        terminal = PlainTerminal(prog)
     host = args.kiln_host.rstrip("/")
     run = runner if runner is not None else kiln_runner(host)
     home = home if home is not None else Path.home()
@@ -183,11 +199,24 @@ def prepare_start(
         else:
             terminal.say(summary())
         answers.apply(args)
+        if report is not None:
+            # Nothing they read changes after the last say, so the closures
+            # give the texts as the terminal last showed them.
+            baseline = keys.baseline
+            report(
+                StartReport(
+                    project_name=selection.project.name,
+                    task_name=selection.task.name,
+                    baseline_rc_id=None if baseline is None else baseline.rc_id,
+                    baseline_name=None if baseline is None else baseline.name,
+                    summary=summary(),
+                    rerun=rerun() if terminal.interactive else None,
+                )
+            )
         return args
     except OnboardingError as error:
         if terminal.interactive:
             terminal.block(error.title, error.body)
-            error.shown = True
         raise
     except KeyboardInterrupt:
         # A Ctrl-C during a Kiln read: since Python 3.11, `asyncio.run`

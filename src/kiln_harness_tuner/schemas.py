@@ -28,6 +28,12 @@ def score_json_key(name: str) -> str:
     return _NON_KEY_CHARS.sub("", name.strip().lower().replace(" ", "_"))
 
 
+def dump_or_none(model: BaseModel | None) -> dict[str, Any] | None:
+    """A model as plain JSON data for an event field, or None. The dump is
+    also a copy: the loop may change the model after the emit."""
+    return model.model_dump(mode="json") if model is not None else None
+
+
 def _dedup_scores(base: list[str], extra: list[str]) -> list[str]:
     """First-seen spelling wins; duplicates keyed by `score_json_key` — the
     normalization expand_targets applies — so "Out Of Scope" and "out_of_scope"
@@ -1106,7 +1112,7 @@ class EvalBuildReport(BaseModel):
 class RcChange(BaseModel):
     """What an arm changed against its parent, for HUMANS.
     Provenance on the run config is the audit trail; this is the one-screen
-    explanation the live UI, the experiment memory and the report all show.
+    explanation the display, the experiment memory and the report all show.
     Written by the build agent per the kiln-harness-tuner-experiment-build
     skill; every field is plain text a reader can act on."""
 
@@ -2045,7 +2051,7 @@ class RunStatus(BaseModel):
     time_remaining_known: bool = False
     # The loop phase running OUTSIDE item work — "planning", "promotion_gate",
     # "tripwire_backoff", "reporting" — with its display label and a
-    # snapshot-computed elapsed, so the live UI always has something ticking.
+    # snapshot-computed elapsed, so a display always has something ticking.
     phase: str | None = None
     phase_detail: str = ""  # the `label` the phase_start event carried
     phase_elapsed_secs: float = 0.0

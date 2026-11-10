@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Tuner Activity Feed</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one plain column. The feed is deliberately unstyled text so the review is about content, not looks. */
+:root{
+  --bg:#f3f4f2; --panel:#ffffff; --ink:#1b1f1e; --muted:#5e6866; --line:#d8dddb; --accent:#2f6f8f;
+  --s-emitted:#2b7a4b; --s-computed:#8a6400; --s-derived:#2f6f8f; --s-new:#a33a2c;
+  --font-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4;
+  --s-emitted:#6fcf97; --s-computed:#e0b85a; --s-derived:#7fb8d4; --s-new:#ff8f80; color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#111413; --panel:#181d1c; --ink:#e3e8e6; --muted:#9aa5a2; --line:#2a3230; --accent:#7fb8d4;
+  --s-emitted:#6fcf97; --s-computed:#e0b85a; --s-derived:#7fb8d4; --s-new:#ff8f80; color-scheme: dark; }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.55;margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:36px 72px;display:grid;gap:28px}
+h1{font-size:28px;line-height:1.15;margin:0;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:19px;margin:0;font-weight:600;text-wrap:balance}
+p{margin:0;max-width:70ch}
+.muted{color:var(--muted)}
+.head{display:grid;gap:10px}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.controls{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;font-size:14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;border:0;background:var(--panel);color:var(--ink);padding:5px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--panel)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;min-width:0}
+.feedbox{max-height:min(70vh,640px);overflow-y:auto}
+.feed{list-style:none;margin:0;padding:6px 0;font-family:var(--font-mono);font-size:13px;line-height:1.5}
+.feed li{display:grid;grid-template-columns:4.2em 6.6em minmax(0,1fr);gap:0 12px;padding:5px 16px}
+.feed li.wave{grid-template-columns:1fr;padding:12px 16px 4px;color:var(--muted);font-size:12px;letter-spacing:.04em;text-transform:uppercase;border-top:1px solid var(--line)}
+.feed li.wave:first-child{border-top:0}
+.feed .t{color:var(--muted)}
+.feed .k{color:var(--muted);font-size:11.5px;letter-spacing:.05em;padding-top:1px}
+.feed .k.hi{color:var(--ink);font-weight:600}
+.feed .x{min-width:0;overflow-wrap:anywhere}
+.feed .src{grid-column:3;display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11.5px;color:var(--muted);margin-top:2px}
+.feed li.detail .x{color:var(--muted)}
+.feed li.champion .x{font-weight:600}
+.badge{font-family:var(--font-mono);font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 5px;white-space:nowrap}
+.b-emitted{color:var(--s-emitted)} .b-computed{color:var(--s-computed)} .b-derived{color:var(--s-derived)} .b-new{color:var(--s-new)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:8px 12px;border-top:1px solid var(--line)}
+th{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-top:0}
+td code,.feed code{font-family:var(--font-mono);font-size:12.5px}
+td:first-child{white-space:nowrap;font-weight:500}
+.sec{display:grid;gap:12px}
+@media (max-width:620px){ .feed li{grid-template-columns:3.6em minmax(0,1fr)} .feed .k{grid-column:2} .feed .x,.feed .src{grid-column:2} }
+</style>
+
+<main class="wrap">
+  <header class="head">
+    <div class="eyebrow">Harness Tuner · functional mock · section 5</div>
+    <h1>Activity feed</h1>
+    <p>What the feed would say during one run, up to the middle of wave 4. It reads like a log: oldest at the top, newest at the bottom, scrolled to the latest line. It is plain on purpose: judge what is in it, not how it looks. Each line is built from an event or file the loop produces. Turn on sources to see which, and whether the data is available today.</p>
+    <p class="muted">Sample run on an invented freight-depot agent. All numbers are made up.</p>
+  </header>
+
+  <div class="controls">
+    <span id="l-den">Density</span>
+    <div class="seg" role="group" aria-labelledby="l-den"><button id="d-out" aria-pressed="false">Outcomes only</button><button id="d-all" aria-pressed="true">Everything notable</button></div>
+    <span id="l-src">Sources</span>
+    <div class="seg" role="group" aria-labelledby="l-src"><button id="s-off" aria-pressed="true">Hide</button><button id="s-on" aria-pressed="false">Show</button></div>
+    <span class="muted" id="count"></span>
+  </div>
+
+  <div class="legend" id="legend" hidden>
+    <span><span class="badge b-emitted">emitted</span> in the wave log today</span>
+    <span><span class="badge b-computed">computed</span> the loop has it but does not emit it</span>
+    <span><span class="badge b-derived">derived</span> the display can work it out from events or files</span>
+    <span><span class="badge b-new">new</span> needs new loop work</span>
+  </div>
+
+  <section class="panel feedbox" id="feedbox" aria-label="Activity feed, newest at the bottom"><ol class="feed" id="feed"></ol></section>
+
+  <section class="sec">
+    <h2>What goes in</h2>
+    <div class="panel tbl"><table>
+      <thead><tr><th>Line</th><th>When it appears</th><th>Built from</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Champion</td><td>A promotion is applied</td><td><code>promotion</code> (winner, rationale)</td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Gate</td><td>Every gate: who was judged on val, the per-eval result, rejections, holds, blocks</td><td><code>promotion</code>, <code>promotion_blocked</code>, <code>gate_block</code>, <code>hold_recorded</code>; per-eval val numbers from the gate's tables</td><td><span class="badge b-emitted">emitted</span> <span class="badge b-computed">computed</span> for per-eval val</td></tr>
+        <tr><td>Verdict</td><td>An experiment lands: success, no win, capped, dead end, infra failure</td><td><code>item_outcome</code> (verdict, net estimate and interval, judged counts)</td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Stop</td><td>A stop rule ends an arm early</td><td><code>item_outcome</code> measurement stop kind and line</td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Screen</td><td>A screening round ends</td><td><code>screening_round</code> results, <code>screen_candidate_dropped</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Probe</td><td>A probe answers</td><td><code>item_probe</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Wave</td><td>A wave starts, with its parent champion and item counts; the last wave is tagged</td><td><code>wave_start</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Built</td><td>A build finishes: what the run config changed</td><td><code>item_change</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Check</td><td>A pre-spend check finds something and forces a rebuild or ends the item</td><td><code>generality</code>, <code>judge_copy</code>, <code>reference_check</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Learned</td><td>An agent writes a lesson, dead end or new issue</td><td>Diff of the memory snapshots taken around each agent session</td><td><span class="badge b-derived">derived</span></td></tr>
+        <tr><td>Assumed</td><td>The planner records an open question and the default it assumed</td><td><code>BatchPlan.open_questions</code></td><td><span class="badge b-computed">computed</span></td></tr>
+        <tr><td>Health</td><td>Rate limits, eval items that errored, provider quota, tripwire</td><td><code>eval_job_errors</code>, <code>provider_quota</code>, <code>tripwire</code>, <code>dispatch_retry</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+        <tr><td>Run</td><td>Start, start config, detectability warnings, exit</td><td><code>run_start</code>, <code>baseline_found</code>, <code>detectability_warning</code>, <code>exit</code></td><td><span class="badge b-emitted">emitted</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="sec">
+    <h2>What stays out, and where it goes</h2>
+    <div class="panel tbl"><table>
+      <thead><tr><th>Left out</th><th>Why</th><th>Shown in</th></tr></thead>
+      <tbody>
+        <tr><td>Item state changes</td><td>Building, checking, measuring and analyzing are the present, not news</td><td>Current activity</td></tr>
+        <tr><td>Chunk progress</td><td>Per-chunk fixed and broke counts and eval job progress change every minute</td><td>Current activity</td></tr>
+        <tr><td>Phase start and end</td><td>Planning and gate timing is the present</td><td>Current activity</td></tr>
+        <tr><td>Spend</td><td>Dozens of events per wave</td><td>Budget and time</td></tr>
+        <tr><td>Agent transcripts</td><td>Too long to skim</td><td>A link to the trace</td></tr>
+        <tr><td>Lineage</td><td>A graph, not a list</td><td>A link to Kiln's lineage view</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</main>
+
+<script>
+/* level: "o" = outcome (shown in both densities), "d" = detail (Everything notable only) */
+const F=[
+ {w:'Wave 4 · from champion w3-4 · in progress'},
+ {t:'15:31',k:'VERDICT',l:'o',x:'w4-2 prompt · E1 refusal honesty: success. +7 fixed, 1 broke of 36 judged. Est. +9.2 pts [+3.1, +15.0] vs w3-4. Promotion candidate.',s:[['item_outcome','emitted']]},
+ {t:'15:29',k:'STOP',l:'o',x:'w4-6 thinking low on sonnet-5-5: stopped after chunk 1 by futility. The target eval can no longer end above the parent. $0.70 spent of its $4.00 cap.',s:[['item_outcome · measurement','emitted']]},
+ {t:'15:27',k:'PROBE',l:'o',x:'w4-5 Does haiku-5-5 load an attached skill under JSON output mode? YES, 3 of 3 drives.',s:[['item_probe','emitted']]},
+ {t:'15:25',k:'CHECK',l:'d',x:'w4-4 merge: the judge-copy check found 9 words shared with the E3 judge prompt. Rebuilding once.',s:[['judge_copy','emitted']]},
+ {t:'15:24',k:'BUILT',l:'d',x:'w4-1: adds code tool get_container_for_hold (wrapper); 1 prompt line points to it.',s:[['item_change','emitted']]},
+ {t:'15:21',k:'BUILT',l:'d',x:'w4-2: prompt v4 to v5, adds the rule that a 2xx with a refusal body is a refusal.',s:[['item_change','emitted']]},
+ {t:'15:19',k:'WAVE',l:'o',x:'Wave 4 started from champion w3-4: 4 experiments (1 merge of w3-1 + w3-3), 1 probe.',s:[['wave_start','emitted']]},
+ {t:'15:19',k:'ASSUMED',l:'d',x:'The planner assumed a hold needs a supervisor id on file. It will ask again if E2 failures recur. Answer it in the next run\'s guidance.',s:[['BatchPlan.open_questions','computed']]},
+ {w:'Wave 3 · from champion w2-1'},
+ {t:'15:16',k:'CHAMPION',l:'o',cls:'champion',x:'w3-4 is the new champion (wrapper · E2 hold placement). Chain: start, w2-1, w3-4.',s:[['promotion','emitted']]},
+ {t:'15:16',k:'GATE',l:'o',x:'Val, 104 items per eval, against w2-1. w3-4: E2 +6.1 pts [+1.9, +10.3], no eval down. w3-1: E4 +2.0 [−0.5, +4.5], not enough. w3-2: rejected at val.',s:[['promotion','emitted'],['per-eval val tables','computed']]},
+ {t:'15:16',k:'GATE',l:'o',x:'w3-2 skill · E5 escalation rejected at val: +6 items on train, +1 [−3, +5] on val.',s:[['promotion · rejections','emitted'],['train +6: item_outcome','emitted'],['val numbers','computed']]},
+ {t:'15:13',k:'LEARNED',l:'o',x:'Dead end: few-shot examples for E2 hold placement. No net change in w2-3 or w3-1.',s:[['memory snapshot diff','derived']]},
+ {t:'15:12',k:'VERDICT',l:'o',x:'w3-4 wrapper · E2: success. +6 fixed, 0 broke of 36 judged. Est. +8.9 pts [+3.5, +14.3] vs w2-1. Candidate.',s:[['item_outcome','emitted']]},
+ {t:'15:11',k:'VERDICT',l:'o',x:'w3-3 tool description · E2: success. +4 fixed, 0 broke of 36. Est. +5.6 pts [+0.9, +10.3]. Not a candidate (knowledge win).',s:[['item_outcome','emitted']]},
+ {t:'15:10',k:'HEALTH',l:'o',x:'OpenAI rate limit: 6 train items errored in w3-3\'s eval job. They were re-run in the next chunk.',s:[['eval_job_errors','emitted']]},
+ {t:'15:09',k:'VERDICT',l:'o',x:'w3-2 skill · E5 escalation: success. +6 fixed, 0 broke of 24. Est. +12.0 pts [+4.4, +19.6]. Candidate.',s:[['item_outcome','emitted']]},
+ {t:'15:08',k:'VERDICT',l:'o',x:'w3-1 prompt · E4 output format: success. +3 fixed, 0 broke of 36. Est. +3.1 pts [+0.2, +6.0]. Candidate.',s:[['item_outcome','emitted']]},
+ {t:'15:05',k:'SCREEN',l:'o',x:'Round 2 of the screen: haiku-5-5 thinking off and haiku-5-5 on Bedrock survive. haiku thinking low dropped (3 of 24 guard items lost).',s:[['screening_round','emitted']]},
+ {t:'15:01',k:'SCREEN',l:'o',x:'Round 1: 8 candidates, 4 survive. Dropped: gemini-flash (5 guard items lost), gpt-5-mini (not cheaper), sonnet thinking low (not cheaper), gemini thinking low (4 lost).',s:[['screening_round','emitted'],['screen_candidate_dropped','emitted']]},
+ {t:'14:59',k:'WAVE',l:'o',x:'Wave 3 started from champion w2-1. The planner asked for a screen of cheaper models first.',s:[['wave_start','emitted'],['plan.screen','computed']]},
+ {w:'Wave 2 · from start'},
+ {t:'14:56',k:'CHAMPION',l:'o',cls:'champion',x:'w2-1 is the new champion (prompt · E1 refusal honesty). Chain: start, w2-1.',s:[['promotion','emitted']]},
+ {t:'14:56',k:'GATE',l:'o',x:'Val, 104 items per eval, against start. w2-1: E1 +7.7 pts [+3.0, +12.4], no eval down.',s:[['promotion','emitted'],['per-eval val tables','computed']]},
+ {t:'14:52',k:'STOP',l:'o',x:'w2-3 few-shot · E2: stopped after chunk 1 by the residual rule. 2 of 8 failing targets fixed (needs half).',s:[['item_outcome · measurement','emitted']]},
+ {t:'14:50',k:'VERDICT',l:'o',x:'w2-1 prompt · E1: success. +8 fixed, 0 broke of 36. Est. +11.2 pts [+5.1, +17.3]. Candidate.',s:[['item_outcome','emitted']]},
+ {t:'14:47',k:'CHECK',l:'d',x:'w2-3: the generality check found 2 train item ids in the new prompt. Rebuilt once; the rebuild was clean.',s:[['generality','emitted']]},
+ {t:'14:43',k:'WAVE',l:'o',x:'Wave 2 started from start: 3 experiments.',s:[['wave_start','emitted']]},
+ {w:'Wave 1 · from start'},
+ {t:'14:41',k:'GATE',l:'d',x:'No promotion candidates this wave.',s:[['wave_end without promotion','derived']]},
+ {t:'14:38',k:'VERDICT',l:'o',x:'w1-3 wrapper · E2: success. +5 fixed, 0 broke of 24. Est. +7.8 pts [+2.0, +13.6]. Knowledge win, not a candidate.',s:[['item_outcome','emitted']]},
+ {t:'14:35',k:'VERDICT',l:'o',x:'w1-2 prompt · E1: no win. +2 fixed, 1 broke of 36. Est. +1.4 pts [−3.0, +5.9].',s:[['item_outcome','emitted']]},
+ {t:'14:31',k:'STOP',l:'o',x:'w1-1 thinking high: stopped after chunk 1. Quality clearly worse than the parent (eval_metric).',s:[['item_outcome · measurement','emitted']]},
+ {t:'14:24',k:'WAVE',l:'o',x:'Wave 1 started from start: 3 experiments.',s:[['wave_start','emitted']]},
+ {w:'Start'},
+ {t:'14:22',k:'PROBE',l:'d',x:'Recon: does the baseline call get_container when hold_status matters? YES, 3 of 3.',s:[['item_probe (wave 0)','emitted']]},
+ {t:'14:17',k:'RUN',l:'o',x:'E4 output format cannot show a win on train: 4 failing items, a win needs 6. It still guards against regressions.',s:[['detectability_warning','emitted']]},
+ {t:'14:16',k:'RUN',l:'d',x:'Start config: rc 0003, the task\'s baseline record. Train scores read from stored runs.',s:[['baseline_found','emitted']]},
+ {t:'14:13',k:'RUN',l:'o',x:'Building on 41 experiment records, 6 lessons and 3 dead ends from earlier runs on this task.',s:[['first memory snapshot','derived']]},
+ {t:'14:12',k:'RUN',l:'o',x:'Run 261109-1412 started. Objective quality. Budget $50, time 3h. 4 agent slots, 4 eval slots.',s:[['run_start','emitted']]},
+];
+const HI=new Set(['CHAMPION','GATE','VERDICT','STOP']);
+let dense=true,showSrc=false;
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+/* F is written newest first; the feed shows it as a log: oldest at the top, newest at the bottom. */
+const groups=[];F.forEach(e=>{if(e.w)groups.push({w:e.w,items:[]});else groups[groups.length-1].items.push(e)});
+const LOG=groups.reverse().flatMap(g=>[{w:g.w},...g.items.reverse()]);
+function render(){
+  const ol=document.getElementById('feed');ol.innerHTML='';let n=0;
+  LOG.forEach((e,i)=>{
+    if(e.w){const next=LOG.slice(i+1).find(x=>x.w||(dense||x.l==='o'));if(next&&!next.w){const li=document.createElement('li');li.className='wave';li.textContent=e.w;ol.appendChild(li)}return}
+    if(!dense&&e.l!=='o')return;n++;
+    const li=document.createElement('li');li.className=(e.l==='d'?'detail ':'')+(e.cls||'');
+    li.innerHTML=`<span class="t">${e.t}</span><span class="k${HI.has(e.k)?' hi':''}">${e.k}</span><span class="x">${esc(e.x)}</span>`+
+      (showSrc?`<span class="src">${e.s.map(([a,b])=>`<span><code>${esc(a)}</code> <span class="badge b-${b}">${b}</span></span>`).join('')}</span>`:'');
+    ol.appendChild(li)});
+  document.getElementById('count').textContent=`${n} lines`;
+  document.getElementById('legend').hidden=!showSrc;
+  const box=document.getElementById('feedbox');box.scrollTop=box.scrollHeight;
+}
+const set=(a,b,on)=>{a.setAttribute('aria-pressed',String(on));b.setAttribute('aria-pressed',String(!on))};
+const dOut=document.getElementById('d-out'),dAll=document.getElementById('d-all'),sOff=document.getElementById('s-off'),sOn=document.getElementById('s-on');
+dOut.onclick=()=>{dense=false;set(dOut,dAll,true);render()};dAll.onclick=()=>{dense=true;set(dAll,dOut,true);render()};
+sOn.onclick=()=>{showSrc=true;set(sOn,sOff,true);render()};sOff.onclick=()=>{showSrc=false;set(sOff,sOn,true);render()};
+render();
+</script>
+
+</body></html>

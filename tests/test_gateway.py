@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -406,6 +407,62 @@ class TestMemory:
             _run(gateway, "memory_list", scope="task::424242999999")
         with pytest.raises(gw.GatewayError, match="loop's code only"):
             _run(gateway, "memory_create", overview="o", scope="project", tags=["val"])
+        # A refused write leaves no memory line.
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
+
+    LESSON = {
+        "id": "m9",
+        "overview": "LESSON: a skill file is read only when named",
+        "content": "the whole lesson, which the line leaves out",
+        "tags": ["lesson", "skill"],
+        "scope": f"task::{TASK}",
+    }
+
+    def _write_routes(self):
+        updated = {**self.LESSON, "tags": ["dead_end"], "overview": "DEAD END: x"}
+        return {
+            ("POST", f"/api/projects/{PROJECT}/memories"): self.LESSON,
+            ("GET", f"/api/projects/{PROJECT}/memories/by_ids"): [self.LESSON],
+            ("PATCH", f"/api/projects/{PROJECT}/memories/m9"): updated,
+        }
+
+    def _lines(self, tmp_path) -> list[dict]:
+        text = (tmp_path / "run" / gw.MEMORY_FILE).read_text()
+        return [json.loads(line) for line in text.splitlines()]
+
+    def test_each_agent_memory_write_leaves_one_line(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, self._write_routes(), role="batch_plan")
+        _run(
+            gateway,
+            "memory_create",
+            overview=self.LESSON["overview"],
+            scope=f"task::{TASK}",
+            content=self.LESSON["content"],
+            tags=["lesson", "skill"],
+        )
+        _run(gateway, "memory_update", id="m9", tags=["dead_end"])
+        create, update = self._lines(tmp_path)
+        assert {k: v for k, v in create.items() if k != "ts"} == {
+            "op": "create",
+            "id": "m9",
+            "role": "batch_plan",
+            "scope": f"task::{TASK}",
+            "tags": ["lesson", "skill"],
+            "overview": "LESSON: a skill file is read only when named",
+        }
+        datetime.fromisoformat(create["ts"])
+        # The update's line is the record as the write answered it.
+        assert update["op"] == "update"
+        assert (update["tags"], update["overview"]) == (["dead_end"], "DEAD END: x")
+        assert "content" not in create and "content" not in update
+
+    def test_a_failed_append_does_not_fail_the_write(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, self._write_routes(), role="batch_plan")
+        (tmp_path / "run" / gw.MEMORY_FILE).mkdir()  # os.open fails on it
+        out = _run(
+            gateway, "memory_create", overview="o", scope="project", tags=["lesson"]
+        )
+        assert out["id"] == "m9"
 
 
 class TestWrites:

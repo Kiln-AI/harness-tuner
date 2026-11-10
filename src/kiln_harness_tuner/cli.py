@@ -3,11 +3,12 @@ invoked manually from a terminal).
 
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
 observability: run id, wave log (`<state>/runs/<run_id>/`, run scratch),
-`RunStatus` tracker + UI (rich live display, or plain lines under `--no-progress` /
-non-TTY), and the report hook (`<state>/reports/kiln-harness-tuner-<run_id>.md`)
-— then runs `orchestrate`, which returns the report path. `<state>` is the
-state folder (`paths.py`); the agents' skills and instructions come from the
-package and are installed into it (`install_agents.py`).
+`RunStatus` tracker + UI (the terminal app, `tui/`, when stdin and stdout are
+terminals; else plain lines, also under `--no-progress`), and the report hook
+(`<state>/reports/kiln-harness-tuner-<run_id>.md`) — then runs `orchestrate`,
+which returns the report path. `<state>` is the state folder (`paths.py`);
+the agents' skills and instructions come from the package and are installed
+into it (`install_agents.py`).
 """
 
 from __future__ import annotations
@@ -22,11 +23,12 @@ import os
 import shutil
 import signal
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import Any, Literal, Protocol, TextIO
 
 from rich.console import Console
 
@@ -50,7 +52,12 @@ from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
 from kiln_harness_tuner.gateway.hook import MCP_MATCHER, SKILL_INSTALLER_TOOLS
 from kiln_harness_tuner.gateway.hook import hook_command as gateway_hook_command
-from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, ROLE_OPS, TRACE_READER_ROLES
+from kiln_harness_tuner.gateway.ops import (
+    GATEWAY_SERVER,
+    MEMORY_FILE,
+    ROLE_OPS,
+    TRACE_READER_ROLES,
+)
 from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSetError
 from kiln_harness_tuner.install_agents import (
@@ -71,6 +78,7 @@ from kiln_harness_tuner.memory import (
     MemoryWriter,
     MemoryWriteRefused,
 )
+from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
@@ -84,7 +92,6 @@ from kiln_harness_tuner.onboarding.error_screen import (
     RunProgress,
     ending_lines,
     error_body,
-    show_closing_line,
     show_error,
 )
 from kiln_harness_tuner.onboarding.questions import (
@@ -96,6 +103,7 @@ from kiln_harness_tuner.onboarding.summary import OptionInfo
 from kiln_harness_tuner.orchestrator import (
     DEFAULT_COVERAGE_FLOOR,
     Ctx,
+    EventLog,
     SpendMeter,
     orchestrate,
 )
@@ -118,7 +126,7 @@ from kiln_harness_tuner.setup import (
 )
 from kiln_harness_tuner.skill_installer import sweep_staging
 from kiln_harness_tuner.status import RunStatusTracker, make_run_id
-from kiln_harness_tuner.ui import LiveUi, PlainUi
+from kiln_harness_tuner.ui import PlainUi
 from kiln_harness_tuner.wave_log import FanoutLog, WaveLog
 
 logger = logging.getLogger(__name__)
@@ -200,8 +208,7 @@ REMOVED_FLAGS = {
         " is still reported"
     ),
     "--no-ui": (
-        "--no-ui was renamed --no-progress: plain log lines instead of the live"
-        " progress display"
+        "--no-ui was renamed --no-progress: plain log lines instead of the run screen"
     ),
 }
 
@@ -303,7 +310,7 @@ def build_parser() -> _Parser:
     parser.add_argument(
         "--no-progress",
         action="store_true",
-        help="plain log lines instead of the live progress display during the run",
+        help="plain log lines instead of the run screen during the run",
     )
     parser.add_argument(
         "--budget-usd",
@@ -664,6 +671,7 @@ RUN_DIR_ENTRIES = (
     "settings.readonly.json",
     "train_set.json",
     "gateway_created.jsonl",
+    "gateway_memory.jsonl",
     "val_summary.json",
     "model_policy.json",
 )
@@ -1183,7 +1191,29 @@ def _acquire_run_lock(
 _RUN_PROGRESS = RunProgress()
 
 
-async def _run(args: argparse.Namespace) -> str:
+class RunDisplay(EventLog, Protocol):
+    """What a run shows its events on: an EventLog, last in the fan-out, and
+    a context manager entered for as long as the wave log is open."""
+
+    def __enter__(self) -> object: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None: ...
+
+
+# Builds the run's display from the run's own tracker and a stdout console.
+DisplayFactory = Callable[[RunStatusTracker, Console], RunDisplay]
+# Gets the run's event loop and its main task, as the run starts.
+RunStarted = Callable[[asyncio.AbstractEventLoop, asyncio.Task[Any]], None]
+
+
+async def _run(
+    args: argparse.Namespace, *, display: DisplayFactory | None = None
+) -> str:
     try:
         agent_cli = parse_agent_cli(args.agent_cli)
     except ValueError as exc:
@@ -1217,11 +1247,12 @@ async def _run(args: argparse.Namespace) -> str:
         run_id = _unique_run_id(state.runs, run_started_at)
         run_dir = state.runs / run_id
         _RUN_PROGRESS.run_dir = run_dir
-        # Before the live display, which owns the terminal from then on.
+        # Before the display. In the app it lands in the stray-output file,
+        # and the closing block names the run folder.
         print(f"{PROG}: run {run_id} — files in {run_dir}/", flush=True)
         # Diagnostics to `runs/<run_id>/kiln-harness-tuner.log` from the first moment
         # the run has a directory — before `render_run_configs`, so a startup failure
-        # there is in the file too. File only: the live UI owns the
+        # there is in the file too. File only: the display owns the
         # terminal.
         configure_run_logging(run_dir)
         logger.info(
@@ -1315,12 +1346,13 @@ async def _run(args: argparse.Namespace) -> str:
                 agent_cli=agent_cli.kind,
             )
             console = Console()
-            # --no-progress (and CI / non-TTY) falls back to plain log lines.
-            ui = (
-                LiveUi(tracker, console=console)
-                if not args.no_progress and console.is_terminal
-                else PlainUi(tracker, console=console)
-            )
+            ui: RunDisplay
+            if display is not None:
+                ui = display(tracker, console)
+            else:
+                # The app passes its own display; every other run, --no-progress
+                # and CI / non-TTY included, prints plain log lines.
+                ui = PlainUi(tracker, console=console)
             with WaveLog(run_dir / "wave_log.jsonl") as wave_log, ui:
                 # Tracker before UI: renders always see post-update snapshots.
                 # The spend meter rides the same fan-out (budget enforcement).
@@ -1328,6 +1360,14 @@ async def _run(args: argparse.Namespace) -> str:
                 # The analyzer logs too (`eval_job_errors`)
                 # — re-point it at the fan-out now that it exists.
                 ctx.analyzer.log = ctx.log
+                # The memory records agents write through the gateway, into
+                # the wave log at each session's end. `ctx.log` is read at
+                # call time: `orchestrate` wraps it.
+                feed = MemoryFeed(run_dir / MEMORY_FILE)
+                ctx.memory_feed = feed
+                ctx.dispatch.on_session_end = lambda _agent, label: feed.forward(
+                    ctx.log, label
+                )
                 report_writer = ReportWriter(tracker, run_id, state.reports)
                 _RUN_PROGRESS.report_path = report_writer.report_path
                 ctx.write_report = report_writer
@@ -1349,17 +1389,29 @@ STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 _stopped_by: list[int] = []
 
 
-async def _run_with_signals(args: argparse.Namespace) -> str:
+async def _run_with_signals(
+    args: argparse.Namespace,
+    *,
+    display: DisplayFactory | None = None,
+    on_started: RunStarted | None = None,
+) -> str:
     """`_run`, with SIGTERM and SIGHUP handled like Ctrl-C: cancel the main
     task so every `finally` runs — children killed by group, server jobs
     cancelled, the lock released, the `exit` event and fallback report
     written. Without this a `kill`, `timeout(1)`, service stop or closed
     terminal terminated Python outright and left every `claude -p` child
-    running to its own 30-minute cap."""
+    running to its own 30-minute cap.
+
+    `display` goes to `_run`. `on_started` gets the run's loop and main task
+    before the run starts, for a caller on another thread that must cancel
+    it: off the main thread no signal handler installs, so that caller
+    records the signal in `_stopped_by` and cancels the task itself."""
     loop = asyncio.get_running_loop()
     task = asyncio.current_task()
     installed: list[int] = []
     _stopped_by.clear()
+    if on_started is not None and task is not None:
+        on_started(loop, task)
 
     def on_stop(signum: int) -> None:
         # One shot: a second signal during teardown must
@@ -1378,7 +1430,7 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
                 loop.add_signal_handler(sig, on_stop, sig)
                 installed.append(sig)
     try:
-        return await _run(args)
+        return await _run(args, display=display)
     finally:
         for sig in installed:
             with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
@@ -1447,31 +1499,55 @@ def _print_run_folder() -> None:
         print(f"{PROG}: run folder: {_RUN_PROGRESS.run_dir}", file=sys.stderr)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    global _RUN_PROGRESS
-    _RUN_PROGRESS = RunProgress()
-    parser = build_parser()
-    raw_argv = sys.argv[1:] if argv is None else list(argv)
-    args = parser.parse_args(raw_argv)
-    validate_args(parser, args)
+# What shows an invocation: plain lines, the app for the start only, or the
+# app for the start and the run.
+DisplayMode = Literal["plain", "app_startup", "app"]
+
+
+def _is_terminal(stream: TextIO | None) -> bool:
+    return stream is not None and stream.isatty()
+
+
+def display_mode(args: argparse.Namespace) -> DisplayMode:
+    """What shows this invocation. The app reads its keys from stdin and
+    draws on stdout, so it needs a terminal on both. With `--no-interaction`
+    and `--no-progress` together it has nothing to show. With
+    `--no-progress` alone it shows the start only.
+
+    Call it before the app starts: while the app runs, its capture of
+    stdout and stderr says True to `isatty()`."""
+    if not (_is_terminal(sys.stdin) and _is_terminal(sys.stdout)):
+        return "plain"
+    if args.no_interaction and args.no_progress:
+        return "plain"
+    return "app_startup" if args.no_progress else "app"
+
+
+def _plain_body(args: argparse.Namespace, raw_argv: list[str], parser: _Parser) -> str:
+    """The start and the run on this thread, each with the terminal and the
+    display it picks for itself. Returns the report path."""
+    args = prepare_start(
+        args,
+        raw_argv,
+        prog=PROG,
+        option_dests=parser.option_dests,
+        policy_loader=load_model_policy,
+    )
+    return asyncio.run(_run_with_signals(args))
+
+
+def _finish(body: Callable[[], str], *, kiln_host: str) -> int:
+    """Run `body` (the start and the run, which returns the report path) and
+    turn how it ends into the exit code, with its last lines: the stop, the
+    error screen, the interrupted line, or the finish line. `kiln_host` is
+    `--kiln-host`, which the error screen names for a lost connection."""
     try:
-        args = prepare_start(
-            args,
-            raw_argv,
-            prog=PROG,
-            option_dests=parser.option_dests,
-            policy_loader=load_model_policy,
-        )
-        result = asyncio.run(_run_with_signals(args))
+        result = body()
     except OnboardingStopped as stop:
         print(f"{PROG}: stopped.", file=sys.stderr)
         return stop.exit_code
     except OnboardingError as exc:
-        if exc.shown:
-            # A guided start has already shown it, as a block on the terminal.
-            show_closing_line(PROG)
-        else:
-            show_error(exc.title, exc.body, ending_lines(_RUN_PROGRESS), prog=PROG)
+        show_error(exc.title, exc.body, ending_lines(_RUN_PROGRESS), prog=PROG)
         return 1
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM
@@ -1491,13 +1567,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SHOWN_ERRORS as exc:
         show_error(
             title_for(exc),
-            error_body(exc, host=args.kiln_host),
+            error_body(exc, host=kiln_host),
             ending_lines(_RUN_PROGRESS),
             prog=PROG,
         )
         return 1
     print(f"{PROG}: run finished — report: {result}")
     return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    global _RUN_PROGRESS
+    _RUN_PROGRESS = RunProgress()
+    parser = build_parser()
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    args = parser.parse_args(raw_argv)
+    validate_args(parser, args)
+
+    def finish(body: Callable[[], str]) -> int:
+        return _finish(body, kiln_host=args.kiln_host)
+
+    mode = display_mode(args)
+    if mode == "plain":
+        return finish(lambda: _plain_body(args, raw_argv, parser))
+    # Imported here, so a plain run never imports Textual.
+    from kiln_harness_tuner.tui.entry import run_app
+
+    return run_app(args, raw_argv, parser, mode, finish=finish)
 
 
 if __name__ == "__main__":

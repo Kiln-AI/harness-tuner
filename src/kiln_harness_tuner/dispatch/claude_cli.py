@@ -31,6 +31,7 @@ import re
 import signal
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -794,6 +795,10 @@ class ClaudeCliDispatcher:
         self._readonly_settings_path = readonly_settings_path
         self._traces_root = traces_root
         self._claude_projects_dir = claude_projects_dir
+        # Called with (agent, label) when a session's step is persisted;
+        # cli.py forwards the gateway's memory lines from it
+        # (`kiln_harness_tuner.memory_feed`). None = no hook.
+        self.on_session_end: Callable[[str, str], None] | None = None
 
     # ---- the protocol surface: one line each into the shared plumbing ----
 
@@ -1114,7 +1119,18 @@ class ClaudeCliDispatcher:
         started = datetime.now()
         result = await self._dispatch(agent, label, prompt, output_model)
         self._persist_step(agent, label, req, result, started)
+        self._session_ended(agent, label)
         return result
+
+    def _session_ended(self, agent: str, label: str) -> None:
+        """The end-of-session hook. Log-and-continue: it must never fail a
+        dispatch."""
+        if self.on_session_end is None:
+            return
+        try:
+            self.on_session_end(agent, label)
+        except Exception:
+            logger.exception("session-end hook failed for %s", label)
 
     def _persist_step(
         self, agent: str, label: str, req: BaseModel, result: Any, started: datetime
