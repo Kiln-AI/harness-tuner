@@ -468,6 +468,15 @@ def build_parser() -> _Parser:
         " A model that fails is flagged and not screened this run; a failing"
         " baseline model stops the start",
     )
+    parser.add_argument(
+        "--experimental-eval-building",
+        action="store_true",
+        help="experimental, off by default: let the loop build a new eval for"
+        " an issue that no eval measures (an eval_only item, or a fix with"
+        " needs_eval). Without it the planner plans no such item, code drops"
+        " one before its wave runs, and the report names the issue so you can"
+        " create its eval in the Kiln app",
+    )
     return parser
 
 
@@ -993,6 +1002,7 @@ def build_ctx(
     allow_underpowered: bool = False,
     noise_check_items: int = 0,
     model_preflight: bool = True,
+    eval_building: bool = False,
 ) -> Ctx:
     return Ctx(
         run_dir=run_dir,
@@ -1035,6 +1045,7 @@ def build_ctx(
         allow_underpowered=allow_underpowered,
         noise_check_items=noise_check_items,
         model_preflight=model_preflight,
+        eval_building=eval_building,
         opening_screen=True,
         objective=objective,
         model_policy=model_policy,
@@ -1255,6 +1266,11 @@ async def _run(
         )
         adapter = DISPATCHERS[agent_cli.kind][0]
         logger.info("agent CLI: %s", agent_cli.text)
+        if args.experimental_eval_building:
+            logger.warning(
+                "--experimental-eval-building: the loop may build new evals"
+                " (experimental; an eval built this way may get no val split)"
+            )
         if not adapter.HAS_MAX_TURNS and args.max_turns is not None:
             logger.warning(
                 "--max-turns has no %s equivalent and is ignored", adapter.CLI_NAME
@@ -1317,6 +1333,7 @@ async def _run(
                 allow_underpowered=args.allow_underpowered,
                 noise_check_items=args.noise_check,
                 model_preflight=not args.skip_model_preflight,
+                eval_building=args.experimental_eval_building,
             )
             _RUN_PROGRESS.spend = ctx.spend
             # The tracker MUST share Ctx.clock's domain — run_start's monotonic

@@ -116,10 +116,13 @@ def make_ctx(
     dispatcher: FakeDispatcher | None = None,
     clock: FakeClock | None = None,
     gate_agent: str = "always",
+    eval_building: bool = False,
 ) -> Ctx:
     """`gate_agent` defaults to "always" here (production: "auto") so the
     many tests that pin the promote AGENT's mechanics keep scripting it; the
-    code-rule path has its own tests under `gate_agent="auto"`."""
+    code-rule path has its own tests under `gate_agent="auto"`.
+    `eval_building` defaults off, as in production
+    (`--experimental-eval-building`)."""
     kiln = kiln if kiln is not None else FakeKiln()
     # Two SEPARATE recorders: ctx.sleeps sees only the loop's
     # own backoffs (dispatch ladders, tripwire, promotion writes);
@@ -146,6 +149,7 @@ def make_ctx(
         clock=clock if clock is not None else FakeClock(),
         sleep=record_sleep,
         gate_agent=gate_agent,
+        eval_building=eval_building,
     )
     ctx.sleeps = sleeps
     ctx.analyzer_sleeps = analyzer_sleeps

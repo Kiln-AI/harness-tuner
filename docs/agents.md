@@ -19,7 +19,7 @@ role's hard rules, and injects the input as JSON.
 | Agent | Skill | Wall-clock cap | A failure costs |
 |---|---|---|---|
 | `describe_eval` | none, by design | 10 min | the run — a description that fails twice is fatal |
-| `eval_build` | none, by design | 30 min | one item |
+| `eval_build` (experimental, off by default) | none, by design | 30 min | one item |
 | `batch_plan` | `kiln-harness-tuner-batch-selection` | 15 min | the run |
 | `probe` | `kiln-harness-tuner-probe` | 15 min | one item |
 | `create_experiment_rc` | `kiln-harness-tuner-experiment-build` | 30 min | one item |
@@ -75,8 +75,17 @@ failed.
 
 ## `eval_build`
 
-**Dispatched when** a planned item names an issue that has no eval, either as
-an `eval_only` item or as the first step of an experiment item's fix work.
+**Experimental, and off by default.** It is not well tested, and an eval it
+builds can have no val split. The loop dispatches it only with
+`--experimental-eval-building`. While it is off, the planner is told so, and
+code drops a planned `eval_only` item or a fix with `needs_eval: true`
+before its wave runs, with one log line for each. The other items of the
+wave run. The report names each issue that has no eval, so that you can
+create its eval in the Kiln app.
+
+**Dispatched when** eval building is on and a planned item names an issue
+that has no eval, either as an `eval_only` item or as the first step of an
+experiment item's fix work.
 
 **Given** `EvalBuildInput` — `issue_memory_id` and the baseline run config.
 **That is the whole input, deliberately.** The hypothesis and the technique do
@@ -132,6 +141,10 @@ It also gets `train_detectability` — per active (eval,
 score), the baseline's train items with room to improve and the fewest wins
 a significant result needs — and, with `--noise-check`, `train_noise`. Both
 are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
+`eval_building` says if the plan may build a new eval: `false` unless the
+run has `--experimental-eval-building`. While it is `false`, the template
+and the skill tell the planner to give each fix arm an eval that exists,
+and to plan no item that builds an eval.
 
 Everything else it reads for itself: issues, dead ends, experiment verdicts and
 open constraints, plus the baseline run config's own artifact.

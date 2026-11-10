@@ -564,6 +564,13 @@ class RunModel:
     def _on_eval_unloadable(self, s: Stamped, f: Mapping[str, Any]) -> None:
         self._extra_step("warn", _text(f.get("line") or f.get("reason")))
 
+    def _on_eval_item_dropped(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        # A planned eval build that code dropped because eval building is
+        # off. The item never starts, so it gets no card: only this line.
+        text = _text(f.get("line"))
+        if text:
+            self._say(s, "warn", text)
+
     def _on_baseline_found(self, s: Stamped, f: Mapping[str, Any]) -> None:
         rc = _text(f.get("rc_id"))
         if not rc:

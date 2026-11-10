@@ -200,7 +200,8 @@ Evals need direct API access and can't run on a coding agent subscription, so th
 - [How it works](docs/how-it-works.md): the whole loop, with a diagram.
 - [Install](docs/install.md): every requirement, with a check and a fix for each.
 - [Concepts](docs/concepts.md): waves, experiments, splits and the promotion gate. Read it before your first run's report.
-- [Your own task](docs/your-own-task.md): what your task needs, and every CLI flag.
+- [Your own task](docs/your-own-task.md): what your task needs, and how the first run starts.
+- [CLI reference](docs/cli.md): every command and flag.
 - [Objectives and model policy](docs/objectives.md): what to optimize, and which models it may use.
 - [Costs](docs/costs.md): estimate a run before you start it.
 - [Limitations](docs/limitations.md): what it doesn't do. Read it before planning a long run.

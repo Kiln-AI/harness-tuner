@@ -261,6 +261,20 @@ class TestSuccessPath:
         assert "BatchPlan" in prompt
         assert "rejected_summary" in prompt  # from model_json_schema()
 
+    @pytest.mark.parametrize("on", [False, True])
+    async def test_planner_prompt_states_the_eval_building_setting(self, on):
+        dispatcher, runner = make_dispatcher(
+            [ok_proc(cli_payload(envelope_text(PLAN_DATA)))]
+        )
+        await dispatcher.batch_plan(
+            BATCH_PLAN_INPUT.model_copy(update={"eval_building": on})
+        )
+        prompt = runner.calls[0].stdin_text
+        # The template says what the setting means; the input says which.
+        assert "**Eval building is experimental.**" in prompt
+        assert "plan no `eval_only` item" in prompt
+        assert f'"eval_building": {str(on).lower()}' in prompt
+
     async def test_prompt_schema_rendered_without_ascii_escapes(self):
         # ensure_ascii=False (project standard): the schemas' descriptions carry
         # em dashes; —-style escapes would be needless prompt noise.

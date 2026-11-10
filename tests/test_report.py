@@ -8,18 +8,24 @@ from conftest import ManualClock, baseline_record, make_ctx, make_plan
 from fake_dispatcher import infra, ok
 from test_status import WAVE1_ITEMS, completed_outcome, make_tracker, start_wave
 
+from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.orchestrator import orchestrate
 from kiln_harness_tuner.report import (
     FALLBACK_INTRO,
+    KILN_EVALS_DOCS_URL,
+    MISSING_EVALS_APPENDIX_HEADING,
     SPEND_APPENDIX_HEADING,
     SPEND_APPENDIX_NOTES,
     ReportWriter,
+    read_issues_without_eval,
     render_fallback_report,
+    render_missing_evals_appendix,
     render_spend_appendix,
     render_spend_header,
 )
 from kiln_harness_tuner.schemas import (
     ErrorInfo,
+    IssueWithoutEval,
     ItemOutcome,
     PromotionDecision,
     ReportMarkdown,
@@ -509,3 +515,209 @@ async def test_report_agent_gets_one_attempt_past_the_deadline(tmp_path):
     (written,) = [f for k, f in ctx.log.events if k == "report_written"]
     assert written["fallback"] is True
     assert Path(path).read_text().startswith("# ")
+
+
+# ---- issues with no eval ----
+
+
+def drop_eval_item(tracker, item_id: str, issue_id: str, wave: int = 1) -> None:
+    tracker.event(
+        "eval_item_dropped",
+        wave=wave,
+        item_id=item_id,
+        item_kind="eval",
+        issue_memory_id=issue_id,
+        line=f"dropped {item_id}: …",
+    )
+
+
+def seed_issues(kiln) -> None:
+    """One issue of each kind the report-time read must sort."""
+    issue = ["issue", "p1"]
+    kiln.add_memory("issue: tone is harsh", "task::t1", issue, memory_id="issue_2")
+    kiln.add_memory(
+        "UNMEASURED: issue: a new mechanism",
+        "task::t1",
+        issue,
+        memory_id="issue_5",
+    )
+    # Closed, bound to an eval, or measured by its own check: left out.
+    kiln.add_memory("WONT_FIX: issue: not seen", "task::t1", issue, memory_id="i_won")
+    kiln.add_memory(
+        "issue: measured", "task::t1", [*issue, "eval_424242000001"], memory_id="i_eval"
+    )
+    kiln.add_memory(
+        "issue: the baseline copies train items",
+        "task::t1",
+        [*issue, "baseline_audit"],
+        memory_id="i_audit",
+    )
+
+
+async def test_the_report_time_read_keeps_open_issues_no_eval_binds():
+    ctx = make_ctx()
+    seed_issues(ctx.kiln)
+
+    found = await read_issues_without_eval(ctx)
+
+    assert [(i.issue_memory_id, i.overview) for i in found] == [
+        ("issue_2", "issue: tone is harsh"),
+        ("issue_5", "UNMEASURED: issue: a new mechanism"),
+    ]
+
+
+async def test_a_failed_issue_read_is_none_and_logged(caplog):
+    ctx = make_ctx()
+
+    async def kiln_is_down(*, retries=None):
+        raise KilnAPIError("GET", "/memories", 503, "down")
+
+    ctx.memory.list_issues = kiln_is_down
+    with caplog.at_level("WARNING", logger="kiln_harness_tuner.report"):
+        assert await read_issues_without_eval(ctx) is None
+    assert "the issue read failed" in caplog.text
+    assert "HTTP 503" in caplog.text
+
+
+def test_missing_evals_section_lists_each_issue_with_its_overview():
+    tracker = make_tracker()
+    drop_eval_item(tracker, "w1-2", "issue_2")
+    drop_eval_item(tracker, "w2-1", "issue_2", wave=2)
+    status = tracker.snapshot()
+    status.issues_without_eval = [
+        IssueWithoutEval(issue_memory_id="issue_2", overview="issue: tone is harsh"),
+        IssueWithoutEval(issue_memory_id="issue_5", overview="issue: a new one"),
+    ]
+
+    assert render_missing_evals_appendix(status).splitlines() == [
+        MISSING_EVALS_APPENDIX_HEADING,
+        "",
+        "No eval measures these issues, so the loop cannot work on them.",
+        "",
+        "- `issue_2`: issue: tone is harsh — code dropped its planned eval build"
+        " (`w1-2` in wave 1, `w2-1` in wave 2)",
+        "- `issue_5`: issue: a new one",
+        "",
+        "Eval building is experimental and off by default in this release, so"
+        " the loop builds no eval itself. To measure an issue, create an eval for"
+        " it in the Kiln app, then run the tuner again. The Kiln docs say how:"
+        f" [Evals]({KILN_EVALS_DOCS_URL}).",
+    ]
+
+
+def test_missing_evals_section_without_the_read_uses_what_the_run_recorded():
+    tracker = make_tracker()
+    tracker.event(
+        "setup_sync",
+        report=SetupReport(unbound_unresolved_issue_ids=["issue_7", "issue_2"]),
+    )
+    drop_eval_item(tracker, "w1-2", "issue_2")
+
+    lines = render_missing_evals_appendix(tracker.snapshot()).splitlines()
+
+    assert lines[4:6] == [
+        "- `issue_2` — code dropped its planned eval build (`w1-2` in wave 1)",
+        "- `issue_7`",
+    ]
+
+
+def test_missing_evals_section_is_left_out_with_eval_building_on():
+    tracker = make_tracker()
+    tracker.event("run_start", deadline=100.0, eval_building=True)
+    tracker.event(
+        "setup_sync", report=SetupReport(unbound_unresolved_issue_ids=["issue_7"])
+    )
+    status = tracker.snapshot()
+    status.issues_without_eval = [
+        IssueWithoutEval(issue_memory_id="issue_7", overview="issue: x")
+    ]
+    assert render_missing_evals_appendix(status) == ""
+
+
+def test_missing_evals_section_is_left_out_when_every_issue_has_an_eval():
+    tracker = make_tracker()
+    assert render_missing_evals_appendix(tracker.snapshot()) == ""
+    tracker.event("setup_sync", report=SetupReport(evals_total=2))
+    assert render_missing_evals_appendix(tracker.snapshot()) == ""
+    # A dropped build for an issue the read does not list (closed by now,
+    # or bound to an eval) is not a missing eval.
+    drop_eval_item(tracker, "w1-1", "i_won")
+    status = tracker.snapshot()
+    status.issues_without_eval = []
+    assert render_missing_evals_appendix(status) == ""
+
+
+@pytest.mark.parametrize("agent_ok", [True, False], ids=["agent", "fallback"])
+async def test_the_written_report_names_the_issues_with_no_eval(tmp_path, agent_ok):
+    ctx = make_ctx()
+    seed_issues(ctx.kiln)
+    writer, tracker = make_writer(tmp_path)
+    drop_eval_item(tracker, "w1-2", "issue_2")
+    if agent_ok:
+        ctx.dispatch.queue("report_writer", ok(ReportMarkdown(markdown="# Report\n")))
+    else:
+        ctx.dispatch.queue("report_writer", *[infra("provider_error")] * 5)
+
+    await writer(ctx, "wrap_up")
+
+    text = writer.report_path.read_text()
+    assert text.index(SPEND_APPENDIX_HEADING) < text.index(
+        MISSING_EVALS_APPENDIX_HEADING
+    )
+    assert "- `issue_2`: issue: tone is harsh — code dropped its planned" in text
+    assert "- `issue_5`: UNMEASURED: issue: a new mechanism" in text
+    assert "i_won" not in text
+    assert KILN_EVALS_DOCS_URL in text
+    # The report agent reads the same facts from its input.
+    status = ctx.dispatch.calls_to("report_writer")[0].run_status
+    assert [d.issue_memory_id for d in status.dropped_eval_items] == ["issue_2"]
+    assert [i.issue_memory_id for i in status.issues_without_eval] == [
+        "issue_2",
+        "issue_5",
+    ]
+
+
+async def test_the_fallback_path_names_the_issues_with_no_eval(tmp_path):
+    ctx = make_ctx()
+    seed_issues(ctx.kiln)
+    writer, _ = make_writer(tmp_path)
+
+    await writer.write_fallback(ctx, "quota_exhausted")
+
+    assert "- `issue_5`: UNMEASURED: issue: a new mechanism" in (
+        writer.report_path.read_text()
+    )
+
+
+async def test_with_eval_building_on_the_report_reads_no_issues(tmp_path):
+    ctx = make_ctx(eval_building=True)
+    seed_issues(ctx.kiln)
+    writer, tracker = make_writer(tmp_path)
+    tracker.event("run_start", deadline=100.0, eval_building=True)
+    ctx.dispatch.queue("report_writer", ok(ReportMarkdown(markdown="# Report\n")))
+
+    await writer(ctx, "wrap_up")
+
+    assert MISSING_EVALS_APPENDIX_HEADING not in writer.report_path.read_text()
+    status = ctx.dispatch.calls_to("report_writer")[0].run_status
+    assert status.issues_without_eval is None
+
+
+async def test_only_the_fallback_path_reads_the_issues_without_retries(tmp_path):
+    # On a fatal exit Kiln may be what failed: the fallback report must not
+    # wait on the client's retry ladder.
+    ctx = make_ctx()
+    writer, _ = make_writer(tmp_path)
+    asked = []
+
+    async def list_issues(*, retries=None):
+        asked.append(retries)
+        return []
+
+    ctx.memory.list_issues = list_issues
+    ctx.dispatch.queue("report_writer", ok(ReportMarkdown(markdown="# Report\n")))
+
+    await writer(ctx, "wrap_up")
+    await writer.write_fallback(ctx, "fatal:KilnTransportError")
+
+    assert asked == [None, False]

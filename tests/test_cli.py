@@ -291,6 +291,24 @@ def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
     assert ctx_with(baseline_audit=False).baseline_audit is False
 
 
+@pytest.mark.parametrize(
+    "flags,on", [([], False), (["--experimental-eval-building"], True)]
+)
+def test_eval_building_is_off_unless_the_experimental_flag_turns_it_on(
+    monkeypatch, flags, on
+):
+    seen = {}
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        seen["ctx"] = ctx
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert build_parser().parse_args(ARGS + flags).experimental_eval_building is on
+    assert main(ARGS + flags) == 0
+    assert seen["ctx"].eval_building is on
+
+
 def test_the_ids_and_the_path_are_optional():
     """The start-up checks fill in what is missing (`onboarding.choose`)."""
     args = build_parser().parse_args([])

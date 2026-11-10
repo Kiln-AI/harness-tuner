@@ -69,6 +69,20 @@ going looking.
   they were never measured or gated, and their issues were left as they
   were. Name each in the Setup section, under the evals count, as one line:
   `Left out: "<name>" (Kiln can't load it: <reason>)`, joined with `; `.
+- `eval_building`, `dropped_eval_items` and `issues_without_eval`: eval
+  building is experimental and off by default; `eval_building` is `true`
+  only when the run turned it on. While it is off, code drops each planned
+  item that would build a new eval (an `eval` item, or a `fix` that needs an
+  eval) before its wave runs: `dropped_eval_items` lists each one
+  (`item_id`, `wave`, `kind`, `issue_memory_id`). A dropped item never ran
+  and has no outcome. `issues_without_eval` is the open issues no eval
+  binds (`issue_memory_id`, `overview`), read from memory when the report
+  is written, so it includes the issues this run created; `null` when it
+  was not read. While eval building is off, code appends an "Issues with no
+  eval (code-computed)" section after your markdown: these issues, with the
+  advice to create each eval in the Kiln app and a link to the Kiln docs.
+  Name the issues in Suggested next steps and point at that section; never
+  restate its link or call a dropped item a failure.
 - `detectability` and `noise_check`: the pre-run check —
   per (eval, score) the train items with room, the significance floor, and
   the val split's size with an estimate of its room — and, with
@@ -231,7 +245,9 @@ cheapest or fastest rows with what they lost (see `screen_results`).>
 ## Suggested next steps
 <from the experiments' next: lines, pooled unmerged wins (say which are
 val-rejected: ingredients for a different combination, not re-runs), starved
-issues.>
+issues, and, while eval building is off, the issues no eval measures (create
+their evals in the Kiln app — see the "Issues with no eval (code-computed)"
+section).>
 ```
 
 Adapt sections to the run (drop empty ones, keep the number-provenance

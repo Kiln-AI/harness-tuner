@@ -314,7 +314,7 @@ def agent_cli_name(text: str) -> str:
     return Path(words[0]).name if words else text
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="harness-tuner-install-agents",
         description=(
@@ -339,7 +339,11 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="the folder to install into, for example your own project",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     agent_clis = list(AGENT_CLIS) if args.agent_cli == "all" else [args.agent_cli]
     dest = args.dest.expanduser().resolve()
     try:

@@ -413,6 +413,26 @@ def test_plain_ui_prints_each_eval_kiln_cant_load():
     assert 'Kiln can\'t load eval "Tone": bad.' in out.getvalue()
 
 
+def test_plain_ui_prints_each_dropped_eval_build():
+    line = (
+        "dropped w1-2: it builds a new eval for issue issue_2, and eval building"
+        " is off (experimental: --experimental-eval-building turns it on)"
+    )
+    console, out = capture_console()
+    with PlainUi(make_tracker(), console=console) as ui:
+        ui.event(
+            "eval_item_dropped",
+            wave=1,
+            item_id="w1-2",
+            item_kind="eval",
+            issue_memory_id="issue_2",
+            line=line,
+        )
+    assert "dropped w1-2: it builds a new eval for issue issue_2" in (
+        " ".join(out.getvalue().split())
+    )
+
+
 def test_plain_ui_prints_one_line_per_event():
     console, out = capture_console()
     stamp = datetime(2026, 7, 30, 14, 2, 3)

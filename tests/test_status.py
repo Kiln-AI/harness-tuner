@@ -14,6 +14,7 @@ from conftest import (
 )
 
 from kiln_harness_tuner.schemas import (
+    DroppedEvalItem,
     EvalTarget,
     ExperimentItem,
     ItemOutcome,
@@ -663,6 +664,27 @@ def test_each_eval_kiln_cant_load_is_recorded():
     assert tracker.snapshot().unloadable_evals == [
         UnloadableEval(eval_id="e1", name="Tone", reason="bad"),
         UnloadableEval(eval_id="e2", name="e2", reason="worse"),
+    ]
+
+
+def test_eval_building_and_dropped_eval_items_fold_for_the_report():
+    tracker = make_tracker()
+    assert tracker.snapshot().eval_building is False
+    tracker.event("run_start", deadline=100.0, eval_building=True)
+    tracker.event(
+        "eval_item_dropped",
+        wave=2,
+        item_id="w2-1",
+        item_kind="eval",
+        issue_memory_id="issue_9",
+        line="dropped w2-1: …",
+    )
+    # An event without a wave is not a record of a dropped item.
+    tracker.event("eval_item_dropped", item_id="w2-2", issue_memory_id="issue_8")
+    status = tracker.snapshot()
+    assert status.eval_building is True
+    assert status.dropped_eval_items == [
+        DroppedEvalItem(item_id="w2-1", wave=2, kind="eval", issue_memory_id="issue_9")
     ]
 
 

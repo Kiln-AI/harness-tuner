@@ -230,3 +230,19 @@ def test_a_probe_line_puts_no_colon_after_a_question_mark():
         "r0-1 Does the agent call get_container? YES · 3 drives",
         "r0-2 Name the tools it calls: UNCLEAR · 3 drives",
     ]
+
+
+def test_a_dropped_eval_build_is_a_warning_line():
+    run = Run().standard_start()
+    run.emit(
+        "eval_item_dropped",
+        wave=1,
+        item_id="w1-2",
+        item_kind="eval",
+        issue_memory_id="issue_2",
+        line="dropped w1-2: it builds a new eval for issue issue_2, and eval"
+        " building is off (experimental: --experimental-eval-building turns it on)",
+    )
+    (last,) = run.model.log[-1:]
+    assert last.glyph == "!"
+    assert last.text.startswith("dropped w1-2: it builds a new eval for issue issue_2")

@@ -2,6 +2,8 @@
 paths, the dispatch retry ladder, and the lifecycle stamps.
 """
 
+import copy
+
 import pytest
 from conftest import eval_only_item, fix_item, make_ctx, make_result, measure_item
 from fake_dispatcher import expected, infra, ok
@@ -57,8 +59,29 @@ def seed_issue(kiln, issue_id: str = "issue_1") -> str:
 # ---- eval_only ----
 
 
-async def test_eval_only_success_completes_with_no_result():
+@pytest.mark.parametrize(
+    "item",
+    [eval_only_item(), fix_item(needs_eval=True, eval_id=None)],
+    ids=["eval_only", "needs_eval_fix"],
+)
+async def test_with_eval_building_off_the_eval_build_boundary_refuses(item):
+    # The wave runner drops these items; a direct call is refused at the
+    # boundary, before any session, state change or memory write.
     ctx = make_ctx()
+    seed_issue(ctx.kiln)
+    memories_before = copy.deepcopy(ctx.kiln.memories)
+
+    outcome = await execute_plan_item(ctx, item, BASELINE, ["rc_base"], 1)
+
+    assert outcome.status == "failed_infra"
+    assert "eval building is off" in outcome.infra_error.detail
+    assert ctx.dispatch.calls == []
+    assert ctx.kiln.memories == memories_before
+    assert [f["state"] for k, f in ctx.log.events if k == "item_state"] == []
+
+
+async def test_eval_only_success_completes_with_no_result():
+    ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
     ctx.dispatch.queue("eval_build", ok(eval_report()))
     outcome = await execute_plan_item(ctx, eval_only_item(), BASELINE, ["rc_base"], 1)
@@ -82,7 +105,7 @@ async def test_eval_only_link_on_a_wrong_kind_id_fails_the_item_not_the_wave():
     # runs and is paid for; the eval↔issue link then refuses (RecordKindError),
     # and that ends the ITEM as failed_infra — the same handling as the
     # not-reproduced branch of the same fork — never the wave.
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     ctx.kiln.add_memory(
         "EXP 0722-w0-1 (prompt): not an issue — RUNNING",
         "task::t1",
@@ -99,7 +122,7 @@ async def test_eval_only_link_on_a_wrong_kind_id_fails_the_item_not_the_wave():
 
 
 async def test_eval_only_not_reproduced_writes_wont_fix():
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
     ctx.dispatch.queue(
         "eval_build", ok(eval_report(reproduced=False, reason="cannot repro on n=12"))
@@ -112,7 +135,7 @@ async def test_eval_only_not_reproduced_writes_wont_fix():
 
 
 async def test_eval_only_infra_failure():
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     ctx.dispatch.queue("eval_build", *([infra("rate_limit")] * 4))
     outcome = await execute_plan_item(ctx, eval_only_item(), BASELINE, ["rc_base"], 1)
     assert outcome.status == "failed_infra"
@@ -145,7 +168,7 @@ async def test_fix_happy_path_records_verdict():
 
 
 async def test_fix_needs_eval_fills_eval_id_and_links():
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
     seed_measurement(ctx.kiln)
     ctx.dispatch.queue("eval_build", ok(eval_report()))
@@ -164,7 +187,7 @@ async def test_fix_needs_eval_fills_eval_id_and_links():
 
 
 async def test_fix_needs_eval_not_reproduced_skips_before_building():
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
     ctx.dispatch.queue(
         "eval_build", ok(eval_report(reproduced=False, reason="not seen"))
@@ -289,7 +312,7 @@ async def test_happy_path_emits_state_spend_and_outcome_events():
 
 
 async def test_eval_only_emits_building_eval_and_outcome_events():
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
     ctx.dispatch.queue("eval_build", ok(eval_report(), cost_usd=2.0))
     await execute_plan_item(ctx, eval_only_item(), BASELINE, ["rc_base"], 1)
@@ -772,7 +795,7 @@ async def test_an_eval_build_never_reopens_a_closed_issue():
     # agent that cannot reproduce a FIXED: issue must not relabel the fix as
     # a decision. Both mark_wont_fix call sites sit before open_experiment,
     # so the refusal is a plain failed_infra with nothing written.
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     ctx.kiln.add_memory(
         "FIXED: the client drops 429 retries",
         "task::t1",
@@ -793,7 +816,7 @@ async def test_an_eval_build_never_reopens_a_closed_issue():
 
 
 async def test_a_fix_items_eval_build_never_reopens_a_closed_issue():
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     ctx.kiln.add_memory(
         "WONT_FIX: the client drops 429 retries",
         "task::t1",
@@ -970,7 +993,7 @@ async def test_remeasure_failure_is_infra_and_names_the_hole():
 async def test_commissioned_eval_joins_the_evaluation_target():
     # An item that commissions its own eval must MEASURE it: the eval does
     # not exist at plan time, so it must still enter evaluation_target.
-    ctx = make_ctx()
+    ctx = make_ctx(eval_building=True)
     seed_issue(ctx.kiln)
     seed_measurement(ctx.kiln)  # eval_1 parent stored + candidate pending
     kiln = ctx.kiln

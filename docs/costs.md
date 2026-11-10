@@ -279,5 +279,4 @@ a bounded one on your own task, and use this page as the checklist.
 
 - [limitations.md](limitations.md) — what the loop does not do. Its Costs
   section is the short form of this page.
-- [your-own-task.md](your-own-task.md) — every flag, including the two budget
-  knobs above.
+- [cli.md](cli.md#limits) — every flag, including the two budget knobs above.

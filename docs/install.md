@@ -602,7 +602,7 @@ validated before it is stored.
 not that the provider accepts it. When the baseline's provider rejects its key,
 the model preflight catches it before the baseline measurement: its one short
 call on the baseline's model fails on auth, a hard failure, and that stops the
-start (`--skip-model-preflight` in [your-own-task.md](your-own-task.md#every-flag)).
+start (`--skip-model-preflight` in [cli.md](cli.md#checks-that-you-can-turn-off)).
 Inside a run, Kiln serves job failures as free text, so the loop classifies
 them by matching the message (`provider_errors.py`, which lists the families it
 was built from). A key the provider rejects — "invalid api key",
