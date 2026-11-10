@@ -600,6 +600,18 @@ def test_customize_asks_each_advanced_question_with_its_value(tmp_path):
     ]
 
 
+def test_the_policy_and_minimum_hints_say_what_a_blank_answer_does():
+    # Prefilled or not, a blank answer sets neither: the hint says so.
+    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0"])
+    got = ask_all(answers(min_effect=0.2), context(terminal), given=CORE_DESTS)
+    effect = terminal.asked[2]
+    assert effect.default == "0.2"
+    assert effect.hint.endswith(
+        " Optional. Blank means no minimum, and the run does not stop for it."
+    )
+    assert (got.model_policy, got.min_effect) == (None, None)
+
+
 def test_customize_skips_the_values_flags_gave():
     terminal = ScriptedTerminal(["c", "", "3", "3"])
     given = CORE_DESTS | {"model_policy", "noise_check"}

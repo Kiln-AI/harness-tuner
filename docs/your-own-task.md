@@ -744,7 +744,8 @@ what the build changed, its results on train and on val, and the analyzer's
 findings. A probe shows its question and its evidence. An eval build or a
 measurement shows why the planner added it. Two links open the
 Experiment Graph with the item selected, and Compare its run config with
-its parent's. The panel updates while it is open. Esc closes it.
+its parent's. The panel updates while it is open. Esc, or a click outside
+it, closes it.
 
 **Keys and links:**
 
@@ -765,10 +766,10 @@ the terminal's light or dark background.
 
 **The stop dialog** asks `Stop tuning?` and says what a stop loses, for
 example `4 experiments are in flight. Their work so far is lost, and no report
-is written.` **Keep tuning** has the focus, and Esc also keeps the run going.
-**Stop tuning** does what Ctrl-C does to a run with plain log lines (section
-5.4): the Experiments header shows `Stopping…` until the run has stopped, and
-the exit code is 130.
+is written.` **Keep tuning** has the focus, and Esc or a click outside the
+dialog also keeps the run going. **Stop tuning** does what Ctrl-C does to a
+run with plain log lines (section 5.4): the Experiments header shows
+`Stopping…` until the run has stopped, and the exit code is 130.
 
 **At the end** the Experiments section shows the run summary: how the run
 ended, the time, the spend against the budget, the waves, experiments,

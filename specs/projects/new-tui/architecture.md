@@ -101,6 +101,7 @@ tui/
     startup.py    StartupScreen, ProblemCard, SummaryCard
     prompts.py    ActionMenu, Picker, TextAnswer
     run.py        RunScreen and its sections
+    modal.py      CardModal: a click outside the card does what Esc does (ui_design 4.11)
     stop.py       StopDialog
     details.py    RunModal, DetailsPanel, ExperimentPicker (functional spec 7.9)
   widgets.py      TitleBar, Section, SectionHeader, Card, TierBar, Gauge, Steps,

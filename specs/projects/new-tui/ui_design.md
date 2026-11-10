@@ -122,7 +122,7 @@ A muted time, a glyph colored by meaning (section 5), and plain text. Promotions
 
 ### 4.11 Dialog
 
-A Textual `ModalScreen`: a card centered over a dimmed screen, with a title, the message and buttons. The safe choice has the focus.
+A Textual `ModalScreen`: a card centered over a dimmed screen, with a title, the message and buttons. The safe choice has the focus. A click on the dimmed area outside the card does what Esc does; a click inside never closes it (`CardModal`, every modal).
 
 ### 4.12 Footer
 
@@ -130,7 +130,7 @@ Textual's `Footer`, showing the bindings of the current screen.
 
 ### 4.13 Details modal
 
-The one way to show what does not fit the overview (functional spec 7.9): a `ModalScreen` with a card over the dimmed screen, as 4.11, 100 columns wide at most, in `$panel` with a blue round border. The title is what the panel shows, as on its card. A line at the top and the links at the bottom stay in place; the middle scrolls (at most 65% of the screen's height). Its own `Footer` shows its keys: Esc Close (or Back), ↑↓ Scroll, `q` Stop. A list to pick from (the experiment picker) is an `OptionList` in the same card: headers are disabled rows, the highlighted row is `$border-muted` and bold, so the rows' colors stay readable.
+The one way to show what does not fit the overview (functional spec 7.9): a `ModalScreen` with a card over the dimmed screen, as 4.11, 100 columns wide at most, in `$panel` with a blue round border. The title is what the panel shows, as on its card. A line at the top and the links at the bottom stay in place; the middle scrolls (at most 65% of the screen's height). Its own `Footer` shows its keys: Esc Close (or Back), ↑↓ Scroll, `q` Stop. A click outside the card does what Esc does (4.11); links and scrolling inside keep working. A list to pick from (the experiment picker) is an `OptionList` in the same card: headers are disabled rows, the highlighted row is `$border-muted` and bold, so the rows' colors stay readable.
 
 ## 5. Glyphs
 
@@ -321,7 +321,7 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 ╰─────────────────────────────────────────────────────╯
 ```
 
-"Keep tuning" has the focus. "Stop tuning" is red. Esc closes the dialog.
+"Keep tuning" has the focus. "Stop tuning" is red. Esc, or a click outside the dialog, keeps tuning.
 
 **Stopping:** the dialog closes, and the Experiments header shows "Stopping…" with a spinner until the run is cancelled.
 
@@ -334,9 +334,9 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 | Start-up | The prompt's own keys (functional spec section 5); the footer shows `^c Stop` then `^d Exit` on every part |
 | Run | `e` Experiments (once the run has items), `c` Compare in Kiln, `g` Experiment graph, `r` Report (once it exists), `q` / Ctrl+C stop dialog; mouse wheel and Page Up / Page Down scroll the log or the screen; a click on an experiment card opens its details panel |
 | Done | `e`, `c`, `g`, `r`, `q` / Enter close |
-| Experiment picker | ↑↓ Move, Enter Open, Esc Close, `q` / Ctrl+C stop dialog |
-| Details panel | Esc Close (Back, when opened from the picker), ↑↓ and Page Up / Page Down Scroll, `q` / Ctrl+C stop dialog. On Done, `q` does nothing here |
-| Stop dialog | Tab / arrows move, Enter chooses, Esc keeps tuning |
+| Experiment picker | ↑↓ Move, Enter Open, Esc Close, `q` / Ctrl+C stop dialog; a click on a row opens it, a click outside closes the picker |
+| Details panel | Esc Close (Back, when opened from the picker), ↑↓ and Page Up / Page Down Scroll, `q` / Ctrl+C stop dialog. On Done, `q` does nothing here. A click outside does what Esc does |
+| Stop dialog | Tab / arrows move, Enter chooses, Esc or a click outside keeps tuning |
 
 ## 11. Departures from the mocks
 

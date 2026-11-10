@@ -474,6 +474,15 @@ def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Time", duration_text(answers.timeout_mins))
 
 
+# The last sentence says what a blank answer does, whatever the field holds.
+# With no minimum, the pre-run check never refuses for it
+# (`detectability.assess`).
+MIN_EFFECT_HINT = (
+    "The run stops before spending when no eval can show this change on val."
+    " Optional. Blank means no minimum, and the run does not stop for it."
+)
+
+
 def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:
     def refusal(text: str) -> str | None:
         path = text.strip()
@@ -500,7 +509,7 @@ def _ask_min_effect(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Smallest improvement worth acting on",
         default="" if answers.min_effect is None else number_text(answers.min_effect),
-        hint="The run stops before spending when no eval can show this change on val.",
+        hint=MIN_EFFECT_HINT,
         validate=_refusal(parse),
     )
     answers.min_effect = parse(answer)

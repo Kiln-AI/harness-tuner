@@ -150,6 +150,26 @@ async def test_q_opens_the_stop_dialog_once_and_esc_keeps_running():
         await until(pilot, lambda: closed(app))
 
 
+async def test_a_click_outside_the_stop_dialog_keeps_running():
+    session = make_session(run=FakeRun([RUN_START]))
+    app = make_app(session)
+    async with app.run_test(size=SIZE) as pilot:
+        await running(pilot, session)
+        await pilot.press("q")
+        await until(pilot, lambda: isinstance(app.screen, StopDialog))
+        dialog = app.screen
+        # A click in the dialog, not on a button, leaves it open.
+        await pilot.click(dialog.query_one("#dialog-message"))
+        await pilot.pause()
+        assert app.screen is dialog
+        # Outside it: "Keep tuning", the safe choice, as Esc.
+        await pilot.click(offset=(1, 1))
+        await until(pilot, lambda: isinstance(app.screen, RunScreen))
+        assert not session.run.stopping
+        session.run.stop(signal.SIGTERM)
+        await until(pilot, lambda: closed(app))
+
+
 async def test_stop_the_run_stops_it_as_ctrl_c_does_a_plain_run():
     stopped_by: list[int] = []
     run = FakeRun([RUN_START])

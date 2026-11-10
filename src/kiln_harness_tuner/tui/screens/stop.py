@@ -5,17 +5,17 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Static
 
 from kiln_harness_tuner.tui.model import words
+from kiln_harness_tuner.tui.screens.modal import CardModal
 from kiln_harness_tuner.tui.widgets import Card
 
 
-class StopDialog(ModalScreen[bool]):
+class StopDialog(CardModal[bool]):
     """ "Stop tuning?" over the dimmed run screen, with what is lost.
-    "Keep tuning", the safe choice, has the focus. Esc keeps tuning. The
-    result is True for "Stop tuning"."""
+    "Keep tuning", the safe choice, has the focus. Esc, or a click outside
+    the dialog, keeps tuning. The result is True for "Stop tuning"."""
 
     BINDINGS = [
         Binding("escape", "keep", words.KEEP_TUNING),

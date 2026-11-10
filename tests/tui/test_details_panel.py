@@ -7,6 +7,7 @@ import signal
 from app_fakes import until
 from model_events import Run, fix, probe, row
 from run_screen import done, on_screen, running, text, title_of, wave_one
+from textual import events
 from textual.color import Color
 from textual.widgets import Button
 
@@ -347,3 +348,89 @@ async def test_a_panel_that_cannot_show_its_item_leaves_the_app_open(monkeypatch
         await opened(pilot, DetailsPanel)
         assert harness.app.crash is None
         assert not closed(harness.app)
+
+
+# ---- a click outside closes a modal, as its Esc does ----
+
+# The top-left corner: the dimmed area outside every modal's card.
+OUTSIDE = (1, 1)
+
+
+async def test_a_click_outside_the_panel_closes_it_and_one_inside_does_not():
+    run = running()
+    async with on_screen(run) as (harness, pilot):
+        app = harness.app
+        app.show_item((0, "w1-3"))
+        panel = await opened(pilot, DetailsPanel)
+        await pilot.click(panel.status)
+        await pilot.click(panel.query_one("#details"))
+        await pilot.pause()
+        assert app.screen is panel
+        await pilot.click(offset=OUTSIDE)
+        await until(pilot, lambda: isinstance(app.screen, RunScreen))
+        # A click outside closed it: it opened nothing below it.
+        assert harness.opened == []
+
+
+async def test_the_second_click_of_a_double_click_leaves_the_panel_open():
+    # A double click on a card outside the panel's box: the first click
+    # opens the panel, and the second lands on its dimmed area, chain 2.
+    async with on_screen(running()) as (harness, pilot):
+        app = harness.app
+        app.show_item((0, "w1-1"))
+        panel = await opened(pilot, DetailsPanel)
+        x, y = OUTSIDE
+        panel.post_message(
+            events.Click(
+                panel,
+                x,
+                y,
+                0,
+                0,
+                1,
+                False,
+                False,
+                False,
+                screen_x=x,
+                screen_y=y,
+                chain=2,
+            )
+        )
+        await pilot.pause()
+        assert app.screen is panel
+
+
+async def test_a_click_outside_a_panel_from_the_picker_goes_back_to_it():
+    async with on_screen(running()) as (harness, pilot):
+        app = harness.app
+        app.show_picker()
+        picker = await opened(pilot, ExperimentPicker)
+        await pilot.press("enter")
+        await opened(pilot, DetailsPanel)
+        await pilot.click(offset=OUTSIDE)
+        await until(pilot, lambda: app.screen is picker)
+
+
+async def test_a_click_outside_the_picker_closes_it_and_one_inside_does_not():
+    async with on_screen(running()) as (harness, pilot):
+        app = harness.app
+        app.show_picker()
+        picker = await opened(pilot, ExperimentPicker)
+        # Its frame, and a header row: no item, and it stays open.
+        await pilot.click(picker.query_one("#picker"))
+        await pilot.click(picker.options, offset=(2, 0))
+        await pilot.pause()
+        assert app.screen is picker
+        await pilot.click(offset=OUTSIDE)
+        await until(pilot, lambda: isinstance(app.screen, RunScreen))
+
+
+async def test_a_click_on_a_picker_row_opens_its_item():
+    async with on_screen(running()) as (harness, pilot):
+        app = harness.app
+        app.show_picker()
+        picker = await opened(pilot, ExperimentPicker)
+        # The rows start under the "WAVE 1" header.
+        await pilot.click(picker.options, offset=(2, 2))
+        panel = await opened(pilot, DetailsPanel)
+        assert panel.key == (0, "w1-2") and panel.from_picker

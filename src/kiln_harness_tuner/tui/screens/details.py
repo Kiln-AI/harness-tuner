@@ -5,8 +5,9 @@ Details that do not fit the overview open in a modal panel over the run
 screen. The app shows the run model on every open panel as it does on the
 run screen (`TunerApp._refresh`), so a panel updates live and keeps its
 scroll position. Esc closes the panel, or goes back to the picker it was
-opened from; Esc closes the picker. `q` and Ctrl+C open the stop dialog on
-top, as on the run screen.
+opened from; Esc closes the picker. A click outside a modal does what its
+Esc does (`CardModal`). `q` and Ctrl+C open the stop dialog on top, as on
+the run screen.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.content import Content
-from textual.screen import ModalScreen
 from textual.widget import Widget
 from textual.widgets import Footer, OptionList, Static
 from textual.widgets.option_list import Option
@@ -35,6 +35,7 @@ from kiln_harness_tuner.tui.model.state import (
     PickerGroup,
     PickerRow,
 )
+from kiln_harness_tuner.tui.screens.modal import CardModal
 from kiln_harness_tuner.tui.widgets import (
     SPIN_SECS,
     SPINS,
@@ -63,7 +64,7 @@ PICKER_TITLE_WIDTH = 44
 STOP_BINDING = Binding("q", "stop", words.STOP_KEY)
 
 
-class RunModal(ModalScreen[None]):
+class RunModal(CardModal[None]):
     """A modal screen over the run screen that shows the run model: first
     once its widgets are mounted, then each time the app shows the run
     (`show`)."""
