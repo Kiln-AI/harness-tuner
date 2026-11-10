@@ -504,24 +504,3 @@ in the design is open.
 
 More techniques will arrive from the owner in small pieces after this
 overview. Integrate them.
-
-## 12. Open points to resolve in the spec
-
-- **Conflict with a working rule.** `AGENTS.md` says that lever advice and
-  what worked in an earlier run never go in `agent_files/`, because every
-  loop agent loads those files and the advice would invalidate what the loop
-  measures. This project puts exactly that kind of knowledge in front of the
-  loop agents. The rule must be revised, with a clear line between general
-  field knowledge (wanted) and measurements from the target or the demo
-  project (still not allowed).
-- **Where the API work lands.** Loop agents reach Kiln only through the
-  typed operations of the loop gateway, not through the generic Kiln API.
-  "Expose the API" therefore means new gateway operations, and for some
-  levers possibly changes in Kiln itself.
-- **How the dated, fast-moving parts are maintained**, above all the model
-  guide: shipped in the package, fetched at run time, or both.
-- **How Mike's question is answered**: whether, and how, we measure that the
-  skill improves convergence.
-- **"JEV"** is kept as spoken. Confirm the name and the Kiln feature it maps
-  to.
-- **Whether Kiln skills support code files** (section 6.2).
