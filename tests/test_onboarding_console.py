@@ -1,13 +1,12 @@
 """The real terminals: `RichTerminal` driven through prompt_toolkit's piped
-input, its output on a captured console, the browser rule, and
-`PlainTerminal`."""
+input, its output on a captured console, and `PlainTerminal`."""
 
 import io
-import sys
 from collections.abc import Iterator
 from contextlib import ExitStack
 
 import pytest
+from conftest import TtyStream
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 from rich.console import Console
@@ -16,9 +15,7 @@ from kiln_harness_tuner.onboarding import console as console_module
 from kiln_harness_tuner.onboarding.console import (
     PlainTerminal,
     RichTerminal,
-    aligned_rows,
     default_terminal,
-    graphical_browser_expected,
 )
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import WELCOME_DESCRIPTION
@@ -147,18 +144,6 @@ def test_pick_starts_on_its_default(keys):
 def test_pick_starts_on_the_first_enabled_row_for_a_disabled_default(keys):
     assert keys(ENTER).pick("Which CLI?", CLIS, default="codex") == "claude"
     assert keys(ENTER).pick("Which CLI?", CLIS, default="nothing") == "claude"
-
-
-def test_pick_rows_are_aligned_across_options():
-    assert aligned_rows(PROJECTS) == [
-        "Forum Moderation   424242975950   ~/Kiln Projects/Forum",
-        "Support Triage     118230554411   ~/Kiln Projects/Support",
-        "Spam               731954460212",
-    ]
-    assert aligned_rows([Option(1, "a"), Option(2, "bb", ("x",))]) == [
-        "a",
-        "bb   x",
-    ]
 
 
 # ---- act ----
@@ -379,28 +364,6 @@ def test_busy_prints_nothing_on_a_console_that_isnt_a_terminal():
 # ---- opening a page ----
 
 
-@pytest.mark.parametrize(
-    "platform,env,expected",
-    [
-        ("darwin", {}, True),
-        ("win32", {}, True),
-        ("linux", {"DISPLAY": ":0"}, True),
-        ("linux", {"WAYLAND_DISPLAY": "wayland-0"}, True),
-        ("linux", {}, False),
-        ("linux", {"DISPLAY": ""}, False),
-    ],
-)
-def test_a_graphical_browser_is_expected_only_where_one_can_show(
-    monkeypatch, platform, env, expected
-):
-    monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.delenv("DISPLAY", raising=False)
-    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
-    for name, value in env.items():
-        monkeypatch.setenv(name, value)
-    assert graphical_browser_expected() is expected
-
-
 def test_open_url_prints_the_link_then_opens_the_browser(monkeypatch):
     opened = []
     monkeypatch.setattr(console_module, "graphical_browser_expected", lambda: True)
@@ -459,15 +422,6 @@ def test_plain_terminal_never_asks(call):
 # ---- the guided rule ----
 
 
-class Stream(io.StringIO):
-    def __init__(self, tty: bool):
-        super().__init__()
-        self.tty = tty
-
-    def isatty(self) -> bool:
-        return self.tty
-
-
 @pytest.mark.parametrize(
     "stdin_tty,stdout_tty,no_interaction,guided",
     [
@@ -480,8 +434,8 @@ class Stream(io.StringIO):
 def test_the_start_is_guided_only_with_two_terminals_and_no_flag(
     monkeypatch, stdin_tty, stdout_tty, no_interaction, guided
 ):
-    monkeypatch.setattr("sys.stdin", Stream(stdin_tty))
-    monkeypatch.setattr("sys.stdout", Stream(stdout_tty))
+    monkeypatch.setattr("sys.stdin", TtyStream(stdin_tty))
+    monkeypatch.setattr("sys.stdout", TtyStream(stdout_tty))
     terminal = default_terminal(PROG, no_interaction=no_interaction)
     assert isinstance(terminal, RichTerminal if guided else PlainTerminal)
     assert terminal.interactive is guided
@@ -489,5 +443,5 @@ def test_the_start_is_guided_only_with_two_terminals_and_no_flag(
 
 def test_the_start_isnt_guided_without_stdin(monkeypatch):
     monkeypatch.setattr("sys.stdin", None)
-    monkeypatch.setattr("sys.stdout", Stream(True))
+    monkeypatch.setattr("sys.stdout", TtyStream(True))
     assert isinstance(default_terminal(PROG, no_interaction=False), PlainTerminal)

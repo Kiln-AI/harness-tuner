@@ -3,7 +3,9 @@
 The `Terminal` protocol is the one surface the checks talk through:
 `console.py` has the guided terminal and the plain one, and the tests a
 scripted one. A failed check is a `Problem`, and `resolve_problem` is the
-one loop that shows it, offers what to do, and runs the check again.
+one loop that shows it, offers what to do, and runs the check again. The
+rules every guided terminal draws a picker by (`aligned_rows`, `PICK_HINT`)
+are here too, so each one draws the same rows.
 """
 
 from __future__ import annotations
@@ -13,7 +15,9 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Generic, Literal, Protocol, TypeVar
+from typing import Any, Generic, Literal, Protocol, TypeVar
+
+from rich.cells import cell_len
 
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 
@@ -22,6 +26,9 @@ T = TypeVar("T")
 StepStatus = Literal["ok", "fail", "warn"]
 
 WHAT_NEXT = "What next?"
+# What a picker says under its question when the question gives no hint.
+PICK_HINT = "↑↓ move · type to filter · Enter pick"
+COLUMN_GAP = "   "
 
 
 @dataclass(frozen=True)
@@ -33,6 +40,22 @@ class Option(Generic[T]):
     columns: tuple[str, ...] = ()
     description: str | None = None  # shown under the highlighted row
     disabled: str | None = None  # why it can't be picked, shown dimmed
+
+
+def aligned_rows(options: Sequence[Option[Any]]) -> list[str]:
+    """Each option's label and columns, every column padded to its widest
+    cell, so the rows line up."""
+    cells = [(option.label, *option.columns) for option in options]
+    widths = [0] * max(len(row) for row in cells)
+    for row in cells:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], cell_len(cell))
+    return [
+        COLUMN_GAP.join(
+            cell + " " * (widths[i] - cell_len(cell)) for i, cell in enumerate(row)
+        ).rstrip()
+        for row in cells
+    ]
 
 
 class ActionKind(Enum):
@@ -96,7 +119,8 @@ class Terminal(Protocol):
         hint: str | None = None,
         default: T | None = None,
     ) -> T:
-        """One option's value. The cursor starts on `default`'s option, else
+        """One option's value. The rows are `aligned_rows`, and `hint`
+        replaces `PICK_HINT`. The cursor starts on `default`'s option, else
         on the first one that can be picked. Ctrl-C raises
         `OnboardingStopped(130)`, and Ctrl-D `OnboardingStopped(1)`, as at
         every prompt."""

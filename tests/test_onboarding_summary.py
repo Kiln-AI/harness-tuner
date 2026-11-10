@@ -36,7 +36,7 @@ SELECTION = Selection(
     project_picked=True,
     task_picked=True,
 )
-BASELINE = Baseline("Baseline", "deepseek_4_1_flash_1017", "Fireworks AI")
+BASELINE = Baseline("Baseline", "deepseek_4_1_flash_1017", "Fireworks AI", "rc_1")
 
 
 def answers(**changes) -> Answers:
@@ -269,8 +269,8 @@ def test_with_no_baseline_the_starts_from_line_is_left_out():
 @pytest.mark.parametrize(
     ("baseline", "text"),
     [
-        (Baseline("MCP", None, None), 'run config "MCP"'),
-        (Baseline("B", "m", None), 'run config "B": m'),
+        (Baseline("MCP", None, None, "rc_2"), 'run config "MCP"'),
+        (Baseline("B", "m", None, "rc_3"), 'run config "B": m'),
     ],
 )
 def test_a_baseline_with_no_model_or_provider_says_what_it_has(baseline, text):

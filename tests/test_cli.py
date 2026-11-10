@@ -2,12 +2,16 @@
 orchestrator (monkeypatched — no live Kiln)."""
 
 import argparse
+import asyncio
 import io
 import json
+import signal
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import TtyStream
 from rich.console import Console
 
 import kiln_harness_tuner.cli
@@ -19,7 +23,10 @@ from kiln_harness_tuner.cli import (
     PROG,
     ConfigRenderError,
     RunLockError,
+    _finish,
+    _run_with_signals,
     build_parser,
+    display_mode,
     load_model_policy,
     main,
     render_run_configs,
@@ -38,6 +45,7 @@ from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.demo import demo_fence_root
+from kiln_harness_tuner.onboarding.error_screen import RunProgress
 from kiln_harness_tuner.onboarding.summary import OptionInfo
 from kiln_harness_tuner.paths import StatePaths
 from kiln_harness_tuner.quarantine import QuarantineError
@@ -50,6 +58,7 @@ from kiln_harness_tuner.setup import (
     SetupPreconditionError,
     no_run_configs_message,
 )
+from kiln_harness_tuner.status import RunStatusTracker
 from kiln_harness_tuner.ui import PlainUi
 from kiln_harness_tuner.wave_log import FanoutLog
 
@@ -357,7 +366,7 @@ def test_main_runs_the_start_up_checks_before_the_run(monkeypatch, capsys):
         seen["returned"] = returned
         return returned
 
-    async def fake_run(args):
+    async def fake_run(args, **_kwargs):
         seen["run"] = args
         return "wrap_up"
 
@@ -383,7 +392,7 @@ def test_main_hands_the_start_up_the_command_line_as_typed(monkeypatch):
         seen["argv"] = argv
         return args
 
-    async def fake_run(args):
+    async def fake_run(args, **_kwargs):
         return "wrap_up"
 
     monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", fake_prepare_start)
@@ -394,7 +403,7 @@ def test_main_hands_the_start_up_the_command_line_as_typed(monkeypatch):
 
 
 def _never_run(seen):
-    async def fake_run(args):
+    async def fake_run(args, **_kwargs):
         seen.append(args)
         return "unreachable"
 
@@ -462,7 +471,7 @@ JINJA_BODY = (
 
 
 def test_main_shows_a_kiln_error_before_the_run_with_nothing_spent(monkeypatch, capsys):
-    async def fails(args):
+    async def fails(args, **_kwargs):
         raise JINJA_ERROR
 
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails)
@@ -528,7 +537,7 @@ def test_each_run_starts_with_nothing_spent(monkeypatch, capsys, tmp_path):
     assert main(ARGS) == 1
     assert "Run folder:" in capsys.readouterr().err
 
-    async def fails_at_once(args):
+    async def fails_at_once(args, **_kwargs):
         raise JINJA_ERROR
 
     monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fails_at_once)
@@ -702,6 +711,166 @@ def test_no_progress_gives_the_plain_display_on_a_terminal(
     )
     assert main(ARGS + flags) == 0
     assert built == [display]
+
+
+@pytest.fixture
+def fresh_progress(monkeypatch):
+    """How far the invocation got, for a test that drives the run or the
+    finish without `main`, which resets it."""
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_RUN_PROGRESS", RunProgress())
+
+
+class RecordedDisplay:
+    """A display a test hands the run: it records what reaches it, and the
+    exit reason the run's tracker held when the `exit` event did."""
+
+    def __init__(self, tracker, console):
+        self.tracker, self.console = tracker, console
+        self.kinds: list[str] = []
+        self.exit_reason_seen = None
+        self.open = False
+
+    def event(self, kind, **fields):
+        assert self.open
+        self.kinds.append(kind)
+        if kind == "exit":
+            self.exit_reason_seen = self.tracker.snapshot().exit_reason
+
+    def __enter__(self):
+        self.open = True
+        return self
+
+    def __exit__(self, *_exc):
+        self.open = False
+
+
+def test_the_run_shows_its_events_on_the_display_it_is_given(
+    monkeypatch, fresh_progress
+):
+    displays: list[RecordedDisplay] = []
+
+    def display(tracker, console):
+        displays.append(RecordedDisplay(tracker, console))
+        return displays[-1]
+
+    def neither(*_args, **_kwargs):
+        raise AssertionError("the run built its own display")
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        ctx.log.event("exit", reason="wrap_up")
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "LiveUi", neither)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "PlainUi", neither)
+    args = build_parser().parse_args(ARGS)
+    assert asyncio.run(_run_with_signals(args, display=display)) == "wrap_up"
+    (shown,) = displays
+    assert isinstance(shown.tracker, RunStatusTracker)
+    assert isinstance(shown.console, Console)
+    assert shown.kinds == ["exit"]
+    # The run's tracker is before the display in the fan-out.
+    assert shown.exit_reason_seen == "wrap_up"
+    assert not shown.open
+
+
+def test_on_started_gets_the_run_loop_and_task_before_the_run(monkeypatch):
+    stopped_by: list[int] = []
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_stopped_by", stopped_by)
+    stopped_by.append(signal.SIGTERM)  # an earlier run's stop
+    seen = {}
+
+    def on_started(loop, task):
+        seen["started"] = (loop, task)
+        # What the app does on a stop key: it records the signal itself.
+        stopped_by.append(signal.SIGINT)
+
+    async def fake_run(args, *, display):
+        seen["run"] = (asyncio.get_running_loop(), asyncio.current_task())
+        seen["display"] = display
+        seen["stopped_by"] = list(stopped_by)
+        return "wrap_up"
+
+    def display(tracker, console):
+        raise AssertionError("only `_run` builds the display")
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
+    args = build_parser().parse_args(ARGS)
+    run = _run_with_signals(args, display=display, on_started=on_started)
+    assert asyncio.run(run) == "wrap_up"
+    assert seen["started"] == seen["run"]
+    assert seen["display"] is display
+    assert seen["stopped_by"] == [signal.SIGINT]
+
+
+def test_the_plain_path_never_imports_textual():
+    """The start-up imports `tui.opener`; the app's own modules load Textual
+    only when the app runs."""
+    loaded = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, kiln_harness_tuner.cli, kiln_harness_tuner.tui.opener;"
+            " print(sorted(m for m in sys.modules if m.split('.')[0] == 'textual'))",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert loaded.stdout == "[]\n"
+
+
+@pytest.mark.parametrize(
+    ("stdin_tty", "stdout_tty", "flags", "mode"),
+    [
+        (True, True, [], "app"),
+        (True, True, ["--no-interaction"], "app"),
+        (True, True, ["--no-progress"], "app_startup"),
+        (True, True, ["--no-interaction", "--no-progress"], "plain"),
+        (False, True, [], "plain"),
+        (True, False, [], "plain"),
+        (None, True, [], "plain"),
+    ],
+)
+def test_display_mode_needs_two_terminals_and_something_to_show(
+    monkeypatch, stdin_tty, stdout_tty, flags, mode
+):
+    stdin = None if stdin_tty is None else TtyStream(stdin_tty)
+    monkeypatch.setattr("sys.stdin", stdin)
+    monkeypatch.setattr("sys.stdout", TtyStream(stdout_tty))
+    assert display_mode(build_parser().parse_args(ARGS + flags)) == mode
+
+
+def test_finish_prints_the_finish_line_for_a_body_that_returns(capsys, fresh_progress):
+    assert _finish(lambda: "reports/r.md", kiln_host="http://h") == 0
+    assert (
+        capsys.readouterr().out
+        == "harness-tuner: run finished — report: reports/r.md\n"
+    )
+
+
+def test_finish_ends_a_run_cancelled_after_a_recorded_sigint_with_130(
+    monkeypatch, capsys, fresh_progress
+):
+    """The cancel a display on another thread makes: it records SIGINT,
+    then cancels the run's task."""
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_stopped_by", [signal.SIGINT])
+
+    def cancelled() -> str:
+        raise asyncio.CancelledError
+
+    assert _finish(cancelled, kiln_host="http://h") == 130
+    assert capsys.readouterr().err == (
+        "harness-tuner: interrupted (SIGINT) — children killed, lock released\n"
+    )
+
+
+def test_finish_names_the_kiln_host_it_is_given(capsys, fresh_progress):
+    def lost() -> str:
+        raise KilnTransportError("GET /ping failed after 4 attempts")
+
+    assert _finish(lost, kiln_host="http://localhost:9999") == 1
+    assert "Is Kiln still running at http://localhost:9999?" in capsys.readouterr().err
 
 
 def test_main_missing_baseline_prints_instructive_error(monkeypatch, capsys, tmp_path):
@@ -1554,7 +1723,7 @@ class TestSigterm:
 
         seen: list[str] = []
 
-        async def fake_run(args):
+        async def fake_run(args, **_kwargs):
             seen.append("started")
             try:
                 os.kill(os.getpid(), signal.SIGTERM)
@@ -1586,7 +1755,7 @@ class TestSigterm:
 
         seen: list[str] = []
 
-        async def fake_run(args):
+        async def fake_run(args, **_kwargs):
             try:
                 os.kill(os.getpid(), signal.SIGHUP)
                 await asyncio.sleep(5)

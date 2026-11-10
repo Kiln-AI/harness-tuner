@@ -8,7 +8,6 @@ running, which is why the start-up flow is synchronous.
 
 from __future__ import annotations
 
-import os
 import string
 import sys
 import webbrowser
@@ -23,7 +22,6 @@ from prompt_toolkit.keys import Keys
 from prompt_toolkit.output import Output
 from questionary.prompts.common import InquirerControl
 from rich.box import ROUNDED
-from rich.cells import cell_len
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
@@ -32,11 +30,14 @@ from rich.text import Text
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
+    PICK_HINT,
     Action,
     Option,
     StepStatus,
     Terminal,
+    aligned_rows,
 )
+from kiln_harness_tuner.tui.opener import graphical_browser_expected
 
 T = TypeVar("T")
 
@@ -44,38 +45,11 @@ T = TypeVar("T")
 KILN_BLUE = "#415CF5"
 WELCOME_MAX_WIDTH = 68
 LABEL_WIDTH = 9
-COLUMN_GAP = "   "
-PICK_HINT = "↑↓ move · type to filter · Enter pick"
 SYMBOLS: dict[StepStatus, tuple[str, str]] = {
     "ok": ("✓", "green"),
     "fail": ("✗", "red"),
     "warn": ("!", "yellow"),
 }
-
-
-def graphical_browser_expected() -> bool:
-    """Whether a browser opened from here shows a window. Elsewhere, such as
-    an SSH session, Python's `webbrowser` can start a console browser in the
-    foreground, which hides the address until it is quit."""
-    if sys.platform in ("darwin", "win32"):
-        return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-
-
-def aligned_rows(options: Sequence[Option[Any]]) -> list[str]:
-    """Each option's label and columns, every column padded to its widest
-    cell, so the rows line up."""
-    cells = [(option.label, *option.columns) for option in options]
-    widths = [0] * max(len(row) for row in cells)
-    for row in cells:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], cell_len(cell))
-    return [
-        COLUMN_GAP.join(
-            cell + " " * (widths[i] - cell_len(cell)) for i, cell in enumerate(row)
-        ).rstrip()
-        for row in cells
-    ]
 
 
 def _key_name(action: Action) -> str:

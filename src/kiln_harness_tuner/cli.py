@@ -22,11 +22,12 @@ import os
 import shutil
 import signal
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import Any, Literal, Protocol, TextIO
 
 from rich.console import Console
 
@@ -102,6 +103,7 @@ from kiln_harness_tuner.onboarding.summary import OptionInfo
 from kiln_harness_tuner.orchestrator import (
     DEFAULT_COVERAGE_FLOOR,
     Ctx,
+    EventLog,
     SpendMeter,
     orchestrate,
 )
@@ -1179,7 +1181,29 @@ def _acquire_run_lock(
 _RUN_PROGRESS = RunProgress()
 
 
-async def _run(args: argparse.Namespace) -> str:
+class RunDisplay(EventLog, Protocol):
+    """What a run shows its events on: an EventLog, last in the fan-out, and
+    a context manager entered for as long as the wave log is open."""
+
+    def __enter__(self) -> object: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None: ...
+
+
+# Builds the run's display from the run's own tracker and a stdout console.
+DisplayFactory = Callable[[RunStatusTracker, Console], RunDisplay]
+# Gets the run's event loop and its main task, as the run starts.
+RunStarted = Callable[[asyncio.AbstractEventLoop, asyncio.Task[Any]], None]
+
+
+async def _run(
+    args: argparse.Namespace, *, display: DisplayFactory | None = None
+) -> str:
     try:
         agent_cli = parse_agent_cli(args.agent_cli)
     except ValueError as exc:
@@ -1305,12 +1329,14 @@ async def _run(args: argparse.Namespace) -> str:
                 agent_cli=agent_cli.kind,
             )
             console = Console()
-            # --no-progress (and CI / non-TTY) falls back to plain log lines.
-            ui = (
-                LiveUi(tracker, console=console)
-                if not args.no_progress and console.is_terminal
-                else PlainUi(tracker, console=console)
-            )
+            ui: RunDisplay
+            if display is not None:
+                ui = display(tracker, console)
+            elif not args.no_progress and console.is_terminal:
+                ui = LiveUi(tracker, console=console)
+            else:
+                # --no-progress (and CI / non-TTY) falls back to plain log lines.
+                ui = PlainUi(tracker, console=console)
             with WaveLog(run_dir / "wave_log.jsonl") as wave_log, ui:
                 # Tracker before UI: renders always see post-update snapshots.
                 # The spend meter rides the same fan-out (budget enforcement).
@@ -1347,17 +1373,29 @@ STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 _stopped_by: list[int] = []
 
 
-async def _run_with_signals(args: argparse.Namespace) -> str:
+async def _run_with_signals(
+    args: argparse.Namespace,
+    *,
+    display: DisplayFactory | None = None,
+    on_started: RunStarted | None = None,
+) -> str:
     """`_run`, with SIGTERM and SIGHUP handled like Ctrl-C: cancel the main
     task so every `finally` runs — children killed by group, server jobs
     cancelled, the lock released, the `exit` event and fallback report
     written. Without this a `kill`, `timeout(1)`, service stop or closed
     terminal terminated Python outright and left every `claude -p` child
-    running to its own 30-minute cap."""
+    running to its own 30-minute cap.
+
+    `display` goes to `_run`. `on_started` gets the run's loop and main task
+    before the run starts, for a caller on another thread that must cancel
+    it: off the main thread no signal handler installs, so that caller
+    records the signal in `_stopped_by` and cancels the task itself."""
     loop = asyncio.get_running_loop()
     task = asyncio.current_task()
     installed: list[int] = []
     _stopped_by.clear()
+    if on_started is not None and task is not None:
+        on_started(loop, task)
 
     def on_stop(signum: int) -> None:
         # One shot: a second signal during teardown must
@@ -1376,7 +1414,7 @@ async def _run_with_signals(args: argparse.Namespace) -> str:
                 loop.add_signal_handler(sig, on_stop, sig)
                 installed.append(sig)
     try:
-        return await _run(args)
+        return await _run(args, display=display)
     finally:
         for sig in installed:
             with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):
@@ -1445,22 +1483,50 @@ def _print_run_folder() -> None:
         print(f"{PROG}: run folder: {_RUN_PROGRESS.run_dir}", file=sys.stderr)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    global _RUN_PROGRESS
-    _RUN_PROGRESS = RunProgress()
-    parser = build_parser()
-    raw_argv = sys.argv[1:] if argv is None else list(argv)
-    args = parser.parse_args(raw_argv)
-    validate_args(parser, args)
+# What shows an invocation: plain lines, the app for the start only, or the
+# app for the start and the run.
+DisplayMode = Literal["plain", "app_startup", "app"]
+
+
+def _is_terminal(stream: TextIO | None) -> bool:
+    return stream is not None and stream.isatty()
+
+
+def display_mode(args: argparse.Namespace) -> DisplayMode:
+    """What shows this invocation. The app reads its keys from stdin and
+    draws on stdout, so it needs a terminal on both. With `--no-interaction`
+    and `--no-progress` together it has nothing to show. With
+    `--no-progress` alone it shows the start only.
+
+    Call it before the app starts: while the app runs, its capture of
+    stdout and stderr says True to `isatty()`."""
+    if not (_is_terminal(sys.stdin) and _is_terminal(sys.stdout)):
+        return "plain"
+    if args.no_interaction and args.no_progress:
+        return "plain"
+    return "app_startup" if args.no_progress else "app"
+
+
+def _plain_body(args: argparse.Namespace, raw_argv: list[str], parser: _Parser) -> str:
+    """The start and the run on this thread, each with the terminal and the
+    display it picks for itself. Returns the report path."""
+    args = prepare_start(
+        args,
+        raw_argv,
+        prog=PROG,
+        option_dests=parser.option_dests,
+        policy_loader=load_model_policy,
+    )
+    return asyncio.run(_run_with_signals(args))
+
+
+def _finish(body: Callable[[], str], *, kiln_host: str) -> int:
+    """Run `body` (the start and the run, which returns the report path) and
+    turn how it ends into the exit code, with its last lines: the stop, the
+    error screen, the interrupted line, or the finish line. `kiln_host` is
+    `--kiln-host`, which the error screen names for a lost connection."""
     try:
-        args = prepare_start(
-            args,
-            raw_argv,
-            prog=PROG,
-            option_dests=parser.option_dests,
-            policy_loader=load_model_policy,
-        )
-        result = asyncio.run(_run_with_signals(args))
+        result = body()
     except OnboardingStopped as stop:
         print(f"{PROG}: stopped.", file=sys.stderr)
         return stop.exit_code
@@ -1489,13 +1555,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SHOWN_ERRORS as exc:
         show_error(
             title_for(exc),
-            error_body(exc, host=args.kiln_host),
+            error_body(exc, host=kiln_host),
             ending_lines(_RUN_PROGRESS),
             prog=PROG,
         )
         return 1
     print(f"{PROG}: run finished — report: {result}")
     return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    global _RUN_PROGRESS
+    _RUN_PROGRESS = RunProgress()
+    parser = build_parser()
+    raw_argv = sys.argv[1:] if argv is None else list(argv)
+    args = parser.parse_args(raw_argv)
+    validate_args(parser, args)
+    return _finish(
+        lambda: _plain_body(args, raw_argv, parser), kiln_host=args.kiln_host
+    )
 
 
 if __name__ == "__main__":

@@ -80,6 +80,20 @@ WELCOME_DESCRIPTION = (
 )
 
 
+@dataclass(frozen=True)
+class StartReport:
+    """What a start chose and last said, for a display that keeps it after
+    the start's own lines are gone: the names the run is about, its
+    baseline run config, and the summary and the rerun command."""
+
+    project_name: str
+    task_name: str
+    baseline_rc_id: str | None  # None when the key check found no baseline
+    baseline_name: str | None
+    summary: str
+    rerun: str | None  # None when the start isn't guided: it says none
+
+
 class KilnRunner(Protocol):
     """Runs one batch of Kiln reads to completion and returns its result.
 
@@ -113,6 +127,7 @@ def prepare_start(
     runner: KilnRunner | None = None,
     home: Path | None = None,
     which: Callable[[str], str | None] = shutil.which,
+    report: Callable[[StartReport], None] | None = None,
 ) -> argparse.Namespace:
     """Check that Kiln answers and is new enough, make and import a copy of
     the demo when `args.demo_project` asks for one, choose the project and
@@ -134,6 +149,8 @@ def prepare_start(
     runs; it is cli's, so a bad file reads the same here as in the run. The
     demo's copies go in `home`'s `Kiln Projects/` folder; `home` is
     `Path.home()` by default. `which` finds the agent CLIs on PATH.
+    `report`, when given, gets the `StartReport` once, just before the
+    start returns, and never when it stops or fails.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
     guided, or an unknown ID); a guided start has shown it already, and
@@ -183,6 +200,20 @@ def prepare_start(
         else:
             terminal.say(summary())
         answers.apply(args)
+        if report is not None:
+            # Nothing they read changes after the last say, so the closures
+            # give the texts as the terminal last showed them.
+            baseline = keys.baseline
+            report(
+                StartReport(
+                    project_name=selection.project.name,
+                    task_name=selection.task.name,
+                    baseline_rc_id=None if baseline is None else baseline.rc_id,
+                    baseline_name=None if baseline is None else baseline.name,
+                    summary=summary(),
+                    rerun=rerun() if terminal.interactive else None,
+                )
+            )
         return args
     except OnboardingError as error:
         if terminal.interactive:

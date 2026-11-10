@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from types import TracebackType
 
@@ -381,6 +381,21 @@ def totals_text(status: RunStatus) -> str:
     if status.time_remaining_known:
         text += f" · {_fmt_duration(status.time_remaining_secs)} left"
     return text
+
+
+def totals_suffix(status: RunStatus) -> str:
+    """The plain-mode totals: the same numbers LiveUi pins, read at event
+    time (no ticking without a live region), on the two lines a reader
+    scans for run state — each wave's end and the exit."""
+    return f" — total {totals_text(status)}"
+
+
+def plain_exit_line(fields: Mapping[str, object], status: RunStatus) -> str:
+    """`PlainUi`'s line for the `exit` event, without its timestamp. The
+    totals keep moving after `exit` (the clock, and the report writer's
+    spend), so a caller builds the line from a snapshot taken while it
+    handles that event, as `PlainUi` does."""
+    return f"exit: {fields.get('reason')}{totals_suffix(status)}"
 
 
 def _fmt_tokens(count: int) -> str:
@@ -911,12 +926,6 @@ class PlainUi:
         stamp = self._now().strftime("%H:%M:%S")
         self._console.print(f"[{stamp}] {text}", markup=False, highlight=False)
 
-    def _totals_suffix(self) -> str:
-        """The plain-mode totals: the same numbers LiveUi pins, read at event
-        time (no ticking without a live region), on the two lines a reader
-        scans for run state — each wave's end and the exit."""
-        return f" — total {totals_text(self._tracker.snapshot())}"
-
     def event(self, kind: str, **fields: object) -> None:
         if kind == "run_start":
             self._print(
@@ -947,7 +956,8 @@ class PlainUi:
             self._print(memory_write_failed_line(fields))
         elif kind == "wave_end":
             what = "probes done" if fields.get("probe_phase") else "done"
-            self._print(f"wave {fields.get('wave')} {what}{self._totals_suffix()}")
+            totals = totals_suffix(self._tracker.snapshot())
+            self._print(f"wave {fields.get('wave')} {what}{totals}")
         elif kind == "wave_start":
             self._print(
                 f"wave {fields.get('wave')}: {fields.get('plan_headline')}"
@@ -987,6 +997,6 @@ class PlainUi:
                 f" {fields.get('failed')}× {fields.get('error_class')}"
             )
         elif kind == "exit":
-            self._print(f"exit: {fields.get('reason')}{self._totals_suffix()}")
+            self._print(plain_exit_line(fields, self._tracker.snapshot()))
         elif kind == "report_written":
             self._print(f"report: {fields.get('path')}")

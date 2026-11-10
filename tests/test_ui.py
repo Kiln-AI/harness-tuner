@@ -33,6 +33,7 @@ from kiln_harness_tuner.ui import (
     memory_write_failed_line,
     outcome_cell,
     phase_done_line,
+    plain_exit_line,
     progress_bar,
     render_active_wave,
     render_header,
@@ -899,6 +900,25 @@ def test_plain_ui_prints_one_line_per_event():
     assert "report: reports/kiln-harness-tuner-x.md" in lines[17]
     assert len(lines) == 18
     assert sum("total $" in line for line in lines) == 2
+
+
+def test_plain_exit_line_is_the_plain_ui_exit_line():
+    status = run_status(elapsed_secs=2483.0, time_remaining_known=True)
+    assert plain_exit_line({"reason": "wrap_up"}, status) == (
+        "exit: wrap_up — total $14.20 · 41m23s elapsed · 1h42m left"
+    )
+    console, out = capture_console()
+    clock = ManualClock()
+    tracker = make_tracker(clock)
+    with PlainUi(tracker, console=console, now=lambda: datetime(2026, 7, 30)) as ui:
+        tracker.event("run_start", timeout_mins=180, deadline=10_800.0)
+        tracker.event("spend", cost_usd=1.5, source="planner", lane="provider")
+        clock.t = 600.0
+        tracker.event("exit", reason="tripwire")
+        expected = plain_exit_line({"reason": "tripwire"}, tracker.snapshot())
+        ui.event("exit", reason="tripwire")
+    assert out.getvalue() == f"[00:00:00] {expected}\n"
+    assert expected.startswith("exit: tripwire — total $1.50 (")
 
 
 def test_change_lines_render_summary_changes_unchanged_and_check():

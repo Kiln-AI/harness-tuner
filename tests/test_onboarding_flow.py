@@ -40,7 +40,11 @@ from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.model_policy import ModelPolicy, Rule
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE, IMPORT_PATH
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
-from kiln_harness_tuner.onboarding.flow import CHANGE_QUESTION, prepare_start
+from kiln_harness_tuner.onboarding.flow import (
+    CHANGE_QUESTION,
+    StartReport,
+    prepare_start,
+)
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING
 
 SUPPORT = project("118230554411", "Support Triage", "/kiln-projects/Support Triage")
@@ -103,6 +107,7 @@ def start(
     policy_loader=load_model_policy,
     home=None,
     which=every_cli,
+    report=None,
 ):
     parser = build_parser()
     return prepare_start(
@@ -115,6 +120,7 @@ def start(
         runner=runner_for(kiln),
         home=home,
         which=which,
+        report=report,
     )
 
 
@@ -129,6 +135,11 @@ def start_answered(kiln: RouteKiln, terminal: ScriptedTerminal, argv: list[str],
 
 def summaries(terminal: ScriptedTerminal) -> list[str]:
     return [text for text in terminal.out if text.startswith("\nReady to start")]
+
+
+def rerun_texts(terminal: ScriptedTerminal) -> list[str]:
+    """Each rerun command said, with its heading, as the terminal got it."""
+    return [text for text in terminal.out if text.startswith(f"\n{RERUN_HEADING}\n")]
 
 
 def rerun_commands(terminal: ScriptedTerminal) -> list[str]:
@@ -742,7 +753,8 @@ def test_a_retry_sees_a_new_default_run_config():
     assert 'Starts from  run config "New":' in summaries(terminal)[0]
 
 
-def test_the_summary_leaves_out_starts_from_with_no_baseline_run_config():
+def with_no_baseline_run_config() -> RouteKiln:
+    """`two_projects`, with a baseline record that names no run config."""
     record = {
         "id": "424242000001",
         "tags": ["baseline"],  # names no run config
@@ -756,8 +768,12 @@ def test_the_summary_leaves_out_starts_from_with_no_baseline_run_config():
         "remaining": 0,
     }
     kiln.routes[("GET", f"{memories_path(PROJECT_ID)}/by_ids")] = [record]
+    return kiln
+
+
+def test_the_summary_leaves_out_starts_from_with_no_baseline_run_config():
     terminal = ScriptedTerminal(interactive=False)
-    start(kiln, terminal, EVERY_FLAG)
+    start(with_no_baseline_run_config(), terminal, EVERY_FLAG)
     (summary,) = summaries(terminal)
     assert "Starts from" not in summary
     assert summary.splitlines()[2].startswith("  Task ")
@@ -812,6 +828,75 @@ def test_an_error_is_shown_as_a_block_only_in_a_guided_start(interactive):
     assert error.value.shown is interactive
     expected = [(error.value.title, error.value.body)] if interactive else []
     assert terminal.blocks == expected
+
+
+# ---- the start report ----
+
+
+def test_the_start_report_names_the_choice_and_repeats_the_last_texts():
+    reports: list[StartReport] = []
+    terminal = ScriptedTerminal(
+        ["", "claude", "opus", "50", "12h", "enter", "e", "budget", "$5", "s"]
+    )
+    argv = [*EVERY_FLAG, "--objective", "speed"]
+    start(two_projects(), terminal, argv, report=reports.append)
+    first, last = summaries(terminal)
+    assert first != last  # the change of budget is in the last one only
+    assert reports == [
+        StartReport(
+            project_name="Forum Moderation",
+            task_name="Moderate posts",
+            baseline_rc_id="rc_1",
+            baseline_name="Baseline",
+            summary=last,
+            rerun=rerun_texts(terminal)[-1],
+        )
+    ]
+    assert "--budget-usd 5" in reports[0].rerun
+
+
+def test_the_start_report_of_a_start_that_isnt_guided_has_no_rerun():
+    reports: list[StartReport] = []
+    terminal = ScriptedTerminal(interactive=False)
+    start(two_projects(), terminal, EVERY_FLAG, report=reports.append)
+    assert terminal.out == [DEFAULT_SUMMARY]
+    assert reports == [
+        StartReport(
+            project_name="Forum Moderation",
+            task_name="Moderate posts",
+            baseline_rc_id="rc_1",
+            baseline_name="Baseline",
+            summary=DEFAULT_SUMMARY,
+            rerun=None,
+        )
+    ]
+
+
+def test_the_start_report_with_no_baseline_run_config_names_none():
+    reports: list[StartReport] = []
+    terminal = ScriptedTerminal(interactive=False)
+    start(with_no_baseline_run_config(), terminal, EVERY_FLAG, report=reports.append)
+    (report,) = reports
+    assert (report.baseline_rc_id, report.baseline_name) == (None, None)
+
+
+def test_no_start_report_when_the_start_stops():
+    reports: list[StartReport] = []
+    with pytest.raises(OnboardingStopped):
+        start(
+            two_projects(),
+            ScriptedTerminal(["enter", "x"]),
+            [*EVERY_FLAG, *ANSWERED],
+            report=reports.append,
+        )
+    with pytest.raises(OnboardingError):
+        start(
+            two_projects(),
+            ScriptedTerminal(interactive=False),
+            ["--project-id", "999"],
+            report=reports.append,
+        )
+    assert reports == []
 
 
 # ---- the demo ----
