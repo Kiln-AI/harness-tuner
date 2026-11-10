@@ -78,7 +78,7 @@ DEFAULT_SUMMARY = (
     "  Improve      Quality\n"
     "  Guidance     none\n"
     "  Agents       Claude Code (claude -p) · opus\n"
-    "  Limits       $50.00 · 12 hours\n"
+    "  Limits       $50.00 on the task's model calls · 12 hours\n"
     "  Advanced     defaults"
 )
 
@@ -240,7 +240,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "  Improve      Speed\n"
         '  Guidance     "Keep the output format."\n'
         "  Agents       Codex (codex exec) · gpt-6.1-sol\n"
-        "  Limits       $20.00 · 90 minutes\n"
+        "  Limits       $20.00 on the task's model calls · 90 minutes\n"
         "  Advanced     defaults",
         f"\n{RERUN_HEADING}\n"
         "  kiln-harness-tuner \\\n"
@@ -306,7 +306,9 @@ def test_every_flag_given_and_not_guided_prints_the_steps_and_the_summary():
     )
     assert args.budget_usd is None
     assert terminal.step_lines() == PASSED
-    assert terminal.out == [DEFAULT_SUMMARY.replace("$50.00", "no cap")]
+    assert terminal.out == [
+        DEFAULT_SUMMARY.replace("$50.00 on the task's model calls", "no cap")
+    ]
     assert terminal.asked == []
 
 
@@ -372,9 +374,9 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     assert terminal.asked_about("Time limit (1h, 24h, 45m)").default == "12h"
     limits = [s.splitlines()[-2] for s in summaries(terminal)]
     assert limits == [
-        "  Limits       $50.00 · 12 hours",
-        "  Limits       $5.00 · 12 hours",
-        "  Limits       $5.00 · 3 hours",
+        "  Limits       $50.00 on the task's model calls · 12 hours",
+        "  Limits       $5.00 on the task's model calls · 12 hours",
+        "  Limits       $5.00 on the task's model calls · 3 hours",
     ]
     assert rerun_commands(terminal)[-1].endswith(
         "--budget-usd 5 --timeout-mins 180 --no-interaction"
