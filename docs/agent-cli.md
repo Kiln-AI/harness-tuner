@@ -315,7 +315,29 @@ the text:
 | Option | Becomes |
 |---|---|
 | the model: `--model`, or `-m` for Codex and OpenCode | the run-wide model. `--agent-model ROLE=MODEL` still overrides it per role. |
-| the effort: `--effort` for Claude, `--variant` for OpenCode | the run-wide effort. `--agent-effort ROLE=EFFORT` still overrides it per role. |
+| the effort: `--effort` for Claude, `-c model_reasoning_effort=…` for Codex, `--variant` for OpenCode | the run-wide effort. `--agent-effort ROLE=EFFORT` still overrides it per role. |
+
+The effort is `high` for every role unless the text or `--agent-effort` sets
+another. The CLI's own setting is not used: Codex runs with
+`--ignore-user-config`, so its `config.toml` is not read. For example:
+
+```
+--agent-cli 'claude -p --effort xhigh'
+--agent-cli 'codex exec -m gpt-6.1-sol -c model_reasoning_effort=xhigh'
+--agent-cli 'opencode run -m zai-coding-plan/glm-5.3-flash --variant max'
+```
+
+For Codex, `-c model_reasoning_effort=VALUE`, `--config model_reasoning_effort=VALUE`
+and the `=` form of each are taken out of the text; a TOML-quoted value works
+too. Other `-c` options go into every session's command.
+
+A level the CLI does not have is handled like this:
+
+| CLI | Levels | Another value |
+|---|---|---|
+| Claude | `low`, `medium`, `high`, `xhigh`, `max` | Refused at start-up, before any session, in `--agent-cli` and in `--agent-effort`. Claude Code itself would only print a warning and use its own default. |
+| Codex | `low`, `medium`, `high`, `xhigh`, `max`, also `none` and `minimal`; some models take `ultra` | A name Codex does not know fails the start-up check with Codex's own message (HTTP 400, with the names it takes). Nothing else is spent. |
+| OpenCode | the model's own variants | Ignored by OpenCode: the model runs at its own default. |
 
 Every other option goes, unchanged, into every session's command. Do not
 repeat an option the dispatcher sets itself (the output format, the MCP

@@ -20,8 +20,18 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass, fields
 from typing import TypeVar
 
-from kiln_harness_tuner.dispatch.agent_cli import AgentCli, parse_agent_cli
+from kiln_harness_tuner.dispatch.agent_cli import (
+    CLAUDE_EFFORTS,
+    CODEX_EFFORT_KEY,
+    AgentCli,
+    parse_agent_cli,
+)
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.onboarding.agent_models import (
+    AGENT_MODELS,
+    CODEX_MODELS_URL,
+    AgentModel,
+)
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
@@ -207,6 +217,10 @@ class AgentKind:
     model_option: str
     default_model: str  # "" = the CLI's own default
     model_hint: str
+    # The thinking levels the picker lists. Empty: the level is typed.
+    efforts: tuple[str, ...] = ()
+    other_effort: bool = False  # Other… types a level the list doesn't have
+    default_effort: str = "high"  # the dispatcher's `DEFAULT_EFFORT`
 
     @property
     def command(self) -> str:
@@ -216,9 +230,17 @@ class AgentKind:
 # In the order the picker lists them. Only cli.py may name the dispatchers
 # (tests/test_dispatch_boundary.py), so their facts are restated here, and a
 # test holds the two equal: Claude Code's default model is the dispatcher's
-# `AGENT_MODEL`.
-_OWN_DEFAULT_MODEL = (
-    "Enter uses the CLI's own default model. OpenCode models are PROVIDER/MODEL."
+# `AGENT_MODEL`, and `default_effort` its `DEFAULT_EFFORT`.
+# The thinking levels every listed Codex model takes. Codex also takes
+# `none`, `minimal` and, on some models, `ultra`, which Other can type.
+_CODEX_LEVELS = ("low", "medium", "high", "xhigh", "max")
+_CODEX_MODEL_HINT = (
+    "Enter uses Codex's own default model. For example gpt-6.1-sol. The models:"
+    f" {CODEX_MODELS_URL}"
+)
+_OPENCODE_MODEL_HINT = (
+    "Enter uses OpenCode's own default model. A model is PROVIDER/MODEL, for"
+    " example zai-coding-plan/glm-5.3-flash. `opencode models` lists them."
 )
 AGENT_KINDS = (
     AgentKind(
@@ -227,10 +249,21 @@ AGENT_KINDS = (
         "-p",
         "--model",
         "opus",
-        "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.",
+        "Enter keeps opus. An alias, such as sonnet, or a full model name, such as"
+        " claude-opus-5-5.",
+        efforts=CLAUDE_EFFORTS,
     ),
-    AgentKind("codex", "Codex", "exec", "-m", "", _OWN_DEFAULT_MODEL),
-    AgentKind("opencode", "OpenCode", "run", "-m", "", _OWN_DEFAULT_MODEL),
+    AgentKind(
+        "codex",
+        "Codex",
+        "exec",
+        "-m",
+        "",
+        _CODEX_MODEL_HINT,
+        efforts=_CODEX_LEVELS,
+        other_effort=True,
+    ),
+    AgentKind("opencode", "OpenCode", "run", "-m", "", _OPENCODE_MODEL_HINT),
 )
 _KINDS = {agent.kind: agent for agent in AGENT_KINDS}
 
@@ -242,15 +275,24 @@ def installed_agent_clis(
     return tuple(agent.kind for agent in AGENT_KINDS if which(agent.kind) is not None)
 
 
-def agent_command(kind: str, model: str) -> str:
-    """The `--agent-cli` command for `kind` with `model`. The model is left
-    out when it is the CLI's default, so the command reads as it would be
-    typed."""
+def agent_command(kind: str, model: str, effort: str = "") -> str:
+    """The `--agent-cli` command for `kind` with `model` and `effort`. Each
+    is left out when it is the CLI's default, so the command reads as it
+    would be typed. Codex takes its effort as a config key."""
     agent = _KINDS[kind]
     tokens = [agent.kind, agent.mode]
     if model and model != agent.default_model:
         tokens += [agent.model_option, model]
+    if effort and effort != agent.default_effort:
+        if kind == "codex":
+            tokens += ["-c", f"{CODEX_EFFORT_KEY}={effort}"]
+        else:
+            tokens += [EFFORT_OPTIONS[kind], effort]
     return shlex.join(tokens)
+
+
+# The `--agent-cli` option that names the effort, for the CLIs that have one.
+EFFORT_OPTIONS = {"claude": "--effort", "opencode": "--variant"}
 
 
 def _parsed(command: str) -> AgentCli | None:
@@ -358,19 +400,130 @@ def _ask_agents(answers: Answers, ctx: QuestionContext) -> None:
     kind, note = _choose_agent_cli(ctx, current.kind if current else None)
     agent = _KINDS[kind]
     model = agent.default_model
-    if current is not None and current.kind == kind and current.model:
-        model = current.model  # asked again: the model it has
-    answer = ctx.terminal.text(
-        "Model for the agents",
-        default=model,
-        hint=agent.model_hint,
-        validate=_model_refusal,
-    )
-    answers.agent_cli = agent_command(kind, answer.strip())
+    effort = agent.default_effort
+    if current is not None and current.kind == kind:
+        # Asked again: the model and the level it has.
+        model = current.model or model
+        effort = current.effort or effort
+    model = _ask_model(agent, model, ctx)
+    effort = _ask_effort(agent, effort, ctx)
+    answers.agent_cli = agent_command(kind, model, effort)
     # One Agents line, after the model: the spec's only-one note (FS §8)
     # follows the model, which FS §10.1 adds to the same line.
     text = agents_text(answers.agent_cli)
     ctx.terminal.step("ok", "Agents", f"{text} · {note}" if note else text)
+
+
+MODEL_QUESTION = "Model for the agents"
+MODEL_NAME_QUESTION = "Model name for the agents"
+# The value of the picker's last row, which asks for a typed name. A model
+# name has no spaces (`_model_refusal`), so no model has this value.
+_OTHER_MODEL = " other"
+
+
+def _model_hint(agent: AgentKind) -> str:
+    """The picker's hint: Other, and where to read about the models."""
+    if agent.kind == "codex":
+        return f"Other to type a model name. All of Codex's models: {CODEX_MODELS_URL}"
+    return "Other to type a model name: an alias or a full name."
+
+
+def _model_options(
+    agent: AgentKind, models: tuple[AgentModel, ...]
+) -> list[Option[str]]:
+    """The Default row of a CLI with no default of the tuner's own, each
+    listed model, and Other."""
+    options: list[Option[str]] = []
+    if not agent.default_model:
+        own = f"{agent.name}'s own default model. Its config.toml is not read."
+        options.append(Option("", "Default", description=own))
+    options += [Option(m.name, m.name, description=m.description) for m in models]
+    options.append(Option(_OTHER_MODEL, "Other…", description="Type a model name."))
+    return options
+
+
+def _ask_model(agent: AgentKind, model: str, ctx: QuestionContext) -> str:
+    """The model for the agents: picked from the CLI's list, or typed when
+    the CLI has no list (OpenCode) or Other is picked."""
+    models = AGENT_MODELS.get(agent.kind, ())
+    if models:
+        options = _model_options(agent, models)
+        values = {option.value for option in options}
+        picked = ctx.terminal.pick(
+            MODEL_QUESTION,
+            options,
+            hint=_model_hint(agent),
+            default=model if model in values else _OTHER_MODEL,
+        )
+        if picked != _OTHER_MODEL:
+            return picked
+        question = MODEL_NAME_QUESTION
+    else:
+        question = MODEL_QUESTION
+    answer = ctx.terminal.text(
+        question,
+        default=model,
+        hint=agent.model_hint,
+        validate=_model_refusal,
+    )
+    return answer.strip()
+
+
+EFFORT_QUESTION = "Thinking level for the agents"
+EFFORT_NAME_QUESTION = "Thinking level name for the agents"
+EFFORT_ERROR = "Enter one level name, with no spaces"
+_LEVEL_TEXT = {
+    "low": "The least reasoning: the fastest and cheapest.",
+    "medium": "Less reasoning than the tuner's default.",
+    "high": "The tuner's default.",
+    "xhigh": "More reasoning: slower, and more tokens.",
+    "max": "The most reasoning: the slowest, and the most tokens.",
+}
+
+
+def _effort_refusal(text: str) -> str | None:
+    words = text.split()
+    return None if len(words) == 1 else EFFORT_ERROR
+
+
+def _ask_effort(agent: AgentKind, effort: str, ctx: QuestionContext) -> str:
+    """How much the agents reason: picked from the CLI's levels, or typed
+    for OpenCode, whose variants depend on the model, or after Other."""
+    if agent.efforts:
+        options = [
+            Option(level, level, description=_LEVEL_TEXT.get(level))
+            for level in agent.efforts
+        ]
+        hint = "How much each agent reasons before it answers."
+        if agent.other_effort:
+            options.append(
+                Option(_OTHER_MODEL, "Other…", description="Type a level name.")
+            )
+            hint += " Some models also take ultra: Other to type it."
+        picked = ctx.terminal.pick(
+            EFFORT_QUESTION,
+            options,
+            hint=hint,
+            default=effort
+            if effort in agent.efforts
+            else (_OTHER_MODEL if agent.other_effort else None),
+        )
+        if picked != _OTHER_MODEL:
+            return picked
+        question = EFFORT_NAME_QUESTION
+    else:
+        question = EFFORT_QUESTION
+    answer = ctx.terminal.text(
+        question,
+        default=effort,
+        hint=f"Enter keeps {agent.default_effort}. {agent.name}'s level is its"
+        " --variant, whose names depend on the model, such as high or max. A"
+        " model ignores a variant it doesn't have."
+        if agent.kind == "opencode"
+        else f"Enter keeps {effort}. A level name the model takes.",
+        validate=_effort_refusal,
+    )
+    return answer.strip()
 
 
 def _choose_agent_cli(ctx: QuestionContext, current: str | None) -> tuple[str, str]:
