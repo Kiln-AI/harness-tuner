@@ -24,6 +24,8 @@ from textual.app import App
 from textual.binding import Binding
 
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
+from kiln_harness_tuner.tui import opener
+from kiln_harness_tuner.tui.bridge import UI_REQUEST, Prompt
 from kiln_harness_tuner.tui.handles import (
     RUN_ENDED,
     START_ENDED,
@@ -46,6 +48,14 @@ logger = logging.getLogger("kiln_harness_tuner.tui")
 AppMode = Literal["app_startup", "app"]
 Phase = Literal["startup", "run", "done"]
 DRAIN_INTERVAL_SECS = 0.25
+# How long a stopped start may take to unwind before the app closes anyway.
+# A prompt or a Kiln read unwinds at once. The demo copy, which can't be cut
+# short, is waited for in full (`Session.uninterruptible`).
+START_STOP_GRACE_SECS = 2.0
+
+
+def _never() -> bool:
+    return False
 
 
 @dataclass(frozen=True)
@@ -60,6 +70,9 @@ class Session:
     run: RunHandle
     make_model: Callable[[], RunModel]
     progress: Callable[[], RunProgress]
+    # Whether the start is in a step a stop can't cut short (the demo copy).
+    # A first stop then waits for the start to end, with no grace period.
+    uninterruptible: Callable[[], bool] = _never
 
 
 class TunerApp(App[None]):
@@ -83,6 +96,7 @@ class TunerApp(App[None]):
         signals: SignalHooks | None = loop_signals,
         print_sink: Callable[[str], None] | None = None,
         drain_interval: float = DRAIN_INTERVAL_SECS,
+        stop_grace: float = START_STOP_GRACE_SECS,
     ):
         super().__init__()
         # Before the first screen mounts (ui_design section 13).
@@ -92,6 +106,7 @@ class TunerApp(App[None]):
         self.session = session
         self.phase: Phase = "startup"
         self.model: RunModel | None = None
+        self.startup_screen = StartupScreen()
         self.run_screen: RunScreen | None = None
         # The app closed itself: a stop, the end, or the person. False after
         # a crash.
@@ -100,6 +115,7 @@ class TunerApp(App[None]):
         self._remove_signals: Callable[[], None] | None = None
         self._print_sink = print_sink
         self._drain_interval = drain_interval
+        self._stop_grace = stop_grace
         self._shown: tuple[int, bool] | None = None
 
     def get_theme_variable_defaults(self) -> dict[str, str]:
@@ -123,7 +139,7 @@ class TunerApp(App[None]):
         if self._print_sink is not None:
             # Textual drops Python-level writes unless a target captures them.
             self.begin_capture_print(self)
-        self.push_screen(StartupScreen())
+        self.push_screen(self.startup_screen)
         self.set_interval(self._drain_interval, self.drain)
         self.session.start.begin()
 
@@ -137,8 +153,14 @@ class TunerApp(App[None]):
             self._print_sink(event.text)
 
     def close_app(self) -> None:
-        self.closed_on_purpose = True
-        self.exit()
+        if not self.closed_on_purpose:
+            self.closed_on_purpose = True
+            self.exit()
+
+    def action_open_link(self, url: str) -> None:
+        """A click on a link (ui_design 4.9). Not `App.open_url`, which waits
+        for the browser and lets it draw on the screen."""
+        opener.open_link(url)
 
     def _set_phase(self, phase: Phase) -> None:
         self.phase = phase
@@ -157,6 +179,9 @@ class TunerApp(App[None]):
                 stamped = queue.get_nowait()
             except Empty:
                 break
+            if stamped.kind == UI_REQUEST:
+                self._show_request(stamped)
+                continue
             if stamped.kind == START_ENDED:
                 self._start_ended()
                 continue
@@ -165,6 +190,18 @@ class TunerApp(App[None]):
             self._fold(stamped)
         self._read_progress()
         self._refresh()
+
+    def _show_request(self, stamped: Stamped) -> None:
+        """A `Terminal` call of the start, on the start-up screen. A prompt
+        the screen can't show fails, so the start raises instead of waiting
+        for an answer that can't come."""
+        request = stamped.fields["request"]
+        try:
+            self.startup_screen.show(request)
+        except Exception as error:
+            logger.exception("the start-up screen could not show a request")
+            if isinstance(request, Prompt):
+                request.fail(error)
 
     def _fold(self, stamped: Stamped) -> None:
         model = self.model
@@ -248,9 +285,18 @@ class TunerApp(App[None]):
 
     def action_stop_start(self, code: int) -> None:
         """Ctrl+C (130) or Ctrl+D (1) during the start: nothing is in flight,
-        so there is no dialog (functional spec section 5)."""
-        self.session.start.stop(code)
-        self.close_app()
+        so there is no dialog (functional spec section 5). The stop fails the
+        open prompt and cancels the Kiln read in flight, and the app closes
+        once the start has unwound (`_start_ended`), or after the grace
+        period; during the demo copy, only once the start has unwound. A
+        second stop closes it at once."""
+        start = self.session.start
+        again = start.stopped is not None
+        start.stop(code)
+        if again or not start.alive:
+            self.close_app()
+        elif not self.session.uninterruptible():
+            self.set_timer(self._stop_grace, self.close_app)
 
     def action_ask_stop(self) -> None:
         """`q`, Ctrl+C or Ctrl+Q after the start. On Done it closes. While

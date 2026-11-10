@@ -30,10 +30,14 @@ from rich.console import Console
 from kiln_harness_tuner import cli
 from kiln_harness_tuner.dispatch.agent_cli import parse_agent_cli
 from kiln_harness_tuner.logbook import log_path, run_log_configured
-from kiln_harness_tuner.onboarding import OnboardingError, StartReport
-from kiln_harness_tuner.onboarding.console import PlainTerminal
+from kiln_harness_tuner.onboarding import (
+    OnboardingError,
+    OnboardingStopped,
+    StartReport,
+)
 from kiln_harness_tuner.status import RunStatusTracker
 from kiln_harness_tuner.tui.app import AppMode, Session, TunerApp
+from kiln_harness_tuner.tui.bridge import AppTerminal, cancellable_runner
 from kiln_harness_tuner.tui.closing import (
     ClosingBlock,
     display_stopped_line,
@@ -122,24 +126,34 @@ class _AppRun:
         # agent CLI's test prompt), so the lock makes the two meet.
         self._plain = False
         self._sink_lock = threading.Lock()
-        self.start = StartHandle(self._start, self.queue)
+        self.terminal = AppTerminal(
+            self.queue,
+            interactive=not args.no_interaction,
+            on_say=self.closing.said,
+        )
+        self.runner = cancellable_runner(args.kiln_host.rstrip("/"))
+        self.start = StartHandle(self._start, self.queue, on_stop=self._unwind_start)
         self.run = RunHandle(self._run, self.queue, cli._stopped_by)
 
     # ---- the two threads' targets ----
 
     def _start(self) -> argparse.Namespace:
-        # `PlainTerminal` stands in for the app's own start-up terminal,
-        # which is not built yet: the start runs with no questions, and its
-        # lines go to the stray-output file.
         return cli.prepare_start(
             self.args,
             self.raw_argv,
             prog=cli.PROG,
             option_dests=self.parser.option_dests,
             policy_loader=cli.load_model_policy,
-            terminal=PlainTerminal(cli.PROG),
+            terminal=self.terminal,
+            runner=self.runner,
             report=self.closing.take_start,
         )
+
+    def _unwind_start(self, stop: OnboardingStopped) -> None:
+        """Make the start-up thread end: its open prompt and its Kiln read
+        in flight raise, and so does every later one."""
+        self.terminal.abandon(stop)
+        self.runner.cancel()
 
     def _display(self, tracker: RunStatusTracker, console: Console) -> TuiSink:
         with self._sink_lock:
@@ -168,6 +182,7 @@ class _AppRun:
             run=self.run,
             make_model=lambda: run_model(self.start.result(), self.closing.start),
             progress=lambda: cli._RUN_PROGRESS,
+            uninterruptible=lambda: self.terminal.copying_demo,
         )
         app = TunerApp(
             session,
@@ -176,6 +191,10 @@ class _AppRun:
             print_sink=self.takeover.print_sink,
         )
         self.takeover.run(app)
+        if self.start.began and self.start.outcome is None:
+            # The app closed under the start (a crash, or its terminal went
+            # away): nobody answers its prompt now.
+            self._unwind_start(OnboardingStopped(1))
         print_lines(self.closing.start_lines())
         failure = _failure(app)
         if not self.run.began:

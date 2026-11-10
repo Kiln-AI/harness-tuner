@@ -1,11 +1,12 @@
 """What the start-up checks say and ask, independent of how it is shown.
 
-The `Terminal` protocol is the one surface the checks talk through:
-`console.py` has the guided terminal and the plain one, and the tests a
-scripted one. A failed check is a `Problem`, and `resolve_problem` is the
-one loop that shows it, offers what to do, and runs the check again. The
-rules every guided terminal draws a picker by (`aligned_rows`, `PICK_HINT`)
-are here too, so each one draws the same rows.
+The `Terminal` protocol is the one surface the checks talk through: the
+terminal app has the guided terminal (`tui/bridge.py`), `console.py` the
+plain one, and the tests a scripted one. A failed check is a `Problem`, and
+`resolve_problem` is the one loop that shows it, offers what to do, and runs
+the check again. The rules a guided terminal draws a picker by
+(`aligned_rows`, `PICK_HINT`) are here too, outside the app, so the plain
+path never loads Textual through them.
 """
 
 from __future__ import annotations

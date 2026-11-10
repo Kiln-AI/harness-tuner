@@ -10,16 +10,22 @@ import time
 from pathlib import Path
 
 import pytest
-from app_fakes import HeadlessTakeover, until
+from app_fakes import HeadlessTakeover, prompted, until
 from model_events import Run, fix, row, table, val_row
 from rich.console import Console
 
 from kiln_harness_tuner import cli
 from kiln_harness_tuner.logbook import configure_run_logging, log_path
-from kiln_harness_tuner.onboarding import OnboardingError, StartReport
-from kiln_harness_tuner.onboarding.console import PlainTerminal
+from kiln_harness_tuner.onboarding import (
+    OnboardingError,
+    OnboardingStopped,
+    StartReport,
+)
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
+from kiln_harness_tuner.onboarding.flow import START, START_QUESTION
+from kiln_harness_tuner.onboarding.terminal import EXIT_ACTION
 from kiln_harness_tuner.status import RunStatusTracker
+from kiln_harness_tuner.tui.bridge import AppTerminal, CancellableRunner
 from kiln_harness_tuner.tui.entry import _AppRun, run_app
 from kiln_harness_tuner.tui.handles import RunHandle
 from kiln_harness_tuner.tui.screens.stop import StopDialog
@@ -43,19 +49,26 @@ REPORT = StartReport(
 
 
 class FakeStart:
-    """`cli.prepare_start`: it reports and returns `args`, or raises, or
-    waits for `release`."""
+    """`cli.prepare_start`: it reports and returns `args`, or raises. With
+    `ask`, it first asks "Start the run?" on the terminal it is given, and
+    stops as the flow does on `x`; with `say` too, it says the summary and
+    the rerun command before it asks, as the flow does."""
 
-    def __init__(self, *, error=None, wait=False):
+    def __init__(self, *, error=None, ask=False, say=False):
         self.error = error
-        self.release = threading.Event()
-        if not wait:
-            self.release.set()
+        self.ask = ask
+        self.say = say
         self.kwargs = {}
 
     def __call__(self, args, _argv, **kwargs):
         self.kwargs = kwargs
-        self.release.wait(10)
+        if self.say:
+            kwargs["terminal"].say(SUMMARY)
+            kwargs["terminal"].say(RERUN)
+        if self.ask:
+            menu = [START, EXIT_ACTION]
+            if kwargs["terminal"].act(START_QUESTION, menu) is EXIT_ACTION:
+                raise OnboardingStopped(1)
         if self.error is not None:
             raise self.error
         kwargs["report"](REPORT)
@@ -151,17 +164,19 @@ def fresh_cli_state(monkeypatch):
         assert signal.getsignal(sig) == handler, "a stop signal handler was left"
 
 
-def run_with(monkeypatch, start, loop, script=None, *, mode="app", takeover=None):
+def run_with(
+    monkeypatch, start, loop, script=None, *, mode="app", takeover=None, argv=ARGS
+):
     monkeypatch.setattr(cli, "prepare_start", start)
     if loop is not None:
         monkeypatch.setattr(cli, "_run", loop)
     parser = cli.build_parser()
-    args = parser.parse_args(ARGS)
+    args = parser.parse_args(argv)
     cli.validate_args(parser, args)
     takeover = takeover if takeover is not None else HeadlessTakeover(script)
     code = run_app(
         args,
-        ARGS,
+        argv,
         parser,
         mode,
         finish=lambda body: cli._finish(body, kiln_host=args.kiln_host),
@@ -198,8 +213,10 @@ def test_the_app_runs_the_start_and_the_run_then_prints_the_closing_block(
         f"Run folder: {loop.run_dir}\n"
         "harness-tuner: run finished — report: /reports/kiln-harness-tuner-1.md\n"
     )
-    # The start asked nothing, with the stand-in terminal, and reported.
-    assert isinstance(start.kwargs["terminal"], PlainTerminal)
+    # The start ran behind the app's terminal and its runner, and reported.
+    terminal = start.kwargs["terminal"]
+    assert isinstance(terminal, AppTerminal) and terminal.interactive
+    assert isinstance(start.kwargs["runner"], CancellableRunner)
     assert callable(start.kwargs["report"])
     # The run ran on its own thread, on the app's display.
     assert isinstance(loop.sink, TuiSink)
@@ -423,37 +440,95 @@ def test_system_exit_from_the_run_reaches_the_main_thread(monkeypatch, tmp_path)
 # ---- the start ----
 
 
-@pytest.mark.parametrize("key,code", [("ctrl+c", 130), ("ctrl+d", 1)])
-def test_a_key_during_the_start_stops_with_its_code(monkeypatch, capsys, key, code):
-    start = FakeStart(wait=True)
+async def asked(pilot):
+    await prompted(pilot)
+
+
+@pytest.mark.parametrize("key,code", [("ctrl+c", 130), ("ctrl+d", 1), ("x", 1)])
+def test_a_key_at_a_start_up_question_stops_with_its_code(
+    monkeypatch, capsys, key, code
+):
+    start = FakeStart(ask=True)
 
     async def press(pilot):
-        await pilot.pause(0.05)
+        await asked(pilot)
         await pilot.press(key)
 
-    try:
-        exit_code, _ = run_with(monkeypatch, start, None, press)
-    finally:
-        start.release.set()
+    exit_code, takeover = run_with(monkeypatch, start, None, press)
     assert exit_code == code
     out, err = capsys.readouterr()
     assert err == "harness-tuner: stopped.\n"
     assert out == ""
+    # The start unwound from its question: the app did not wait it out.
+    assert takeover.app.session.start.outcome is not None
+
+
+@pytest.mark.parametrize("key,code", [("x", 1), ("ctrl+c", 130)])
+def test_leaving_at_start_the_run_keeps_the_summary_and_rerun_command(
+    monkeypatch, capsys, key, code
+):
+    async def press(pilot):
+        await asked(pilot)
+        await pilot.press(key)
+
+    exit_code, _ = run_with(monkeypatch, FakeStart(ask=True, say=True), None, press)
+    assert exit_code == code
+    out, err = capsys.readouterr()
+    # The scrollback gets them, as it did before the app: the rerun command
+    # is printed nowhere else.
+    assert out == f"{SUMMARY}\n{RERUN}\n"
+    assert err == "harness-tuner: stopped.\n"
+
+
+def test_a_guided_start_answered_in_the_app_goes_on_to_the_run(
+    monkeypatch, capsys, tmp_path
+):
+    loop = FakeLoop(run_dir_of(tmp_path))
+
+    async def start_then_close(pilot):
+        await asked(pilot)
+        await pilot.press("s")
+        await close_on_done(pilot)
+
+    code, _ = run_with(monkeypatch, FakeStart(ask=True), loop, start_then_close)
+    assert code == 0
+    assert "run finished" in capsys.readouterr().out
+
+
+def test_with_no_interaction_the_start_asks_nothing(monkeypatch, tmp_path):
+    start = FakeStart()
+    loop = FakeLoop(run_dir_of(tmp_path))
+    code, _ = run_with(
+        monkeypatch, start, loop, close_on_done, argv=[*ARGS, "--no-interaction"]
+    )
+    assert code == 0
+    assert start.kwargs["terminal"].interactive is False
 
 
 def test_a_signal_during_the_start_exits_with_its_code(monkeypatch, capsys):
-    start = FakeStart(wait=True)
-
     async def terminate(pilot):
-        await pilot.pause(0.05)
+        await asked(pilot)
         pilot.app.on_signal(signal.SIGTERM)
 
-    try:
-        code, _ = run_with(monkeypatch, start, None, terminate)
-    finally:
-        start.release.set()
+    code, _ = run_with(monkeypatch, FakeStart(ask=True), None, terminate)
     assert code == 143
     assert "harness-tuner: stopped." in capsys.readouterr().err
+
+
+def test_a_crash_during_the_start_releases_its_question(monkeypatch, capsys):
+    start = FakeStart(ask=True)
+
+    async def crash(pilot):
+        await asked(pilot)
+        pilot.app.call_later(lambda: 1 / 0)
+
+    takeover = HeadlessTakeover(crash)
+    with pytest.raises(ZeroDivisionError):
+        run_with(monkeypatch, start, None, takeover=takeover)
+    # Nobody answers the question now: it raised, and the start ended.
+    start_handle = takeover.app.session.start
+    assert start_handle.join(5)
+    assert isinstance(start_handle.outcome.error, OnboardingStopped)
 
 
 def test_a_start_error_prints_the_whole_error_screen(monkeypatch, capsys):

@@ -6,7 +6,8 @@ summary and its rerun command (printed nowhere else), and the run's last
 lines. So the block prints the same texts the plain path prints at the same
 moments, built by the same code:
 
-1. The start: the summary and the rerun command, as the start last said them.
+1. The start: the summary and the rerun command, as the start last said them:
+   from its report, or, when it stopped or failed after them, as it said them.
 2. The run: `PlainUi`'s exit line, Best Confirmed, the report, the run folder.
 3. An error: nothing here. `main`'s exception arms print it, as today.
 """
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import TextIO
 
 from kiln_harness_tuner.onboarding import StartReport
+from kiln_harness_tuner.tui.bridge import said_kind
 from kiln_harness_tuner.tui.model.words import DONE_BEST, NO_REPORT
 
 
@@ -31,19 +33,31 @@ class ClosingBlock:
     report_path: str | None = None
     # The Best Confirmed run config: its label in the app, and its id.
     best_confirmed: tuple[str, str] | None = None
+    # The last summary and rerun command the start said, for a start that
+    # ends with no report: Exit, Ctrl+C or an error after them.
+    said_summary: str | None = None
+    said_rerun: str | None = None
 
     def take_start(self, report: StartReport) -> None:
         """`prepare_start`'s `report`: called once, as the start ends well."""
         self.start = report
 
+    def said(self, text: str) -> None:
+        """The start's terminal's `on_say`, on the start-up thread."""
+        kind = said_kind(text)
+        if kind == "summary":
+            self.said_summary = text
+        elif kind == "rerun":
+            self.said_rerun = text
+
     def start_lines(self) -> list[str]:
-        """The summary, and the rerun command when the start was guided."""
-        if self.start is None:
-            return []
-        lines = [self.start.summary]
-        if self.start.rerun is not None:
-            lines.append(self.start.rerun)
-        return lines
+        """The summary, and the rerun command when the start was guided: the
+        report's, or else the last ones the start said."""
+        if self.start is not None:
+            summary, rerun = self.start.summary, self.start.rerun
+        else:
+            summary, rerun = self.said_summary, self.said_rerun
+        return [text for text in (summary, rerun) if text is not None]
 
     def run_lines(self, run_dir: Path | None) -> list[str]:
         """Nothing when the run never reached its `exit` event: the error

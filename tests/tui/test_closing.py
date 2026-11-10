@@ -42,6 +42,22 @@ def test_a_start_that_was_not_guided_has_no_rerun_command():
     assert closing.start_lines() == [SUMMARY]
 
 
+def test_a_start_with_no_report_keeps_the_last_summary_and_rerun_it_said():
+    closing = ClosingBlock()
+    changed = SUMMARY.replace("Forum Moderation", "Support Triage")
+    for text in (SUMMARY, RERUN, "Opening https://kiln.tech/download", changed):
+        closing.said(text)
+    # Exit at "Start the run?" after a changed answer: the last of each.
+    assert closing.start_lines() == [changed, RERUN]
+
+
+def test_the_report_wins_over_what_was_said():
+    closing = ClosingBlock()
+    closing.said(SUMMARY.replace("Forum Moderation", "Support Triage"))
+    closing.take_start(report(rerun=None))
+    assert closing.start_lines() == [SUMMARY]
+
+
 def test_the_run_part_names_the_result_the_report_and_the_folder():
     closing = ClosingBlock(
         run_exit_line="exit: time_limit — total $3.10 · 2h58m elapsed",

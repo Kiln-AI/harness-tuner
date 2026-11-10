@@ -97,7 +97,8 @@ tui/
     links.py      compare_url(), lineage_url()
     names.py      RcNames: the run config name dictionary
   screens/
-    startup.py    StartupScreen, ActionMenu, Picker, TextAnswer, ProblemCard
+    startup.py    StartupScreen, ProblemCard, SummaryCard
+    prompts.py    ActionMenu, Picker, TextAnswer
     run.py        RunScreen and its sections
     stop.py       StopDialog
   widgets.py      TitleBar, SectionHeader, Card, TierBar, Gauge, Steps, JudgedStrip,
@@ -131,7 +132,7 @@ AppTerminal.pick(question, options, hint, default):
 - `busy(text)` is a context manager that puts `busy_on` and `busy_off`. It keeps the protocol's rule: no prompt inside a spinner.
 - `interactive` is set at construction. With `interactive=False`, `pick`, `act`, `text`, `block` and `open_url` raise `RuntimeError("not a guided start")`, as `PlainTerminal` does (console.py:343-397).
 - `open_url(url)`: `opener.open_link(url)`. When it returns True, the app shows "Opening <url>"; else "Open this link in your browser: <url>". Both texts are today's (console.py:335-340). The link is clickable.
-- `say` texts are also kept by `ClosingBlock` (section 10).
+- `say` texts also go to `ClosingBlock` (an `on_say` hook), which keeps the last summary and the last rerun command, by their first lines (section 10).
 
 The app answers a request on the UI thread. Ctrl+C sets `OnboardingStopped(130)` on the open future, Ctrl+D sets `OnboardingStopped(1)`. If no question is open (a busy check is running), Ctrl+C calls `cancellable_runner.cancel()` (4.2) and the app exits as soon as the start-up thread ends.
 
@@ -288,7 +289,7 @@ Each change gets a unit test that the event appears with its fields, and a test 
 
 `ClosingBlock` collects three parts and prints them after the app has closed and the fds are restored:
 
-1. **Start**: `StartReport.summary` and `StartReport.rerun`, as said (today's texts). In `app_startup` mode this is all it prints, before the plain run starts.
+1. **Start**: `StartReport.summary` and `StartReport.rerun`, as said (today's texts). A start that ends with no report (Exit, Ctrl+C or Ctrl+D at "Start the run?", or an error after the summary) gives the last summary and rerun command it said instead (section 4.1). A report, when there is one, wins. In `app_startup` mode this is all it prints, before the plain run starts.
 2. **Run**: `run_exit_line` and `report: <path>` (both built by `TuiSink`, section 5.2), then "Run folder: <run_dir>" from `_RUN_PROGRESS`.
 3. **Error**: nothing new. `main`'s arms print it as today, because `run_app` re-raises inside `_finish`.
 
@@ -312,7 +313,7 @@ Printing catches `OSError` (a closed terminal).
 
 - Add `textual>=8.2.8,<9`. Raise `rich` to `>=14.2`. Remove `questionary` (and so `prompt_toolkit`).
 - Remove `RichTerminal` and its helpers, and `LiveUi` and its renderers, as `startup_bridge.md` section 5 lists. Keep `PlainTerminal`, `PlainUi` and the shared helpers it names.
-- `default_terminal` returns `PlainTerminal` when there is no TTY, as tests expect (test_onboarding_kiln_check.py:348-362). App modes always pass `terminal=`.
+- With no `terminal`, `prepare_start` uses `PlainTerminal`; `default_terminal` is removed (`test_onboarding_kiln_check.py`, `test_with_no_terminal_the_start_is_plain`). App modes always pass `terminal=`.
 - `tuner.tcss` ships as package data. The wheel smoke test checks it is in the wheel and that `import kiln_harness_tuner.tui.app` works from the installed wheel.
 
 ## 14. Error handling

@@ -3,7 +3,8 @@ invoked manually from a terminal).
 
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
 observability: run id, wave log (`<state>/runs/<run_id>/`, run scratch),
-`RunStatus` tracker + UI (rich live display, or plain lines under `--no-progress` /
+`RunStatus` tracker + UI (the terminal app, `tui/`, when stdin and stdout are
+terminals; else rich live display, or plain lines under `--no-progress` /
 non-TTY), and the report hook (`<state>/reports/kiln-harness-tuner-<run_id>.md`)
 — then runs `orchestrate`, which returns the report path. `<state>` is the
 state folder (`paths.py`); the agents' skills and instructions come from the
@@ -1571,9 +1572,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     raw_argv = sys.argv[1:] if argv is None else list(argv)
     args = parser.parse_args(raw_argv)
     validate_args(parser, args)
-    return _finish(
-        lambda: _plain_body(args, raw_argv, parser), kiln_host=args.kiln_host
-    )
+
+    def finish(body: Callable[[], str]) -> int:
+        return _finish(body, kiln_host=args.kiln_host)
+
+    mode = display_mode(args)
+    if mode == "plain":
+        return finish(lambda: _plain_body(args, raw_argv, parser))
+    # Imported here, so a plain run never imports Textual.
+    from kiln_harness_tuner.tui.entry import run_app
+
+    return run_app(args, raw_argv, parser, mode, finish=finish)
 
 
 if __name__ == "__main__":

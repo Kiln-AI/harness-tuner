@@ -1,12 +1,14 @@
 """A child process for `test_pty.py`: `run_app` in `app` mode on a real
 terminal, with a fake start and a fake run.
 
-    python pty_app.py <work folder> <wait | finish>
+    python pty_app.py <work folder> <wait | finish | ask>
 
 The fake run writes to stdout and stderr in each way a stray writer does,
 then makes the file `started`. With `wait` it runs until it is cancelled;
 with `finish` it ends at once and the app shows Done. Its teardown makes
-the file `teardown`.
+the file `teardown`. With `ask` the process is `cli.main` itself, which
+picks the app for a terminal, and the fake start asks "Start the run?" in
+the app before it reports.
 """
 
 from __future__ import annotations
@@ -20,7 +22,9 @@ from pathlib import Path
 
 from kiln_harness_tuner import cli
 from kiln_harness_tuner.logbook import configure_run_logging
-from kiln_harness_tuner.onboarding import StartReport
+from kiln_harness_tuner.onboarding import OnboardingStopped, StartReport
+from kiln_harness_tuner.onboarding.flow import START, START_QUESTION
+from kiln_harness_tuner.onboarding.terminal import EXIT_ACTION
 from kiln_harness_tuner.status import RunStatusTracker
 from kiln_harness_tuner.tui.entry import run_app
 from kiln_harness_tuner.wave_log import FanoutLog
@@ -35,7 +39,11 @@ RERUN = (
 STRAY = ("STRAY-FD1", "STRAY-FD2", "STRAY-PRINT", "STRAY-STDERR", "STRAY-WARN")
 
 
-def fake_prepare_start(args, _argv, *, report, **_kwargs):
+def fake_prepare_start(args, _argv, *, report, terminal, **_kwargs):
+    if BEHAVIOR == "ask":
+        menu = [START, EXIT_ACTION]
+        if terminal.act(START_QUESTION, menu) is EXIT_ACTION:
+            raise OnboardingStopped(1)
     report(
         StartReport(
             project_name="Forum Moderation",
@@ -99,6 +107,8 @@ def main() -> int:
     cli._run = fake_run
     argv = ["--project-path", str(WORK), "--project-id", "424242975950"]
     argv += ["--task-id", "424242783061"]
+    if BEHAVIOR == "ask":
+        return cli.main(argv)
     parser = cli.build_parser()
     args = parser.parse_args(argv)
     cli.validate_args(parser, args)

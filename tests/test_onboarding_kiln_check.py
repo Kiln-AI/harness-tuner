@@ -345,7 +345,7 @@ def test_the_unreadable_api_list_warning_follows_the_step_and_the_start_goes_on(
     assert terminal.questions == [ADVANCED_PROMPT, START_PROMPT]
 
 
-def test_the_default_terminal_without_a_tty_is_the_plain_one(capsys):
+def test_with_no_terminal_the_start_is_plain(capsys):
     prepare_start(
         flags(PROJECT_ID, TASK_ID, FOLDER),
         [],

@@ -1,12 +1,12 @@
 """`prepare_start`: the start-up checks, then the questions and the summary,
 all before the run itself.
 
-The flow is synchronous on purpose. `asyncio.run` installs its own SIGINT
-handler, and while the event loop's thread waits at a prompt that handler
-only cancels the main task: the first Ctrl-C at a prompt would do nothing
-visible. So each prompt runs its own prompt_toolkit loop with no asyncio
-loop running, and each batch of Kiln reads runs in its own short
-`asyncio.run` through a `KilnRunner`, with no prompt inside it.
+The flow is synchronous on purpose: no asyncio loop runs while it waits at a
+prompt, and each batch of Kiln reads runs in its own short `asyncio.run`
+through a `KilnRunner`, with no prompt inside it. A plain start runs it on
+the main thread. A guided start runs it on a thread of its own behind the
+terminal app, whose terminal waits for each answer and whose runner the app
+can cancel (`kiln_harness_tuner.tui.bridge`).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.onboarding.choose import Selection, select
-from kiln_harness_tuner.onboarding.console import default_terminal
+from kiln_harness_tuner.onboarding.console import PlainTerminal
 from kiln_harness_tuner.onboarding.demo import make_demo
 from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.keys import (
@@ -139,8 +139,8 @@ def prepare_start(
     the summary only. Returns `args` with the project, the task, the folder
     and every answer filled in.
 
-    The start is guided when stdin and stdout are terminals and
-    `args.no_interaction` is false; `terminal` overrides that choice.
+    The start is guided when its `terminal` is interactive: the app passes
+    its own. With no `terminal` it is a plain start (`PlainTerminal`).
 
     `argv` is the command line as typed, and `option_dests` the parser's
     long options: they say which flags were given, whose questions are
@@ -157,7 +157,7 @@ def prepare_start(
     marks it `shown`. Raises `OnboardingStopped` when the user stops,
     Ctrl-C included."""
     if terminal is None:
-        terminal = default_terminal(prog, no_interaction=args.no_interaction)
+        terminal = PlainTerminal(prog)
     host = args.kiln_host.rstrip("/")
     run = runner if runner is not None else kiln_runner(host)
     home = home if home is not None else Path.home()

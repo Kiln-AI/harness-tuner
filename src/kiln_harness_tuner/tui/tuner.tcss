@@ -6,12 +6,27 @@ Screen {
     color: $foreground;
 }
 
+/* 4.9 Links: blue, underlined. The ↗ is in the text. */
+Static {
+    link-color: $text-primary;
+    link-background: transparent;
+    link-style: underline;
+    link-color-hover: $text-primary;
+    link-background-hover: $boost;
+    link-style-hover: underline bold;
+}
+
 /* 4.1 Title bar */
-.title-bar {
+.title-bar, TitleBar {
     dock: top;
     height: 1;
     padding: 0 1;
     background: $panel;
+}
+TitleBar {
+    & > .title-mark { width: auto; }
+    & > .title-context { width: 1fr; margin-left: 3; }
+    & > .title-meta { width: auto; }
 }
 
 /* 4.3 Card */
@@ -30,9 +45,72 @@ Card {
 
 /* ---- Start-up screen (8) ---- */
 
+/* The transcript scrolls; its column is at most 128 cells wide, and every
+   part in it at most as wide as the column, so text wraps, never cut. */
+#transcript {
+    padding: 1 2 0 2;
+    scrollbar-size-vertical: 1;
+}
+#column {
+    height: auto;
+    max-width: 128;
+}
 #welcome {
     width: 68;
-    margin: 1 2;
+    max-width: 100%;
+    margin-bottom: 1;
+}
+.startup-card {
+    width: auto;
+    max-width: 100%;
+    margin: 1 0;
+    & > Static { width: auto; max-width: 100%; }
+}
+.-problem { border: round $error; }
+.said { margin-top: 1; }
+
+.prompt {
+    height: auto;
+    margin-top: 1;
+    & > .description { margin-top: 1; }
+}
+
+/* Action menus and pickers: OptionList without its box; the highlighted
+   row in reverse $primary, focused or not. */
+OptionList.menu {
+    width: auto;
+    min-width: 30;
+    max-width: 100%;
+    max-height: 20;
+    height: auto;
+    border: none;
+    padding: 0;
+    background: transparent;
+    &:focus { border: none; background-tint: transparent; }
+    & > .option-list--option-highlighted {
+        color: $block-cursor-foreground;
+        background: $primary;
+        text-style: bold;
+    }
+    &:focus > .option-list--option-highlighted {
+        color: $block-cursor-foreground;
+        background: $primary;
+        text-style: bold;
+    }
+    & > .option-list--option-disabled { color: $text-muted; }
+}
+
+/* Inputs: rounded like cards, blue with focus, red when refused. */
+Input {
+    width: 72;
+    max-width: 100%;
+    height: 3;
+    padding: 0 1;
+    background: $surface;
+    border: round $border-muted;
+    &:focus { border: round $primary; background-tint: transparent; }
+    &.-invalid { border: round $error; }
+    &.-invalid:focus { border: round $error; }
 }
 
 /* ---- Run screen ---- */

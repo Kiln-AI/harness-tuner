@@ -14,12 +14,15 @@ from typing import Any
 
 from textual.pilot import Pilot
 
+from kiln_harness_tuner.onboarding import OnboardingStopped
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
 from kiln_harness_tuner.tui.app import AppMode, Session, TunerApp
+from kiln_harness_tuner.tui.bridge import AppTerminal, CancellableRunner
 from kiln_harness_tuner.tui.handles import RunHandle, StartHandle
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.state import RunInfo
+from kiln_harness_tuner.tui.screens.prompts import PromptPart
 from kiln_harness_tuner.tui.theme import DARK
 
 SIZE = (210, 62)
@@ -40,9 +43,31 @@ async def until(pilot: Pilot[Any], condition: Callable[[], bool], timeout=5.0) -
         await pilot.pause(0.02)
 
 
+def prompt_part(app: TunerApp) -> Any:
+    """The prompt that has the focus now, or None: keys reach a prompt only
+    once it has the focus."""
+    node = app.focused
+    while node is not None and not isinstance(node, PromptPart):
+        node = node.parent
+    return node
+
+
+async def prompted(pilot: Pilot[Any], kind: type | None = None) -> Any:
+    """Wait for a prompt (of `kind`, when given) to have the focus."""
+
+    def ready() -> bool:
+        part = prompt_part(pilot.app)
+        return part is not None and (kind is None or isinstance(part, kind))
+
+    await until(pilot, ready)
+    return prompt_part(pilot.app)
+
+
 class FakeStart:
     """A start target. It waits until `release` is set (at once with
-    `wait=False`), then returns its namespace or raises `error`."""
+    `wait=False`), then returns its namespace or raises `error`. `stop` is
+    its handle's `on_stop`: it ends the wait with the stop, as the app's
+    terminal makes the real start raise it."""
 
     def __init__(self, *, wait: bool = False, error: BaseException | None = None):
         self.release = threading.Event()
@@ -56,6 +81,10 @@ class FakeStart:
         if self.error is not None:
             raise self.error
         return self.args
+
+    def stop(self, stop: OnboardingStopped) -> None:
+        self.error = stop
+        self.release.set()
 
 
 class FakeRun:
@@ -116,10 +145,11 @@ def make_session(
     run_handle = RunHandle(run, queue, stopped_by if stopped_by is not None else [])
     run.handle, run.queue = run_handle, queue
     run_progress = progress if progress is not None else RunProgress()
+    start = start if start is not None else FakeStart()
     return Session(
         mode=mode,
         queue=queue,
-        start=StartHandle(start if start is not None else FakeStart(), queue),
+        start=StartHandle(start, queue, on_stop=start.stop),
         run=run_handle,
         make_model=lambda: RunModel(INFO, started=time.monotonic()),
         progress=lambda: run_progress,
@@ -178,3 +208,58 @@ class HeadlessTakeover:
     def settle(self, run_log: Path | None) -> Path | None:
         self.settled.append(run_log)
         return self.stray
+
+
+class Asking:
+    """The app over a start that runs `ask(terminal)` on the start-up thread,
+    behind a real `AppTerminal` (and `runner`, which a stop cancels): what a
+    start-up prompt does with the keys the person presses. The app is in
+    `app_startup` mode, so it closes when the start ends."""
+
+    def __init__(
+        self,
+        ask: Callable[[AppTerminal], Any],
+        *,
+        interactive: bool = True,
+        opener: Callable[[str], bool] = lambda _url: False,
+        runner: CancellableRunner | None = None,
+        **app_kwargs: Any,
+    ):
+        queue: SimpleQueue[Stamped] = SimpleQueue()
+        self.terminal = AppTerminal(queue, interactive=interactive, opener=opener)
+        self.runner = runner
+
+        def unwind(stop: OnboardingStopped) -> None:
+            self.terminal.abandon(stop)
+            if runner is not None:
+                runner.cancel()
+
+        self.start = StartHandle(lambda: ask(self.terminal), queue, on_stop=unwind)
+        session = Session(
+            mode="app_startup",
+            queue=queue,
+            start=self.start,
+            run=RunHandle(lambda: "", queue, []),
+            make_model=lambda: RunModel(INFO, started=time.monotonic()),
+            progress=RunProgress,
+            # As `run_app` has it.
+            uninterruptible=lambda: self.terminal.copying_demo,
+        )
+        self.app = make_app(session, **app_kwargs)
+
+    @property
+    def ended(self) -> bool:
+        return self.start.outcome is not None
+
+
+async def answered(ask: Callable[[AppTerminal], Any], *keys: str, **kwargs: Any) -> Any:
+    """What `ask` returned once `keys` were pressed at its first prompt; or
+    the error it raised."""
+    asking = Asking(ask, **kwargs)
+    async with asking.app.run_test(size=SIZE) as pilot:
+        await prompted(pilot)
+        await pilot.press(*keys)
+        await until(pilot, lambda: asking.ended)
+    outcome = asking.start.outcome
+    assert outcome is not None
+    return outcome.error if outcome.error is not None else outcome.value

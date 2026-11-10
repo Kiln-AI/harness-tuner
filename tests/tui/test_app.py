@@ -57,7 +57,6 @@ async def test_a_key_during_the_start_stops_it_at_once(key, code):
     assert session.start.stopped.exit_code == code
     assert app.closed_on_purpose
     assert not session.run.began
-    start.release.set()
 
 
 async def test_a_signal_during_the_start_stops_it_with_its_code():
@@ -68,7 +67,6 @@ async def test_a_signal_during_the_start_stops_it_with_its_code():
         app.on_signal(signal.SIGHUP)
         await until(pilot, lambda: closed(app))
     assert session.start.stopped.exit_code == 129
-    start.release.set()
 
 
 async def test_the_hand_off_shows_the_run_and_starts_it():
@@ -384,7 +382,6 @@ async def test_prints_go_to_the_print_sink():
         print("a stray warning")
         await until(pilot, lambda: "a stray warning" in "".join(printed))
         await pilot.press("ctrl+c")
-    start.release.set()
 
 
 @pytest.mark.parametrize("name", [DARK, LIGHT])
@@ -395,7 +392,6 @@ async def test_the_app_uses_the_theme_it_is_given(name):
         assert app.theme == name
         assert {DARK, LIGHT} <= set(app.available_themes)
         await pilot.press("ctrl+c")
-    start.release.set()
 
 
 PLANNING = (

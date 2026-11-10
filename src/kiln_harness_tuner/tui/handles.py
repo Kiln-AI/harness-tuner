@@ -97,16 +97,25 @@ class StartHandle(Worker[argparse.Namespace]):
     for it."""
 
     def __init__(
-        self, target: Callable[[], argparse.Namespace], queue: SimpleQueue[Stamped]
+        self,
+        target: Callable[[], argparse.Namespace],
+        queue: SimpleQueue[Stamped],
+        *,
+        on_stop: Callable[[OnboardingStopped], None] | None = None,
     ):
         super().__init__(target, queue, name="startup", daemon=True, ended=START_ENDED)
         self.stopped: OnboardingStopped | None = None
+        self._on_stop = on_stop
 
     def stop(self, code: int) -> None:
         """Ctrl+C (130), Ctrl+D (1) or a signal (128 + its number) during
-        the start. The first stop wins over how the thread itself ends."""
-        if self.stopped is None:
-            self.stopped = OnboardingStopped(code)
+        the start. The first stop wins over how the thread itself ends, and
+        `on_stop` gets it, once, to make the thread unwind."""
+        if self.stopped is not None:
+            return
+        self.stopped = OnboardingStopped(code)
+        if self._on_stop is not None:
+            self._on_stop(self.stopped)
 
     def result(self) -> argparse.Namespace:
         if self.stopped is not None:

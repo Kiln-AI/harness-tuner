@@ -86,3 +86,25 @@ def test_the_closing_block_prints_after_the_app_in_the_scrollback(tmp_path):
     places = [after.index(text) for text in expected]
     assert places == sorted(places)
     assert SUMMARY not in result.text[: result.text.find("\x1b[?1049h")]
+
+
+def test_main_on_a_terminal_asks_in_the_app_and_x_exits_1(tmp_path):
+    result = start(tmp_path, "ask", [(b"Start the run?", b"x")])
+    assert result.exit_code == 1
+    assert "s) Start the run" in result.in_app()
+    assert "harness-tuner: stopped." in result.after_app()
+    assert not (tmp_path / "started").exists()
+
+
+def test_main_on_a_terminal_stops_at_a_question_on_ctrl_c_with_130(tmp_path):
+    result = start(tmp_path, "ask", [(b"Start the run?", b"\x03")])
+    assert result.exit_code == 130
+    assert "harness-tuner: stopped." in result.after_app()
+
+
+def test_main_on_a_terminal_starts_the_run_from_the_app(tmp_path):
+    steps = [(b"Start the run?", b"s"), *CLOSE_ON_DONE]
+    result = start(tmp_path, "ask", steps)
+    assert result.exit_code == 0
+    after = scrollback(result.after_app())
+    assert after.index(SUMMARY) < after.index("run finished")

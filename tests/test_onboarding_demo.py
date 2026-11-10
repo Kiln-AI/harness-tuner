@@ -287,3 +287,17 @@ def test_a_projects_folder_that_cant_be_made_is_an_error_that_names_it(tmp_path)
         f"Couldn't make a folder for the demo project in {projects_folder(tmp_path)}"
     )
     assert IMPORT_PATH not in kiln.paths()
+
+
+def test_a_stop_during_the_import_removes_the_folder(tmp_path):
+    """In the app, a Ctrl-C during the copy lands at the import: the
+    cancelled Kiln runner raises there."""
+    kiln = demo_kiln()
+
+    def stopped(_query, _body):
+        raise KeyboardInterrupt
+
+    kiln.routes[("POST", IMPORT_PATH)] = stopped
+    with pytest.raises(KeyboardInterrupt):
+        demo_in(tmp_path, kiln)
+    assert list(projects_folder(tmp_path).iterdir()) == []

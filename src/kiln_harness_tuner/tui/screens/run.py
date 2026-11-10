@@ -16,7 +16,7 @@ from textual.widgets import Footer, Static
 from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.state import LogLine, plain
-from kiln_harness_tuner.tui.screens.startup import TITLE_MARKUP
+from kiln_harness_tuner.tui.widgets import TITLE_MARKUP
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.tui.app import TunerApp

@@ -804,7 +804,7 @@ def test_on_started_gets_the_run_loop_and_task_before_the_run(monkeypatch):
 
 
 def test_the_plain_path_never_imports_textual():
-    """The start-up imports `tui.opener`; the app's own modules load Textual
+    """`cli` and `tui.opener` load no Textual: the app's own modules load it
     only when the app runs."""
     loaded = subprocess.run(
         [
@@ -839,6 +839,52 @@ def test_display_mode_needs_two_terminals_and_something_to_show(
     monkeypatch.setattr("sys.stdin", stdin)
     monkeypatch.setattr("sys.stdout", TtyStream(stdout_tty))
     assert display_mode(build_parser().parse_args(ARGS + flags)) == mode
+
+
+def on_terminals(monkeypatch) -> TtyStream:
+    """stdin and stdout as terminals; the returned stdout holds what `main`
+    printed."""
+    stdout = TtyStream(True)
+    monkeypatch.setattr("sys.stdin", TtyStream(True))
+    monkeypatch.setattr("sys.stdout", stdout)
+    return stdout
+
+
+@pytest.mark.parametrize(
+    ("flags", "mode"),
+    [([], "app"), (["--no-interaction"], "app"), (["--no-progress"], "app_startup")],
+)
+def test_main_shows_a_terminal_invocation_in_the_app(monkeypatch, flags, mode):
+    stdout = on_terminals(monkeypatch)
+    seen = {}
+
+    def fake_run_app(args, raw_argv, parser, app_mode, *, finish):
+        seen.update(args=args, argv=raw_argv, parser=parser, mode=app_mode)
+        # `main`'s own exception arms and finish line.
+        return finish(lambda: "/reports/r.md")
+
+    monkeypatch.setattr("kiln_harness_tuner.tui.entry.run_app", fake_run_app)
+    assert main(ARGS + flags) == 0
+    assert seen["mode"] == mode
+    assert seen["argv"] == ARGS + flags
+    assert seen["args"].task_id == "424242613304"
+    assert "--budget-usd" in seen["parser"].option_dests
+    assert stdout.getvalue() == "harness-tuner: run finished — report: /reports/r.md\n"
+
+
+def test_main_with_nothing_for_the_app_to_show_runs_plain(monkeypatch):
+    stdout = on_terminals(monkeypatch)
+
+    def no_app(*_args, **_kwargs):
+        raise AssertionError("the app ran")
+
+    async def fake_run(args, **_kwargs):
+        return "/reports/plain.md"
+
+    monkeypatch.setattr("kiln_harness_tuner.tui.entry.run_app", no_app)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", fake_run)
+    assert main([*ARGS, "--no-interaction", "--no-progress"]) == 0
+    assert stdout.getvalue().endswith("run finished — report: /reports/plain.md\n")
 
 
 def test_finish_prints_the_finish_line_for_a_body_that_returns(capsys, fresh_progress):
