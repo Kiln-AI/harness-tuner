@@ -281,7 +281,7 @@ async def test_a_hint_of_several_lines_keeps_its_lines(width):
         ]
         # One line per example; a line too long for the width wraps.
         assert drawn[0].startswith("These instructions guide the tuner")
-        assert drawn[-1] == "Enter to skip."
+        assert drawn[-1] == "Optional. Blank means no guidance."
         assert sum(line.startswith(" · ") for line in drawn) == 5
         # Nothing is cut off: every word of the hint is drawn, in order.
         assert " ".join(drawn).split() == GUIDANCE_HINT.split()

@@ -370,7 +370,7 @@ GUIDANCE_HINT = "\n".join(
         ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."',
         ' · What not to touch: "Don\'t change the model or temperature."',
         ' · Directives: "Only use models from OpenAI."',
-        "Enter to skip.",
+        "Optional. Blank means no guidance.",
     )
 )
 

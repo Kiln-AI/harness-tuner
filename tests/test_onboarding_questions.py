@@ -355,7 +355,7 @@ def test_the_objective_rows_and_the_hints():
         ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."\n'
         ' · What not to touch: "Don\'t change the model or temperature."\n'
         ' · Directives: "Only use models from OpenAI."\n'
-        "Enter to skip.",
+        "Optional. Blank means no guidance.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",
         "Which model will be used to plan and implement tuning experiments. We"
