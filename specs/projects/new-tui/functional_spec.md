@@ -379,9 +379,9 @@ Interaction is minimal, on purpose. The run is hands-off.
 | Start-up flow | Ctrl+C | Stops at once, exit 130, as today |
 | Start-up flow | Ctrl+D | Stops, exit 1, as today |
 | During the run | `q` or Ctrl+C | A dialog: "Stop the run?". It names what is in flight (for example "4 experiments in flight. Their work so far is lost.") and offers **Stop the run** and **Keep running**. Keep running is the default. |
-| After "Stop the run" | – | The app shows "Stopping…" while the run is cancelled the way Ctrl+C cancels it today: agent sessions killed, the run lock released. No report is written. The app closes, prints the closing block with "Stopped by you", and exits 130 with no traceback. |
+| After "Stop the run" | – | The app shows "Stopping…" while the run is cancelled through the run's existing cancel path (the one SIGTERM uses): agent sessions killed, the run lock released. No report is written. The app closes and prints the closing block. The exit code and the "interrupted" line are whatever that path gives today (decided: the exit code does not matter). |
 | Done | `q` or Enter | The app closes and prints the closing block. No confirmation; nothing is in flight. |
-| Any time | SIGTERM, SIGHUP | As today. |
+| Any time | SIGTERM, SIGHUP | As today: the app forwards them to the run's existing stop code, which cancels the run (decided: the run thread must get them). |
 
 ## 10. The closing block
 
@@ -477,3 +477,27 @@ The key decisions from the design conversation and from speccing, with their rea
 | Small additive events for per-eval results, val tables, chunk counts and gate progress | The Results section needs them; the loop already computes them | Reading run files off disk; dropping the numbers |
 | Light and dark follow the terminal; brand colors from the logo | On brand, on any terminal | The mocks' palette |
 | Out of v1: the four picks, streaming agent sessions, finer live grain, a paired comparison, notifications, the tab title, a bell | No data for them, a core change, or not needed | – |
+
+## 16. Changes from the data audit (approved)
+
+`research/codebase/data_contract_audit.md` checked every element of section 7 and the comps against the code. These decisions settle what it found. Where they differ from sections 7 and 12, they win.
+
+| # | Element | Decision |
+|---|---|---|
+| 1 | Judged-item strip | Approved change 3 also carries the chunk's per-item cells: eval, item, parent passed, candidate passes. That is what tells "held" from "still failing". |
+| 2 | Eval priority ("p0") | Removed from the cards. The Goal row no longer says "weighted by priority": under `quality` the evals are not weighted. |
+| 3 | Score names | The card shows the eval name. It adds the score key only when the eval has more than one score. |
+| 4 | Split sizes | The data line is "train N · held out M (val and test) · test never read". Val is per eval and test alone is not known. |
+| 5 | Run config names | The app looks the names and descriptions up in Kiln (the task's run config list) and keeps a dictionary of them. It reads again when it sees an id it does not know. Ids alone are not enough. |
+| 6 | Start values | Pass rates come from setup. Rating, cost and latency appear in the Start row when the first experiment that measures them completes. Until then the row says "not measured yet". |
+| 7 | Probe answers | "YES · 3 drives": the answer and the number of drives. "UNCLEAR" is a third answer. |
+| 8 | Issue measurement and re-measure cards | No progress gauge, because nothing is emitted while they measure. They show the elapsed time. |
+| 9 | Card spend | The card shows the item's total spend only, with no cap. |
+| 10 | Items cut off at the deadline | A new verdict, "Cut off: the run ended", from the existing deadline and fatal-cancel events. |
+| 11 | Promoted | "Promoted" shows only when the gate ends with no block for that run config. |
+| 12 | Cost and latency cards | No in-flight count: experiments target evals only. An experiment card always names an eval. |
+| 13 | Best Confirmed's change against Start | Colored by direction only (green better, red worse). There is no "no clear change" state for it. |
+| 14 | How a wrap-up ended | "Ended early: not enough time or budget for another wave" (priority 2). |
+| 15 | "wave N of about M" | M uses the loop's own wrap-up window and minimum wave start (priority 3: only if easy). |
+| 16 | The plain path | Unchanged. New events are not printed by `PlainUi`; they are still in `wave_log.jsonl`. |
+| 17 | Old code | `questionary`, `RichTerminal`, `LiveUi` and their tests are removed. Their behavior tests move to the new widgets. |

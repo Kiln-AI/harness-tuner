@@ -349,3 +349,16 @@ Building the preview on Textual 8.2.8 found these. The architecture has to allow
 - **Render widgets with `shrink`** can cache a width of 0. The bars and the strip size themselves from the container instead.
 - **There is no two-line clamp.** The hypothesis wraps at the card width and cuts its second line with "…" in Python.
 - **A `ModalScreen`** has its own bindings, so it needs its own `Footer`.
+
+## 14. Changes from the data audit
+
+Functional spec section 16 lists decisions that change some looks above. Where they differ, section 16 wins:
+
+- Results card titles drop the priority ("Hold placement", not "Hold placement · p1").
+- Experiment card subtitles show the item id and its total spend ("w4-1 · $2.30"), with no cap.
+- Probe line 5 is "● YES · 3 drives". The probe steps are "⠸ asking" then "✓ answered".
+- Issue measurement and re-measure cards show "measuring · 3m10s" on line 4, not a gauge.
+- Best Confirmed's change is green or red only. Best Unconfirmed's change is dim when its interval crosses zero.
+- Cost and latency cards have no "N in flight" in their subtitle.
+- Run configs are named by their Kiln names, for example "Best Confirmed · val · Hold fields wrapper".
+- A cut-off item shows "✗ Cut off: the run ended" in red.
