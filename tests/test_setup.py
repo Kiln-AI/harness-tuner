@@ -1652,20 +1652,20 @@ async def test_a_fatal_description_writes_nothing():
 
 
 async def test_describe_spend_is_logged_even_when_the_dispatch_fails():
-    # A failed attempt cost real money and must reach the spend accounting.
+    # A failed attempt used tokens and must reach the spend accounting.
     ctx = make_ctx()
     ctx.dispatch.queue(
         "describe_eval",
-        infra().model_copy(update={"usage": ok(DESCRIPTION, cost_usd=0.02).usage}),
-        infra().model_copy(update={"usage": ok(DESCRIPTION, cost_usd=0.03).usage}),
+        infra().model_copy(update={"usage": ok(DESCRIPTION, tokens=200).usage}),
+        infra().model_copy(update={"usage": ok(DESCRIPTION, tokens=300).usage}),
     )
 
     with pytest.raises(SetupDescribeError):
         await describe_all(ctx, [eval_view()])
 
     spends = [f for k, f in ctx.log.events if k == "spend"]
-    assert [(f["source"], f["lane"], f["cost_usd"]) for f in spends] == [
-        ("describe_eval", "subscription_equivalent", 0.05)  # both attempts
+    assert [(f["source"], f["lane"], f["tokens"]) for f in spends] == [
+        ("describe_eval", "subscription_equivalent", 500)  # both attempts
     ]
 
 
@@ -1787,7 +1787,7 @@ async def test_run_setup_on_a_cold_task_seeds_syncs_and_reports():
         "repaired": 0,
         "unmeasurable": 0,
         "unbound_unresolved": 1,
-        "cost_usd": 0.0,
+        "tokens": 0,
         "report": report,
     }
     assert "setup_ok" not in events
@@ -1808,7 +1808,7 @@ async def test_run_setup_reports_an_unresolvable_default():
     )
 
 
-async def test_run_setup_sums_the_fan_outs_cost_into_the_sync_event():
+async def test_run_setup_sums_the_fan_outs_tokens_into_the_sync_event():
     # Two evals with distinct costs: proves both accumulators — the one
     # `describe_one` shares across concurrent tasks, and `run_setup`'s own.
     kiln = FakeKiln()
@@ -1817,17 +1817,18 @@ async def test_run_setup_sums_the_fan_outs_cost_into_the_sync_event():
     add_eval(kiln, MANIFEST_ID, spec_status="active", spec_id="424242130650")
     ctx = make_ctx(kiln)
     ctx.dispatch.queue(
-        "describe_eval", ok(DESCRIPTION, cost_usd=0.07), ok(DESCRIPTION, cost_usd=0.03)
+        "describe_eval", ok(DESCRIPTION, tokens=700), ok(DESCRIPTION, tokens=300)
     )
 
     await run_setup(ctx)
 
     events = dict(ctx.log.events)
-    assert events["setup_sync"]["cost_usd"] == pytest.approx(0.10)
-    # …and each session's own spend still lands separately for the spend accounting.
-    assert sorted(
-        f["cost_usd"] for k, f in ctx.log.events if k == "spend"
-    ) == pytest.approx([0.03, 0.07])
+    assert events["setup_sync"]["tokens"] == 1000
+    # …and each session's own tokens still land separately.
+    assert sorted(f["tokens"] for k, f in ctx.log.events if k == "spend") == [
+        300,
+        700,
+    ]
 
 
 async def test_run_setup_on_a_warm_task_emits_setup_ok_with_the_same_shape():
@@ -1855,7 +1856,7 @@ async def test_run_setup_on_a_warm_task_emits_setup_ok_with_the_same_shape():
         "repaired": 0,
         "unmeasurable": 0,
         "unbound_unresolved": 0,
-        "cost_usd": 0.0,
+        "tokens": 0,
         "report": report,
     }
 

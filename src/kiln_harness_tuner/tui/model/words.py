@@ -146,14 +146,15 @@ def times_text(started: datetime | None, ends: datetime | None) -> str:
     return " · ".join(parts)
 
 
-def unpriced(tokens: int) -> str:
-    if tokens >= 1_000_000:
-        count = f"{tokens / 1_000_000:.1f}M"
-    elif tokens >= 1_000:
-        count = f"{tokens / 1_000:.0f}k"
+def tokens(count: int) -> str:
+    """`~1.2M tokens`: a rough count."""
+    if count >= 1_000_000:
+        text = f"{count / 1_000_000:.1f}M"
+    elif count >= 1_000:
+        text = f"{count / 1_000:.0f}k"
     else:
-        count = str(tokens)
-    return f"+ {count} tokens unpriced"
+        text = str(count)
+    return f"~{text} tokens"
 
 
 def burn(usd_per_hour: float) -> str:

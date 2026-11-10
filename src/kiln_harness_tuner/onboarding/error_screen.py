@@ -75,12 +75,16 @@ def ending_lines(progress: RunProgress) -> list[str]:
                 " No run folder was created."
             ]
         return ["Nothing was spent and no run folder was created."]
-    total = progress.spend.total if progress.spend is not None else 0.0
-    lines = [
-        f"The run stopped. Spent ${total:.2f} so far"
-        " (agents and the task's model calls).",
-        Unbroken(f"Run folder: {progress.run_dir}"),
-    ]
+    spend = progress.spend
+    total = spend.total if spend is not None else 0.0
+    lines = [f"The run stopped. Spent ${total:.2f} so far on the task's model calls."]
+    if spend is not None and spend.agent_tokens:
+        # The agents' tokens: information only, never in the budget.
+        lines.append(
+            f"The agents used about {spend.agent_tokens:,} tokens,"
+            " which the budget does not count."
+        )
+    lines.append(Unbroken(f"Run folder: {progress.run_dir}"))
     if progress.report_path is not None and progress.report_path.exists():
         lines.append(Unbroken(f"Report: {progress.report_path}"))
     return lines

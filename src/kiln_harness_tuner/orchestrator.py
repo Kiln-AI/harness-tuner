@@ -214,10 +214,17 @@ class SpendMeter:
     """An EventLog sink that accumulates `spend` events into a running total
     — wired into the fan-out beside the
     tracker so the loop can enforce `--budget-usd` at wave boundaries without
-    reaching into the UI tracker."""
+    reaching into the UI tracker.
+
+    `total` is the spend that counts toward `--budget-usd`: everything but
+    the agent lane. The agent sessions run on the agent CLI's own account,
+    so their cost is not counted, for every agent CLI. Their tokens are
+    summed in `agent_tokens`, for information only."""
 
     def __init__(self) -> None:
         self.total = 0.0
+        # The agent sessions' tokens: a rough count, not in the budget.
+        self.agent_tokens = 0
         # The provider lane alone — what spend reconciliation
         # compares with the records (`kiln_harness_tuner.reconcile`).
         self.provider_total = 0.0
@@ -225,10 +232,15 @@ class SpendMeter:
     def event(self, kind: str, **fields: object) -> None:
         if kind != "spend":
             return
+        lane = fields.get("lane") or lane_for_source(str(fields.get("source")))
+        if lane == SUBSCRIPTION_LANE:
+            tokens = fields.get("tokens")
+            if isinstance(tokens, int) and not isinstance(tokens, bool):
+                self.agent_tokens += tokens
+            return
         cost = fields.get("cost_usd")
         if isinstance(cost, (int, float)) and not isinstance(cost, bool):
             self.total += float(cost)
-            lane = fields.get("lane") or lane_for_source(str(fields.get("source")))
             if lane == PROVIDER_LANE:
                 self.provider_total += float(cost)
 
@@ -295,10 +307,10 @@ class Ctx:
     # runner can tell an ANALYZING item from the rest at the deadline.
     item_states: dict[str, str] = field(default_factory=dict)
     # The dispatcher's agent-session cap (None = unlimited) and, per
-    # technique, the (usd, secs) of every build this run — both go to the
+    # technique, the (tokens, secs) of every build this run — both go to the
     # planner so it can see idle capacity and price a second arm.
     max_concurrent_agents: int | None = None
-    build_samples: dict[str, list[tuple[float, float]]] = field(default_factory=dict)
+    build_samples: dict[str, list[tuple[int, float]]] = field(default_factory=dict)
     # Every probe answered this run, newest last —
     # the reconnaissance battery's and each wave's; fed to every planning
     # call. `recon` runs the battery at setup (cli default on; tests off).
@@ -502,8 +514,7 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
                 "spend",
                 source="circuit_breaker",
                 lane=SUBSCRIPTION_LANE,
-                cost_usd=exc.usage.cost_usd,
-                unmeasured_tokens=exc.usage.unmeasured_tokens,
+                tokens=exc.usage.tokens,
             )
         stop_line = quota_stop_line(exc.error.error_class, exc.error.detail)
         ctx.log.event("provider_quota", line=stop_line, detail=exc.error.detail)
@@ -584,14 +595,13 @@ async def _run_loop(
     # Durable wave-log evidence the lane was proven, symmetric with
     # `baseline_found`/`janitor` (the transient phase events are UI-facing).
     ctx.log.event(
-        "preflight", kiln_host=ctx.target.kiln_host, cost_usd=preflight_usage.cost_usd
+        "preflight", kiln_host=ctx.target.kiln_host, tokens=preflight_usage.tokens
     )
     ctx.log.event(
         "spend",
         source="preflight",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=preflight_usage.cost_usd,
-        unmeasured_tokens=preflight_usage.unmeasured_tokens,
+        tokens=preflight_usage.tokens,
     )
     # The setup phase: seed the baseline record, sync the
     # issue store against the task's evals, audit the splits. On a cold
@@ -1030,8 +1040,7 @@ async def _dispatch_plan(
         "spend",
         source="batch_plan",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=result.usage.cost_usd,
-        unmeasured_tokens=result.usage.unmeasured_tokens,
+        tokens=result.usage.tokens,
     )
     if result.data is not None:
         # Every plan the loop runs comes from here, so the wave that follows
@@ -1624,8 +1633,7 @@ async def _run_promotion_gate(
         "spend",
         source="promote_best",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=decision_result.usage.cost_usd,
-        unmeasured_tokens=decision_result.usage.unmeasured_tokens,
+        tokens=decision_result.usage.tokens,
     )
     if decision_result.data is None:
         # Skip promotion — the candidates' wins stay pooled and
@@ -1946,8 +1954,7 @@ async def _integrity_review(
         "spend",
         source="integrity_review",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=result.usage.cost_usd,
-        unmeasured_tokens=result.usage.unmeasured_tokens,
+        tokens=result.usage.tokens,
     )
     if result.data is None:
         why = result.error.detail if result.error else "no answer"
@@ -3197,7 +3204,7 @@ def lever_costs(ctx: Ctx) -> dict[str, LeverCost]:
     return {
         technique: LeverCost(
             n=len(samples),
-            mean_build_usd=fmean(usd for usd, _secs in samples),
+            mean_build_tokens=fmean(tokens for tokens, _secs in samples),
             mean_build_secs=fmean(secs for _usd, secs in samples),
         )
         for technique, samples in ctx.build_samples.items()

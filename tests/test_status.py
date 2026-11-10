@@ -1,6 +1,7 @@
 """status.py — run-id scheme, item kind/label/headline helpers, and the
 RunStatusTracker event fold."""
 
+import json
 from datetime import datetime
 
 import pytest
@@ -23,6 +24,7 @@ from kiln_harness_tuner.schemas import (
     ProbeItem,
     PromotionDecision,
     RemeasureItem,
+    ReportInput,
     SetupReport,
     UnloadableEval,
     WinRef,
@@ -289,8 +291,9 @@ def test_spend_accumulates_per_item_and_run_total():
     tracker.event("spend", item_id="w1-1", source="eval_jobs", cost_usd=0.25)
     tracker.event("spend", item_id="unknown", source="eval_jobs", cost_usd=0.25)
     status = tracker.snapshot()
-    assert status.spend_total_usd == 2.0
-    assert status.waves[0].items[0].spend_usd == 1.25
+    # Agent sessions are tokens: their dollars are in no total.
+    assert status.spend_total_usd == 0.5
+    assert status.waves[0].items[0].spend_usd == 0.25
 
 
 def test_spend_fold_retains_source_and_lane():
@@ -303,10 +306,10 @@ def test_spend_fold_retains_source_and_lane():
     tracker.event("spend", source="eval_jobs", lane=prov, cost_usd=1.25)
     tracker.event("spend", source="val_pass", lane=prov, cost_usd=0.75)
     status = tracker.snapshot()
-    assert status.spend_total_usd == 3.0
-    assert status.spend_by_lane == {sub: 1.0, prov: 2.0}
+    assert status.spend_total_usd == 2.0  # no agent dollars
+    assert status.spend_by_lane == {prov: 2.0}
     assert status.spend_by_source == {
-        "batch_plan": {sub: 1.0},
+        "batch_plan": {},  # a row for the agent source, with no money
         "eval_jobs": {prov: 1.25},
         "val_pass": {prov: 0.75},
     }
@@ -346,8 +349,12 @@ def test_a_laneless_spend_event_recovers_its_lane_from_the_source(source, lane):
     source has always been there and has always been unambiguous, so the fold
     derives the lane rather than parking $98.83 under "unknown"."""
     tracker = make_tracker()
-    tracker.event("spend", source=source, cost_usd=1.0)
-    assert tracker.snapshot().spend_by_lane == {lane: 1.0}
+    tracker.event("spend", source=source, cost_usd=1.0, tokens=10)
+    status = tracker.snapshot()
+    if lane == "subscription_equivalent":  # tokens, never dollars
+        assert (status.spend_by_lane, status.agent_tokens) == ({}, 10)
+    else:
+        assert (status.spend_by_lane, status.agent_tokens) == ({lane: 1.0}, 0)
 
 
 def test_an_event_lane_always_beats_the_derived_one():
@@ -355,9 +362,14 @@ def test_an_event_lane_always_beats_the_derived_one():
     # that says which lane it is on is believed.
     tracker = make_tracker()
     tracker.event(
-        "spend", source="eval_jobs", lane="subscription_equivalent", cost_usd=1.0
+        "spend",
+        source="eval_jobs",
+        lane="subscription_equivalent",
+        cost_usd=1.0,
+        tokens=5,
     )
-    assert tracker.snapshot().spend_by_lane == {"subscription_equivalent": 1.0}
+    status = tracker.snapshot()
+    assert (status.spend_by_lane, status.agent_tokens) == ({}, 5)
 
 
 def test_an_unknown_source_without_a_lane_stays_unknown():
@@ -372,22 +384,15 @@ def test_item_spend_keeps_its_own_lane_split():
     tracker.event("spend", item_id="w1-1", source="create_experiment_rc", cost_usd=2.0)
     tracker.event("spend", item_id="w1-1", source="eval_jobs", cost_usd=5.0)
     item = tracker.snapshot().waves[0].items[0]
-    assert item.spend_usd == 7.0
-    assert item.spend_by_lane == {
-        "subscription_equivalent": 2.0,
-        "provider": 5.0,
-    }
+    assert item.spend_usd == 5.0  # an item's money is Kiln's: agents are tokens
+    assert item.spend_by_lane == {"provider": 5.0}
 
 
-def test_spend_split_reads_a_fold_into_claude_code_and_kiln():
-    assert spend_split({"subscription_equivalent": 3.0, "provider": 1.0}) == (
-        3.0,
-        1.0,
-        0.0,
-    )
-    # An unrecognised lane is returned as `other`, never folded into a side.
-    assert spend_split({"provider": 1.0, "mystery": 0.25}) == (0.0, 1.0, 0.25)
-    assert spend_split({}) == (0.0, 0.0, 0.0)
+def test_spend_split_reads_a_fold_into_kiln_and_other():
+    assert spend_split({"provider": 1.0}) == (1.0, 0.0)
+    # An unrecognised lane is returned as `other`, never folded into Kiln.
+    assert spend_split({"provider": 1.0, "mystery": 0.25}) == (1.0, 0.25)
+    assert spend_split({}) == (0.0, 0.0)
 
 
 def test_time_remaining_from_run_start_deadline():
@@ -815,3 +820,28 @@ def test_item_change_is_folded_onto_the_item():
     assert item.change.changes == ["a", "b"]
     tracker.event("item_change", item_id="w1-1", change="not a dict")
     assert tracker.snapshot().waves[0].items[0].change.summary == "s"
+
+
+def test_the_agent_lane_is_tokens_and_never_dollars():
+    sub, prov = "subscription_equivalent", "provider"
+    tracker = make_tracker()
+    tracker.event("spend", source="batch_plan", lane=sub, cost_usd=3.0, tokens=900)
+    tracker.event("spend", source="batch_plan", lane=sub, tokens=100)
+    tracker.event("spend", source="preflight", tokens=50)  # lane from source
+    tracker.event("spend", source="eval_jobs", lane=prov, cost_usd=1.25)
+    status = tracker.snapshot()
+    # A dollar figure on an agent event (an older wave log) is in no total.
+    assert status.spend_total_usd == 1.25
+    assert status.evidence_spend_usd == 1.25
+    assert status.agent_tokens == 1050
+    assert status.agent_tokens_by_source == {"batch_plan": 1000, "preflight": 50}
+
+
+def test_the_report_agent_input_has_no_agent_dollars():
+    # The report's `**Spend:**` headline reads `spend_total_usd`.
+    tracker = make_tracker()
+    tracker.event("spend", source="batch_plan", cost_usd=16.10, tokens=900)
+    tracker.event("spend", source="eval_jobs", cost_usd=27.20)
+    dumped = json.loads(ReportInput(run_status=tracker.snapshot()).model_dump_json())
+    assert dumped["run_status"]["spend_total_usd"] == pytest.approx(27.20)
+    assert dumped["run_status"]["agent_tokens"] == 900

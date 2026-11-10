@@ -36,10 +36,10 @@ instructions in `AGENTS.md` under its working directory. Each workspace holds
 (`install_agents.install_for_run`), which the profile makes readable, and a
 copy of the agents folder's `AGENTS.md` (`stage_workspace`).
 
-**What it does not have.** Codex reports tokens, not cost: every session's
-tokens are booked as unmeasured, and `--budget-usd` caps the Kiln side only.
-A session id cannot be chosen before the spawn, so a session killed at its
-wall-clock cap is not resumed; the ladder re-runs it (docs/agent-cli.md section 5).
+**What it does not have.** Codex reports tokens, not cost. The loop shows
+the agents in tokens for every agent CLI, so nothing is missing. A session
+id cannot be chosen before the spawn, so a session killed at its wall-clock
+cap is not resumed; the ladder re-runs it (docs/agent-cli.md section 5).
 """
 
 from __future__ import annotations
@@ -277,8 +277,7 @@ def read_codex_output(stdout: str) -> CliRound | None:
     return CliRound(
         session_id=session_id,
         result_text=final,
-        # No cost in the output: the tokens are booked as unmeasured.
-        usage=Usage(tokens=tokens, unmeasured_tokens=tokens),
+        usage=Usage(tokens=tokens),
         error=error,
     )
 
@@ -296,7 +295,6 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
     MODEL_DEFAULTS: dict[str, str] = {}
     DEFAULT_EFFORT = CODEX_EFFORT
     HAS_MAX_TURNS = False
-    REPORTS_COST = False
 
     def __init__(
         self,

@@ -644,8 +644,7 @@ async def check_generality(
         item_id=item.id,
         source="generality_review",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=result.usage.cost_usd,
-        unmeasured_tokens=result.usage.unmeasured_tokens,
+        tokens=result.usage.tokens,
     )
     if result.data is None:
         why = result.error.detail if result.error else (result.detail or "no answer")
@@ -819,8 +818,7 @@ async def _audit_train_copies(ctx: Ctx, rc_id: str) -> BaselineAudit:
             item_id=BASELINE_AUDIT_ITEM,
             source="baseline_audit",
             lane=SUBSCRIPTION_LANE,
-            cost_usd=result.usage.cost_usd,
-            unmeasured_tokens=result.usage.unmeasured_tokens,
+            tokens=result.usage.tokens,
         )
         if result.data is None:
             why = result.error.detail if result.error else (result.detail or "")

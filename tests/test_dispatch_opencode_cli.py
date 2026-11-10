@@ -123,16 +123,13 @@ class TestReadingTheOutput:
         # The last step's text, not the first step's.
         assert cli.result_text == "the answer"
         assert cli.error is None
-        # A plan that prices nothing: the tokens are unmeasured.
         assert cli.usage.tokens == 11_000
-        assert cli.usage.unmeasured_tokens == 11_000
         assert cli.usage.cost_usd == 0
 
     def test_a_priced_session_books_its_cost(self):
         cli = read_opencode_output(opencode_events("x", cost=0.02))
         assert cli is not None
         assert cli.usage.cost_usd == pytest.approx(0.04)
-        assert cli.usage.unmeasured_tokens == 0
 
     def test_an_error_event_is_the_sessions_error(self):
         cli = read_opencode_output(opencode_events(None, error="Insufficient balance"))
@@ -341,7 +338,7 @@ class TestDispatching:
         )
         result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert result.status == "ok", result
-        assert result.usage.unmeasured_tokens == 11_000
+        assert result.usage.tokens == 11_000
         (call,) = runner.calls
         assert Path(call.cwd).parent == run_dir(tmp_path) / "scratch"
 

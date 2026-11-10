@@ -73,7 +73,7 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--budget-usd` | `50` | The cost ceiling for the run, in USD: the agent sessions and the task's model calls together. No wave starts past it. At the ceiling the run exits, and the wave in flight runs to completion. Within one projected wave of the ceiling, the next wave is the wrap-up. `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). With `codex exec` the agent sessions report no cost, so the ceiling caps the Kiln side only. |
+| `--budget-usd` | `50` | The cost ceiling for the run, in USD, on the task's model calls. It never counts the agent sessions, which run on the agent CLI's own account: the run shows their tokens for information. No wave starts past it. At the ceiling the run exits, and the wave in flight runs to completion. Within one projected wave of the ceiling, the next wave is the wrap-up. `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). |
 | `--timeout-mins` | `720` (12 hours) | The time limit in whole minutes. It is a monotonic deadline: no wave starts past it. At the deadline, an item that is already analyzing gets `ANALYSIS_GRACE_SECS` to finish. Every other item in flight is cancelled at once, after its drives are paid for, with no verdict stored. So leave room for a whole wave. |
 
 [costs.md](costs.md) helps you set both limits before you start.
