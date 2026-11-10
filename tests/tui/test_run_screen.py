@@ -388,8 +388,7 @@ async def test_done_mode_shows_the_run_summary_with_its_links():
         assert subtitle_of(section.done) == "run 261109-1412"
         body = text(section.done.body).split("\n")
         assert body[0] == (
-            "Ended early: not enough time or budget for another wave"
-            " · 2h50m · $12.50 of $50.00"
+            "Ended early: not enough budget for another wave · 2h50m · $12.50 of $50.00"
         )
         assert body[1] == "1 wave · 2 experiments · 1 promotion · 1 stopped early"
         assert body[3].startswith("Best Confirmed  Hold fields · w1-1")

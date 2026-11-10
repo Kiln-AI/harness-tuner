@@ -372,16 +372,16 @@ def test_spend_appendix_header_states_budget_elapsed_and_exit():
     )
 
 
-def test_spend_appendix_header_says_how_little_time_was_left():
-    tracker = timed_tracker(4 * 60, deadline=1200.0, timeout_mins=20)
+def test_spend_appendix_header_says_how_the_time_limit_ended_the_run():
+    tracker = timed_tracker(24 * 60, deadline=1200.0, timeout_mins=20)
     tracker.event(
         "exit",
         reason="timeout",
-        detail="3m46s left after setup, under the 15-minute minimum to start a wave",
+        detail="finished wave 1, then the wrap-up",
     )
     assert render_spend_header(tracker.snapshot()) == (
-        "budget 20 min · elapsed 4 min · exit timeout (3m46s left after setup,"
-        " under the 15-minute minimum to start a wave)"
+        "budget 20 min · elapsed 24 min · exit timeout (finished wave 1, then"
+        " the wrap-up)"
     )
 
 
@@ -507,29 +507,6 @@ async def test_write_fallback_ships_a_report_with_no_dispatch(tmp_path):
     assert [k for k, _ in ctx.log.events] == ["report_written"]
     (event,) = [f for k, f in ctx.log.events if k == "report_written"]
     assert event["fallback"] is True
-
-
-async def test_report_agent_gets_one_attempt_past_the_deadline(tmp_path):
-    """The report agent gets one attempt past the deadline, not the five-rung
-    loop ladder — which could run ~85 minutes past a deadline that is meant to
-    be hard."""
-    ctx = make_ctx()
-    ctx.deadline = -1.0  # already past (the fake clock reads 0)
-    writer, tracker = make_writer(tmp_path)
-    start_wave(tracker)
-    ctx.dispatch.queue(
-        "report_writer", infra("provider_error"), infra("provider_error")
-    )
-
-    path = await writer(ctx, "timeout")
-
-    assert len(ctx.dispatch.calls_to("report_writer")) == 1
-    assert ctx.sleeps == []
-    from pathlib import Path
-
-    (written,) = [f for k, f in ctx.log.events if k == "report_written"]
-    assert written["fallback"] is True
-    assert Path(path).read_text().startswith("# ")
 
 
 # ---- issues with no eval ----

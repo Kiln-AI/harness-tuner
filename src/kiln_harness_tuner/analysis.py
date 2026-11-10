@@ -1381,8 +1381,8 @@ class Analyzer:
                 last_error = ErrorInfo(error_class="provider_error", detail=str(exc))
                 continue
             except asyncio.CancelledError:
-                # The CALLER was cancelled mid-wait (the run's hard deadline,
-                # a sibling's fatal): the server job survives observer
+                # The CALLER was cancelled mid-wait (a sibling's fatal,
+                # Ctrl+C): the server job survives observer
                 # teardown, so it would outlive the run that paid for it —
                 # the eval-lane twin of the dispatcher's kill-and-reap.
                 # Shielded so the cancel POST lands while this task unwinds.
@@ -1899,7 +1899,7 @@ class Analyzer:
         ]
         # A hard error on one target cancels the siblings: the
         # run exits on it, so their remaining jobs would be spend on a dead run.
-        error, _pending = await first_error_or_done(tasks)
+        error = await first_error_or_done(tasks)
         if error is not None:
             raise error
         rows: list[PerEvalResult] = []

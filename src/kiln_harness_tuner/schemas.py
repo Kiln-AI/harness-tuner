@@ -201,7 +201,7 @@ class FixWork(BaseModel):
         return self
 
     # Reuse a run config a PRIOR run already built and measured
-    #   (it lost only its analysis to that run's deadline; the abandoned
+    #   (it lost only its analysis when that run stopped; the abandoned
     #   experiment record names it on its `rc:` line). Set → no build session
     #   and no build spend; the item measures and analyzes that rc. The arm
     #   still opens its own experiment record, marked `reused rc:` so the
@@ -1752,8 +1752,9 @@ class MeasurementPrices(BaseModel):
 class BatchPlanInput(BaseModel):
     guidance: str  # kickoff human guidance, verbatim, every wave
     baseline: BaselineRef
-    should_wrap_up: bool  # the code budget judgment — the conclusion,
-    #   not the clock
+    should_wrap_up: bool  # code's judgment that this is the last wave
+    #   (the time limit has passed, or the budget fits one more wave only)
+    #   — the conclusion, not the clock
     eval_sizes: dict[str, int]  # eval_id -> measurable TRAIN items on the
     #   baseline: the count of stored EvalRuns, i.e. what a comparison can
     #   actually pair, not the dataset's nominal size. Advisory

@@ -261,15 +261,14 @@ def test_a_re_measure_card():
 def test_cut_off_cards():
     run = wave_one(fix("w1-1"), fix("w1-2"), fix("w1-3"))
     run.state("w1-1", "measuring").state("w1-3", "analyzing")
-    run.emit("deadline_grace", wave=1, item_ids=["w1-3"], grace_secs=600)
-    run.emit("deadline_cancel", wave=1, item_ids=["w1-1", "w1-2"])
+    run.outcome("w1-3")
+    run.emit("fatal_cancel", wave=1, item_ids=["w1-1", "w1-2"], error="boom")
     assert run.line5("w1-1") == "✗ Cut off: the run ended"
     assert run.card("w1-1").steps[1] == ("measure", "stopped")
     assert not run.card("w1-1").live
     assert run.line5("w1-2") == "✗ Cut off: the run ended"
-    assert run.card("w1-3").live
-    assert "Cut off at the deadline: w1-1, w1-2" in run.log()
-    assert "Deadline: w1-3 get 10m00s to finish their analysis" in run.log()
+    assert run.line5("w1-3") != "✗ Cut off: the run ended"
+    assert "Cut off after a fatal error: w1-1, w1-2" in run.log()
 
 
 STOPS = [
@@ -528,7 +527,7 @@ def test_done_mode_shows_the_run_summary():
     done = view.done
     assert view.mode == "done"
     assert plain(view.header) == "Done · 1 wave"
-    assert done.ended == "Ended early: not enough time or budget for another wave"
+    assert done.ended == "Ended early: not enough budget for another wave"
     assert plain(done.summary) == "2h50m · $12.50 of $50.00"
     assert done.totals == (
         ("1", "wave"),
@@ -548,17 +547,23 @@ def test_done_mode_shows_the_run_summary():
     assert run.model.experiments(run.t).done.report == "/r/report.md"
 
 
-def test_done_says_how_little_time_was_left():
+@pytest.mark.parametrize(
+    ("detail", "ended"),
+    [
+        (
+            "finished wave 2, then the wrap-up",
+            "Time limit reached (finished wave 2, then the wrap-up)",
+        ),
+        (
+            "finished wave 2; no wrap-up: nothing to merge",
+            "Time limit reached (finished wave 2; no wrap-up: nothing to merge)",
+        ),
+    ],
+)
+def test_done_says_how_the_time_limit_ended_the_run(detail, ended):
     run = Run().standard_start()
-    run.emit(
-        "exit",
-        reason="timeout",
-        detail="3m46s left after setup, under the 15-minute minimum to start a wave",
-    )
-    assert run.model.experiments(run.t).done.ended == (
-        "Time limit reached (3m46s left after setup, under the 15-minute"
-        " minimum to start a wave)"
-    )
+    run.emit("exit", reason="timeout", detail=detail)
+    assert run.model.experiments(run.t).done.ended == ended
 
 
 def test_done_shows_only_a_timeout_detail():
@@ -641,7 +646,7 @@ def test_a_probe_phase_step_counts_only_the_probes_with_an_answer():
     run.wave_start(1, probe("w1-1"), probe("w1-2"), probe_phase=True)
     run.emit("item_probe", item_id="w1-1", probe={"answer": "no", "evidence": ""})
     run.outcome("w1-1")
-    run.emit("deadline_cancel", wave=1, item_ids=["w1-2"])
+    run.emit("fatal_cancel", wave=1, item_ids=["w1-2"], error="boom")
     run.emit("wave_end", wave=1, probe_phase=True)
     run.plan(1, replan=True)
     steps = run.model.experiments(run.t).steps

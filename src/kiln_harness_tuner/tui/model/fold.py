@@ -1047,7 +1047,7 @@ class RunModel:
             self.log.append(log.verdict_line(s.wall, verdict, text))
         self._check_wave_landed(s.mono)
 
-    def _cut_off(self, s: Stamped, f: Mapping[str, Any], fatal: bool) -> None:
+    def _cut_off(self, s: Stamped, f: Mapping[str, Any]) -> None:
         ids = []
         for item_id in _texts(f.get("item_ids")):
             item = self.item(item_id)
@@ -1055,17 +1055,11 @@ class RunModel:
                 item.cut_off = True
                 ids.append(item_id)
         if ids:
-            self._say(s, "stop", log.cut_off(ids, fatal))
+            self._say(s, "stop", log.cut_off(ids))
         self._check_wave_landed(s.mono)
 
-    def _on_deadline_cancel(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._cut_off(s, f, fatal=False)
-
     def _on_fatal_cancel(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._cut_off(s, f, fatal=True)
-
-    def _on_deadline_grace(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._say(s, "warn", log.grace(_texts(f.get("item_ids")), f.get("grace_secs")))
+        self._cut_off(s, f)
 
     def _on_spend(self, s: Stamped, f: Mapping[str, Any]) -> None:
         # The tracker folds the run's money; an item's own spend is kept on

@@ -168,17 +168,21 @@ def test_an_invalid_budget_exits_2(given, capsys):
     )
 
 
-@pytest.mark.parametrize("given", ["29", "5", "0", "-30"])
-def test_a_timeout_under_30_minutes_exits_2(given, capsys):
+@pytest.mark.parametrize("given", ["9", "5", "0", "-30"])
+def test_a_timeout_under_10_minutes_exits_2(given, capsys):
     with pytest.raises(SystemExit) as exited:
         build_parser().parse_args(["--timeout-mins", given])
     assert exited.value.code == 2
     assert capsys.readouterr().err.splitlines()[-1] == (
         f"harness-tuner: error: argument --timeout-mins: {given!r}:"
-        " Enter at least 30 minutes. Below that the run can end before its"
-        " first wave: setup takes a few minutes, and no wave starts with less"
-        " than 15 minutes left"
+        " Enter at least 10 minutes: setup alone takes a few. No new wave"
+        " starts after this. The wave in flight finishes, then a last wrap-up"
+        " wave, so the run can end later than this"
     )
+
+
+def test_a_timeout_of_10_minutes_is_accepted():
+    assert build_parser().parse_args(["--timeout-mins", "10"]).timeout_mins == 10
 
 
 def test_a_timeout_that_is_not_whole_minutes_exits_2(capsys):

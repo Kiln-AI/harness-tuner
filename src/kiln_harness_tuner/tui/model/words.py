@@ -547,7 +547,7 @@ def log_verdict(text: str) -> str:
 _ENDINGS = {
     "timeout": "Time limit reached",
     "budget_exhausted": "Budget spent",
-    "wrap_up": "Ended early: not enough time or budget for another wave",
+    "wrap_up": "Ended early: not enough budget for another wave",
     "empty_plan": "Nothing left to try",
     "planner_failed": "The planner failed",
     "tripwire": "Stopped by the tripwire: too many items failed",
@@ -558,8 +558,7 @@ _ENDINGS = {
 
 def how_it_ended(reason: str | None, detail: str | None = None) -> str:
     """How the run ended, with `detail` after it when there is one: `Time
-    limit reached (3m46s left after setup, under the 15-minute minimum to
-    start a wave)`."""
+    limit reached (finished wave 3, then the wrap-up)`."""
     if reason is None:
         return "The run ended"
     if reason in _ENDINGS:

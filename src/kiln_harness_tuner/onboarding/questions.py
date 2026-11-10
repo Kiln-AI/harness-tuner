@@ -53,13 +53,17 @@ NO_CAP = "none"
 BUDGET_ERROR = "Enter an amount in USD, like 50, or none"
 DURATION_ERROR = "Enter a time like 90m or 12h"
 # The shortest time limit, for the question and for `--timeout-mins`. Setup
-# runs before the first wave, and no wave starts with under 15 minutes left
-# (`orchestrator.MIN_WAVE_START_SECS`).
-MIN_TIME_LIMIT_MINS = 30
+# runs before the first wave and takes a few minutes. A shorter limit passes
+# during setup, and the run gets only the wrap-up wave.
+MIN_TIME_LIMIT_MINS = 10
+# What the time limit does, in the words the refusal and the hint share.
+TIME_LIMIT_RULE = (
+    "No new wave starts after this. The wave in flight finishes, then a last"
+    " wrap-up wave, so the run can end later than this"
+)
 TIME_LIMIT_ERROR = (
-    f"Enter at least {MIN_TIME_LIMIT_MINS} minutes. Below that the run can end"
-    " before its first wave: setup takes a few minutes, and no wave starts with"
-    " less than 15 minutes left"
+    f"Enter at least {MIN_TIME_LIMIT_MINS} minutes: setup alone takes a few."
+    f" {TIME_LIMIT_RULE}"
 )
 FRACTION_ERROR = "Enter a fraction above 0 and at most 1, like 0.1 for 10%"
 COUNT_ERROR = "Enter a whole number, 0 or more"
@@ -642,10 +646,7 @@ def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Budget", budget_text(answers.budget_usd))
 
 
-TIME_HINT = (
-    f"At least {MIN_TIME_LIMIT_MINS}m. Plan on 1h or more for more than one wave."
-    " No wave starts after the limit, and work still running at it is cancelled."
-)
+TIME_HINT = f"At least {MIN_TIME_LIMIT_MINS}m. {TIME_LIMIT_RULE}."
 
 
 def _ask_time(answers: Answers, ctx: QuestionContext) -> None:

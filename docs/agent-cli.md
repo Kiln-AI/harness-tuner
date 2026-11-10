@@ -165,9 +165,9 @@ type, a missing default eval config — so those are reported as
 
 **A timeout.** The subprocess is killed and the result is
 `failed_infra(timeout)`. Every dispatch runs under a per-role cap, and the cap
-is what bounds a hang *inside* a wave. The run deadline does not do that job: it
-stops the wave, cancelling the item and losing what it had paid for, and it only
-arrives at the end of the time the operator asked for. A per-role cap turns a
+is what bounds a hang *inside* a wave. The run's time limit does not do that
+job: it is checked at wave boundaries only, and a wave in flight at the limit
+runs to its end. A per-role cap turns a
 wedged session into one failed item the ladder can retry, minutes after it
 wedged rather than hours.
 

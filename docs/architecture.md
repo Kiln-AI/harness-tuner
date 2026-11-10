@@ -210,10 +210,9 @@ Then:
 
 Per wave, in order:
 
-1. **Three clock checks.** Past the deadline, exit. Less than
-   `MIN_WAVE_START_SECS` left, exit — under that floor a wave cannot finish,
-   and paying for a plan whose arms are cancelled on arrival is worse than
-   stopping. Otherwise compute `should_wrap`.
+1. **The clock check.** Before the time limit, the wave is a normal wave.
+   At or past it, the wave is the wrap-up, and it is the last wave (section
+   3.3).
 2. **The budget check.** First the ledger is reconciled with the records
    this run created (`kiln_harness_tuner.reconcile`; [costs.md](costs.md)), so
    the check reads the true spend. With a budget (any `--budget-usd` but
@@ -221,7 +220,7 @@ Per wave, in order:
    `budget_exhausted`; within one mean wave's cost of it, this wave is the
    wrap-up. This check is a wave boundary and nothing else — **a wave already
    running is never killed for the budget**, so the wave that crosses the
-   ceiling runs to completion and is paid for. The clock does not work this way
+   ceiling runs to completion and is paid for. The clock works the same way
    (section 3.3).
 3. **Read the baseline**, fresh, because the previous wave's promotion moved
    it. The planner receives the run-config id and nothing else.
@@ -254,8 +253,8 @@ Per wave, in order:
    `--max-concurrent-agents` and `--max-concurrent-evals`.
 8. **The tripwire.** Section 10.
 9. **The promotion gate.** Section 9. It runs over what completed even when
-   the wave tripped or the deadline hit, so a measured winner is never
-   stranded.
+   the wave tripped, or the time limit passed during the wave, so a measured
+   winner is never stranded.
 10. **Exit, or carry one thing forward.** The planner's own
    `rejected_summary` is the single piece of in-context state that crosses a
    wave boundary; everything else the next planner reads from memory.
@@ -267,23 +266,34 @@ session), `interrupted` (Ctrl-C) and `fatal:<ExceptionClass>`.
 
 ### 3.3 The clock
 
-`--timeout-mins` sets a monotonic deadline. Three rules govern it:
+`--timeout-mins` sets a monotonic time limit. The loop checks it at wave
+boundaries only. Three rules govern it:
 
-- **Hard.** No wave — the wrap-up included — ever *starts* past the deadline.
-  That is a statement about *starting*, and it is the only one: unlike the
-  budget check in section 3.2, the deadline reaches inside a running wave. The grace
-  rule below is what it does there.
-- **A floor.** `MIN_WAVE_START_SECS` below the deadline, the loop goes straight
-  to the report.
-- **A grace.** At the deadline, an item already *analyzing* is given
-  `ANALYSIS_GRACE_SECS` to finish. Its build and its drives are already paid
-  for, and the analysis is the one session that turns them into a stored
-  verdict. Every other in-flight item is cancelled at once.
+- **Before the limit**, every wave is a normal wave. The loop does not
+  predict when to wrap up: nobody can say beforehand how long a wave takes,
+  and a guess either wastes the time that is left or stops a wave early.
+- **At the limit**, no new normal wave starts. The wave in flight is not
+  cancelled. Its items run to their end (build, measurement, analysis), and
+  its promotion gate on val runs too.
+- **After the limit**, exactly one wrap-up wave runs (`should_wrap_up:
+  true`). Its job is to merge the pooled unpromoted wins. When nothing is
+  pooled, the planner returns `loop_exit` and the run goes to the report.
+  After the wrap-up wave, the run goes to the report. The exit reason is
+  `timeout`, and its detail names the last normal wave:
+  `finished wave 3, then the wrap-up`, or
+  `finished wave 3; no wrap-up: nothing to merge`
+  (`orchestrator.time_limit_detail`).
 
-`should_wrap` fires when the remaining time is under the larger of
-`WRAP_UP_WINDOW_SECS` and the run's own mean wave time so far. The planner is
-handed the conclusion — `should_wrap_up: bool` — never the clock. Budget
-arithmetic belongs in code, not in an agent reading a minutes number.
+So a run can end later than its limit, by the wave in flight plus the
+wrap-up. The limit stops new work. It does not stop work that has started.
+The budget is different: it stays a hard ceiling (section 3.2). When the
+budget ends the run first, the budget's own wrap-up wave is the last
+(exit `wrap_up`), or the run exits `budget_exhausted`. Ctrl+C, a signal and
+a fatal error still stop the run at once.
+
+The planner is handed the conclusion — `should_wrap_up: bool` — never the
+clock. Budget arithmetic belongs in code, not in an agent reading a minutes
+number.
 
 ## 4. One item's path
 
@@ -1236,7 +1246,7 @@ transcripts. No live server, no model spend, so it runs on every change.
 Tiers: the statistics assembly and the baseline-if-needed tree against a fake
 client; the memory formats string-asserted, because they *are* contracts;
 whole waves against scripted agent results — promotion, head-to-head, tripwire,
-deadline into wrap-up, janitor, `loop_exit`; the dispatcher's plumbing against
+time limit into wrap-up, janitor, `loop_exit`; the dispatcher's plumbing against
 recorded `claude -p` output, which covers prompt rendering, the fenced-JSON
 extraction, the repair retry and usage parsing.
 
