@@ -6,13 +6,13 @@ import argparse
 import dataclasses
 
 import pytest
-from onboarding_fakes import ScriptedTerminal, claude_models_only
+from onboarding_fakes import ScriptedTerminal
 
 from kiln_harness_tuner.cli import DISPATCHERS, build_parser, load_model_policy
 from kiln_harness_tuner.cli import OBJECTIVES as CLI_OBJECTIVES
 from kiln_harness_tuner.dispatch.agent_cli import parse_agent_cli
 from kiln_harness_tuner.dispatch.claude_cli import AGENT_MODEL
-from kiln_harness_tuner.onboarding.agent_models import AgentModel, ModelList
+from kiln_harness_tuner.onboarding.agent_models import CLAUDE_MODELS, CODEX_MODELS
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.questions import (
@@ -89,16 +89,8 @@ def context(
     which=EVERY_CLI,
     policy_loader=load_model_policy,
     demo: bool = False,
-    list_models=claude_models_only,
 ) -> QuestionContext:
-    return QuestionContext(
-        terminal,
-        DEFAULTS,
-        policy_loader,
-        demo=demo,
-        which=which,
-        list_models=list_models,
-    )
+    return QuestionContext(terminal, DEFAULTS, policy_loader, demo=demo, which=which)
 
 
 class Typed:
@@ -471,111 +463,70 @@ def test_with_no_agent_cli_installed_exit_stops_with_1():
     assert stopped.value.exit_code == 1
 
 
-@pytest.mark.parametrize(
-    ("kind", "hint"),
-    [
-        (
-            "codex",
-            "Enter uses Codex's own default model. For example gpt-6.1-sol. The"
-            " models: https://developers.openai.com/codex/models",
-        ),
-        (
-            "opencode",
-            "Enter uses OpenCode's own default model. OpenCode models are"
-            " PROVIDER/MODEL, and `opencode models` lists them.",
-        ),
-    ],
-)
-def test_with_no_model_list_the_model_is_typed(kind, hint):
-    terminal = ScriptedTerminal([kind, ""])
+def test_opencode_has_no_list_so_its_model_is_typed():
+    terminal = ScriptedTerminal(["opencode", ""])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     model = terminal.asked_about("Model for the agents")
-    assert (model.kind, model.default, model.hint) == ("text", "", hint)
-    assert terminal.busy_texts[-1] == f"Reading {_KIND_NAMES[kind]}'s models…"
+    assert (model.kind, model.default, model.hint) == (
+        "text",
+        "",
+        "Enter uses OpenCode's own default model. A model is PROVIDER/MODEL, for"
+        " example zai-coding-plan/glm-5.3-flash. `opencode models` lists them.",
+    )
     # Enter on the default leaves the model out of the command.
-    assert got.agent_cli == next(a.command for a in AGENT_KINDS if a.kind == kind)
+    assert got.agent_cli == "opencode run"
 
 
-_KIND_NAMES = {agent.kind: agent.name for agent in AGENT_KINDS}
-CODEX_LIST = ModelList(
-    (
-        AgentModel("gpt-6.1-sol", "Latest workhorse model."),
-        AgentModel("gpt-6.1-terra", "GPT-6.1 Terra Codex model."),
-    ),
-    own_default="gpt-6-astra",
-)
-
-
-def lists(**by_kind: ModelList):
-    return lambda kind: by_kind.get(kind, claude_models_only(kind))
-
-
-def test_claude_code_models_are_picked_from_a_fixed_list():
+def test_claude_code_models_are_picked_from_its_list():
     terminal = ScriptedTerminal(["claude", "claude-fable-5-2"])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     model = terminal.asked_about("Model for the agents")
     assert model.kind == "pick"
-    assert model.offered == (
-        "opus",
-        "sonnet",
-        "haiku",
-        "claude-fable-5-2",
-        " other",
-    )
+    assert model.offered == (*(m.name for m in CLAUDE_MODELS), " other")
+    assert "claude-fable-5-2" in model.offered
     assert model.default == "opus"
+    assert model.hint == "Other to type a model name: an alias or a full name."
     assert [o.label for o in terminal.options[-1]][-1] == "Other…"
     assert got.agent_cli == "claude -p --model claude-fable-5-2"
-    # A fixed list: no spinner.
-    assert terminal.busy_texts == ["Looking for agent CLIs…"]
 
 
-def test_codex_models_are_picked_from_its_own_list():
+def test_codex_models_are_picked_from_its_list():
     terminal = ScriptedTerminal(["codex", "gpt-6.1-terra"])
-    got = ask_all(
-        answers(),
-        context(terminal, list_models=lists(codex=CODEX_LIST)),
-        given=AGENTS_ONLY,
-    )
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     model = terminal.asked_about("Model for the agents")
-    assert model.offered == ("", "gpt-6.1-sol", "gpt-6.1-terra", " other")
+    assert model.offered == ("", *(m.name for m in CODEX_MODELS), " other")
     assert model.default == ""
     assert model.hint == (
-        "The models your Codex account lists. Other to type a name. All of them:"
+        "Other to type a model name. All of Codex's models:"
         " https://developers.openai.com/codex/models"
     )
     rows = terminal.options[-1]
     assert (rows[0].label, rows[0].description) == (
         "Default",
-        "Codex's own default: gpt-6-astra.",
+        "Codex's own default model, from its own settings.",
     )
-    assert rows[1].description == "Latest workhorse model."
+    assert all(row.description for row in rows)
     assert got.agent_cli == "codex exec -m gpt-6.1-terra"
 
 
 def test_the_default_row_leaves_the_model_out_of_the_command():
-    terminal = ScriptedTerminal(["opencode", ""])
-    listed = ModelList((AgentModel("zai-coding-plan/glm-5.3"),))
-    got = ask_all(
-        answers(),
-        context(terminal, list_models=lists(opencode=listed)),
-        given=AGENTS_ONLY,
-    )
-    assert terminal.options[-1][0].description == "OpenCode's own default model."
-    assert got.agent_cli == "opencode run"
+    terminal = ScriptedTerminal(["codex", ""])
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert got.agent_cli == "codex exec"
 
 
 def test_other_asks_for_a_typed_name():
     typed = Typed("gpt 6", "gpt-7-preview")
     terminal = ScriptedTerminal(["codex", " other", typed])
-    got = ask_all(
-        answers(),
-        context(terminal, list_models=lists(codex=CODEX_LIST)),
-        given=AGENTS_ONLY,
-    )
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     assert terminal.questions[-2:] == [
         "Model for the agents",
         "Model name for the agents",
     ]
+    assert terminal.asked_about("Model name for the agents").hint == (
+        "Enter uses Codex's own default model. For example gpt-6.1-sol. The"
+        " models: https://developers.openai.com/codex/models"
+    )
     assert typed.refusals == [MODEL_ERROR]
     assert got.agent_cli == "codex exec -m gpt-7-preview"
 
@@ -584,7 +535,7 @@ def test_asked_again_a_model_not_in_the_list_starts_on_other():
     terminal = ScriptedTerminal(["codex", " other", "my-model"])
     ask_all(
         answers(agent_cli="codex exec -m my-model"),
-        context(terminal, list_models=lists(codex=CODEX_LIST)),
+        context(terminal),
         given=AGENTS_ONLY,
     )
     assert terminal.asked_about("Model for the agents").default == " other"
@@ -592,11 +543,11 @@ def test_asked_again_a_model_not_in_the_list_starts_on_other():
 
 
 def test_a_model_name_with_a_space_is_refused():
-    typed = Typed("gpt 6", "gpt-6")
-    terminal = ScriptedTerminal(["codex", typed])
+    typed = Typed("zai/glm 5", "zai/glm-5")
+    terminal = ScriptedTerminal(["opencode", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     assert typed.refusals == [MODEL_ERROR]
-    assert got.agent_cli == "codex exec -m gpt-6"
+    assert got.agent_cli == "opencode run -m zai/glm-5"
 
 
 # ---- budget and time ----

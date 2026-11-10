@@ -17,7 +17,6 @@ from onboarding_fakes import (
     PROJECT_ID,
     TASK_ID,
     RouteKiln,
-    claude_models_only,
     import_project_route,
     kiln_routes,
     one_project_routes,
@@ -77,7 +76,6 @@ class Start:
                 terminal=terminal,
                 runner=self.runner,
                 which=lambda name: f"/usr/local/bin/{name}",
-                list_models=claude_models_only,
                 home=home,
                 report=self.reports.append,
             )

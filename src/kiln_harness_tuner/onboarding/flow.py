@@ -23,7 +23,6 @@ from kiln_harness_tuner import __version__
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.model_policy import ModelPolicy
-from kiln_harness_tuner.onboarding.agent_models import ModelLister, listed_models
 from kiln_harness_tuner.onboarding.choose import Selection, select
 from kiln_harness_tuner.onboarding.console import PlainTerminal
 from kiln_harness_tuner.onboarding.demo import make_demo
@@ -128,7 +127,6 @@ def prepare_start(
     runner: KilnRunner | None = None,
     home: Path | None = None,
     which: Callable[[str], str | None] = shutil.which,
-    list_models: ModelLister = listed_models,
     report: Callable[[StartReport], None] | None = None,
 ) -> argparse.Namespace:
     """Check that Kiln answers and is new enough, make and import a copy of
@@ -150,8 +148,7 @@ def prepare_start(
     policy, whose providers the key check covers, each time that check
     runs; it is cli's, so a bad file reads the same here as in the run. The
     demo's copies go in `home`'s `Kiln Projects/` folder; `home` is
-    `Path.home()` by default. `which` finds the agent CLIs on PATH, and
-    `list_models` lists the models each one offers.
+    `Path.home()` by default. `which` finds the agent CLIs on PATH.
     `report`, when given, gets the `StartReport` once, just before the
     start returns, and never when it stops or fails.
 
@@ -194,12 +191,7 @@ def prepare_start(
 
         if terminal.interactive:
             context = QuestionContext(
-                terminal,
-                defaults,
-                policy_loader,
-                demo=args.demo_project,
-                which=which,
-                list_models=list_models,
+                terminal, defaults, policy_loader, demo=args.demo_project, which=which
             )
             _ask_until_started(
                 answers, context, given=given, keys=keys, summary=summary, rerun=rerun
