@@ -57,11 +57,13 @@ It tries different methods, not just different words: one big prompt or skills, 
 
 Downloads a small moderation task into a new folder, adds it to Kiln, and tunes it: 624 labelled forum posts, and an eval. The baseline prompt doesn't know the forum's house rules, so there's plenty to find and fix.
 
+> Requires adding an OpenRouter API key to Kiln. The harness-tuner run will costs about $2.
+
 ```
 uv tool install harness-tuner
 harness-tuner --demo-project \
     --guidance "Improve the moderation decisions. Keep the output format." \
-    --timeout-mins 60 --budget-usd 20
+    --timeout-mins 120 --budget-usd 20
 ```
 
 ## Quickstart
