@@ -158,6 +158,24 @@ The link to this project: **being right often is the largest cost saving.**
 A planner with the right early hypotheses converges perhaps ten times
 faster.
 
+### 5.1 How to spend a limited budget
+
+Planning must be aware of the budget. The budget is known at the start, and
+the tuner can check what the evals cost, so this is possible.
+
+- **A large budget opens options.** Trying a range of models before locking
+  one (section 6.4, step 1) is one example. A hyperparameter scan is
+  another. Both are for a high budget only.
+- **There is a good order, and the budget limits how much of it to do.**
+  "Lock a model, then experiment" is good. Spending the budget on the choice
+  of which model to lock is not.
+- **A goal of this project** is to add to the knowledge how to work with
+  budgets of different sizes: what to do, and what to leave out, at each
+  size.
+
+This is part of cost efficiency: the saving comes from spending the budget
+on the experiments most likely to win.
+
 ## 6. The levers the tuner knows today
 
 ### 6.1 System prompt
