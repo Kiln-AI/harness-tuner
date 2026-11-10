@@ -857,7 +857,7 @@ async def _run_loop(
         # Wrap-up AND tripped waves included: promotion always runs
         # over what completed (a measured winning merge must not
         # strand behind an infra exit). maybe_promote also emits `wave_end`
-        # once the wave's block is final (scrollback ordering).
+        # once the wave's block is final.
         await maybe_promote(ctx, outcomes, record, wave)
         await archive_probe_run_configs(ctx)
 
@@ -1431,10 +1431,10 @@ async def _maybe_promote(
     try:
         return await _run_promotion_gate(ctx, candidates, record)
     finally:
-        # `wave_end` BEFORE the gate's phase_end: the promotion
-        # banner is set by the time the gate closes, so the block — banner
-        # included — freezes into scrollback first, and the gate's done-line
-        # prints below it, keeping terminal history chronological.
+        # `wave_end` BEFORE the gate's phase_end: the promotion banner is
+        # set by the time the gate closes. So a display shows the wave's
+        # block, banner included, before the gate's done line, in the order
+        # the events happened.
         ctx.log.event("wave_end", wave=wave)
         ctx.log.event(
             "phase_end",

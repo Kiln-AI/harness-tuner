@@ -135,17 +135,6 @@ def show_error(
     console.print(Text(closing_line(prog), style="dim"))
 
 
-def show_closing_line(prog: str, *, stream: TextIO | None = None) -> None:
-    """The closing line alone, after an error the guided start has already
-    shown."""
-    out: TextIO = sys.stderr if stream is None else stream
-    if not _is_terminal(out):
-        out.write(closing_line(prog) + "\n")
-        out.flush()
-        return
-    _console(out).print(Text(closing_line(prog), style="dim"))
-
-
 def _wrapped(console: Console, line: str) -> list[Text]:
     """`line` as the screen prints it after the indent. An `Unbroken` line
     is one part. Any other line is wrapped at its spaces to fit, and a word

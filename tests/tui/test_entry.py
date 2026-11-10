@@ -545,9 +545,8 @@ def test_a_crash_during_the_start_releases_its_question(monkeypatch, capsys):
 
 
 def test_a_start_error_prints_the_whole_error_screen(monkeypatch, capsys):
-    error = OnboardingError("Kiln isn't running", ("Nothing answered at :8757.",))
     # A guided start showed it as a block in the app, which is gone now.
-    error.shown = True
+    error = OnboardingError("Kiln isn't running", ("Nothing answered at :8757.",))
     code, _ = run_with(monkeypatch, FakeStart(error=error), None)
     assert code == 1
     err = capsys.readouterr().err

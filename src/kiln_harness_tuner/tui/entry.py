@@ -33,7 +33,6 @@ from kiln_harness_tuner.dispatch.agent_cli import parse_agent_cli
 from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.logbook import log_path, run_log_configured
 from kiln_harness_tuner.onboarding import (
-    OnboardingError,
     OnboardingStopped,
     StartReport,
 )
@@ -236,13 +235,9 @@ class _AppRun:
             raise self.start.stopped
         if failure is not None:
             raise failure
-        try:
-            args = self.start.result()
-        except OnboardingError as error:
-            # A guided start showed it as a block, which went with the app.
-            # So the scrollback gets the whole error screen.
-            error.shown = False
-            raise
+        # A start error goes on to `main`, which prints the whole error
+        # screen: the block the start showed went with the app.
+        args = self.start.result()
         # `app_startup`: today's plain run, on this thread.
         return asyncio.run(cli._run_with_signals(args))
 

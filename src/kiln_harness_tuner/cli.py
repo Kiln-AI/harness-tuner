@@ -92,7 +92,6 @@ from kiln_harness_tuner.onboarding.error_screen import (
     RunProgress,
     ending_lines,
     error_body,
-    show_closing_line,
     show_error,
 )
 from kiln_harness_tuner.onboarding.questions import (
@@ -1531,11 +1530,7 @@ def _finish(body: Callable[[], str], *, kiln_host: str) -> int:
         print(f"{PROG}: stopped.", file=sys.stderr)
         return stop.exit_code
     except OnboardingError as exc:
-        if exc.shown:
-            # A guided start has already shown it, as a block on the terminal.
-            show_closing_line(PROG)
-        else:
-            show_error(exc.title, exc.body, ending_lines(_RUN_PROGRESS), prog=PROG)
+        show_error(exc.title, exc.body, ending_lines(_RUN_PROGRESS), prog=PROG)
         return 1
     except asyncio.CancelledError:
         signum = _stopped_by[0] if _stopped_by else signal.SIGTERM

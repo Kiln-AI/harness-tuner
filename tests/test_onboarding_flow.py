@@ -543,7 +543,6 @@ def test_not_ready_and_not_guided_fails_with_the_plain_message():
         "    • An eval it can measure: an active eval with a default judge set.\n"
         f"  Open Evals in Kiln: {HOST}/specs/{PROJECT_ID}/{TASK_ID}"
     )
-    assert error.value.shown is False
     assert terminal.out == []
 
 
@@ -825,7 +824,6 @@ def test_an_error_is_shown_as_a_block_only_in_a_guided_start(interactive):
     with pytest.raises(OnboardingError) as error:
         start(two_projects(), terminal, ["--project-id", "999"])
     assert error.value.title == "Kiln has no project 999"
-    assert error.value.shown is interactive
     expected = [(error.value.title, error.value.body)] if interactive else []
     assert terminal.blocks == expected
 

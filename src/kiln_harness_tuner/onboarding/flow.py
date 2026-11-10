@@ -153,9 +153,8 @@ def prepare_start(
     start returns, and never when it stops or fails.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
-    guided, or an unknown ID); a guided start has shown it already, and
-    marks it `shown`. Raises `OnboardingStopped` when the user stops,
-    Ctrl-C included."""
+    guided, or an unknown ID); a guided start also shows it as a block.
+    Raises `OnboardingStopped` when the user stops, Ctrl-C included."""
     if terminal is None:
         terminal = PlainTerminal(prog)
     host = args.kiln_host.rstrip("/")
@@ -218,7 +217,6 @@ def prepare_start(
     except OnboardingError as error:
         if terminal.interactive:
             terminal.block(error.title, error.body)
-            error.shown = True
         raise
     except KeyboardInterrupt:
         # A Ctrl-C during a Kiln read: since Python 3.11, `asyncio.run`

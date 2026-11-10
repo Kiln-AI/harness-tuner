@@ -12,7 +12,6 @@ from kiln_harness_tuner.onboarding.error_screen import (
     RunProgress,
     ending_lines,
     error_body,
-    show_closing_line,
     show_error,
 )
 from kiln_harness_tuner.orchestrator import SpendMeter
@@ -304,17 +303,3 @@ def test_an_error_with_no_body_goes_straight_to_its_ending(terminal):
         "  Nothing was spent and no run folder was created.\n\n"
         "kiln-harness-tuner stopped with an error (exit 1)\n"
     )
-
-
-def test_the_closing_line_alone_on_a_terminal_is_dim(terminal):
-    show_closing_line(PROG, stream=terminal)
-    assert terminal.getvalue() == (
-        "\x1b[2mkiln-harness-tuner stopped with an error (exit 1)\x1b[0m\n"
-    )
-
-
-def test_the_closing_line_alone_without_a_terminal_is_plain(monkeypatch):
-    monkeypatch.setenv("FORCE_COLOR", "1")
-    stream = io.StringIO()
-    show_closing_line(PROG, stream=stream)
-    assert stream.getvalue() == "kiln-harness-tuner stopped with an error (exit 1)\n"

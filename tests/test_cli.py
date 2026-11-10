@@ -430,22 +430,6 @@ def test_main_prints_an_onboarding_error_and_exits_1(monkeypatch, capsys):
     assert ran == []
 
 
-def test_main_prints_only_the_closing_line_for_an_error_the_guided_start_showed(
-    monkeypatch, capsys
-):
-    def shown(args, _argv, **_kwargs):
-        error = OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])
-        error.shown = True
-        raise error
-
-    ran: list = []
-    monkeypatch.setattr(kiln_harness_tuner.cli, "prepare_start", shown)
-    monkeypatch.setattr(kiln_harness_tuner.cli, "_run", _never_run(ran))
-    assert main(ARGS) == 1
-    assert capsys.readouterr().err == CLOSING
-    assert ran == []
-
-
 def test_main_prints_a_titled_error_with_its_body(monkeypatch, capsys):
     def fails(args, _argv, **_kwargs):
         raise OnboardingError("Kiln has no project 999", ["Projects in Kiln:"])

@@ -170,7 +170,6 @@ def test_kiln_not_running_not_guided_fails_with_the_plain_message():
         start(kiln, terminal)
     title, body = NOT_RUNNING
     assert str(error.value) == "\n".join([title, *(f"  {line}" for line in body)])
-    assert error.value.shown is False
     assert kiln.paths() == ["/ping"]
 
 
