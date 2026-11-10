@@ -210,7 +210,7 @@ seven calls in a row, so one tool does it".
 > day, so cost matters more. **This is why Harness Tuner exists.** The gains
 > are compiled into the harness in advance, not found from first principles
 > on every run. We can spend 24 hours of a top model (Fable, Astra) on the
-> harness and then run it on a cheap model (a DeepSeek flash model, Luna).
+> harness and then run it on a cheap model (DeepSeek-V4-1-Flash, Luna).
 > The better harness gives quality, correctness, cost and latency together,
 > not one at the expense of another. It also solves problems a frontier model
 > cannot solve when the tools are too complicated or the instructions are
@@ -248,8 +248,9 @@ VM.
 
 **A model guide.** The project needs a current guide: the best roughly 25
 models to try, by situation. This knowledge changes weekly. Examples as of
-the recording: Opus is nearly always best at coding; one DeepSeek flash
-model is excellent value but reasons a lot, so it is not fast; Gemini models
+the recording: Opus is nearly always best at coding, and GPT Sol sometimes
+catches up and then falls behind again; DeepSeek-V4-1-Flash is excellent
+value but reasons a lot, so it is usually not fast; Gemini models
 are much better at PDFs and documents; never use an older version when a
 newer one of the same line is out. The tuner needs access to benchmarks and
 tools that give the latest state, and a maintained set of "reasonable models
@@ -339,9 +340,10 @@ counts). A harmful field can be removed, such as a "last decision" field that
 the model over-weights, or user notes that hurt the result. Not often needed,
 but valuable in specific cases, mostly classification.
 
-### 7.4 Decision models (JEV)
+### 7.4 Decision models (Jev)
 
-Very fast "system 1" models. The input side is like an LLM. The output is a
+Jev started the "decision model" category. There are now many (Luna
+Decisions, Cloudflare Clef, Kev and others). They are very fast "system 1" models. The input side is like an LLM. The output is a
 prediction, in effect one token for the class. They are very cheap, very
 fast and capable for the price. **Consider them for every classification
 task**, possibly with input transforms. They do nothing for free-text
