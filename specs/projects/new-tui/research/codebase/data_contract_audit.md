@@ -59,11 +59,11 @@ Section 1.13 has the full list of comp problems.
    (yes/no/**unclear**), free-text `evidence` and `drives` (a total)
    (`schemas.py:651-661`). It has no count of the drives that showed "yes".
 8. **In-flight gauges on Issue baseline measurement and Re-measure cards.**
-   Each eval is one `ensure_measured` long-poll (`items.py:357-359`,
-   `454-456`). Nothing is emitted until it returns.
+   Each eval is one `ensure_measured` long-poll (`items.py:358-360`,
+   `438-440`). Nothing is emitted until it returns.
 9. **Spending caps on eval-build, issue-baseline and re-measure cards.**
    Only experiment arms and screening candidates have a cap (`measure.py`
-   `set_budget`, `943-951`). Also, the arm card's "$1.20 of $4" mixes
+   `set_budget`, `948-956`). Also, the arm card's "$1.20 of $4" mixes
    two things: `ItemStatus.spend_usd` is all of the item's spend (build
    session, analysis session, eval jobs, chunks), but the cap covers
    only the measurement's provider dollars.
@@ -75,13 +75,13 @@ Section 1.13 has the full list of comp problems.
     forever. The spec's verdict table has no row for them.
 11. **`promotion` is not proof of a promotion.** It is emitted before
     `_apply_checked`, which can still refuse the winner with
-    `promotion_blocked` (`orchestrator.py:1436-1447`, `1496-1505`,
-    `1549-1609` and `1612-1647`). `_on_promotion` appends the winner
+    `promotion_blocked` (`orchestrator.py:1436-1452`, `1496-1505`,
+    `1549-1600`, checked in `_apply_checked` at `1612-1647`). `_on_promotion` appends the winner
     to `baseline_history` anyway (`status.py:614-622`). A "Promoted" line
     must wait for `phase_end promotion_gate` with no `promotion_blocked`
     for that rc.
 12. **Cost and latency as experiment targets.** `ExperimentItem` targets
-    evals only (`evaluation_target`, `schemas.py:440`). Under quality, no
+    evals only (`evaluation_target`, `schemas.py:441`). Under quality, no
     item targets "Cost / request". The comp card "Cost / request ·
     thinking" and its in-flight count have no source.
 13. **"Dim means no clear change" for Best Confirmed against Start.** After
@@ -117,11 +117,11 @@ Section 1.13 has the full list of comp problems.
 
 | Element | Source | Status |
 |---|---|---|
-| Objective | `run_start.objective` (`orchestrator.py:469`) → `RunStatus.objective` (`status.py:236-237`) | E |
+| Objective | `run_start.objective` (`orchestrator.py:472`) → `RunStatus.objective` (`status.py:236-237`) | E |
 | Optimize / hold / watch rows | A fixed map of the objective (functional spec 7.2). The quality hold rule is real: a row whose CI is entirely below zero rejects (`decide_single_candidate`, `orchestrator.py:2064-2095`). The speed and cost rule is `apply_speed_eligibility` (`1947-1972`) | D |
-| "5 evals" | Distinct `eval_id` in `detectability.report.rows` with `promotion_driving` (`schemas.py:1587-1603`; emitted `detectability.py:649`; always on, `cli.py:1025`). Or `setup_*.evals_active` (`setup.py:1273`) | E |
+| "5 evals" | Distinct `eval_id` in `detectability.report.rows` with `promotion_driving` (`schemas.py:1587-1603`; emitted `detectability.py:649`; always on, `cli.py:1025`). Or `setup_*.evals_active` (`setup.py:1274`) | E |
 | Comp: "Quality · 5 evals, weighted by priority" | Under quality, no code rule weights by priority. Priority weights are used only under speed and cost (`eval_weights`, `orchestrator.py:1930-1944`; used at `1423` and in `items.py` under efficiency) | COMP |
-| Data: train | `train_set.items`, distinct train items over all evals (`orchestrator.py:2947-2956`). Per eval: `baseline_measured.evals[e].expected` (`2739-2745`; `measure_baseline_first` is on, `cli.py:1024`) | E |
+| Data: train | `train_set.items`, distinct train items over all evals (`orchestrator.py:2947-2956`). Per eval: `baseline_measured.evals[e].expected` (`2743`; `measure_baseline_first` is on, `cli.py:1024`) | E |
 | Data: val | Per (eval, score) only: `detectability` rows `val_n` (`schemas.py:1597`). `quarantine.heldout_items` is val and test together (`orchestrator.py:2982-2991`) | NA as one total |
 | Data: test | No event, no field | NA |
 
@@ -130,16 +130,16 @@ Section 1.13 has the full list of comp problems.
 | Element | Source | Status |
 |---|---|---|
 | Elapsed | `RunStatus.elapsed_secs`, computed at snapshot from the tracker's construction (`status.py:177`, `203`) | E (tracker) |
-| Time limit | `run_start.timeout_mins` (`orchestrator.py:463`); `deadline` (monotonic, `459`) | E |
+| Time limit | `run_start.timeout_mins` (`orchestrator.py:464`); `deadline` (monotonic, `459`) | E |
 | "started 14:12" | Wall clock at `run_start` arrival, or `deadline_iso` − `timeout_mins`. `run_started_at` (`cli.py:1205`) is not emitted | D |
-| "ends 17:12" | `run_start.deadline_iso` (`orchestrator.py:467`), local naive ISO | E |
+| "ends 17:12" | `run_start.deadline_iso` (`orchestrator.py:470`), local naive ISO | E |
 | Spend | `spend.cost_usd` → `spend_total_usd` (`status.py:555`) | E |
-| Budget | `run_start.budget_usd` (`orchestrator.py:468`); None means no cap | E |
+| Budget | `run_start.budget_usd` (`orchestrator.py:471`); None means no cap | E |
 | Spend by lane | `spend.lane` → `spend_by_lane` (`status.py:570-572`). Labels: `spend_lane_labels(agent_cli)` (`schemas.py:85-90`). Unpriced agent tokens: `unmeasured_tokens` (`status.py:561`). The comp omits them; Codex reports tokens, not cost | E |
-| Burn rate | Spend ÷ elapsed hours. Lumps: reconciliation spend lands at each wave boundary and before `exit` (`orchestrator.py:668`, `446-450`). The report writer's spend lands after `exit` (`report.py:971`) | D |
+| Burn rate | Spend ÷ elapsed hours. Lumps: reconciliation spend lands at each wave boundary and before `exit` (`orchestrator.py:668`, `448-452`). The report writer's spend lands after `exit` (`report.py:971`) | D |
 | Wave N | `wave_start.wave` (`orchestrator.py:821`). During planning: `phase_start(name="planning").wave` (`907-910`). The tracker drops `wave` on `phase_start` (`status.py:389`), so read the raw event | E |
 | "of ~M" | The loop's values are locals: `wave_cycle_secs`, `wave_cycle_costs` (`orchestrator.py:662-663`, `853-855`). The app must re-derive the mean cycle from arrival times (consecutive main-wave planning starts, and the spend between them). See finding 15: mirror `should_wrap` and the 15-minute floor, or the number misleads | D (with caveat) |
-| [LAST WAVE] | `wave_start.should_wrap_up` (`orchestrator.py:823`). While the wrap-up wave is planned, only the label text says it: "Planning wrap-up wave N…" (`911-913`) | E; text-parse while planning |
+| [LAST WAVE] | `wave_start.should_wrap_up` (`orchestrator.py:824`). While the wrap-up wave is planned, only the label text says it: "Planning wrap-up wave N…" (`911-913`) | E; text-parse while planning |
 
 ### 1.4 Run timeline
 
@@ -168,13 +168,13 @@ No event carries a start time. The app stamps each event when it arrives
 
 | Element | Source | Status |
 |---|---|---|
-| The concern list | `detectability.report.rows` (one per (eval, score)), with `promotion_driving` (`schemas.py:1587-1603`; `detectability.py:649`; always on, `cli.py:1025`). Order follows `_active_evals` (`orchestrator.py:2448`). An eval built mid-run (`EvalOnlyItem`, or a fix with `needs_eval`, `items.py:684-701`) is not in it. Its id appears only in later C1/C2 rows, with no name (C1a can carry `Evidence.eval_names`, `stop_rules.py:337`) | E, partial |
-| Card name: the eval | `rows[].train.eval_name` (`schemas.py:1572`) | E |
+| The concern list | `detectability.report.rows` (one per (eval, score)), with `promotion_driving` (`schemas.py:1587-1603`; `detectability.py:649`; always on, `cli.py:1025`). Order follows `_active_evals` (`orchestrator.py:2448`). An eval built mid-run (`EvalOnlyItem`, or a fix with `needs_eval`, `items.py:684-701`) is not in it. Its id appears only in later C1/C2 rows, with no name (C1a can carry `Evidence.eval_names`, `stop_rules.py:340`) | E, partial |
+| Card name: the eval | `rows[].train.eval_name` (`schemas.py:1571`) | E |
 | Card name: the score | `rows[].train.score_key` only. No display name | NA (show the key) |
 | Priority | Finding 2 | NA |
 | Rating marker "1–5" | `rows[].train.score_type == "five_star"` (`RATING_SCORE_TYPES`, `analysis.py:83`). Pass rate: `pass_fail`, `pass_fail_critical` (`analysis.py:82`) | E |
 | Start (train), pass rate | (n − room) ÷ n from `rows[].train` (`schemas.py:1575-1576`). For a binary score, "room" is the items not at the best value | D |
-| Start (train), rating mean | No event. C1b row `baseline_score` (a mean for ratings, `schemas.py:1291`), for evals a completed arm targeted | C1, partial |
+| Start (train), rating mean | No event. C1b row `baseline_score` (a mean for ratings, `schemas.py:1286`), for evals a completed arm targeted | C1, partial |
 | Start (train), cost and latency, quality | No event. C1b rows' passive `cost` / `latency` (`LatencyComparison`, `baseline_median_ms`). One comparison per eval, not one number per config | C1, partial |
 | Start (train), latency, speed or cost | `baseline_speed.latency` (`orchestrator.py:2799`) | E |
 | Start (train), cost, cost objective | `ctx.baseline_cost[rc]` (`2776`), never emitted | NA |
@@ -194,9 +194,9 @@ No event carries a start time. The app stamps each event when it arrives
 
 | Element | Source | Status |
 |---|---|---|
-| Target concern | `ExperimentItem.evaluation_target` (`schemas.py:440`). A list: an item can target several evals, and the card names one. A `needs_eval` fix gets its eval mid-item (`items.py:691`, `701`) | C5 |
+| Target concern | `ExperimentItem.evaluation_target` (`schemas.py:441`). A list: an item can target several evals, and the card names one. A `needs_eval` fix gets its eval mid-item (`items.py:691`, `701`) | C5 |
 | Merge target "All evals" | `kind == "merge"` (`status.py:72`) | E |
-| Kind of change | `FixWork.technique` (`schemas.py:181-183`), free text, not a fixed set. Today only at the outcome (`outcome.item.work.technique`) | C5 |
+| Kind of change | `FixWork.technique` (`schemas.py:182-183`), free text, not a fixed set. Today only at the outcome (`outcome.item.work.technique`) | C5 |
 | Hypothesis | Inside `wave_start.items[].label`: "[wildcard] hypothesis (issue_id)" (`status.py:92-93`). Raw: C5 | E as text; C5 |
 | Merge: "Combine … on top of …" | Label: experiment memory ids joined by " + " (`status.py:91`). Ingredient rc ids: `MergeWork.wins[].rc_id` (C5, or at the outcome) → item ids through the rc map | E / D |
 | Probe question | Label "probe: <question>" (`status.py:88`) | E |
@@ -208,13 +208,13 @@ No event carries a start time. The app stamps each event when it arrives
 | "rebuilding once · copied text found" | The state goes back to `building_rc` (`items.py:1266`) after `judge_copy status=copied` (`1061`), `generality status=leaked` (`1016`) or `reference_check status=found` (`1110`). A second `item_change` follows (`987`) | D |
 | "an agent is writing the change · 3m10s" | `ItemStatus.phase_secs`, live at snapshot (`status.py:215-223`) | E |
 | "14 of 36 judged" | Judged: text in `measure_chunk.line` (`measure.py:724-747`, emitted `1268`). Planned: `queue_drawn.size` (`812-816`) | E as text; C3 |
-| "5 fixed · 0 broke so far" | Text in `measure_chunk.line` ("+F/−B vs baseline"; under speed and cost, "lost L/N passes, fixed F/M"). F and B are against the queue parent (`estimate.py:66-70`), although the text says "baseline" | C3 |
+| "5 fixed · 0 broke so far" | Text in `measure_chunk.line` ("+F/−B vs baseline"; under speed and cost, "lost L/N passes, fixed F/M"). F and B are against the queue parent (`estimate.py:67-71`), although the text says "baseline" | C3 |
 | Strip cell: fixed / broke | Per item: `parent_pass` and `cand_pass` (`measure.py:1194-1203`) | Finding 1 |
 | Strip cell: held / still failing | Needs each item's parent result. Counts cannot split them | Finding 1 |
 | Strip, today | Rebuild from `queue_drawn.queue` `[eval_id, item_id, stratum, block]` (`measure.py:192-198`) + `trial.scores` (`analysis.py:2148`). `queue_drawn` has no `rc_id`, so join through `candidate_budget` or `measure_chunk` (item_id + rc_id). `cand_pass` = score ≥ 0.5 (`measure.py:1201`). `parent_pass` = stratum is "pass"; the "named" stratum's `parent_pass` is not in the JSON (`measure.py:436`) | D, fragile |
-| Spend against cap | Cap: `candidate_budget.usd` (`measure.py:988`), once. The default is re-priced each chunk (`1248`) and not emitted again. Spend: see finding 9 | E, but mismatched; C3 should carry both |
+| Spend against cap | Cap: `candidate_budget.usd` (`measure.py:988`), once. The default is re-priced each chunk (`1247`) and not emitted again. Spend: see finding 9 | E, but mismatched; C3 should carry both |
 | Cap on eval build, issue baseline, re-measure | Finding 9 | COMP |
-| Probe "3 drives" while asking | `ProbeItem.max_drives` (`schemas.py:557`) | C5 |
+| Probe "3 drives" while asking | `ProbeItem.max_drives` (`schemas.py:561`) | C5 |
 | Probe steps "✓ asked · ⠸ answering" | One state: `probing` (`items.py:478`) | COMP (use "asking → answered") |
 | Issue baseline gauge "24 of 40 items" | Finding 8. `eval_progress` has no emitter (`status.py:538-543`) | NA |
 | Re-measure gauge "48 of 72 items" | Per eval, at the end of its fill only: `item_detail` "eval: S/T stored" (`items.py:458-462`). The total is not known up front | Partial, as text |
@@ -228,12 +228,12 @@ No event carries a start time. The app stamps each event when it arrives
 | Success · goes to the gate | `outcome.status == "completed"`, `result.successful`, `item.type == "experiment"`, `item.promotion_candidate` (`schemas.py:438-446`). It is a prediction: the gate also needs `rc_id` and an experiment memory id (`orchestrator.py:1331-1342`), drops policy refusals (`1351`) and is skipped at the deadline (`1362-1374`) | D |
 | Success | Completed, successful, not a candidate | E |
 | No win | Completed, `result.successful` False (`veto_reason` says why) | E |
-| Stopped: futility, eval_metric, residual, targets, latency_ratio, cost_ratio, not_better, guard_losses | `status == "not_landed"`, `measurement.stop_kind` (`items.py:1618-1633`) | E |
+| Stopped: futility, eval_metric, residual, targets, latency_ratio, cost_ratio, not_better, guard_losses | `status == "not_landed"`, `measurement.stop_kind` (`items.py:1615-1636`) | E |
 | Stopped: the change did not take effect | `status == "dead_end"`, `measurement.stop_kind == "lever_not_applied"` (`items.py:1580-1597`) | E |
-| Capped | `status == "capped"` (`items.py:1556-1565`). A run-budget cap has the same kind; only `stop_line` says "run budget" (`report.py:524`) | E |
+| Capped | `status == "capped"` (`items.py:1554-1565`). A run-budget cap has the same kind; only `stop_line` says "run budget" (`report.py:526`) | E |
 | Dead end: <reason> | `status == "dead_end"`. For build and check dead ends, the outcome has no reason. The reason is only in the `item_detail` before it: "dead end: …" (`items.py:732`, `1262`, `1299`, `1409`). The tracker clears `detail` at the outcome (`status.py:590`), so keep the last one | D (text) |
 | Failed: <error class> | `status == "failed_infra"`, `infra_error.error_class` | E |
-| Not reproduced | Eval build: `status == "skipped_not_reproduced"`. Issue baseline: `status == "completed"` either way; the verdict is only in `item_detail` "reproduced …" / "not reproduced …" (`items.py:409-414`) | E / D (text) |
+| Not reproduced | Eval build: `status == "skipped_not_reproduced"`. Issue baseline: `status == "completed"` either way; the verdict is only in `item_detail` "reproduced …" / "not reproduced …" (`items.py:409-418`) | E / D (text) |
 | Promoted | Finding 11 | D |
 | Rejected at val | `rejection_recorded` (`orchestrator.py:3364`), only when both memory writes landed. Else: gate candidates − winner − blocked, when `decision.blocked_on` is None. No rejection is written when the winner is refused at apply (`1638`) | E / D |
 | Held | `hold_recorded` (`3347`) / `promotion.decision.blocked_on` | E |
@@ -261,8 +261,8 @@ Outcomes in the code with **no row** in the spec's table:
 | Agent CLI test | `check_agent_cli` (`cli.py:1197`), before any tracker or `FanoutLog`. No event. The app must time it itself. "claude -p" is `agent_cli.text` | CLI |
 | Preflight | `phase_start` / `phase_end preflight` (`orchestrator.py:553`/`561`); `preflight` (`kiln_host`, `cost_usd`, `568`) | E |
 | Setup | `phase setup` (`589`/`597`); `setup_sync` / `setup_ok` (`setup.py:1271`). Comp "5 evals and 8 issues synced": `seeded` and `refreshed` count evals (`seeded_eval_ids`, `refreshed_eval_ids`, `schemas.py:1153-1154`); only `repaired` counts issues | E; comp wording is loose |
-| Baseline | `baseline_found` (`orchestrator.py:611`); `baseline_seeded` (`setup.py:1243`); `phase baseline_measure` (`orchestrator.py:2675`/`2718`); `baseline_progress` every 30 s (`2654`); `baseline_measured` with per eval `stored`, `expected`, `how` (`2739-2745`). "train scores read from Kiln" = every `how == "stored"` | E |
-| Model preflight | `model_preflight` with `result.checks[].outcome` (`model_preflight.py:424`, `500`); `model_preflight_flag` / `_untested` (`474`/`484`). With `--skip-model-preflight`, no event at all (`orchestrator.py:633`) | E; CLI for the skip |
+| Baseline | `baseline_found` (`orchestrator.py:611`); `baseline_seeded` (`setup.py:1243`); `phase baseline_measure` (`orchestrator.py:2675`/`2718`); `baseline_progress` every 30 s (`2654`); `baseline_measured` with per eval `stored`, `expected`, `how` (`2739-2745`, field at `2743`). "train scores read from Kiln" = every `how == "stored"` | E |
+| Model preflight | `model_preflight` with `result.checks[].outcome` (`model_preflight.py:424`, `500`); `model_preflight_flag` / `_untested` (`474`/`484`). With `--skip-model-preflight`, no event at all (`orchestrator.py:631`) | E; CLI for the skip |
 | Detectability | `detectability_row`, `detectability_warning`, `detectability` (`detectability.py:635-654`) | E |
 | Noise check | `noise_estimate`, `noise_row`, `noise_warning`, `noise_check` (`noise.py:421-581`), only with `--noise-check`. Else no event (`orchestrator.py:645`) | E; CLI for "skipped" |
 | Also run, not in the spec's list | `quarantine`, `train_set` (`2947`, `2982`), `eval_unloadable` (`setup.py:1220`), `janitor` (`orchestrator.py:601`), `prior_screening` (`viability.py:547`), `contract_ok` (`orchestrator.py:627`), baseline audits (`generality.py:723`, `762`) | E |
@@ -350,7 +350,7 @@ Outcomes in the code with **no row** in the spec's table:
 | Probe steps "✓ asked · ⠸ answering" | One state (1.6) |
 | Recon ids "w0-1" | Real: `r0-N` (`probes.py:786`) |
 | Log "Screen round 1: 3 of 6 candidates survive" in wave 5, after a wave 3 screen | The round counter is run-wide (1.9) |
-| Log "Screen: 2 of 8 models survive" | Candidates are variants: model, provider, thinking, sampling (`schemas.py:672-678`) |
+| Log "Screen: 2 of 8 models survive" | Candidates are variants: model, provider, thinking, sampling (`SCREEN_ONLY_OVERRIDES`, `schemas.py:676-682`) |
 | Log "Building on 41 records from 2 earlier runs" | `prior_screening` counts screening results (`viability.py:547-557`) |
 | Log "openai rate limit · 6 eval items retried" | `eval_job_errors` has no provider field, and does not say a retry followed |
 | Step "5 evals and 8 issues synced" | 1.8 |
@@ -402,7 +402,7 @@ There are two kinds of numbers, at two points. Both points are needed.
 **1a. At the end of every arm's measurement (stopped arms included).**
 
 - Where: `items.py` `_measure_arm`, at the `measurement` event (`1522-1533`),
-  right after `measure()` returns (`1508-1521`).
+  right after `measure()` returns (`1509-1521`).
 - In scope: `measured: Measured` (`measure.py:567-610`): `status`,
   `stop_kind`, `per_eval: dict[str, Estimate]`, `estimate`, `evidence`
   (`Evidence`: `judged: list[Judged]`, `fixed_broke(eval_id)`,
@@ -441,7 +441,7 @@ arm_estimates {
 **1b. When a completed arm's analysis bundle exists.**
 
 - Where: `items.py` `_execute_plan_item`, after `bundle.latency` and
-  `bundle.cost` are set (`797-800`).
+  `bundle.cost` are set (`798-800`).
 - In scope: `bundle: AnalysisBundle` (`schemas.py:1313-1331`): `per_eval:
   list[PerEvalResult]` (one row per (eval, score), against the parent,
   `analysis.py:1888-1890`), `latency`, `cost`, `errors`; also `rc_id`,
@@ -461,7 +461,7 @@ arm_estimates {
 call, no control flow. The cost is one dump per arm.
 
 **Risks.** Train numbers only, which the planner already reads. An arm whose
-analysis fails (`items.py:774-788`) has 1a and no 1b. Under quality,
+analysis fails (`items.py:773-788`) has 1a and no 1b. Under quality,
 cost and latency are per eval (passive, `method: eval_runs`), so the app
 needs a rule to show one number per config.
 
@@ -500,7 +500,7 @@ needs a rule to show one number per config.
 - Where: `measure.py` `_measure`, the `measure_chunk` emit (`1268-1275`).
 - In scope: `s.ev: Evidence` (`judged_n` `stop_rules.py:343-344`,
   `fixed_broke()` `346-351`, `guard_losses()` `360-371`, `judged`),
-  `s.spend`, `s.budget` (`Budget.usd`, `.source`; re-priced at `1248`),
+  `s.spend`, `s.budget` (`Budget.usd`, `.source`; re-priced at `1247`),
   `s.status`, `s.stop_kind`, `decision`, `k`, `len(bounds)`, and
   `own_per_eval(s)`.
 - Proposed new fields on `measure_chunk`: `judged: int`, `planned: int`,
@@ -550,8 +550,8 @@ gate_fill { rc_id: str, eval_id: str, role: "baseline" | "candidate",
 ### Change 5: item details at wave start
 
 - Where: `status.item_summary` (`status.py:96-97`). It is loop code: the
-  orchestrator calls it to build every `wave_start.items` (`orchestrator.py:774`,
-  `827`, `1131`). (`runtime_data.md` section 7 calls it display-side. It is
+  orchestrator calls it to build every `wave_start.items` (`orchestrator.py:775`,
+  `828`, `1132`). (`runtime_data.md` section 7 calls it display-side. It is
   not.)
 - In scope: `item: BatchItem` (`schemas.py:438-578`).
 - Proposed added keys per item (all copies): `type`, `hypothesis`,
@@ -602,7 +602,7 @@ gate_fill { rc_id: str, eval_id: str, role: "baseline" | "candidate",
   str, "scope": str, "tags": [str], "overview": str}`. No `content` (up to
   4000 characters, `models.py:446`).
 - Write it the way `State.record` does: one `os.write` with `O_APPEND`
-  (`ops.py:148-163`). Unlike `record`, catch `OSError`: a failed append must
+  (`ops.py:150-163`). Unlike `record`, catch `OSError`: a failed append must
   not fail the agent's write.
 - Add `"gateway_memory.jsonl"` to `RUN_DIR_ENTRIES` (`cli.py:648-660`).
   Then `prepare_run_dir` makes it before the first session
@@ -634,13 +634,13 @@ gate_fill { rc_id: str, eval_id: str, role: "baseline" | "candidate",
 ```
 memory_written { id: str, op: "create" | "update", role: str, scope: str,
                  tags: [str], overview: str,
-                 kind: str,           # memory_schema.record_kind(tags, overview), memory_schema.py:203-213
+                 kind: str,           # memory_schema.record_kind(tags, overview), memory_schema.py:204-213
                  written_at: str,     # the gateway's ts
                  forwarded_by: str }  # the label of the session whose end forwarded it
 ```
 
 - Add one more forward before the first `exit`, for example in
-  `_ReconcileBeforeExit.event` after `reconcile` (`orchestrator.py:446-450`).
+  `_ReconcileBeforeExit.event` after `reconcile` (`orchestrator.py:448-452`).
   A cancelled session never reaches `_persist_step`.
 - Additive: yes. No Kiln call (the view is the write's own answer). One
   small append per agent memory write, and one file read per session end.
@@ -689,7 +689,7 @@ object the loop keeps.
 | `spend` | `source:str`, `lane:str`, `cost_usd:float`, `unmeasured_tokens:int?`, `evidence_cost_usd:float?`, `item_id:str?` | – | Safe |
 | `candidate_budget`, `measure_chunk`, `measurement` | str, int, float | – (C3 adds ints and floats) | Safe |
 | `queue_drawn` | `size:int`, `seed:str`, `population:dict`, `skipped:dict`, `queue:list[list[str]]`, `fragility:dict?`, `per_eval_caps:dict?` | **Shared:** `population`, `skipped`, `fragility` are the `Queue`'s own dicts (`measure.py:812-821`). The engine only reads them after the emit. `queue` is fresh (`to_json`) | Safe in practice |
-| `trial` | `eval_id`, `rc_id`, `landed:bool`, `scores:dict[str,float\|None]` | `scores` is also `TrialResult.scores` (`analysis.py:2119-2154`); only read after | Safe in practice |
+| `trial` | `eval_id`, `rc_id`, `landed:bool`, `scores:dict[str,float\|None]` | `scores` is also `TrialResult.scores` (`analysis.py:2120-2153`); only read after | Safe in practice |
 | `screening_round` | `round:int`, `line:str`, `results:list[dict]` | Fresh dumps (`viability.py:479-488`) | Safe |
 | `judge_copy`, `generality`, `reference_check` | str, `list[str]` | `list(...)` copies (`items.py:1016-1024`, `1061-1070`, `1110-1120`) | Safe |
 | `integrity`, `gate_block` | `flags` / `reasons: list[str]` | `list(...)` copies (`orchestrator.py:1747-1751`, `1797-1802`) | Safe |
@@ -699,10 +699,10 @@ object the loop keeps.
 | `rejection_recorded`, `hold_recorded` | str | – | Safe |
 | `setup_sync` / `setup_ok` | ints, `cost_usd:float`, `report:SetupReport` | **Shared.** Its last changes (`setup.py:1263-1264`) come before the emit (`1271`) | Treat as read-only |
 | `detectability` | `line:str`, `report:DetectabilityReport` | **Shared**, complete before the emit (`detectability.py:620-649`) | Treat as read-only |
-| `noise_check` | `line`, `result:NoiseCheckResult` | **Shared**; `result.rows` is also `ctx.train_noise` (`noise.py:568`), read only | Treat as read-only |
+| `noise_check` | `line`, `result:NoiseCheckResult` | **Shared**; `result.rows` is also `ctx.train_noise` (`noise.py:569`), read only | Treat as read-only |
 | `model_preflight` | `line`, `result:ModelPreflightResult` | **Shared**, complete before the emit (`model_preflight.py:468-500`) | Treat as read-only |
 | `baseline_speed` | `rc_id`, `line`, `latency:LatencyComparison\|None` | **Shared**: the same object as `ctx.baseline_speed[rc]`, later handed to `BatchPlanInput`. Changed only before the emit (`orchestrator.py:2785-2792`) | Treat as read-only |
-| `baseline_measured` | `evals:dict` | Fresh (`2742-2744`) | Safe |
+| `baseline_measured` | `evals:dict` | Fresh (`2743`) | Safe |
 | `eval_job_errors` | `errors:list[dict]` | A local list per attempt (`analysis.py:1275-1283`) | Safe |
 | `janitor` | `memory_ids:list[str]` | The janitor's return value, not kept | Safe |
 | `deadline_cancel`, `deadline_grace`, `fatal_cancel` | `item_ids:list[str]` | Fresh | Safe |
@@ -780,16 +780,16 @@ Two more points:
 | Kiln host | `args.kiln_host` → `target.kiln_host` (`TargetBlock`, `schemas.py:159-166`); `preflight.kiln_host` (`orchestrator.py:568`) | CLI / E |
 | Agent CLI | `parse_agent_cli` (`cli.py:1177`): `.kind` → `RunStatus.agent_cli` (`cli.py:1298`); `.text` (`cli.py:1226`). Lane label: `spend_lane_labels` (`schemas.py:85-90`) | CLI / E |
 | Slot counts | `args.max_concurrent_agents`, `args.max_concurrent_evals` (`cli.py:344`, `325`; defaults `139`, `138`); to `build_ctx` (`cli.py:1272-1273`) | CLI |
-| Eval names | `detectability.report.rows[].train.eval_name` (`schemas.py:1572`). Mid-run evals: none (C1a can add `Evidence.eval_names`) | E, partial |
+| Eval names | `detectability.report.rows[].train.eval_name` (`schemas.py:1571`). Mid-run evals: none (C1a can add `Evidence.eval_names`) | E, partial |
 | Score names | `score_key` only (rows; C1, C2 rows) | NA for display names |
 | Eval priorities | Finding 2. A mid-run eval's priority is in `EvalBuildReport.priority` (`schemas.py:1103`), which reaches only the steps file | NA |
 | Score type | `rows[].train.score_type` (`five_star` = rating 1–5; `pass_fail`, `pass_fail_critical` = pass rate; `analysis.py:82-83`). Also `PerEvalResult.score_type` in C1b and C2 | E |
 | Direction | `rows[].train.direction`; `PerEvalResult.direction` | E |
-| Kind of change | `FixWork.technique` (`schemas.py:181-183`) via C5, or `outcome.item.work.technique`. Item type: `ItemStatus.kind` (fix, merge, eval, measure, remeasure, probe; `status.py:63-72`) | C5 / E |
-| Best Confirmed rc id | `baseline_history[-1]`; `wave_start.baseline_rc_id` (`orchestrator.py:824`) | E |
+| Kind of change | `FixWork.technique` (`schemas.py:182-183`) via C5, or `outcome.item.work.technique`. Item type: `ItemStatus.kind` (fix, merge, eval, measure, remeasure, probe; `status.py:63-72`) | C5 / E |
+| Best Confirmed rc id | `baseline_history[-1]`; `wave_start.baseline_rc_id` (`orchestrator.py:825`) | E |
 | Run config names and descriptions | Finding 5 | NA |
 | rc → item id | `item_outcome.outcome.rc_id`; in flight: `candidate_budget`, `measure_chunk`, `measurement`, `judge_copy`, `generality`, `reference_check` carry `item_id` + `rc_id` | E |
-| Split sizes | Train total: `train_set.items` (`orchestrator.py:2947-2956`). Train per eval: `baseline_measured.evals[e].expected` (`2742-2744`), or detectability `n + unscored`. Val per (eval, score): `val_n`. Val + test union: `quarantine.heldout_items`. Test: none | E, partial; finding 4 |
+| Split sizes | Train total: `train_set.items` (`orchestrator.py:2947-2956`). Train per eval: `baseline_measured.evals[e].expected` (`2743`), or detectability `n + unscored`. Val per (eval, score): `val_n`. Val + test union: `quarantine.heldout_items`. Test: none | E, partial; finding 4 |
 
 ---
 
@@ -801,7 +801,7 @@ Two more points:
 |---|---|---|
 | `time.monotonic` | `Ctx.clock` default (`orchestrator.py:252`); `build_ctx` passes none | `run_start.deadline` (`459`), every `elapsed_secs` (phases, waves), `should_wrap`, the deadline checks |
 | `time.monotonic` | Tracker `clock=ctx.clock` (`cli.py:1297`) | `elapsed_secs`, `time_remaining_secs`, item and phase timings |
-| `datetime.now()`, local, naive | `run_start.deadline_iso` (`orchestrator.py:467`); `WaveLog` `ts` (`wave_log.py:47`); `run_started_at` and the run id (`cli.py:1205-1206`); steps files' `started`, `ended` (`dispatch/claude_cli.py:1114`, `1131-1144`); `PlainUi` stamps (`ui.py:910-912`) | Labels and audit times |
+| `datetime.now()`, local, naive | `run_start.deadline_iso` (`orchestrator.py:470`); `WaveLog` `ts` (`wave_log.py:47`); `run_started_at` and the run id (`cli.py:1205-1206`); steps files' `started`, `ended` (`dispatch/claude_cli.py:1114`, `1131-1144`); `PlainUi` stamps (`ui.py:910-912`) | Labels and audit times |
 
 No event field carries a time of day, except `run_start.deadline_iso`. The
 rest are monotonic: `deadline` (an absolute monotonic value) and durations
@@ -843,8 +843,8 @@ rest are monotonic: `deadline` (an absolute monotonic value) and durations
 | 4.4, 4.8: `promotion` → "promotion or not ✔" | `promotion` comes before `_apply_checked`, which can still block (`orchestrator.py:1638`). The tracker records the winner anyway. Finding 11 |
 | 2.2: `prior_screening` has `restored:int` | `restored` is `list[str]` (`viability.py:534-549`) |
 | 4.7: per-item fixed/broke can be recomputed from `queue_drawn` + `trial` "joined on rc_id" | `queue_drawn` has no `rc_id` (`measure.py:812-821`). The join goes through `candidate_budget` or `measure_chunk` (item_id + rc_id). The "named" stratum's parent result is not in the queue JSON (`measure.py:192-198`, `436`) |
-| 4.10, 7: agent-written lessons: "No core event is possible" | The gateway already appends to a run-folder file (`gateway_created.jsonl`, `ops.py:148-163`). The same path works for memory writes (change 7) |
-| 7: extend `status.item_summary`, "a display-side helper" | The orchestrator calls it to build `wave_start` (`orchestrator.py:774`, `827`, `1131`). Changing it changes the loop's events (additively) |
+| 4.10, 7: agent-written lessons: "No core event is possible" | The gateway already appends to a run-folder file (`gateway_created.jsonl`, `ops.py:150-163`). The same path works for memory writes (change 7) |
+| 7: extend `status.item_summary`, "a display-side helper" | The orchestrator calls it to build `wave_start` (`orchestrator.py:775`, `828`, `1132`). Changing it changes the loop's events (additively) |
 | 4.7: "Cap: (a) `candidate_budget`" | Also, `ItemStatus.spend_usd` counts every lane of the item, while the cap counts the measurement's provider dollars only (finding 9) |
 | 2.4: `item_change` fields | Correct, but note that it has no `rc_id` (`items.py:987`) |
 
