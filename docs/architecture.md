@@ -1209,11 +1209,14 @@ deadline into wrap-up, janitor, `loop_exit`; the dispatcher's plumbing against
 recorded `claude -p` output, which covers prompt rendering, the fenced-JSON
 extraction, the repair retry and usage parsing.
 
-Four guards hold properties that are not behaviour: `test_paths.py` (no
+Five guards hold properties that are not behaviour: `test_paths.py` (no
 module derives a path from outside the package),
 `test_dispatch_boundary.py` (the seam), `test_preflight_messages.py` (every
 pre-flight error carries a fix line, and the site count is stated so the guard
-cannot narrow in silence) and `test_docs.py`.
+cannot narrow in silence), `test_docs.py`, and `test_cli_reference.py` (every
+console script is named in `docs/cli.md`, and every flag of `harness-tuner`
+and `harness-tuner-install-agents` is there, with its default;
+`docs/objectives.md` has every objective and the example policy).
 
 **The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
 runs in CI, not under pytest, because the suite runs from the checkout and

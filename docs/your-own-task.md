@@ -1,7 +1,8 @@
 # Pointing the loop at your own task
 
 What a Kiln task needs before `harness-tuner` can work on it, what the loop's setup
-phase prepares for you, what it refuses to guess, and every flag.
+phase prepares for you, what it refuses to guess, and how the first run starts.
+[cli.md](cli.md) lists every flag, with its default.
 
 This document assumes nothing but a Kiln studio server with your project in it.
 Read [concepts.md](concepts.md) first if the words *wave*, *split*, *arm* and
@@ -576,7 +577,7 @@ The `Advanced` step line reads `defaults`, or lists what changed, such as
 `model policy ./policy.json · 2 evals at once`. A model policy set here gets
 the API-key check again, for the providers it names.
 
-**Never asked**, and set only by their flags ("Every flag" below):
+**Never asked**, and set only by their flags ([cli.md](cli.md)):
 `--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,
 `--max-turns`, `--gate-agent`, `--reference-check`, `--no-recon`,
 `--no-baseline-audit`, `--allow-underpowered`, `--skip-model-preflight` and
@@ -683,41 +684,9 @@ their own time caps.
 
 ### Every flag
 
-| Flag | What it does |
-|---|---|
-| `--project-path` | The on-disk Kiln project directory. Default: the folder Kiln has for the project. When given, it must be that folder, or the start stops; given alone, it also finds the project. The orchestrator's code reads it; no agent can — the read fence denies the whole tree, because it holds the eval inputs and results of every split. Section 1.5. |
-| `--project-id` | The Kiln project id. Default: the only project in Kiln, or the one you pick from a list; found from `--project-path` or `--task-id` when either is given. When the start isn't guided, two or more projects to choose from is an error that lists them. Section 5. |
-| `--task-id` | The Kiln task id. Default: the only task in the project, or the one you pick from a list. Given without `--project-id` or `--project-path`, it finds the project that has it. The loop optimizes exactly one task and never touches another. Section 5. |
-| `--demo-project` | Copy the demo project (the moderation task of [examples/moderation](../examples/moderation/README.md)) into a new folder, `~/Kiln Projects/Forum Moderation`, import the copy into Kiln, and run on it. When that folder is taken, the copy goes to `Forum Moderation-1`, then `-2`, and so on; nothing is overwritten. Each copy has its own project id. A guided start prints the command that runs on the same copy again. It can't be combined with `--project-id`, `--task-id` or `--project-path`. [install.md](install.md#try-the-demo) has the details. |
-| `--no-interaction` | Never ask a question or wait. The start runs the same checks and stops at the first failed one with its message on stderr (exit 1), a missing `--project-id` or `--task-id` with more than one choice is an error that lists them, and every option not given takes its default. Without a terminal (CI, a script, a pipe, another agent) the start never asks anyway, flag or not. It changes only the start, not the display during the run, which `--no-progress` controls. |
-| `--kiln-host` | The running Kiln studio server. Injected into every agent's MCP configuration, so agents and orchestrator always agree on the host. |
-| `--guidance` | Section 4. Passed verbatim to every planner and to the promotion gate. |
-| `--timeout-mins` | The time budget in minutes, default 720 (12 hours). A monotonic deadline: no wave ever *starts* past it. At the deadline itself an item already *analyzing* gets `ANALYSIS_GRACE_SECS` to finish, and every other in-flight item is cancelled at once — so a deadline that lands mid-wave loses that wave's unfinished items after their drives are paid for. |
-| `--budget-usd` | A cost ceiling for the run in USD, both spend lanes. At the ceiling the run exits; within one projected wave of it, the next wave is the wrap-up. Default 50; `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). With `codex exec` the agent sessions report no cost, so the ceiling caps the Kiln side only. |
-| `--coverage-floor` | The promotion gate's val coverage floor, default 0.95. A candidate whose fills sit below it cannot win this wave, whatever the gate decides. |
-| `--max-concurrent-evals` | Eval jobs in flight at once, run-wide. Default 4; `0` is unlimited. This is the rate-limit knob — the loop's own parallelism is what manufactures the provider limit that then stalls it. |
-| `--agent-cli` | The agent CLI every loop session runs, as the whole command you type, not just its name. Default `claude -p`. Also `codex exec` and `opencode run`, each with its own options, for example `'codex exec -m gpt-6.1-sol'` or `'opencode run -m zai-coding-plan/glm-5.3-flash --variant high'`. Its model and effort are the run-wide defaults under `--agent-model` and `--agent-effort`. The CLI must already be signed in: one short test prompt goes through it before the run starts, and a CLI that does not answer stops the start with what it printed. [agent-cli.md](agent-cli.md) section 9. |
-| `--max-concurrent-agents` | Agent sessions in flight at once. Default 4; `0` is unlimited. Also told to the planner, so it sizes a wave to what can actually run. |
-| `--agent-model` | `ROLE=MODEL`, repeatable. Per-role model override. Under `claude -p` the default is `opus` for every role except `generality_review`, which is `sonnet`. An unknown role fails at startup; the help text lists them. |
-| `--agent-effort` | `ROLE=EFFORT`, repeatable. Per-role reasoning-effort override, same validation. |
-| `--no-baseline-audit` | Skip the audit of the baseline's own text. By default, once per baseline, setup searches the baseline's prompt, skills and code tools for verbatim copies of train items (free), then runs one review session when the search finds none. A leak becomes one `baseline_audit` issue that asks for a scrub. The audit never stops the run. [architecture.md](architecture.md) section 3.1. |
-| `--reference-check` | `warn` (default), `refuse` or `off`. After each build, code looks for names that point at nothing: a skill that the prompt or an attached skill names and the run config does not attach (only names of skills in the project or on the parent count); a tool that the parent attaches, that the build dropped, and that the prompt or an attached skill still names. A dangling skill reference that the parent already has is not reported. Free. `warn` writes the findings on the item outcome, on a `reference check:` line of the experiment record and in the analysis input, and measures the build. `refuse` gives the build one rebuild with the findings, like a generality leak, and a second hit ends the item `dead_end`. `off` skips the check. [architecture.md](architecture.md) section 4. |
-| `--no-recon` | Skip the setup reconnaissance battery — the code probes that establish, on your baseline, whether the model calls an attached tool and reads an attached skill (only when one is attached), behaves under the alternate output mode, reasons more at a higher level (under `speed`: holds its output one level down and with thinking off, and how much faster), emits valid JSON, and produces output on the longest inputs. Levels come from the provider's own list. |
-| `--gate-agent` | `auto` (default) or `always`. `auto` decides a one-candidate promotion gate by a code rule and dispatches the agent only to rank two or more. `always` dispatches it for every gate. |
-| `--max-turns` | An opt-in hard turn cap per agent session. Default uncapped: the per-role wall-clock timeouts bound a runaway, and a cap near the observed maximum truncates a large healthy session near the end and then re-pays it. |
-| `--no-progress` | Plain timestamped log lines instead of the live progress display during the run. Use it for a non-interactive terminal or a CI log. It changes only the run's display, not the start, which `--no-interaction` controls. Renamed from `--no-ui`, which now stops with a message naming the new flag. |
-| `--objective` | `quality` (default), `speed` or `cost`. `speed` optimizes per-request wall-clock latency: a candidate is promoted only when a paired drive pass shows it clearly faster on val — at the median and without a significant p90 regression — and its val quality is equal or better: nothing down significantly, net items over every eval at least zero, and no eval down more than max(1, round(0.10 × its items)) items. `cost` is the same rule on per-request provider cost. [architecture.md](architecture.md) section 16 has the method. |
-| `--min-effect` | The smallest improvement you would act on, as a share of an eval's items (`0.1` is 10%). The free detectability check then says per eval whether the best case — the significance floor of 6 items over the split — can show that change on train and on val, and stops the run when no eval that can drive a promotion can show it on val. Default: none. Section 1.4. |
-| `--allow-underpowered` | Run even when the detectability check stops the run because no eval can show a significant val win. The refusal still prints, and it lands in the report's Detectability appendix. The promotion agent then weighs nominal val wins. |
-| `--noise-check` | `N`: before wave 1, re-drive the baseline on N train items per eval (a clone of the baseline run config, so Kiln's item cache does not answer) and re-judge the stored outputs (a copy of each V2 judge config, never the default), and report how often each score changed. Paid: an estimate prints first, it books to the budget, and it is skipped when the estimate does not fit `--budget-usd`. Default off. [architecture.md](architecture.md) section 5.2; [costs.md](costs.md). |
-| `--model-policy` | A JSON file of allowed and denied (provider, model) pairs for the task's run configs. Enforced on every run config an agent creates or drives, and before any run config is measured or promoted. Default: no policy, every model allowed. [`examples/model-policy.json`](../examples/model-policy.json) shows the shape; [architecture.md](architecture.md) section 17 has the rules. |
-| `--skip-model-preflight` | Skip the model preflight. By default, before the baseline measurement, the loop makes one short test call on each model the run may use: the baseline's own model, and the allowed models the planner can pick (at most 12). It also compares the baseline's prompt and tool definitions with each model's context window, when Kiln's model list gives one. A timeout, connection failure, 429 or 5xx gets one retry first. A hard failure — bad request, not found, no deployment, context too long, quota or auth — flags the model in the log and the report, and the model is not screened or measured this run; on the baseline's own model it stops the start. Any other failure leaves the model untested, with a warning, and excludes nothing. Each call costs one short prompt and one short answer, and is booked to the budget. [architecture.md](architecture.md) section 3.1. |
-| `--experimental-eval-building` | Experimental, off by default: let the loop build a new eval for an issue that no eval measures — an `eval_only` item, or a fix with `needs_eval: true`, which starts the `eval_build` agent. It is not well tested, and an eval built this way can have no val split, so the promotion gate cannot use it ([limitations.md](limitations.md)). Without the flag the planner is told that eval building is off, code drops each such item before its wave runs with one log line for each, and the rest of the wave runs. The report's "Issues with no eval" section names each issue that no eval measures: create its eval in the Kiln app, then run again. A guided start's rerun command keeps the flag. |
-
-When latency is the goal, use `--objective speed`; when cost is the goal,
-use `--objective cost`. Use `--model-policy` to keep costly models out.
-Under `--objective quality`, the latency and the cost per request of each
-arm are also reported, read from its stored eval runs.
+[cli.md](cli.md) lists every flag of `harness-tuner`, with its default.
+[objectives.md](objectives.md) has the objectives (`--objective`) and the
+model policy file (`--model-policy`).
 
 ## 6. Reading the result
 
