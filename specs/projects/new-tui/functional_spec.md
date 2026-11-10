@@ -206,7 +206,7 @@ Results answers "is the agent getting better?" for every concern at once.
 - how many experiments in flight measure this concern;
 - the run config that holds Best Unconfirmed, when there is one.
 
-**The key** sits on one line: on the section's title line when the terminal is wide enough, and on its own line when it is not. It names the Best Confirmed config.
+**The key** sits on the section's header line, beside the Compare link, as far as it fits. The rest wraps on the lines under it, between entries. It names the Best Confirmed config.
 
 **Before the first gate**, the cards show Start (train) only, and Best Unconfirmed as experiments land.
 

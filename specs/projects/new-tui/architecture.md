@@ -101,8 +101,9 @@ tui/
     prompts.py    ActionMenu, Picker, TextAnswer
     run.py        RunScreen and its sections
     stop.py       StopDialog
-  widgets.py      TitleBar, SectionHeader, Card, TierBar, Gauge, Steps, JudgedStrip,
-                  Timeline, RunLog, KeyLine, Tag, Link, Spinner (from ui_preview/widgets.py)
+  widgets.py      TitleBar, Section, SectionHeader, Card, TierBar, Gauge, Steps,
+                  JudgedStrip, Timeline, RunLog, KeyLine, Tag, Link, Spinner (from
+                  ui_preview/widgets.py)
   tuner.tcss      the stylesheet (package data); CSS_PATH = Path(__file__).with_name(...)
 ```
 

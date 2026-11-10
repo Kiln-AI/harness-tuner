@@ -8,11 +8,11 @@ This document sets the look of the app: its conventions, its theme, its layout a
 
 The mocks in `project_overview_mocks/` are references only. This design departs from them on purpose where Textual has a better way, where they were inconsistent, or where they were off brand.
 
-The preview app in `ui_preview/` draws every screen here with hardcoded data. Its screenshots are the visual reference. Where this text and the screenshots disagree, this text wins.
+The preview app in `ui_preview/` draws every screen here with hardcoded data. Its screenshots are the visual reference. Where this text and the screenshots disagree, this text wins. The section boxes (4.2) came after the preview, so the preview's sections still have header lines; `app_screenshots/` shows the real app with the boxes.
 
 ## 1. Principles
 
-1. **One convention set.** Every screen uses the same parts (section 4). Results and Experiments are both card grids. There is no third style of box.
+1. **One convention set.** Every screen uses the same parts (section 4). Results and Experiments are both card grids. There are two styles of box: the square section box (4.2) and the round card (4.3). There is no third.
 2. **Textual first.** Use Textual's widgets, layout, borders, themes and footer. Draw custom character art only where no widget does the job: the tier bars, the timeline strip and the judged-item strip.
 3. **Meaning before decoration.** Color carries a fixed meaning (section 3), always paired with a glyph or a word.
 4. **Calm by default.** The screen changes when the run changes. Only live things move: spinners, gauges and in-flight cards.
@@ -61,11 +61,26 @@ These are the only building blocks.
 
 One line, docked at the top, on `$panel`. On the left: the mark ("◆ KILN HARNESS TUNER", the ◆ in brand red, the words bold), then the task name and the run id. On the right, muted: the agent CLI and the slot counts. The same bar is on the start-up screen and the run screen. On the start-up screen it shows only what is known: the task name once a task is chosen, and no run id, agent CLI or slot counts.
 
-### 4.2 Section header
+### 4.2 Section
 
-One line above a section's content: the section name in bold capitals, then muted context, then the right-aligned meta (for example a link or an elapsed time). No borders around sections. Sections are separated by one blank line.
+Each main section of the run screen (Goal, Time & spend, Run timeline, Results, Experiments, Log) is a square box (`border: solid`). The boxes reach the screen's edges; the scrollbar keeps the last column. There is no blank line between sections, and one column between sections side by side.
 
-Example: `RESULTS   ■ Start · starting point   ■ Best Confirmed · val · w3-4 get_container wrapper   ■ Best Unconfirmed · train estimate          Compare in Kiln UI ↗`
+- **Border title (top left):** the section name in bold capitals.
+- **Meta on the border:** a section with no context line (Time & spend, the run timeline) puts its meta on the top border, three cells after the name. When the name and the meta do not fit there, the meta goes on the first line inside the box, and wraps between entries, never inside one. Nothing is cut off.
+- **Header line:** a section with context (Results, Experiments) has a header line as its first line inside the box: the muted context, then the right-aligned meta (a link or an elapsed time).
+- **Border color:** `$text-muted`. It stays clearly different from the cards' `$border-muted` in truecolor and in 256 colours, in both themes. (`$faint` does not: in 256 colours it becomes almost the same grey as `$border-muted`.) So the corners and the grey both tell a section from a card.
+- **Padding:** one cell left and right. The card grids have none, so the cards reach the frame and the frame costs them no width. The lines of text above and below a grid keep the one cell.
+
+Examples, the top of two sections:
+
+```
+┌ TIME & SPEND   wave 4 of ~7 ────────────────────────────────────────────────────────────┐
+
+┌ RESULTS ────────────────────────────────────────────────────────────────────────────────┐
+│ ■ Start · val · starting point   ■ Best Confirmed · val · w3-4     Compare in Kiln UI ↗ │
+│ ■ Best Unconfirmed · train estimate                                                     │
+│╭ Refusal honesty ──────────╮ ╭ Hold placement ───────────╮ ╭ Output format ────────────╮│
+```
 
 ### 4.3 Card
 
@@ -135,7 +150,7 @@ Textual's `Footer`, showing the bindings of the current screen.
 
 **Design size:** a full-screen terminal on a laptop, about 210×62. A smaller window scrolls the whole screen vertically. There is no compact design.
 
-**Breakpoints** (`HORIZONTAL_BREAKPOINTS`): at 150 columns and up, Experiments takes the left 68% and the Log the rest of the bottom area, and Goal and Time & spend sit side by side. Below 150 columns they stack: the Log goes under Experiments at a fixed height of 12 rows, and Time & spend goes under Goal. Goal needs 70 columns, so it can't share a narrow row.
+**Breakpoints** (`HORIZONTAL_BREAKPOINTS`): at 150 columns and up, Experiments takes the left 68% and the Log the rest of the bottom area, and Goal and Time & spend sit side by side. Below 150 columns they stack: the Log goes under Experiments at a fixed height of 12 rows, and Time & spend goes under Goal. Goal needs 73 columns (its data line, its frame and its padding), so it can't share a narrow row.
 
 **The bottom area** is at least as tall as Experiments. When the cards are taller than the space left, the whole screen scrolls; the cards are never cut off.
 
@@ -143,20 +158,20 @@ Textual's `Footer`, showing the bindings of the current screen.
 
 ```
 Title bar                                                        1 row
-Goal (one third, min 70 cols) | Time and spend (two thirds)      6 rows
-Run timeline                                                     5 rows
-Results: header and key, then the card grid                      grows
+Goal (one third, min 73 cols) | Time and spend (two thirds)      6 rows
+Run timeline                                                     6 rows
+Results: header line and key, then the card grid                 grows
 Experiments (68%)             | Log (the rest, full height)      the rest
 Footer                                                           1 row
 ```
 
-**Card widths:** Results cards are at least 34 columns wide (5 per row at 210 columns, 3 at 120). Experiment cards are at least 44 columns wide (3 per row in the 68% column at 210, 2 at 120). The grid picks its column count from its width, so cards in one grid always share one width.
+**Card widths:** Results cards are at least 34 columns wide (5 per row at 210 columns, 3 at 120). Experiment cards are at least 44 columns wide (3 per row in the 68% column at 210, 2 at 120). The grid picks its column count from its width, so cards in one grid always share one width. The section frames cost the cards no width (4.2): at 210 columns the experiment cards are 46 columns wide, so a 36-item strip fits.
 
 ## 7. Run screen sections
 
 ### 7.1 Goal
 
-A section header "GOAL", then three rows and a data row:
+The border title "GOAL", then three rows and a data row:
 
 ```
 ▲ optimize  Quality        5 evals, weighted by priority
@@ -169,11 +184,11 @@ A section header "GOAL", then three rows and a data row:
 
 ### 7.2 Time and spend
 
-A section header "TIME & SPEND", with "wave 4 of ~7" and the [LAST WAVE] tag right-aligned. Then two gauges on the same width, time over spend, and a muted line with spend by lane and the burn rate.
+The border title "TIME & SPEND", with "wave 4 of ~7" and the [LAST WAVE] tag after it on the border (4.2). Then two gauges on the same width, time over spend, and a muted line with spend by lane and the burn rate.
 
 ### 7.3 Run timeline
 
-A section header "RUN TIMELINE" with a muted legend on the right. Then:
+The border title "RUN TIMELINE", with the muted legend after it on the border (4.2). The legend is 76 columns, so below 98 columns it goes on the first line inside the box. Then:
 
 - a row of wave labels ("w1", "w2", …) above their planning segments;
 - the strip: planning in muted `░`, screening in yellow `▒`, experiments in blue `▓`, a gate with a promotion as a green `◆`, a gate with no winner as a muted `·`, and projected waves as a faint `┄`;
@@ -184,7 +199,7 @@ A section header "RUN TIMELINE" with a muted legend on the right. Then:
 
 ### 7.4 Results
 
-A section header "RESULTS" with the key and the "Compare in Kiln UI ↗" link. The key sits on the header line when it fits there (the app measures it; it is about 124 columns, and its length depends on the Best Confirmed name). Otherwise it goes on its own line under the header, and wraps between entries, never inside one. Then a grid of cards, one per concern.
+The border title "RESULTS". The header line holds the key and, on the right, the "Compare in Kiln UI ↗" link. The key's entries go on the link's line as far as they fit there (the app measures them; the whole key is about 124 columns, and its length depends on the Best Confirmed name). The rest go on the lines under it, and wrap between entries, never inside one. So the link never has a line of its own. Then a grid of cards, one per concern.
 
 ```
 ╭ Refusal honesty · p0 ──────────────────╮
@@ -200,7 +215,7 @@ A section header "RESULTS" with the key and the "Compare in Kiln UI ↗" link. T
 
 ### 7.5 Experiments
 
-A section header "EXPERIMENTS" with the mode and the wave ("Running · wave 4 from w3-4 · 2 building · 1 measuring · 1 analyzing · 2 landed") and the elapsed time on the right.
+The border title "EXPERIMENTS". The header line holds the mode and the wave ("Running · wave 4 from w3-4 · 2 building · 1 measuring · 1 analyzing · 2 landed") and the elapsed time on the right.
 
 **Card (Running and Promotion gate modes):**
 
@@ -255,7 +270,7 @@ A section header "EXPERIMENTS" with the mode and the wave ("Running · wave 4 fr
 
 ### 7.6 Log
 
-A section header "LOG". Textual's `RichLog`, newest at the bottom. It follows the newest line until the person scrolls up, and follows again when they scroll back to the bottom. Each wave starts with a divider.
+The border title "LOG". Textual's `RichLog`, newest at the bottom. It follows the newest line until the person scrolls up, and follows again when they scroll back to the bottom. Each wave starts with a divider.
 
 ```
 ── wave 4 ─────────────────────────────
@@ -318,7 +333,7 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 
 | Mock | This design | Why |
 |---|---|---|
-| Sections drawn as boxes, and cards inside them | Sections have a header line and no box; only cards have borders | One box style. Boxes inside boxes were the "mishmash". |
+| Sections drawn as boxes, and cards inside them | Kept, with two box styles only: square section boxes in `$text-muted` and round cards in `$border-muted`. A section's name is its border title | The corners and the greys tell the two levels apart. The mix of titles and sections was the "mishmash" (project overview). |
 | Gray · White · Violet for the tiers | Gray · Foreground · Brand yellow | On brand; yellow already means "provisional" |
 | Cyan for in flight | Brand blue for live and clickable | On brand; one color for "live" |
 | The card's in-flight count top right and its run config bottom right | Both in the border subtitle | Textual has one title per edge |
@@ -341,11 +356,12 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 
 Building the preview on Textual 8.2.8 found these. The architecture has to allow for them.
 
-- **Themes** must be registered in `App.__init__`, before the first screen mounts. Theme colors in borders must be hex: a computed color such as `$text-muted` (`auto 60%`) is not valid in a border rule.
+- **Themes** must be registered in `App.__init__`, before the first screen mounts. Theme colors in borders must be hex: a computed color such as Textual's own `$text-muted` (`auto 60%`) is not valid in a border rule. The two themes set `$text-muted` to a hex, so the section frames can use it.
 - **Ctrl+C and Ctrl+D** are taken by `Input`, `Screen` and `App` bindings. The app's stop and exit keys need `priority=True`.
 - **A focused `Input`** takes every printable key, priority bindings included. The start-up's text answers and picker filters have the focus, so the only keys there are the prompt's own and the Ctrl keys.
 - **`RichLog`** renders each line at the width it has when written. It must write its lines again on resize and on a theme change, and needs `overflow-x: hidden`.
-- **Layout needs some Python on resize:** the card grids' column counts, the bottom area's minimum height, and the Results key's place.
+- **Layout needs some Python on resize:** the card grids' column counts, the bottom area's minimum height, the Results key's place, and the place of a section's meta (on the border or inside the box).
+- **A border title** is cut with "…" when it is too long for the border. A section measures its title and moves its meta inside the box before that can happen.
 - **Render widgets with `shrink`** can cache a width of 0. The bars and the strip size themselves from the container instead.
 - **There is no two-line clamp.** The hypothesis wraps at the card width and cuts its second line with "…" in Python.
 - **A `ModalScreen`** has its own bindings, so it needs its own `Footer`.
@@ -362,4 +378,5 @@ Functional spec section 16 lists decisions that change some looks above. Where t
 - Cost and latency cards have no "N in flight" in their subtitle.
 - Run configs are named by their Kiln names, for example "Best Confirmed · val · Hold fields wrapper".
 - A cut-off item shows "✗ Cut off: the run ended" in red.
-- The Goal's data line is "train 312 · held out 208 (val and test) · test never read" (functional spec 16, decision 4), 69 columns with its label. The Goal is at least 70 columns wide, not 62, so at 210 columns the line fits on one row and the Goal is as tall as Time & spend. A longer line wraps under its own text, not under the label.
+- The Goal's data line is "train 312 · held out 208 (val and test) · test never read" (functional spec 16, decision 4), 69 columns with its label. The Goal is at least 73 columns wide (the line, the frame and the padding), not 62, so at 210 columns the line fits on one row and the Goal is as tall as Time & spend. A longer line wraps under its own text, not under the label.
+- The run screen's sections are square boxes with their names on the top border (4.2), not header lines with a blank line between them. The owner found the sections not well divided; of four options drawn as screenshots, the bordered panels were the cleanest.

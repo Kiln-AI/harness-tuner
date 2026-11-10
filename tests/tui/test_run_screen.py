@@ -7,6 +7,7 @@ import logging
 import pytest
 from app_fakes import until
 from model_events import Run, fix, measure, probe, row
+from rich.color import ColorSystem
 from run_screen import (
     done,
     gated,
@@ -18,14 +19,20 @@ from run_screen import (
     unspun,
     wave_one,
 )
+from textual.geometry import Region
 from textual.widgets import ProgressBar, Static
 
 from kiln_harness_tuner.tui import app as app_module
 from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.state import LogLine, Segment, TimelineView
 from kiln_harness_tuner.tui.screens.run import RunScreen
-from kiln_harness_tuner.tui.theme import LIGHT
+from kiln_harness_tuner.tui.theme import DARK, LIGHT
 from kiln_harness_tuner.tui.widgets import timeline_rows, two_lines
+
+LEGEND = "░ plan  ▒ screen  ▓ experiments  ◆ promotion  · gate, no winner  ┄ projected"
+# From a classic 80-column terminal (the Goal needs 74 with the scrollbar)
+# to the design size.
+WIDTHS = [80, 100, 120, 150, 210]
 
 
 def footer(app) -> dict[str, str]:
@@ -116,7 +123,8 @@ async def test_time_and_spend_show_two_gauges_lanes_and_the_wave():
         assert clock.spend.bar.visible
         assert text(clock.lanes).startswith("Kiln $12.50 · Claude Code $0.00")
         assert text(clock.times) == "started 14:12 · ends 17:12"
-        assert text(clock.header.meta) == "wave 1"
+        assert title_of(clock) == "TIME & SPEND   wave 1"
+        assert not clock.meta.display
 
 
 async def test_with_no_budget_the_spend_bar_is_hidden():
@@ -129,11 +137,11 @@ async def test_with_no_budget_the_spend_bar_is_hidden():
 async def test_the_last_wave_tag_shows_only_in_the_wrap_up_wave():
     run = wave_one(fix("w1-1"))
     async with on_screen(run) as (harness, pilot):
-        meta = harness.screen.clock.header.meta
-        assert words.LAST_WAVE_TAG not in text(meta)
+        clock = harness.screen.clock
+        assert words.LAST_WAVE_TAG not in title_of(clock)
         run.at(40).plan(2, wrap_up=True)
         await harness.shown(pilot)
-        assert text(meta).endswith(f" {words.LAST_WAVE_TAG} ")
+        assert title_of(clock).endswith(f" {words.LAST_WAVE_TAG} ")
 
 
 # ---- the run timeline ----
@@ -192,7 +200,7 @@ async def test_the_timeline_section_shows_the_run_and_its_legend():
         drawn = text(section.timeline).split("\n")
         assert drawn[0].split()[:2] == ["setup", "w1"]
         assert "▲ now 14:32" in drawn[3]
-        assert text(section.header.meta).startswith("░ plan  ▒ screen")
+        assert title_of(section) == f"RUN TIMELINE   {LEGEND}"
 
 
 async def test_before_the_run_starts_the_timeline_is_blank():
@@ -223,17 +231,22 @@ async def test_results_show_one_card_per_concern_with_three_tiers():
         assert subtitle_of(cards[2]) == ""
 
 
-async def test_the_results_key_moves_under_the_header_when_it_does_not_fit():
+async def test_the_results_key_wraps_under_the_link_when_it_does_not_fit():
+    start = "■ Start · train · starting point"
+    confirmed = "■ Best Confirmed · no promotion yet"
+    unconfirmed = "■ Best Unconfirmed · train estimate"
     async with on_screen(running()) as (harness, _pilot):
         results = harness.screen.results
-        assert text(results.header.context).startswith("■ Start · train")
+        assert text(results.header.context) == "   ".join(
+            (start, confirmed, unconfirmed)
+        )
         assert not results.key.display
     async with on_screen(running(), size=(120, 40)) as (harness, _pilot):
         results = harness.screen.results
-        assert text(results.header.context) == ""
-        assert results.key.display
-        assert text(results.key).startswith("■ Start · train · starting point")
+        assert text(results.header.context) == f"{start}   {confirmed}"
         assert text(results.header.meta) == "Compare in Kiln UI ↗"
+        assert results.key.display
+        assert text(results.key) == unconfirmed
 
 
 async def test_results_cards_are_made_again_only_when_the_concerns_change():
@@ -610,6 +623,88 @@ async def test_the_wide_layout_puts_the_log_beside_experiments():
         assert screen.goal.region.y == screen.clock.region.y
 
 
+def meta_shown(section) -> tuple[str, str]:
+    """Where a section's meta is drawn, and its text: on the top border
+    after the name, or on its own lines inside."""
+    title = title_of(section)
+    name = section.section_name
+    if title != name:
+        assert title.startswith(f"{name}   ")
+        # As drawn: Textual cuts a title that is too long with "…".
+        strip = section.render_lines(Region(0, 0, section.outer_size.width, 1))[0]
+        assert title in "".join(segment.text for segment in strip)
+        return "border", title.removeprefix(f"{name}   ")
+    lines = text(section.meta).split("\n")
+    assert max(len(line) for line in lines) <= section.meta.size.width
+    return "inside", "  ".join(lines)
+
+
+@pytest.mark.parametrize("width", [*WIDTHS, 96, 97, 98])
+async def test_the_wave_and_the_legend_are_never_cut_off(width):
+    run = wave_one(fix("w1-1"))
+    run.at(40).plan(2, wrap_up=True)
+    async with on_screen(run, size=(width, 40)) as (harness, _pilot):
+        screen = harness.screen
+        where, wave = meta_shown(screen.clock)
+        assert (where, wave) == ("border", f"wave 2 of 2   {words.LAST_WAVE_TAG} ")
+        where, legend = meta_shown(screen.timeline)
+        assert legend == LEGEND
+        # On the border, beside the name, where it fits.
+        assert where == ("inside" if width < 98 else "border")
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+@pytest.mark.parametrize("make", [running, done])
+async def test_the_compare_link_never_has_a_line_of_its_own(make, width):
+    async with on_screen(make(), size=(width, 40)) as (harness, _pilot):
+        results = harness.screen.results
+        assert text(results.header.meta) == "Compare in Kiln UI ↗"
+        assert text(results.header.context).startswith("■ Start")
+        drawn = text(results.key).split("\n") if results.key.display else []
+        assert all(len(line) <= results.key.size.width for line in drawn)
+
+
+def judged_run() -> Run:
+    """Four experiments, each with all 36 items judged, at 20 minutes."""
+    run = wave_one(*(fix(f"w1-{n}") for n in range(1, 5)))
+    for n in range(1, 5):
+        run.state(f"w1-{n}", "building_rc").state(f"w1-{n}", "measuring")
+        run.chunk(f"w1-{n}", f"rc_{n}", [(False, True)] * 36)
+    return run.at(20)
+
+
+@pytest.mark.parametrize(
+    "size,result_width,experiment_width", [((210, 62), 40, 46), ((120, 40), 38, 58)]
+)
+async def test_the_frames_cost_the_cards_no_width(size, result_width, experiment_width):
+    """The widths the cards had before the sections had frames: at 210
+    columns a 36-item strip still fits."""
+    async with on_screen(judged_run(), size=size) as (harness, _pilot):
+        screen = harness.screen
+        assert screen.results.cards[0].region.width == result_width
+        cards = list(screen.experiments.cards.values())
+        assert {card.region.width for card in cards} == {experiment_width}
+        for card in cards:
+            assert card.line4.strip.display
+            assert not card.line4.bar.display
+            assert text(card.line4.label) == "36/36"
+
+
+def lightness(color, system: ColorSystem) -> float:
+    """A color's lightness, 0 to 255, as a terminal with `system` shows it."""
+    shown = color.rich_color.downgrade(system).get_truecolor()
+    return 0.2126 * shown.red + 0.7152 * shown.green + 0.0722 * shown.blue
+
+
+@pytest.mark.parametrize("system", [ColorSystem.TRUECOLOR, ColorSystem.EIGHT_BIT])
+@pytest.mark.parametrize("theme", [DARK, LIGHT])
+async def test_a_section_frame_and_a_card_border_clearly_differ(theme, system):
+    async with on_screen(running(), theme=theme) as (harness, _pilot):
+        _edge, frame = harness.screen.results.styles.border_top
+        _edge, card = harness.screen.results.cards[0].styles.border_top
+        assert abs(lightness(frame, system) - lightness(card, system)) >= 40
+
+
 @pytest.mark.parametrize("make", [Run, running, gated, done])
 async def test_every_mode_draws_in_the_light_theme(make):
     async with on_screen(make(), theme=LIGHT) as (harness, pilot):
@@ -791,11 +886,12 @@ async def test_a_section_that_keeps_failing_is_logged_once(caplog):
         assert len(debug) == 2
 
 
-async def test_a_scrollbar_that_comes_never_rewrites_the_log(monkeypatch):
+# At some widths the rounding of Experiments' 68% would hide a scrollbar's
+# cell from the log; at one of these two the cell would come out of it.
+@pytest.mark.parametrize("width", [210, 215])
+async def test_a_scrollbar_that_comes_never_rewrites_the_log(monkeypatch, width):
     run = wave_one(fix("w1-1"))
-    # At 215 columns a scrollbar's cell would come out of the log; at 210
-    # the rounding of Experiments' 68% hides it.
-    async with on_screen(run, size=(215, 62)) as (harness, pilot):
+    async with on_screen(run, size=(width, 62)) as (harness, pilot):
         screen = harness.screen
         body = screen.query_one("#body")
         log = screen.log_section.lines

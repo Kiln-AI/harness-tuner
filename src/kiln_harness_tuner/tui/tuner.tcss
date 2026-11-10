@@ -115,16 +115,28 @@ Input {
 
 /* ---- Run screen (6, 7) ---- */
 
-/* 4.2 Section header: no border, one blank line between sections */
-SectionHeader {
-    height: 1;
-    & > .header-title { width: auto; }
-    & > .header-context { width: 1fr; margin-left: 3; text-wrap: nowrap; text-overflow: ellipsis; }
-    & > .header-meta { width: auto; margin-left: 2; }
-}
+/* 4.2 Section: a square box, its name the border title. The frame is
+   $text-muted, so it differs from the cards' $border-muted in 256 colours
+   too, where $faint and $border-muted become almost one grey. */
 .section {
     height: auto;
-    margin-top: 1;
+    padding: 0 1;
+    border: solid $text-muted;
+    border-title-color: $foreground;
+    border-title-style: none;
+}
+SectionHeader {
+    height: 1;
+    & > .header-context { width: 1fr; text-wrap: nowrap; text-overflow: ellipsis; }
+    & > .header-meta { width: auto; margin-left: 2; }
+}
+/* The card grids reach the frame, so the frame costs the cards no width;
+   the lines of text keep one cell of padding. */
+#results, #experiments {
+    padding: 0;
+    & > SectionHeader, & > KeyLine, & > .step-lines, & > .subhead, & > .wave-note {
+        padding: 0 1;
+    }
 }
 
 CardGrid {
@@ -156,25 +168,24 @@ RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
 }
 
 /* The layout (6) */
-/* The scrollbars keep their column when they are not shown: else a
-   scrollbar that comes or goes changes the width under it, and the log
-   writes all its lines again (ui_design 13). */
+/* The boxes reach the screen's edges. The scrollbars keep their column
+   when they are not shown: else a scrollbar that comes or goes changes the
+   width under it, and the log writes all its lines again (ui_design 13). */
 #body {
-    padding: 0 1;
+    padding: 0;
     scrollbar-size-vertical: 1;
     scrollbar-gutter: stable;
 }
 /* ui_design 6 and 14: the Goal's data line (functional spec 16.4) needs
-   69 columns, so the Goal takes 70. At 210 columns the line then fits on
-   one row, and the Goal is as tall as Time & spend. */
+   69 columns, and its frame and padding 4 more, so the Goal takes 73. At
+   210 columns the line then fits on one row, and the Goal is as tall as
+   Time & spend. */
 #top {
     height: auto;
-    margin-top: 1;
-    & > #goal { width: 1fr; min-width: 70; margin-top: 0; }
-    & > #spend { width: 2fr; margin: 0 0 0 4; }
+    & > #goal { width: 1fr; min-width: 73; }
+    & > #spend { width: 2fr; margin: 0 0 0 1; }
 }
 #bottom {
-    margin-top: 1;
     height: auto;
     layout: vertical;
 }
@@ -192,21 +203,17 @@ RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
 RunScreen.-wide #bottom {
     layout: horizontal;
     height: 1fr;
-    & > #experiments { width: 68%; height: auto; margin-top: 0; }
-    & > #log { width: 1fr; height: 100%; margin: 0 0 0 2; }
+    & > #experiments { width: 68%; height: auto; }
+    & > #log { width: 1fr; height: 100%; margin: 0 0 0 1; }
     & #log-lines { height: 1fr; }
 }
-RunScreen.-narrow #bottom {
-    & > #experiments { margin-top: 0; }
-    & #log-lines { height: 12; }
-}
+RunScreen.-narrow #bottom #log-lines { height: 12; }
 
-/* Below 150 columns the Goal (70 columns of text, its data line the
-   widest) can't take a third of the width, so Goal and Time & spend stack
-   too. */
+/* Below 150 columns the Goal (73 columns, its data line the widest) can't
+   take a third of the width, so Goal and Time & spend stack too. */
 RunScreen.-narrow #top {
     layout: vertical;
-    & > #spend { width: 1fr; margin: 1 0 0 0; }
+    & > #spend { width: 1fr; margin: 0; }
 }
 
 /* 7.4 Results */

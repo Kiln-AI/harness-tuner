@@ -614,7 +614,7 @@ STOPPING = "Stopping…"
 RUN_COMPLETE = "RUN COMPLETE"
 DONE_REPORT = "Report"
 
-# The section headers (ui_design 4.2).
+# The section names, on their top borders (ui_design 4.2).
 GOAL = "GOAL"
 TIME_AND_SPEND = "TIME & SPEND"
 RUN_TIMELINE = "RUN TIMELINE"

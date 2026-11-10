@@ -55,7 +55,9 @@ from kiln_harness_tuner.tui.widgets import (
     Hypothesis,
     KeyLine,
     LineView,
+    MetaSection,
     RunLog,
+    Section,
     SectionHeader,
     Shown,
     StepRow,
@@ -83,8 +85,6 @@ logger = logging.getLogger("kiln_harness_tuner.tui")
 # Card widths (ui_design section 6).
 RESULT_CARD_WIDTH = 34
 EXPERIMENT_CARD_WIDTH = 44
-# The cells between a section header's title and its context.
-HEADER_GAP = 3
 # The cells between a section header's context and its meta.
 META_GAP = 2
 
@@ -137,16 +137,15 @@ def goal_content(rows: Sequence[GoalRow]) -> Content:
     return Content("\n").join(lines)
 
 
-class GoalSection(Vertical):
+class GoalSection(Section):
     def __init__(self) -> None:
-        super().__init__(id="goal", classes="section")
+        super().__init__(words.GOAL, id="goal")
         self.body = Shown(classes="goal-rows")
         # The split sizes: a long line wraps under its own text, not under
         # the label.
         self.data = LineView(classes="goal-data-text")
 
     def compose(self) -> ComposeResult:
-        yield SectionHeader(words.GOAL)
         yield self.body
         with Horizontal(classes="goal-data"):
             yield Static(Content.styled(DATA_LABEL, "$text-muted"), classes="label")
@@ -160,32 +159,31 @@ class GoalSection(Vertical):
 # ---- Time and spend ----
 
 
-def wave_meta(view: ClockView) -> Content:
+def wave_meta(view: ClockView) -> tuple[Content, ...]:
     """7.2: "wave 4 of ~7", and the tag on the wrap-up wave only."""
     wave = line_content(view.wave)
     if not view.last_wave:
-        return wave
-    return Content.assemble(wave, "  ", tag(words.LAST_WAVE_TAG))
+        return (wave,)
+    return wave, tag(words.LAST_WAVE_TAG)
 
 
-class ClockSection(Vertical):
+class ClockSection(MetaSection):
     def __init__(self) -> None:
-        super().__init__(id="spend", classes="section")
-        self.header = SectionHeader(words.TIME_AND_SPEND)
+        super().__init__(words.TIME_AND_SPEND, id="spend")
         self.time = Gauge(id="time-gauge")
         self.spend = Gauge(id="spend-gauge")
         self.lanes = LineView(classes="gauge-note")
         self.times = Shown(classes="gauge-note")
 
     def compose(self) -> ComposeResult:
-        yield self.header
+        yield from super().compose()
         yield self.time
         yield self.spend
         yield self.lanes
         yield self.times
 
     def show(self, view: ClockView) -> None:
-        self.header.meta.show((view.wave, view.last_wave), lambda: wave_meta(view))
+        self.show_meta((view.wave, view.last_wave), lambda: wave_meta(view))
         self.time.show(view.time)
         self.spend.show(view.spend)
         self.lanes.show(view.lanes)
@@ -195,18 +193,15 @@ class ClockSection(Vertical):
 # ---- the run timeline ----
 
 
-class TimelineSection(Vertical):
+class TimelineSection(MetaSection):
     def __init__(self) -> None:
-        super().__init__(id="timeline", classes="section")
-        self.header = SectionHeader(words.RUN_TIMELINE)
+        super().__init__(words.RUN_TIMELINE, id="timeline")
         self.timeline = Timeline()
+        self.show_meta("legend", legend)
 
     def compose(self) -> ComposeResult:
-        yield self.header
+        yield from super().compose()
         yield self.timeline
-
-    def on_mount(self) -> None:
-        self.header.meta.show("legend", legend)
 
     def show(self, view: TimelineView | None) -> None:
         self.timeline.show(view)
@@ -256,13 +251,14 @@ class ResultCard(Card):
         self.border_subtitle = line_content(self.view.subtitle)
 
 
-class ResultsSection(Vertical):
-    """The key sits on the header line when it fits there, else on its own
-    line under it. The cards are made again only when the concerns change."""
+class ResultsSection(Section):
+    """The header line holds the key's first entries and the Compare link;
+    the entries that don't fit beside the link wrap on the lines under it.
+    The cards are made again only when the concerns change."""
 
     def __init__(self) -> None:
-        super().__init__(id="results", classes="section")
-        self.header = SectionHeader(words.RESULTS)
+        super().__init__(words.RESULTS, id="results")
+        self.header = SectionHeader()
         self.key = KeyLine(id="results-key")
         self.grid = CardGrid(min_width=RESULT_CARD_WIDTH, id="result-cards")
         self.cards: list[ResultCard] = []
@@ -276,7 +272,6 @@ class ResultsSection(Vertical):
 
     def show(self, view: ResultsView, compare: str) -> None:
         self._entries = view.key
-        self.key.show(view.key)
         self.header.meta.show(compare, lambda: link(compare, words.COMPARE_LINK))
         self._place_key()
         concerns = tuple((card.title, card.qualifier) for card in view.cards)
@@ -293,18 +288,17 @@ class ResultsSection(Vertical):
         self._place_key()
 
     def _place_key(self) -> None:
-        width = self.size.width
-        needed = (
-            len(words.RESULTS)
-            + HEADER_GAP
-            + key_width(self._entries)
-            + META_GAP
-            + link("", words.COMPARE_LINK).cell_length
-        )
-        inline = 0 < width and needed <= width
+        """As many entries as fit beside the link go on its line, so the
+        link never has a line of its own once the width is known."""
+        width = self.header.size.width
+        room = width - META_GAP - link("", words.COMPARE_LINK).cell_length
+        entries = self._entries
+        fit = [n for n in range(1, len(entries) + 1) if key_width(entries[:n]) <= room]
+        inline = max(fit, default=0) if width else 0
         # Empty rather than hidden: the context also pushes the link right.
-        self.header.context.show(joined(self._entries, KEY_GAP) if inline else ())
-        self.key.display = not inline and bool(self._entries)
+        self.header.context.show(joined(entries[:inline], KEY_GAP))
+        self.key.show([line_content(entry) for entry in entries[inline:]])
+        self.key.display = inline < len(entries)
 
 
 # ---- Experiments ----
@@ -450,14 +444,14 @@ class RunCompleteCard(Card):
         )
 
 
-class ExperimentsSection(Vertical):
+class ExperimentsSection(Section):
     """The mode, its step lines, the cards (kept by item id: a card keeps
     its place from the start of the wave to its verdict) and the note; in
     the Done mode the run summary in place of the cards."""
 
     def __init__(self) -> None:
-        super().__init__(id="experiments", classes="section")
-        self.header = SectionHeader(words.EXPERIMENTS, id="experiments-header")
+        super().__init__(words.EXPERIMENTS, id="experiments")
+        self.header = SectionHeader()
         self.steps = Vertical(classes="step-lines")
         self.subhead = Shown(classes="subhead")
         self.grid = CardGrid(min_width=EXPERIMENT_CARD_WIDTH, id="experiment-cards")
@@ -533,13 +527,12 @@ class ExperimentsSection(Vertical):
 # ---- the Log ----
 
 
-class LogSection(Vertical):
+class LogSection(Section):
     def __init__(self) -> None:
-        super().__init__(id="log", classes="section")
+        super().__init__(words.LOG, id="log")
         self.lines = RunLog(id="log-lines")
 
     def compose(self) -> ComposeResult:
-        yield SectionHeader(words.LOG)
         yield self.lines
 
     def show(self, lines: Sequence[LogLine]) -> None:

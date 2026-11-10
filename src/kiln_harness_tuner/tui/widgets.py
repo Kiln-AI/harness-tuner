@@ -243,43 +243,47 @@ class Shown(Static):
         self.update(draw())
 
 
-# ---- 4.2 Section header, and the Results key ----
+# ---- 4.2 Section, its header line, and the keys ----
 
-
-class SectionHeader(Horizontal):
-    """4.2: the section's name in bold capitals, muted context, and the
-    right-aligned meta. No border: a blank line separates sections."""
-
-    def __init__(self, title: str, *, id: str | None = None):
-        super().__init__(id=id)
-        self.context = LineView(classes="header-context")
-        self.meta = Shown(classes="header-meta")
-        self._title = title
-
-    def compose(self) -> ComposeResult:
-        yield Static(Content.styled(self._title, "bold"), classes="header-title")
-        yield self.context
-        yield self.meta
-
-
+# The gap between the Results key's entries.
 KEY_GAP = "   "
+# The gap between a section's name and its meta on the top border, and
+# between the meta's entries.
+TITLE_GAP = "   "
+ENTRY_GAP = "  "
+# The cells of a top border that a title can't use: a corner, a line cell
+# and a space at each end (Textual's `_styles_cache` and
+# `render_border_label`).
+BORDER_LABEL_CELLS = 6
+
+
+def section_title(name: str, meta: Sequence[Content] = ()) -> Content:
+    """A section's border title: its name in bold capitals, then its meta."""
+    title = Content.styled(name, "bold")
+    if not meta:
+        return title
+    return Content.assemble(title, TITLE_GAP, Content(ENTRY_GAP).join(meta))
 
 
 class KeyLine(Widget):
-    """A key of swatches on its own line. When it is too long, it wraps
-    between entries, never inside one."""
+    """Entries on one line, such as a key of swatches. When they are too
+    long, they wrap between entries, never inside one."""
 
     DEFAULT_CSS = "KeyLine { height: auto; }"
 
-    def __init__(self, *, id: str | None = None):
-        super().__init__(id=id)
+    def __init__(
+        self, *, gap: str = KEY_GAP, id: str | None = None, classes: str | None = None
+    ):
+        super().__init__(id=id, classes=classes)
         # Sized by its container: an auto width would cache 0 (ui_design 13).
         self.shrink = False
-        self.entries: tuple[tuple[Span, ...], ...] = ()
+        self.gap = gap
+        self.entries: tuple[Content, ...] = ()
 
-    def show(self, entries: Sequence[Sequence[Span]]) -> None:
-        shown = tuple(tuple(entry) for entry in entries)
-        if shown != self.entries:
+    def show(self, entries: Sequence[Content]) -> None:
+        # By markup: `Content` compares by its text alone.
+        shown = tuple(entries)
+        if [e.markup for e in shown] != [e.markup for e in self.entries]:
             self.entries = shown
             self.refresh(layout=True)
 
@@ -287,13 +291,12 @@ class KeyLine(Widget):
         lines: list[list[Content]] = [[]]
         used = 0
         for entry in self.entries:
-            content = line_content(entry)
-            size = content.cell_length
-            if lines[-1] and used + len(KEY_GAP) + size > width:
+            size = entry.cell_length
+            if lines[-1] and used + len(self.gap) + size > width:
                 lines.append([])
                 used = 0
-            used += (len(KEY_GAP) if lines[-1] else 0) + size
-            lines[-1].append(content)
+            used += (len(self.gap) if lines[-1] else 0) + size
+            lines[-1].append(entry)
         return lines
 
     def get_content_height(self, container: Size, viewport: Size, width: int) -> int:
@@ -301,8 +304,67 @@ class KeyLine(Widget):
 
     def render(self) -> Content:
         return Content("\n").join(
-            Content(KEY_GAP).join(line) for line in self._lines(self.size.width)
+            Content(self.gap).join(line) for line in self._lines(self.size.width)
         )
+
+
+class SectionHeader(Horizontal):
+    """4.2: the header line inside a section that has context: the muted
+    context, then the right-aligned meta. The name is on the border."""
+
+    def __init__(self, *, id: str | None = None):
+        super().__init__(id=id)
+        self.context = LineView(classes="header-context")
+        self.meta = Shown(classes="header-meta")
+
+    def compose(self) -> ComposeResult:
+        yield self.context
+        yield self.meta
+
+
+class Section(Vertical):
+    """4.2: a square box, the section's name in bold capitals on its top
+    border."""
+
+    def __init__(self, name: str, *, id: str):
+        super().__init__(id=id, classes="section")
+        self.section_name = name
+        self.border_title = section_title(name)
+
+
+class MetaSection(Section):
+    """A section with no context line. Its meta goes on the top border after
+    the name, when it fits there. Else it goes on the first line inside,
+    and wraps between entries. Nothing is cut off."""
+
+    def __init__(self, name: str, *, id: str):
+        super().__init__(name, id=id)
+        self.meta = KeyLine(gap=ENTRY_GAP, classes="section-meta")
+        self.meta.display = False
+        self._key: Hashable = None
+        self._entries: tuple[Content, ...] = ()
+
+    def compose(self) -> ComposeResult:
+        yield self.meta
+
+    def show_meta(self, key: Hashable, draw: Callable[[], Sequence[Content]]) -> None:
+        """Draw the meta again only for a new key."""
+        if key == self._key:
+            return
+        self._key = key
+        self._entries = tuple(draw())
+        self._place_meta()
+
+    def on_resize(self) -> None:
+        self._place_meta()
+
+    def _place_meta(self) -> None:
+        title = section_title(self.section_name, self._entries)
+        width = self.outer_size.width
+        on_border = width == 0 or title.cell_length + BORDER_LABEL_CELLS <= width
+        self.border_title = title if on_border else section_title(self.section_name)
+        self.meta.show(() if on_border else self._entries)
+        self.meta.display = not on_border and bool(self._entries)
 
 
 def key_width(entries: Sequence[Sequence[Span]]) -> int:
@@ -654,7 +716,8 @@ BLANK = (" ", "")
 NOW_MARK = "▲"
 
 
-def legend() -> Content:
+def legend() -> tuple[Content, ...]:
+    """The timeline's legend, one entry per glyph."""
     keys = (
         (PLAIN_CELL, words.LEGEND_PLAN),
         (SEGMENT_CELLS["screen"], words.LEGEND_SCREEN),
@@ -663,12 +726,10 @@ def legend() -> Content:
         (GATE_CELL, words.LEGEND_NO_WINNER),
         (PROJECTED_CELL, words.LEGEND_PROJECTED),
     )
-    parts: list[str | tuple[str, str]] = []
-    for index, ((glyph, style), name) in enumerate(keys):
-        if index:
-            parts.append("  ")
-        parts += [(glyph, style), (f" {name}", "$text-muted")]
-    return Content.assemble(*parts)
+    return tuple(
+        Content.assemble((glyph, style), (f" {name}", "$text-muted"))
+        for (glyph, style), name in keys
+    )
 
 
 def timeline_rows(view: TimelineView, width: int) -> list[list[tuple[str, str]]]:
@@ -740,7 +801,7 @@ def timeline_rows(view: TimelineView, width: int) -> list[list[tuple[str, str]]]
 
 
 class Timeline(Widget):
-    """7.3: four rows under the section header. Blank until the run has
+    """7.3: four rows in the section's box. Blank until the run has
     started (no `TimelineView`)."""
 
     DEFAULT_CSS = "Timeline { height: 4; }"
