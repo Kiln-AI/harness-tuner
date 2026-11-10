@@ -14,11 +14,11 @@ The person watching wants answers to five questions, and the run screen has one 
 
 | Question | Section |
 |---|---|
-| What is this run, and is it healthy? | Title bar, Goal |
+| What is this run, and what is it trying to do? | Title bar, Goal |
 | Will it finish inside its limits, and where is it in the loop? | Time and spend, Run timeline |
 | Is the agent getting better? | Results |
 | What is it doing now? | Experiments |
-| What just happened? | Log |
+| What just happened, good or bad? | Log |
 
 ### In scope
 
@@ -141,13 +141,7 @@ Section 8 sets the layout rules. Section 7 sets what each section shows.
 ### 7.1 Title bar
 
 - "KILN HARNESS TUNER", the task name, the run id, the agent CLI, the agent and eval slot counts.
-- Health warnings on the right, only while there is one:
-  - eval items that errored, by class (for example "openai rate limit · 6 eval items retried");
-  - a provider quota or authentication error;
-  - the tripwire count, once it is above zero;
-  - a dispatch retry.
-- A warning stays while its cause is recent: the last 10 minutes, or until the cause clears. (Proposal.)
-- A tripwire backoff is a health warning here, not a mode of the Experiments section.
+- No health area. Health events (rate limits, errored eval items, quota, tripwire, retries) go to the log only (7.7). A warning that comes and goes on a timer is hard to read. (Decided.)
 
 ### 7.2 Goal
 
@@ -319,7 +313,8 @@ What just happened. Newest at the bottom, like a log, and the view follows the n
 | The planner's assumed answers to open questions | A new event (section 12) |
 | Health: rate limits, errored eval items, quota, tripwire, retries | Health events |
 | Run start, start config, detectability warnings, exit | Run events |
-| Lessons, dead ends and new issues the agents wrote | Open question (section 14) |
+| Lessons, dead ends and new issues the agents wrote, with the record's one-line overview | A new event (section 12) |
+| A tripwire backoff | Health events |
 
 **Not in the log** (decided), and where each one goes:
 
@@ -357,7 +352,7 @@ Report opens the report file when it exists. Before then, the key shows nothing.
 - **Light and dark.** The app follows the terminal's light or dark background. When the terminal does not report one, it uses dark.
 - **Never color alone.** Every state also has a glyph or a word, so the screen reads under `NO_COLOR`, on light terminals and for colorblind people.
 - **Reflow.** Cards stretch and reflow to the terminal width. At about 150 columns and up, Experiments and the Log sit side by side; narrower, they stack. (Proposal.)
-- **Small terminals.** The screen is designed for 120×40 and up and works at 100 columns. When the terminal is smaller than the content, the screen scrolls vertically; nothing is cut off. (Proposal.)
+- **Window size.** The screen is designed for a full-screen terminal on a laptop, about 210×62. There is no compact design. A smaller window scrolls, with whatever is simplest in Textual, and nothing is cut off. (Decided.)
 - **Textual first.** Prefer Textual's own widgets and layout to drawing custom character art. Where a mock asks for custom drawing that Textual can't do cleanly, simplify the design.
 
 ## 9. Interaction and exiting
@@ -412,8 +407,9 @@ The app shows only what the loop exposes. Most of it is already in the wave log'
 2. **Val tables per gate:** each candidate's and the incumbent's per-eval val values, changes and intervals, and cost and latency. Emitted at each gate.
 3. **Structured chunk counts:** judged, fixed and broke as fields on the per-chunk event, beside today's text line.
 4. **Gate progress per val fill:** one event as each val fill completes, instead of a burst at the end.
-5. **Item details at wave start:** each item's type, hypothesis, targets and kind of change, so cards show them from the start, not only at the verdict. (Proposed addition, same kind of change.)
+5. **Item details at wave start:** each item's type, hypothesis, targets and kind of change, so cards show them from the start, not only at the verdict. (Approved.)
 6. **The planner's open questions:** the question and the default it assumed, when the planner returns them.
+7. **Memory records the agents write:** lessons, dead ends and new issues. Agents write memory through the loop's gateway, which already appends the objects agents create to a file in the run folder (`gateway_created.jsonl`). Memory writes get the same treatment: the gateway appends each one (its kind tags and one-line overview) to a run-folder file, and the loop forwards new lines into the wave log as events when each agent session ends. About 20 lines in all. This replaces comparing memory snapshots, which was rejected as the wrong approach. (Decided.)
 
 **From the CLI, not the loop:** the run id, the task and project names and ids, the Kiln host, the agent CLI, and the slot counts. The CLI passes them to the app.
 
@@ -430,15 +426,7 @@ The app shows only what the loop exposes. Most of it is already in the wave log'
 
 ## 14. Open questions
 
-1. **Lessons, dead ends and new issues in the log.** The agents write these straight to Kiln's memory store, so they never reach the wave log. The loop does save a full copy of the memory store, before and after each planner session, gate, analysis and probe (`runs/<id>/snapshots/NNN-<label>.json`, with a `memory_snapshot` event as each one lands). Each copy lists every record with its kind tags and its one-line overview. The app can compare an "after" copy with its "before" copy. Each record that is new, and tagged lesson, dead end or issue, becomes a log line, for example:
-
-   ```
-   15:13 ≈ Dead end · few-shot examples for Hold placement: no net change in w2-3 or w3-1
-   15:27 ≈ Lesson · haiku-5-5 skips skills unless the prompt names them
-   15:31 ! New issue · Escalation: does not escalate on a 409 with hold_reason
-   ```
-
-   The text is the agent's own overview, cut to one line. A line shows when the agent's session ends. The cost is display-side code that reads two files per session and compares records. There is no change to the loop. Include them?
+None at the functional level. The visuals of every card type, Eval build, Issue baseline measurement and Re-measure included, are settled in the UI design review.
 
 ## 15. Decision log
 
@@ -470,6 +458,9 @@ The key decisions from the design conversation and from speccing, with their rea
 | Three core modes (Planning, Running experiments, Promotion gate), plus Starting and Done | A few states a person sees most of the time; item sub-states kept apart | A long list of loop phases |
 | Log in log order, newest at the bottom, with a glyph per kind and wave dividers | It reads like a log | Newest at the top |
 | No "needs you" section | The loop is hands-off; nothing waits on a person | A pinned question panel |
+| Health events in the log only | A warning that comes and goes on a timer is hard to read | A health area in the title bar |
+| The gateway emits the memory records agents write, and the loop forwards them to the wave log | A direct event is simpler and more reliable than comparing memory snapshots, and the plain path gets the lines too | Comparing memory snapshots in the app |
+| One design for a full-screen laptop terminal (about 210×62); smaller windows scroll | Any modern computer can drag the window larger; a second, compact design doubles the work | A compact design for small terminals |
 | Links attach to things; the run summary is the Done mode | Neither is a section of its own | A links section, a separate summary screen |
 | Interaction: links and the stop key only | The run is hands-off | Detail views, steering |
 | Confirm before stopping a running run; no report on stop | Stopping loses in-flight work, which costs money | Stop at once; stop after this wave |
