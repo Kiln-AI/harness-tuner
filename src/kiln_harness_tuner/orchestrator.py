@@ -842,8 +842,10 @@ async def _run_loop(
             exit_reason = "wrap_up"
             ctx.log.event("exit", reason=exit_reason)
             break
-        if tripped:
-            # Long backoff — 5 silent minutes without a phase ticker.
+        if tripped and ctx.clock() < deadline:
+            # Long backoff — 5 silent minutes without a phase ticker. Past
+            # the time limit there is no backoff: it would only add to the
+            # overrun before the wrap-up wave.
             backoff_started = ctx.clock()
             ctx.log.event(
                 "phase_start",

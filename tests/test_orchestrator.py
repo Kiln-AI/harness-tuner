@@ -1242,6 +1242,33 @@ async def test_the_wave_in_flight_at_the_limit_completes_then_one_wrap_up():
     assert exit_event["detail"] == "finished wave 1, then the wrap-up"
 
 
+async def test_no_tripwire_backoff_after_the_limit():
+    # Wave 1 trips once and ends past the limit: the wrap-up wave follows at
+    # once, with no 5-minute backoff before it.
+    clock = _SetClock()
+    ctx = make_ctx(clock=clock)  # type: ignore[arg-type]
+    seed_baseline(ctx.kiln)
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(fix_item("w1-1"), fix_item("w1-2"))),
+        ok(make_plan(loop_exit="nothing pooled")),
+    )
+
+    def fail_past_the_limit(req):
+        clock.t = LIMIT_SECS + 60
+        return infra("parse_failure")
+
+    d.queue("create_experiment_rc", fail_past_the_limit, fail_past_the_limit)
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "timeout"
+    assert [k for k, _ in ctx.log.events].count("tripwire") == 1
+    assert 300.0 not in ctx.sleeps
+    assert [p.should_wrap_up for p in d.calls_to("batch_plan")] == [False, True]
+
+
 async def test_a_limit_passed_during_setup_gets_only_the_wrap_up():
     # deadline calc, then the clock reads past the limit: no normal wave.
     ctx = make_ctx(clock=FakeClock(0, LIMIT_SECS))

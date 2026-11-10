@@ -214,7 +214,7 @@ def test_clock_view_gauges_lanes_and_times():
     )
     assert clock.spend.limit == "$50.00"
     assert plain(clock.lanes) == ("Kiln $3.00 · Claude Code ~12k tokens · $2.14/h")
-    assert clock.times == "started 14:12 · ends 17:12"
+    assert clock.times == "started 14:12 · limit 17:12"
 
 
 @pytest.mark.parametrize(

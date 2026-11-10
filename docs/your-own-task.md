@@ -734,7 +734,7 @@ each question about the run:
 |---|---|
 | Title bar | The task, the run id, the agent CLI and the slot counts. |
 | Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
-| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the Kiln spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the Kiln spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave; the start time and the time limit (`started 14:12 · limit 17:12`), which is not the end time. |
 | Run timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
 | Results | One card per eval score that can decide a promotion, then one for cost and one for latency per request. |
 | Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |

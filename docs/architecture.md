@@ -858,7 +858,8 @@ resubmit them unchanged once the question is answered.
 
 **The tripwire.** More than half a wave's items ending `failed_infra` with the
 same error class marks the wave aborted, notes the incomplete experiment
-records, and backs off `TRIPWIRE_BACKOFF_SECS` once. Two consecutive tripwires
+records, and backs off `TRIPWIRE_BACKOFF_SECS` once (not after the time limit:
+the wrap-up wave starts at once). Two consecutive tripwires
 end the run — *after* the promotion gate has run over what completed.
 Items that completed keep their results and their honest status; only the
 memory overview gets the abandoned stamp.

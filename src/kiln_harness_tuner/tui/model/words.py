@@ -137,12 +137,14 @@ NO_BUDGET = "no budget"
 BEFORE_WAVE_1 = "before wave 1"
 
 
-def times_text(started: datetime | None, ends: datetime | None) -> str:
+def times_text(started: datetime | None, limit: datetime | None) -> str:
+    """`started 14:12 · limit 17:12`. The limit is not the end: the wave in
+    flight at the limit finishes, then a wrap-up wave runs."""
     parts = []
     if started is not None:
         parts.append(f"started {clock(started)}")
-    if ends is not None:
-        parts.append(f"ends {clock(ends)}")
+    if limit is not None:
+        parts.append(f"limit {clock(limit)}")
     return " · ".join(parts)
 
 
