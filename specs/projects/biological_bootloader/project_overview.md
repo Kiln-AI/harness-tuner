@@ -58,8 +58,9 @@ that came up during and after the recording.
    for the coding agents that build Harness Tuner. A skill is often built
    well, and then the next agent starts to break it. The "skill design"
    rules must be written down, so that a request such as "read this blog
-   post and add this approach to our tuner" keeps the skill's quality,
-   format and rules. It must prevent two common mistakes:
+   post and add this approach to our tuner" or "we learned a lesson, record
+   this: ..." keeps the skill's quality, format and rules. It must prevent
+   two common mistakes:
    - **Over-indexing on the new request.** The agent puts the new item at
      the top level, or deletes older approaches. The maintenance skill must
      direct each addition to the right level, so that quality is consistent
