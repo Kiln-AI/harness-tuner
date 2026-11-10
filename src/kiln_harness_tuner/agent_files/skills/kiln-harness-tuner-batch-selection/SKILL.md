@@ -631,8 +631,9 @@ more headroom can be impossible by construction on a near-ceiling baseline.
   fewer arms than slots, either add a cheap arm on a non-contending surface — a skill attach, an
   `existing_rc_id` resubmission, a `measure_issue_baseline`, a `remeasure`
   — or name in `rejected_summary` the contention that forbids it. Price it
-  with `lever_costs` (this run's measured build cost and time per
-  technique, empty on wave 1). Before any is measured, use the ORDER, which
+  with `lever_costs` (this run's measured build tokens and time per
+  technique, empty on wave 1; tokens, because the agents run on the agent
+  CLI's own account and are not in the budget). Before any is measured, use the ORDER, which
   holds across tasks even though the prices do not: attaching an existing
   skill is the cheapest build and the fastest; copying and editing a skill
   costs several times that; a new wrapper code tool is the most expensive

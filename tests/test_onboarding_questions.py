@@ -229,7 +229,6 @@ def test_the_agent_clis_match_the_dispatchers():
     assert {agent.kind for agent in AGENT_KINDS} == set(DISPATCHERS)
     for agent in AGENT_KINDS:
         dispatcher, _bin = DISPATCHERS[agent.kind]
-        assert agent.reports_cost is dispatcher.REPORTS_COST, agent.kind
         assert agent.command == dispatcher.CLI_NAME
         assert agent.default_effort == dispatcher.DEFAULT_EFFORT, agent.kind
     claude = next(agent for agent in AGENT_KINDS if agent.kind == "claude")
@@ -356,8 +355,9 @@ def test_the_objective_rows_and_the_hints():
         " and are billed to its account, not to your Kiln provider keys.",
         "Other to type a model name: an alias or a full name.",
         "How much each agent reasons before it answers.",
-        "The most this run may spend, in USD: the tuner's agents and the task's"
-        " model calls together. No wave starts past it. Type none for no cap.",
+        "The most this run may spend on the task's model calls, in USD. The"
+        " tuner's agents run on your agent CLI's account and are not counted."
+        " No wave starts past it. Type none for no cap.",
         "No wave starts after this, and work still running at the limit is"
         " cancelled, so leave room for a whole wave.",
     ]
@@ -632,21 +632,15 @@ def test_a_budget_is_typed_with_or_without_a_dollar_sign():
     assert terminal.step_lines() == ["Budget: $20.00"]
 
 
-@pytest.mark.parametrize(
-    ("agent_cli", "note"),
-    [
-        (
-            "codex exec",
-            " Codex doesn't report its cost, so this caps the task's model calls only.",
-        ),
-        ("claude -p", ""),
-        ("opencode run", ""),
-    ],
-)
-def test_the_budget_hint_names_a_cli_that_reports_no_cost(agent_cli, note):
+@pytest.mark.parametrize("agent_cli", ["claude -p", "codex exec", "opencode run"])
+def test_the_budget_never_counts_the_agents(agent_cli):
     terminal = ScriptedTerminal(["50"])
     ask_all(answers(agent_cli=agent_cli), context(terminal), given=BUDGET_ONLY)
-    assert terminal.asked[0].hint.endswith(f"Type none for no cap.{note}")
+    assert terminal.asked[0].hint == (
+        "The most this run may spend on the task's model calls, in USD. The"
+        " tuner's agents run on your agent CLI's account and are not counted."
+        " No wave starts past it. Type none for no cap."
+    )
 
 
 def test_a_time_limit_is_typed_in_minutes_or_hours():

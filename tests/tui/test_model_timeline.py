@@ -153,8 +153,9 @@ def two_wave_run() -> Run:
 
 def test_the_wave_estimate_and_the_projected_waves_agree():
     run = two_wave_run()
-    # Wave 1's cycle: 27 minutes and $5.00.
-    assert run.model.cycles == [(27 * MIN, 5.0)]
+    # Wave 1's cycle: 27 minutes and $3.00 (the planner's $2.00 is agent
+    # cost, not in the budget).
+    assert run.model.cycles == [(27 * MIN, 3.0)]
     clock = run.model.clock(run.at(40).t)
     assert plain(clock.wave) == "wave 2 of ~6"
     view = run.model.timeline(run.t)
@@ -188,7 +189,7 @@ def test_clock_view_gauges_lanes_and_times():
         source="x",
         lane="subscription_equivalent",
         cost_usd=1.0,
-        unmeasured_tokens=12_000,
+        tokens=12_000,
     )
     clock = run.model.clock(run.at(84).t)
     assert (clock.time.label, clock.time.value, clock.time.limit) == (
@@ -198,14 +199,12 @@ def test_clock_view_gauges_lanes_and_times():
     )
     assert (clock.time.done, clock.time.total) == (84 * MIN, 180 * MIN)
     assert (clock.spend.value, clock.spend.done, clock.spend.total) == (
-        "$6.00",
-        6.0,
+        "$3.00",
+        3.0,
         50.0,
     )
     assert clock.spend.limit == "$50.00"
-    assert plain(clock.lanes) == (
-        "Kiln $3.00 · Claude Code $3.00 + 12k tokens unpriced · $4.29/h"
-    )
+    assert plain(clock.lanes) == ("Kiln $3.00 · Claude Code ~12k tokens · $2.14/h")
     assert clock.times == "started 14:12 · ends 17:12"
 
 

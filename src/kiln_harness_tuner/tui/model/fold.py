@@ -365,6 +365,7 @@ class RunModel:
             limit,
             words.duration(limit) if limit else "",
         )
+        # The task's model calls: the agents' tokens are on the lanes line.
         spent = status.spend_total_usd
         spend_gauge = GaugeView(
             words.SPEND_LABEL,
@@ -385,21 +386,19 @@ class RunModel:
     def _lanes(self, spent: float, elapsed: float) -> Line:
         status = self.tracker.status
         labels = spend_lane_labels(status.agent_cli)
-        agent, kiln, other = spend_split(status.spend_by_lane)
+        kiln, other = spend_split(status.spend_by_lane)
         parts: list[Line] = [
             (Span(f"{labels[PROVIDER_LANE]} ", "muted"), Span(words.money(kiln))),
         ]
-        agent_part: Line = (
-            Span(f"{labels[SUBSCRIPTION_LANE]} ", "muted"),
-            Span(words.money(agent)),
-        )
-        if status.unmeasured_tokens:
-            agent_part += (
-                Span(f" {words.unpriced(status.unmeasured_tokens)}", "muted"),
-            )
-        parts.append(agent_part)
         if other:
             parts.append((Span("other ", "muted"), Span(words.money(other))))
+        # The agents' tokens: a rough count, not money, not in the budget.
+        parts.append(
+            (
+                Span(f"{labels[SUBSCRIPTION_LANE]} ", "muted"),
+                Span(words.tokens(status.agent_tokens)),
+            )
+        )
         main_waves = any(w.wave >= 1 for w in self.waves)
         if main_waves and self.exit_reason is None and elapsed > 0:
             parts.append((Span(words.burn(spent / (elapsed / 3600))),))
@@ -1070,6 +1069,7 @@ class RunModel:
     def _on_spend(self, s: Stamped, f: Mapping[str, Any]) -> None:
         # The tracker folds the run's money; an item's own spend is kept on
         # the item, which outlives the tracker's last wave.
+        # Agent sessions send tokens, not dollars, so this is Kiln money.
         item = self.item(f.get("item_id"))
         cost = _number(f.get("cost_usd"))
         if item is not None and cost is not None:

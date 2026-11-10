@@ -113,7 +113,6 @@ def _sum_usage(a: Usage, b: Usage) -> Usage:
         cost_usd=a.cost_usd + b.cost_usd,
         tokens=a.tokens + b.tokens,
         wall_secs=a.wall_secs + b.wall_secs,
-        unmeasured_tokens=a.unmeasured_tokens + b.unmeasured_tokens,
     )
 
 
@@ -343,8 +342,7 @@ async def _run_eval_build(
         item_id=item_id,
         source="eval_build",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=rep.usage.cost_usd,
-        unmeasured_tokens=rep.usage.unmeasured_tokens,
+        tokens=rep.usage.tokens,
     )
     return rep
 
@@ -574,8 +572,7 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
             item_id=item.id,
             source="probe",
             lane=SUBSCRIPTION_LANE,
-            cost_usd=rep.usage.cost_usd,
-            unmeasured_tokens=rep.usage.unmeasured_tokens,
+            tokens=rep.usage.tokens,
         )
         if rep.data is None:
             if rep.status != "failed_expected":
@@ -909,8 +906,7 @@ async def _execute_plan_item(
         item_id=item.id,
         source="analyze_experiment_results",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=res.usage.cost_usd,
-        unmeasured_tokens=res.usage.unmeasured_tokens,
+        tokens=res.usage.tokens,
     )
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
@@ -1023,15 +1019,14 @@ async def _build_rc(
         item_id=item.id,
         source="create_experiment_rc",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=rc.usage.cost_usd,
-        unmeasured_tokens=rc.usage.unmeasured_tokens,
+        tokens=rc.usage.tokens,
     )
-    # One (usd, secs) sample per build, by technique — the planner's
+    # One (tokens, secs) sample per build, by technique — the planner's
     # `lever_costs`. A merge is its own class.
     await snapshot_memory(ctx, f"{item.id}-{phase}-after")
     technique = getattr(item.work, "technique", None) or "merge"
     ctx.build_samples.setdefault(technique, []).append(
-        (rc.usage.cost_usd, ctx.clock() - build_started)
+        (rc.usage.tokens, ctx.clock() - build_started)
     )
     return rc
 

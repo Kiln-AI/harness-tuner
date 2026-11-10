@@ -218,7 +218,6 @@ class AgentKind:
     model_option: str
     default_model: str  # "" = the CLI's own default
     model_hint: str
-    reports_cost: bool
     # The thinking levels the picker lists. Empty: the level is typed.
     efforts: tuple[str, ...] = ()
     other_effort: bool = False  # Other… types a level the list doesn't have
@@ -232,9 +231,7 @@ class AgentKind:
 # In the order the picker lists them. Only cli.py may name the dispatchers
 # (tests/test_dispatch_boundary.py), so their facts are restated here, and a
 # test holds the two equal: Claude Code's default model is the dispatcher's
-# `AGENT_MODEL`, `reports_cost` its `REPORTS_COST` (a CLI that reports
-# tokens and no cost can't count toward the budget), and `default_effort` its
-# `DEFAULT_EFFORT`.
+# `AGENT_MODEL`, and `default_effort` its `DEFAULT_EFFORT`.
 # The thinking levels every listed Codex model takes. Codex also takes
 # `none`, `minimal` and, on some models, `ultra`, which Other can type.
 _CODEX_LEVELS = ("low", "medium", "high", "xhigh", "max")
@@ -255,7 +252,6 @@ AGENT_KINDS = (
         "opus",
         "Enter keeps opus. An alias, such as sonnet, or a full model name, such as"
         " claude-fable-5-2.",
-        reports_cost=True,
         efforts=CLAUDE_EFFORTS,
     ),
     AgentKind(
@@ -265,11 +261,10 @@ AGENT_KINDS = (
         "-m",
         "",
         _CODEX_MODEL_HINT,
-        False,
         efforts=_CODEX_LEVELS,
         other_effort=True,
     ),
-    AgentKind("opencode", "OpenCode", "run", "-m", "", _OPENCODE_MODEL_HINT, True),
+    AgentKind("opencode", "OpenCode", "run", "-m", "", _OPENCODE_MODEL_HINT),
 )
 _KINDS = {agent.kind: agent for agent in AGENT_KINDS}
 
@@ -319,6 +314,13 @@ def agents_text(command: str) -> str:
     model = parsed.model or agent.default_model or "default model"
     effort = f" · effort {parsed.effort}" if parsed.effort else ""
     return f"{agent.name} ({base}) · {model}{effort}"
+
+
+def limits_budget_text(budget: float | None) -> str:
+    """The budget on the summary's Limits line: `$50.00 on the task's model
+    calls`. The agents are never in the budget."""
+    text = budget_text(budget)
+    return text if budget is None else f"{text} on the task's model calls"
 
 
 def _model_refusal(text: str) -> str | None:
@@ -599,25 +601,20 @@ def _choose_agent_cli(
     return kind, "", True
 
 
+# The agents run on the agent CLI's own account, so the budget never counts
+# them, whichever CLI it is (`orchestrator.SpendMeter`).
+BUDGET_HINT = (
+    "The most this run may spend on the task's model calls, in USD. The"
+    " tuner's agents run on your agent CLI's account and are not counted."
+    " No wave starts past it. Type none for no cap."
+)
+
+
 def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
-    hint = (
-        "The most this run may spend, in USD: the tuner's agents and the task's"
-        " model calls together. No wave starts past it. Type none for no cap."
-    )
-    parsed = _parsed(answers.agent_cli)
-    agent = _KINDS[parsed.kind] if parsed is not None else None
-    # The note follows each dispatcher's `REPORTS_COST`, as the run's own
-    # budget warning does: Codex reports no cost, OpenCode reports each
-    # session's.
-    if agent is not None and not agent.reports_cost:
-        hint += (
-            f" {agent.name} doesn't report its cost, so this caps the task's model"
-            " calls only."
-        )
     answer = ctx.terminal.text(
         "Budget for this run",
         default=budget_default(answers.budget_usd),
-        hint=hint,
+        hint=BUDGET_HINT,
         validate=_refusal(parse_budget),
         back=ctx.back,
     )

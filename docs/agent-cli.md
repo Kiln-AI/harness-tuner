@@ -254,6 +254,8 @@ worth, so the decision is informed.
   transcripts are files. One of them also changes billing: with an API key
   present, the CLI bills the API instead of the operator's login, and the
   reported cost silently turns from a shadow price into real money.
+  `--budget-usd` never counts the agents, for any agent CLI: the loop shows
+  their tokens for information ([costs.md](costs.md)).
 - **Per-role model and effort.** Pinned in code so that runs do not differ
   across machines, overridable per role from the CLI. Worth: the agent side is
   where a run's spend concentrates, and the mechanical roles do not need the
@@ -417,9 +419,9 @@ Against section 6:
 
 What else differs:
 
-- **Cost.** Codex reports tokens, not cost. Every session books $0 and its
-  tokens as unmeasured, and `--budget-usd` caps the Kiln side only; the run
-  log says so at start.
+- **Cost.** Codex reports tokens, not cost. That loses nothing: the loop
+  shows the agents in tokens for every agent CLI, and `--budget-usd` never
+  counts them.
 - **`--max-turns`** has no Codex equivalent and is ignored, with a warning.
 - **Errors.** A failed session exits non-zero and prints a `turn.failed`
   event with the provider's message. That event is structured output, so it
@@ -494,9 +496,8 @@ Against section 6:
 
 What else differs:
 
-- **Cost.** OpenCode reports a cost per step. A provider plan that prices
-  nothing reports 0: such a session's tokens are booked as unmeasured, as for
-  Codex.
+- **Cost.** OpenCode reports a cost and tokens per step. The loop shows the
+  tokens, as for every agent CLI.
 - **`--max-turns`** becomes the build agent's `steps` cap.
 - **Errors.** A failed session exits non-zero and prints an `error` event;
   that event is classified, as for Codex.

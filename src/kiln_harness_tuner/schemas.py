@@ -67,6 +67,9 @@ ErrorClass = Literal[
 # every `claude -p` dispatch's total_cost_usd — quota burn now, real cost at
 # deployment; provider = eval-lane cost (subject task_run_usage + judge
 # eval_usage) — real money today. Every `spend` event carries one.
+# The agent lane carries tokens, never dollars: the agent sessions run on
+# the agent CLI's own account. `spend_total_usd` and `--budget-usd` are the
+# task's model calls only (`RunStatus.agent_tokens`).
 SpendLane = Literal["subscription_equivalent", "provider"]
 SUBSCRIPTION_LANE: SpendLane = "subscription_equivalent"
 PROVIDER_LANE: SpendLane = "provider"
@@ -147,14 +150,11 @@ class Usage(BaseModel):
     # Defaults to zero: a failed_infra result produced before any subprocess
     # ran has nothing to report.
     cost_usd: float = 0.0
+    # Every token the session used: the rough count a person reads for the
+    # agent lane. A `claude -p` killed at its wall-clock timeout never prints
+    # its result payload, so its tokens come from its transcript.
     tokens: int = 0
     wall_secs: float = 0.0
-    # Tokens seen in the transcript of a session whose cost could NOT be
-    # read — a `claude -p` killed at its wall-clock timeout never prints its
-    # result payload. Summed beside cost so a run's books say
-    # how much they are missing instead of booking the run's most expensive
-    # session shape at $0.
-    unmeasured_tokens: int = 0
 
 
 class WinRef(BaseModel):
@@ -1566,11 +1566,12 @@ class BaselineRef(BaseModel):
 
 
 class LeverCost(BaseModel):
-    """What one lever class cost to BUILD this run — measured, not quoted.
-    Keyed by technique; `n` arms, means over them."""
+    """What one lever class took to BUILD this run — measured, not quoted.
+    Keyed by technique; `n` arms, means over them. Tokens, not dollars: the
+    agents run on the agent CLI's own account."""
 
     n: int
-    mean_build_usd: float
+    mean_build_tokens: float
     mean_build_secs: float
 
 
@@ -2037,7 +2038,7 @@ class RunStatus(BaseModel):
     guidance: str
     baseline_history: list[str]  # rc ids, promotion order
     waves: list[WaveStatus]  # complete history, never dropped
-    spend_total_usd: float
+    spend_total_usd: float  # the task's model calls: no agent dollars
     time_remaining_secs: float
     exit_reason: str | None
     # The live totals row (and the report-appendix header) need the
@@ -2064,10 +2065,8 @@ class RunStatus(BaseModel):
     #   — the report appendix's per-source × per-lane table data
     # Budget honesty: the provider cost of EVERY stored row the run
     # read (cached rows from earlier runs included) — what the evidence rests
-    # on, as distinct from `spend_total_usd`, which is what this run paid —
-    # and the tokens of timed-out agent sessions whose cost could not be read.
+    # on, as distinct from `spend_total_usd`, which is what this run paid.
     evidence_spend_usd: float = 0.0
-    unmeasured_tokens: int = 0
     # The agent CLI the run dispatches through (`claude`, `codex`, `opencode`):
     # the name of the agent spend lane wherever a person reads it.
     agent_cli: str = "claude"
@@ -2082,6 +2081,10 @@ class RunStatus(BaseModel):
     # First-class hole accounting: coverage and hole facts are counted here,
     # not only as prose inside agent findings.
     budget_usd: float | None = None  # --budget-usd, from run_start (None = no cap)
+    # The agent sessions' tokens (`Usage.tokens`), in all and per `spend`
+    # source: a rough count for a person to read, never in the budget.
+    agent_tokens: int = 0
+    agent_tokens_by_source: dict[str, int] = {}
     eval_job_error_items: int = 0  # errored dataset items across all eval jobs
     #   (folded from `eval_job_errors` events)
     # The same items by "<split> <error_class>", e.g. {"val rate_limit": 68}:

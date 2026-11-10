@@ -29,8 +29,10 @@ DEFAULT_DESCRIPTION = EvalDescription(
 )
 
 
-def ok(data, cost_usd: float = 0.0) -> AgentResult:
-    return AgentResult(status="ok", data=data, usage=Usage(cost_usd=cost_usd))
+def ok(data, cost_usd: float = 0.0, tokens: int = 0) -> AgentResult:
+    return AgentResult(
+        status="ok", data=data, usage=Usage(cost_usd=cost_usd, tokens=tokens)
+    )
 
 
 def expected(detail: str, data=None) -> AgentResult:

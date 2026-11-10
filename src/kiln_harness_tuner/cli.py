@@ -319,7 +319,8 @@ def build_parser() -> _Parser:
         type=_budget,
         default=DEFAULT_BUDGET_USD,
         metavar="USD",
-        help="cost ceiling for the run (both lanes); at the ceiling the run"
+        help="cost ceiling for the task's model calls (the agent sessions are"
+        " not counted); at the ceiling the run"
         " exits, one projected wave short of it the next wave is the wrap-up"
         f" (default {number_text(DEFAULT_BUDGET_USD)}; none = no ceiling)",
     )
@@ -1294,14 +1295,6 @@ async def _run(
         if not adapter.HAS_MAX_TURNS and args.max_turns is not None:
             logger.warning(
                 "--max-turns has no %s equivalent and is ignored", adapter.CLI_NAME
-            )
-        if not adapter.REPORTS_COST and args.budget_usd is not None:
-            # The CLI reports tokens, not cost: agent sessions book $0 and
-            # their tokens as unmeasured, so the cap sees the Kiln side only.
-            logger.warning(
-                "--budget-usd with %s caps Kiln-side spend only: its sessions"
-                " report tokens, not cost",
-                adapter.CLI_NAME,
             )
         policy_copy: Path | None = None
         if policy is not None:

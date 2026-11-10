@@ -105,7 +105,7 @@ async def test_probe_answer_lands_in_memory_and_the_wave_log():
     spend = [
         f for k, f in ctx.log.events if k == "spend" and f.get("source") == "probe"
     ]
-    assert spend and spend[0]["cost_usd"] == pytest.approx(0.4)
+    assert spend and "cost_usd" not in spend[0]  # tokens, never dollars
     states = [f["state"] for k, f in ctx.log.events if k == "item_state"]
     assert states[0] == "probing"
 

@@ -22,11 +22,15 @@ in the report's spend appendix.
 
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|
-| Claude Code | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. A Codex session reports tokens, not cost, and so does an OpenCode session on a plan that prices nothing: their tokens are booked as unmeasured ([agent-cli.md](agent-cli.md) sections 10 and 11). |
+| Claude Code (or Codex, or OpenCode) | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. The agents run on the agent CLI's own account. The loop shows their tokens, a rough count, and not their cost. |
 | Kiln | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
 
 They are separate invoices, on separate accounts. `--budget-usd` is a ceiling on
-**both together**.
+the **Kiln lane only**, for every agent CLI. The agent lane is information: the
+run screen, the log lines, the report's spend appendix and the error screen
+show the agents' tokens, and the budget does not count them. No figure the
+tuner shows or computes includes a dollar cost for the agents: their `spend`
+events in the wave log carry `tokens`, not `cost_usd`.
 
 Which one dominates is a property of your task, not of the loop: a task whose
 eval corpus is large and whose model is expensive is provider-heavy, and a task

@@ -716,7 +716,8 @@ line:
   GET /api/projects/424242189194/tasks/424242920784/evals/424242136270/eval_config/424242913607
   HTTP 500: Internal Server Error
 
-  The run stopped. Spent $3.20 so far (agents and the task's model calls).
+  The run stopped. Spent $3.20 so far on the task's model calls.
+  The agents used about 1,240,000 tokens, which the budget does not count.
   Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261107-1412
   Report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261107-1412.md
 
@@ -796,7 +797,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ Improve      Quality                                                                    │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 · 12 hours                                                          │
+│ Limits       $50.00 on the task's model calls · 12 hours                                │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │
