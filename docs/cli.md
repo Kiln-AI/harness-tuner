@@ -76,6 +76,15 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 | `--budget-usd` | `50` | The cost ceiling for the run, in USD, on the task's model calls. It never counts the agent sessions, which run on the agent CLI's own account: the run shows their tokens for information. No wave starts past it. At the ceiling the run exits, and the wave in flight runs to completion. Within one projected wave of the ceiling, the next wave is the wrap-up. `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). |
 | `--timeout-mins` | `720` (12 hours) | The time limit in whole minutes, at least 10. Setup runs before the first wave and takes a few minutes, so the start refuses a shorter limit. The loop checks the limit at wave boundaries. No new wave starts after it. The wave in flight is not cancelled: it finishes, promotion gate included. Then one wrap-up wave merges the pooled wins, and the run writes its report. So the run can end later than this, by the wave in flight plus the wrap-up. |
 
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
+
 [costs.md](costs.md) helps you set both limits before you start.
 
 ### The agents

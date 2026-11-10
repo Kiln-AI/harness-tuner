@@ -284,12 +284,20 @@ boundaries only. Three rules govern it:
   `finished wave 3; no wrap-up: nothing to merge`
   (`orchestrator.time_limit_detail`).
 
-So a run can end later than its limit, by the wave in flight plus the
-wrap-up. The limit stops new work. It does not stop work that has started.
-The budget is different: it stays a hard ceiling (section 3.2). When the
-budget ends the run first, the budget's own wrap-up wave is the last
-(exit `wrap_up`), or the run exits `budget_exhausted`. Ctrl+C, a signal and
-a fatal error still stop the run at once.
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
+
+The limit stops new work. It does not stop work that has started. The budget
+is different: it stays a hard ceiling (section 3.2). When the budget ends the
+run first, the budget's own wrap-up wave is the last (exit `wrap_up`), or the
+run exits `budget_exhausted`. A signal and a fatal error also stop the run at
+once.
 
 The planner is handed the conclusion — `should_wrap_up: bool` — never the
 clock. Budget arithmetic belongs in code, not in an agent reading a minutes

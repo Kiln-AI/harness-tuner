@@ -61,6 +61,13 @@ TIME_LIMIT_RULE = (
     "No new wave starts after this. The wave in flight finishes, then a last"
     " wrap-up wave, so the run can end later than this"
 )
+# The start-up's warning once a time limit is set: the limit stops new waves,
+# not the wave in flight, so a run ends later than it.
+TIME_LIMIT_WARNING = (
+    "The time limit is approximate. No new wave starts after it, but the wave"
+    " in flight finishes and a last wrap-up wave follows, so the run can end"
+    " later than the limit, by the length of one or two waves."
+)
 TIME_LIMIT_ERROR = (
     f"Enter at least {MIN_TIME_LIMIT_MINS} minutes: setup alone takes a few."
     f" {TIME_LIMIT_RULE}"
@@ -172,6 +179,12 @@ def duration_text(minutes: int) -> str:
     if minutes % 60 == 0:
         return plural(minutes // 60, "hour")
     return plural(minutes, "minute")
+
+
+def limits_time_text(minutes: int) -> str:
+    """The time limit on the summary's Limits line: `about 12 hours`. The
+    limit is approximate (`TIME_LIMIT_WARNING`)."""
+    return f"about {duration_text(minutes)}"
 
 
 def duration_default(minutes: int) -> str:
@@ -659,6 +672,7 @@ def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     )
     answers.timeout_mins = parse_duration(answer)
     ctx.terminal.step("ok", "Time", duration_text(answers.timeout_mins))
+    ctx.terminal.warn(TIME_LIMIT_WARNING)
 
 
 def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:

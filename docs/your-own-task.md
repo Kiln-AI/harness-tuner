@@ -567,12 +567,21 @@ The footer shows `esc Back` only where Esc goes back.
   your agent CLI's account, and the run shows their tokens for information.
   The summary's Limits line says so.
 - **The time limit**: at least 10 minutes, because setup runs first and
-  takes a few. No new wave starts after the limit. The wave in flight is not
-  cancelled: it finishes, then a last wrap-up wave merges the pooled wins. So
-  the run can end later than the limit. When the time limit ends a run, the
-  Done screen, the exit line and the report say how, for example `Time limit
-  reached (finished wave 3, then the wrap-up)`, or `(finished wave 3; no
-  wrap-up: nothing to merge)` when nothing was pooled.
+  takes a few. The time limit is approximate. After the time line, the
+  start shows a `!` warning that says so (a start that is not guided writes
+  it to stderr), and the summary's Limits line reads `about 12 hours`. The rerun command keeps the exact value. When the time
+  limit ends a run, the Done screen, the exit line and the report say how,
+  for example `Time limit reached (finished wave 3, then the wrap-up)`, or
+  `(finished wave 3; no wrap-up: nothing to merge)` when nothing was pooled.
+
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
 
 The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or
@@ -619,7 +628,7 @@ again, and one last question:
 │ Improve      Quality                                                                    │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 on the task's model calls · 12 hours                                │
+│ Limits       $50.00 on the task's model calls · about 12 hours                          │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │

@@ -38,6 +38,7 @@ from kiln_harness_tuner.onboarding.kiln_check import (
     check_kiln,
     missing_apis,
 )
+from kiln_harness_tuner.onboarding.questions import TIME_LIMIT_WARNING
 
 NOT_RUNNING = (
     "Kiln isn't running at http://localhost:8757",
@@ -108,7 +109,8 @@ def test_a_running_new_kiln_passes_with_its_step_line():
     ]
     assert terminal.steps[0] == ("ok", "Kiln", "1.0.3 at http://localhost:8757")
     assert terminal.busy_texts[0] == "Checking Kiln at http://localhost:8757…"
-    assert terminal.blocks == [] and terminal.err == []
+    # No Kiln warning: the one line is the time limit's (a flag gave it).
+    assert terminal.blocks == [] and terminal.err == [TIME_LIMIT_WARNING]
     assert terminal.questions == [ADVANCED_PROMPT, START_PROMPT]
     assert check_paths(kiln) == ["/ping", "/openapi.json"]
 
@@ -338,7 +340,8 @@ def test_the_unreadable_api_list_warning_follows_the_step_and_the_start_goes_on(
     start(kiln, terminal)
     assert terminal.steps[0] == ("ok", "Kiln", "running at http://localhost:8757")
     assert terminal.err == [
-        "Couldn't read Kiln's API list, so its version wasn't checked."
+        "Couldn't read Kiln's API list, so its version wasn't checked.",
+        TIME_LIMIT_WARNING,
     ]
     assert terminal.blocks == []
     assert terminal.questions == [ADVANCED_PROMPT, START_PROMPT]
@@ -358,6 +361,7 @@ def test_with_no_terminal_the_start_is_plain(capsys):
     assert captured.err == (
         "kiln-harness-tuner: Couldn't read Kiln's API list,"
         " so its version wasn't checked.\n"
+        f"kiln-harness-tuner: {TIME_LIMIT_WARNING}\n"
     )
 
 
