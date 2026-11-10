@@ -4,7 +4,6 @@
 import pytest
 from model_events import Run, fix, probe, row, table, val_row
 
-from kiln_harness_tuner.orchestrator import MIN_WAVE_START_SECS
 from kiln_harness_tuner.tui.model.state import plain
 from kiln_harness_tuner.tui.model.timeline import axis_ticks, projected_waves
 
@@ -89,18 +88,20 @@ def project(**overrides):
 
 
 def test_projection_mirrors_the_loop_rules():
-    # One wave every 27 minutes from the current cycle's end; the next would
-    # start with 8 minutes left, under the loop's 15-minute floor.
-    assert project() == [(91.0, 5), (118.0, 6), (145.0, 7)]
-    assert 180 * MIN - (145 + 27) * MIN < MIN_WAVE_START_SECS
-    # A wave that starts inside the 30-minute wrap-up window is the last.
-    assert project(deadline=160 * MIN) == [(91.0, 5), (118.0, 6), (145.0, 7)]
-    assert project(deadline=135 * MIN) == [(91.0, 5), (118.0, 6)]
-    # A cycle longer than the window is the window.
-    assert project(cycles=[(40 * MIN, 5.0)], deadline=180 * MIN) == [
-        (104.0, 5),
-        (144.0, 6),
+    # One wave every 27 minutes from the current cycle's end. Every wave
+    # that starts before the limit is a normal wave, also wave 8 with 8
+    # minutes left; the first one at or past the limit is the wrap-up, and
+    # it is the last.
+    assert project() == [(91.0, 5), (118.0, 6), (145.0, 7), (172.0, 8), (199.0, 9)]
+    assert project(deadline=160 * MIN) == [
+        (91.0, 5),
+        (118.0, 6),
+        (145.0, 7),
+        (172.0, 8),
     ]
+    assert project(deadline=135 * MIN) == [(91.0, 5), (118.0, 6), (145.0, 7)]
+    # A wave that starts exactly at the limit is the wrap-up.
+    assert project(deadline=118 * MIN) == [(91.0, 5), (118.0, 6)]
     # A wave that overruns its mean: the next starts no earlier than now.
     assert project(now=100 * MIN)[0] == (100.0, 5)
 
@@ -157,10 +158,18 @@ def test_the_wave_estimate_and_the_projected_waves_agree():
     # cost, not in the budget).
     assert run.model.cycles == [(27 * MIN, 3.0)]
     clock = run.model.clock(run.at(40).t)
-    assert plain(clock.wave) == "wave 2 of ~6"
+    assert plain(clock.wave) == "wave 2 of ~8"
     view = run.model.timeline(run.t)
-    assert [wave for _start, wave in view.projected] == [3, 4, 5, 6]
-    assert [start / MIN for start, _ in view.projected] == [64.0, 91.0, 118.0, 145.0]
+    # Waves 3 to 7 start before the 3-hour limit; wave 8 is the wrap-up.
+    assert [wave for _start, wave in view.projected] == [3, 4, 5, 6, 7, 8]
+    assert [start / MIN for start, _ in view.projected] == [
+        64.0,
+        91.0,
+        118.0,
+        145.0,
+        172.0,
+        199.0,
+    ]
 
 
 def test_the_wave_line_before_wave_1_and_in_the_last_wave():
@@ -205,7 +214,7 @@ def test_clock_view_gauges_lanes_and_times():
     )
     assert clock.spend.limit == "$50.00"
     assert plain(clock.lanes) == ("Kiln $3.00 · Claude Code ~12k tokens · $2.14/h")
-    assert clock.times == "started 14:12 · ends 17:12"
+    assert clock.times == "started 14:12 · limit 17:12"
 
 
 @pytest.mark.parametrize(

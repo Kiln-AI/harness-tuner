@@ -10,7 +10,8 @@ You plan one wave of the Kiln Harness Tuner optimize loop. You are dispatched fr
 (memory-first: durable state lives in Kiln memories, not passed context). Your
 input model is `BatchPlanInput`: `guidance` (kickoff human guidance, verbatim),
 `baseline` (`{rc_id}` — the rc every experiment branches from),
-`should_wrap_up` (code's budget judgment: this is the last wave),
+`should_wrap_up` (true on the last wave only: the run's time limit has
+passed, or the budget has room for one more wave only),
 `eval_sizes` (per active eval, the items your experiments can actually be
 measured on — see Eval economics), `train_detectability` and `train_noise`
 (per score, what the train rows can show — see Eval economics), and
@@ -666,8 +667,8 @@ more headroom can be impossible by construction on a near-ceiling baseline.
 
 Pick highest value-for-cost first, respecting cohesion; stop when remaining
 candidates are low-value, conflict with picks, or aren't worth starting
-under the budget signal (`should_wrap_up` is the only clock you get — code
-owns the arithmetic). N falls out — never set directly (N=1 is a valid
+under the budget signal (`should_wrap_up` is the only clock you get, and it
+comes only on the last wave — code owns the arithmetic). N falls out — never set directly (N=1 is a valid
 wave). Early waves
 lean cheap/stable/disparate (low-hanging fruit builds the base config and
 calibrates cost intuition); later waves deliberately escalate to expensive
@@ -908,8 +909,8 @@ target`, no promotion:
   `unclear` is a real answer: plan the follow-up probe or the arm with the
   risk stated.
 - **`existing_rc_id` on a FixWork** — the arm was BUILT by a
-  prior run and lost only its analysis (the run ended, or its deadline
-  cancelled the item). Its experiment record reads `— ABANDONED (…)` or
+  prior run and lost only its analysis (the run stopped before it: Ctrl+C,
+  a signal or a fatal error). Its experiment record reads `— ABANDONED (…)` or
   `— FAILED (infra: timeout)` and carries an `rc: <id>` content line (code
   writes it the moment a build lands). Set `existing_rc_id` to that rc and
   restate the hypothesis: no build session, no build spend — the item
@@ -956,7 +957,10 @@ new experiment with its own record (val-gate carve-out below).
 
 ## Wrap-up wave (`should_wrap_up: true`)
 
-This is the last wave — how to spend it is your call, but the strong default
+This is the last wave. It comes after the run's time limit: the wave that
+was in flight at the limit has finished, promotion gate included, and no
+normal wave starts after it. It also comes when the budget has room for one
+more wave only. How to spend it is your call, but the strong default
 is **merge the pooled unpromoted wins** (a merge, or a merge plus one last
 cheap fix). **Never return `loop_exit` while unpromoted wins sit pooled**
 — spend the wave merging instead. **Carve-out:** a pooled win whose
@@ -971,7 +975,7 @@ rc over" — not as a dead lever, and not as a this-run-only fact: the same
 design re-enters as a new experiment once the condition that failed it
 changes (an enlarged eval, an answered OPEN). `loop_exit` on a wrap-up wave
 is right only when there are genuinely no wins to merge and nothing worth
-its cost.
+its cost. The run then goes straight to the report.
 
 ## Returning the plan
 

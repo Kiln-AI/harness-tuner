@@ -529,9 +529,9 @@ def test_plain_ui_prints_one_line_per_event():
     assert sum("total $" in line for line in lines) == 2
 
 
-def test_plain_exit_line_says_how_little_time_was_left():
+def test_plain_exit_line_says_how_the_time_limit_ended_the_run():
     status = run_status(elapsed_secs=226.0, time_remaining_known=True)
-    detail = "3m46s left after setup, under the 15-minute minimum to start a wave"
+    detail = "finished wave 3, then the wrap-up"
     assert plain_exit_line({"reason": "timeout", "detail": detail}, status) == (
         f"exit: timeout ({detail}) — total $14.20 · 3m46s elapsed · 1h42m left"
     )

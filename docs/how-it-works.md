@@ -205,8 +205,9 @@ the setup steps and the opening screen.
 
 The run stops when:
 
-- the time or the budget is used (near the limit, the last wave is a wrap-up
-  wave);
+- the time or the budget is used. After the time limit, the wave in flight
+  finishes, then one wrap-up wave merges the pooled wins. Near the budget,
+  the last wave is a wrap-up wave;
 - the planner says that nothing is left to try (`loop_exit`), or returns an
   empty plan;
 - two waves in a row fail (the tripwire);

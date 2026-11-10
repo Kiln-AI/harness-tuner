@@ -41,17 +41,15 @@ async def test_first_raise_cancels_the_siblings_and_returns_it():
         asyncio.ensure_future(_hang(cancelled, "a")),
         asyncio.ensure_future(boom()),
     ]
-    error, pending = await first_error_or_done(tasks)
-    assert isinstance(error, RuntimeError) and pending == set()
+    error = await first_error_or_done(tasks)
+    assert isinstance(error, RuntimeError)
     assert cancelled == ["a"]
 
 
-async def test_timeout_leaves_the_work_in_flight_for_the_caller():
-    cancelled: list[str] = []
-    tasks = [asyncio.ensure_future(_hang(cancelled, "a"))]
-    error, pending = await first_error_or_done(tasks, timeout=0.01)
-    assert error is None and pending == set(tasks)
-    assert cancelled == []  # the caller decides
-    for t in tasks:
-        t.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+async def test_all_done_returns_no_error():
+    async def fine() -> int:
+        return 1
+
+    tasks = [asyncio.ensure_future(fine()), asyncio.ensure_future(fine())]
+    assert await first_error_or_done(tasks) is None
+    assert [t.result() for t in tasks] == [1, 1]

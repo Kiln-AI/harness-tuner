@@ -115,7 +115,7 @@ async def test_time_and_spend_show_two_gauges_lanes_and_the_wave():
         assert text(clock.spend.limit) == "$50.00"
         assert clock.spend.bar.visible
         assert text(clock.lanes).startswith("Kiln $12.50 · Claude Code ~0 tokens")
-        assert text(clock.times) == "started 14:12 · ends 17:12"
+        assert text(clock.times) == "started 14:12 · limit 17:12"
         assert text(clock.header.meta) == "wave 1"
 
 
@@ -388,8 +388,7 @@ async def test_done_mode_shows_the_run_summary_with_its_links():
         assert subtitle_of(section.done) == "run 261109-1412"
         body = text(section.done.body).split("\n")
         assert body[0] == (
-            "Ended early: not enough time or budget for another wave"
-            " · 2h50m · $12.50 of $50.00"
+            "Ended early: not enough budget for another wave · 2h50m · $12.50 of $50.00"
         )
         assert body[1] == "1 wave · 2 experiments · 1 promotion · 1 stopped early"
         assert body[3].startswith("Best Confirmed  Hold fields · w1-1")

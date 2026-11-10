@@ -518,8 +518,6 @@ def stop_code(item: ItemStatus) -> tuple[str, str]:
         err = outcome.infra_error
         if err is None:
             return "error", ""
-        if err.error_class == "timeout" and "deadline" in err.detail:
-            return "cut_off", ""  # the orchestrator cancelled it in flight
         return "error", f"{err.error_class}, {err.detail[:160]}"
     m = outcome.measurement
     if m is not None:
@@ -1045,18 +1043,13 @@ class ReportWriter:
             name="reporting",
             label="Writing report… (a full agent session)",
         )
-        # Past the run's deadline the report agent gets ONE
-        # attempt — the five-rung loop ladder ran up to ~85 minutes after a
-        # deadline that was supposed to be hard. The code fallback below
-        # still ships a report either way.
-        past_deadline = ctx.deadline is not None and ctx.clock() >= ctx.deadline
         await snapshot_memory(ctx, "report-before")  # the store at exit
         await _add_issues_without_eval(ctx, status)
         try:
             result = await call_with_retries(
                 ctx.dispatch.report_writer,
                 ReportInput(run_status=for_report_agent(status)),
-                backoffs=() if past_deadline else LOOP_DISPATCH_BACKOFFS,
+                backoffs=LOOP_DISPATCH_BACKOFFS,
                 sleep=ctx.sleep,
                 log=ctx.log,
                 source="report_writer",

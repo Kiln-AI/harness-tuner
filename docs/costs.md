@@ -105,19 +105,17 @@ estimate and is luck.
 The only price that transfers to your run is one measured on your task, your
 model and your corpus. So make the first run the measurement:
 
-- Bound it with both knobs, and leave headroom for a whole wave. Both have
+- Bound it with both knobs. Both have
   defaults, `--budget-usd 50` and `--timeout-mins 720` (12 hours), which a
   guided start pre-fills as its answers, and `--budget-usd none` runs with no
   cap. For the smoke run, answer or pass the bounds you want it to stay under.
   The two do not end a run the same way. `--budget-usd` is a pure
   wave-boundary check: the wave in flight when the ceiling is crossed runs to
   completion, and you pay for it.
-  `--timeout-mins` is a deadline, and no wave *starts* past it, but at the
-  deadline itself an item that is already *analyzing* is given
-  `ANALYSIS_GRACE_SECS` to finish and **every other in-flight item is cancelled
-  at once**. A cancelled item's build and drives are already paid for and store
-  no verdict, which is the most expensive way for a run to end. A deadline set
-  tight enough to land mid-wave buys nothing.
+  `--timeout-mins` stops new work, not work in flight: no new wave starts
+  after it, the wave in flight finishes, and then **one wrap-up wave** runs.
+  So the run ends later than the limit, and that last stretch costs money
+  too. To spend less, set a lower `--budget-usd`: it is the hard ceiling.
 - Hold the parallelism down at first. `--max-concurrent-evals` and
   `--max-concurrent-agents` default to 4 each; the loop's own parallelism is
   what manufactures the provider rate limit that then stalls it.

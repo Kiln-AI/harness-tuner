@@ -550,7 +550,7 @@ The footer shows `esc Back` only where Esc goes back.
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 30 minutes: setup takes a few minutes, and no wave starts with less than 15 minutes left. Plan on 1 hour or more for more than one wave. |
+| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. No new wave starts after the limit. The wave in flight finishes, then a last wrap-up wave, so the run can end later than this. |
 | Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
 - **The agent CLI and its model** make one `--agent-cli` command: the model
@@ -566,14 +566,22 @@ The footer shows `esc Back` only where Esc goes back.
   and no wave starts past it. It never counts the tuner's agents: they run on
   your agent CLI's account, and the run shows their tokens for information.
   The summary's Limits line says so.
-- **The time limit**: at least 30 minutes. Setup runs first and takes a few
-  minutes, and no wave starts with less than 15 minutes left, so a shorter
-  limit can end the run before its first wave. Plan on 1 hour or more for more
-  than one wave. No wave starts after the limit, and work still running at
-  the limit is cancelled, so leave room for a whole wave. When a run ends
-  because too little time is left, the Done screen, the exit line and the
-  report say how much was left, for example `3m46s left after setup, under
-  the 15-minute minimum to start a wave`.
+- **The time limit**: at least 10 minutes, because setup runs first and
+  takes a few. The time limit is approximate. After the time line, the
+  start shows a `!` warning that says so (a start that is not guided writes
+  it to stderr), and the summary's Limits line reads `about 12 hours`. The rerun command keeps the exact value. When the time
+  limit ends a run, the Done screen, the exit line and the report say how,
+  for example `Time limit reached (finished wave 3, then the wrap-up)`, or
+  `(finished wave 3; no wrap-up: nothing to merge)` when nothing was pooled.
+
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
 
 The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or
@@ -620,7 +628,7 @@ again, and one last question:
 │ Improve      Quality                                                                    │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 on the task's model calls · 12 hours                                │
+│ Limits       $50.00 on the task's model calls · about 12 hours                          │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │
@@ -681,14 +689,13 @@ harness-tuner --project-path "/path/to/Your Project" \
           --no-interaction
 ```
 
-**Start it bounded, with headroom for a whole wave.** The defaults are $50
-and 12 hours (`--budget-usd 50`, `--timeout-mins 720`), which the questions
-pre-fill; `--budget-usd none` runs with no cap. No wave ever *starts* past
-`--timeout-mins` or `--budget-usd`, but the two do not end a run the same way:
-at the budget ceiling the wave in flight runs to completion, while at the
-deadline every in-flight item except one that is already analyzing is cancelled,
-its drives paid for and no verdict stored. A first run against an unfamiliar
-task is the wrong place to discover how long a wave takes.
+**Start it bounded.** The defaults are $50 and 12 hours (`--budget-usd 50`,
+`--timeout-mins 720`), which the questions pre-fill; `--budget-usd none` runs
+with no cap. Neither limit stops a wave in flight. At the budget ceiling the
+run exits after the wave in flight. At the time limit the wave in flight
+finishes, then one wrap-up wave runs, so the run ends later than the limit.
+A first run against an unfamiliar task is the wrong place to discover how
+long a wave takes.
 
 **Keep the reconnaissance battery on a first run** — that is, do **not** pass
 `--no-recon`. It is a handful of short drives on your own baseline, and it is
@@ -727,7 +734,7 @@ each question about the run:
 |---|---|
 | Title bar | The task, the run id, the agent CLI and the slot counts. |
 | Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
-| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the Kiln spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the Kiln spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave; the start time and the time limit (`started 14:12 · limit 17:12`), which is not the end time. |
 | Run timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
 | Results | One card per eval score that can decide a promotion, then one for cost and one for latency per request. |
 | Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |

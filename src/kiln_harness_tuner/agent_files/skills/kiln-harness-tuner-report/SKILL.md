@@ -163,14 +163,17 @@ going looking.
   candidates and what each one lost, and say that the owner can accept a
   trade-off that the rules refused. It is train-side screening evidence,
   not a val result.
-- `exit_reason` vocabulary: `wrap_up` (normal, budget-driven) · `loop_exit`
-  reasons from the planner (out of experiments / plateau) · `empty_plan` ·
-  `timeout` (hard deadline — flag any unmerged pooled wins: they persist,
-  merge-eligible next run; any stamped `— REJECTED AT VAL` only as
-  ingredients of a different combination, never re-run as-is) · `tripwire`
-  (infra broke — say which class) · `planner_failed`.
-- `exit_detail`, when it is set, says why a `timeout` exit came: how much
-  time was left, under the minimum to start a wave. Give it with the exit.
+- `exit_reason` vocabulary: `timeout` (normal: the time limit passed, the
+  wave in flight finished, then one wrap-up wave ran — flag any unmerged
+  pooled wins: they persist, merge-eligible next run; any stamped `—
+  REJECTED AT VAL` only as ingredients of a different combination, never
+  re-run as-is) · `wrap_up` (budget-driven: the budget had room for one
+  more wave only) · `budget_exhausted` · `loop_exit` reasons from the
+  planner (out of experiments / plateau) · `empty_plan` · `tripwire` (infra
+  broke — say which class) · `planner_failed`.
+- `exit_detail`, when it is set, says how a `timeout` exit ended: the last
+  normal wave, then the wrap-up, or no wrap-up because nothing was pooled
+  to merge. Give it with the exit.
 
 ## Report template
 

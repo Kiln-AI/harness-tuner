@@ -178,9 +178,10 @@ def _copy(scores: Sequence[str] | None) -> list[str] | None:
 
 def exit_detail(reason: object, detail: object) -> str | None:
     """The `exit` event's `detail` as the run screen, the plain log and the
-    report show it: only on a `timeout`, where it says how much time was
-    left (`orchestrator.wave_floor_detail`). Other details stay in the wave
-    log: a provider error has its own line, and a crash its traceback."""
+    report show it: only on a `timeout`, where it says how the run ended
+    after its time limit (`orchestrator.time_limit_detail`). Other details
+    stay in the wave log: a provider error has its own line, and a crash its
+    traceback."""
     if reason != "timeout" or not isinstance(detail, str) or not detail:
         return None
     return detail

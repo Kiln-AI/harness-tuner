@@ -14,7 +14,6 @@ from datetime import timedelta
 from statistics import fmean
 from typing import TYPE_CHECKING
 
-from kiln_harness_tuner.orchestrator import MIN_WAVE_START_SECS, WRAP_UP_WINDOW_SECS
 from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.state import TimelineView
 
@@ -48,32 +47,24 @@ def projected_waves(
     wrap_up: bool,
 ) -> list[tuple[float, int]]:
     """The waves after `wave` that the loop can still start, by its own
-    rules (`orchestrator._run_loop`): none starts with less than
-    `MIN_WAVE_START_SECS` left; one that starts inside the wrap-up window
-    (`should_wrap`: the larger of `WRAP_UP_WINDOW_SECS` and the mean cycle)
-    is the last; at the budget the run exits, and inside one mean cycle cost
-    of it the wave is the last. Each wave starts one mean cycle after the
-    one before, and the next no earlier than now. `cycles` are the finished
-    main waves' (seconds, cost)."""
-    # Architecture 7.2 gives M as one closed form over the wrap-up window.
-    # This walks the loop's own rules instead, so that both constants count
-    # (functional spec 16.15) and "wave N of ~M" names the same waves the
-    # timeline draws as projected.
+    rules (`orchestrator._run_loop`): a wave that starts at or after the
+    deadline is the wrap-up and the last; at the budget the run exits, and
+    inside one mean cycle cost of it the wave is the last. Each wave starts
+    one mean cycle after the one before, and the next no earlier than now.
+    `cycles` are the finished main waves' (seconds, cost)."""
+    # This walks the loop's own rules, so that "wave N of ~M" names the same
+    # waves the timeline draws as projected.
     if wrap_up or not cycles:
         return []
     mean_secs = fmean(secs for secs, _cost in cycles)
     mean_cost = fmean(cost for _secs, cost in cycles)
     if mean_secs <= 0:
         return []
-    window = max(WRAP_UP_WINDOW_SECS, mean_secs)
     start = max(cycle_start + mean_secs, now)
     spent = max(cycle_spend + mean_cost, spend_now)
     out: list[tuple[float, int]] = []
     while True:
-        remaining = deadline - start
-        if remaining < MIN_WAVE_START_SECS:
-            break
-        last = remaining < window
+        last = start >= deadline
         if budget is not None:
             if spent >= budget:
                 break

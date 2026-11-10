@@ -137,12 +137,14 @@ NO_BUDGET = "no budget"
 BEFORE_WAVE_1 = "before wave 1"
 
 
-def times_text(started: datetime | None, ends: datetime | None) -> str:
+def times_text(started: datetime | None, limit: datetime | None) -> str:
+    """`started 14:12 · limit 17:12`. The limit is not the end: the wave in
+    flight at the limit finishes, then a wrap-up wave runs."""
     parts = []
     if started is not None:
         parts.append(f"started {clock(started)}")
-    if ends is not None:
-        parts.append(f"ends {clock(ends)}")
+    if limit is not None:
+        parts.append(f"limit {clock(limit)}")
     return " · ".join(parts)
 
 
@@ -547,7 +549,7 @@ def log_verdict(text: str) -> str:
 _ENDINGS = {
     "timeout": "Time limit reached",
     "budget_exhausted": "Budget spent",
-    "wrap_up": "Ended early: not enough time or budget for another wave",
+    "wrap_up": "Ended early: not enough budget for another wave",
     "empty_plan": "Nothing left to try",
     "planner_failed": "The planner failed",
     "tripwire": "Stopped by the tripwire: too many items failed",
@@ -558,8 +560,7 @@ _ENDINGS = {
 
 def how_it_ended(reason: str | None, detail: str | None = None) -> str:
     """How the run ended, with `detail` after it when there is one: `Time
-    limit reached (3m46s left after setup, under the 15-minute minimum to
-    start a wave)`."""
+    limit reached (finished wave 3, then the wrap-up)`."""
     if reason is None:
         return "The run ended"
     if reason in _ENDINGS:

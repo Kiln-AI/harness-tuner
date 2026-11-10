@@ -44,6 +44,7 @@ from kiln_harness_tuner.onboarding.kiln_check import (
     kiln_passed_text,
 )
 from kiln_harness_tuner.onboarding.questions import (
+    TIME_LIMIT_WARNING,
     Answers,
     QuestionContext,
     QuestionWalk,
@@ -197,10 +198,17 @@ def prepare_start(
             context = QuestionContext(
                 terminal, defaults, policy_loader, demo=args.demo_project, which=which
             )
+            if "timeout_mins" in given:
+                # No time question, so its warning comes here: the limit is
+                # approximate (`TIME_LIMIT_WARNING`).
+                terminal.warn(TIME_LIMIT_WARNING)
             _ask_until_started(
                 answers, context, given=given, keys=keys, summary=summary, rerun=rerun
             )
         else:
+            # A run always has a time limit (the flag has a default), so a
+            # start that isn't guided always says it is approximate.
+            terminal.warn(TIME_LIMIT_WARNING)
             terminal.say(summary())
         answers.apply(args)
         if report is not None:

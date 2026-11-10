@@ -236,10 +236,11 @@ infrastructure failure.
 stamped `— ABANDONED`. Inside a live run nothing can be left `— RUNNING`, so
 that state at startup can only be debris from a dead orchestrator.
 
-**Wrap-up wave.** The last wave, planned as such. Code decides *when* — one
-wave's worth of time left — and the planner decides *how*, which is usually to
-merge the wins that are pooled and unpromoted. The planner is told only the
-conclusion, never the clock.
+**Wrap-up wave.** The last wave, planned as such. Code decides *when*: the
+first wave boundary after the time limit, or one wave's cost short of the
+budget. The planner decides *how*, which is usually to merge the wins that
+are pooled and unpromoted. The planner is told only the conclusion, never the
+clock.
 
 ## Where to go next
 

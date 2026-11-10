@@ -308,8 +308,10 @@ def build_parser() -> _Parser:
         "--timeout-mins",
         type=_timeout_mins,
         default=DEFAULT_TIMEOUT_MINS,
-        help="time budget in minutes, wave-boundary checked, at least"
-        f" {MIN_TIME_LIMIT_MINS} (default {DEFAULT_TIMEOUT_MINS}, 12 hours)",
+        help="time limit in minutes, at least"
+        f" {MIN_TIME_LIMIT_MINS}: no new wave starts after it; the wave in"
+        " flight finishes, then one wrap-up wave, so the run can end later"
+        f" (default {DEFAULT_TIMEOUT_MINS}, 12 hours)",
     )
     parser.add_argument(
         "--no-progress",

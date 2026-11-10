@@ -20,16 +20,11 @@ def test_run_start_start_config_and_exit():
     assert (second.time, second.glyph, second.tone) == ("14:12", "·", "muted")
 
 
-def test_the_end_line_says_how_little_time_was_left():
+def test_the_end_line_says_how_the_time_limit_ended_the_run():
     run = Run().standard_start()
-    run.emit(
-        "exit",
-        reason="timeout",
-        detail="3m46s left after setup, under the 15-minute minimum to start a wave",
-    )
+    run.emit("exit", reason="timeout", detail="finished wave 3, then the wrap-up")
     assert run.log()[-1] == (
-        "Run ended: Time limit reached (3m46s left after setup, under the"
-        " 15-minute minimum to start a wave)"
+        "Run ended: Time limit reached (finished wave 3, then the wrap-up)"
     )
 
 
