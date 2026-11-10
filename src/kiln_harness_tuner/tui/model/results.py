@@ -353,6 +353,12 @@ def _title(concern: Concern, multi: Counter[str | None]) -> tuple[str, str]:
     return name, " ".join(qualifiers)
 
 
+def concern_title(model: RunModel, concern: Concern) -> tuple[str, str]:
+    """A concern's name and its muted qualifier, as its Results card says
+    them."""
+    return _title(concern, Counter(c.eval_id for c in model.concerns))
+
+
 def _subtitle(in_flight: int | None, holder: str | None) -> Line:
     parts: list[Line] = []
     if in_flight:

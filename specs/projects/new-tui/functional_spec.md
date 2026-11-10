@@ -25,6 +25,7 @@ The person watching wants answers to five questions, and the run screen has one 
 - One Textual app from launch to exit: the start-up flow, the run screen, the Done state.
 - The start-up flow re-skinned in Textual, with the same steps, strings, order and behavior as today.
 - The run screen: seven sections in one view (section 6).
+- Details panels: what does not fit the overview opens in a modal panel over it (section 7.9).
 - A confirmation before a run is stopped (section 9).
 - A plain closing block printed to the terminal's scrollback when the app closes (section 10).
 - Small additive changes to the loop that emit data it already computes (section 12).
@@ -34,7 +35,7 @@ The person watching wants answers to five questions, and the run screen has one 
 - Changes to how the loop works. The loop changes only by emitting more events (section 12), and only where this spec says so.
 - The plain output (`PlainTerminal`, `PlainUi`). It stays as it is.
 - The other console scripts (`harness-tuner-install-agents` and the MCP servers).
-- Detail views, drill-downs, tabs and pages. The run screen is one view.
+- Tabs and pages. The run screen is one view. Details that do not fit it open in a modal panel over it, not on a page of their own (section 7.9).
 - Attaching to a run from another terminal, and replaying a finished run.
 - Steering a run while it is in progress, and answering the planner's questions in the app.
 - Stopping after the current wave (decided: not needed).
@@ -281,7 +282,7 @@ A card keeps its size and its place from the start of the wave to its verdict. A
 | Blocked at the gate | Blocked: copies eval text |
 | Probe answered | YES or NO, and the evidence count |
 
-Left out of the cards and kept for the log (decided): the check findings, the stop-rule names, chunk numbers and the plan's predicted effect.
+Left out of the cards and kept for the log (decided): the check findings, the stop-rule names, chunk numbers and the plan's predicted effect. The details panel (7.9) shows the predicted effect.
 
 Four of these are too long for a card. The cards use shorter words for them, and the log keeps the words above (decided in the UI design review; the forms are in `ui_design.md` section 7.5).
 
@@ -334,7 +335,7 @@ The density is "everything notable": outcomes, plus builds and check findings. T
 
 ### 7.8 Footer and links
 
-The footer holds the main links and keys: `c` Compare in Kiln, `g` Experiment graph, `r` Report, `q` quit. Links are also clickable wherever they show.
+The footer holds the main links and keys: `e` Experiments (section 7.9), `c` Compare in Kiln, `g` Experiment graph, `r` Report, `q` quit. Links are also clickable wherever they show.
 
 Kiln web URLs, built from the Kiln host, the project id and the task id:
 
@@ -350,9 +351,26 @@ Compare opens Start, Best Confirmed and each distinct Best Unconfirmed config, i
 - `columns` is the number of entries, from 2 to 10, and the page ignores a value outside that range;
 - so the link always has at least 2 configs (Start and Best Confirmed are the same before the first promotion, which leaves one empty column), and it keeps the first 10.
 
-Lineage also takes `?selected=<id>` to open with one node selected. A card's id can link there.
+Lineage also takes `?selected=<id>` to open with one node selected. The details panel's "Show in Experiment Graph" link selects the item's run config (section 7.9).
 
 Report opens the report file when it exists. Before then, the key shows nothing.
+
+### 7.9 Details panels
+
+**The pattern (decided).** Details that do not fit the overview open in a modal panel over the run screen, the same way everywhere: a card over the dimmed screen, like the stop dialog. The run screen stays one view. Later detail views (for example the log, if ever needed) use the same pattern. Only the experiment details panel is built now.
+
+**The experiment details panel** shows one item in full. It opens with a click anywhere on an experiment card (the card's border lights up on hover, and its bottom border says "details ›" before the spend), or from the picker below. Its title is the card's title. Top to bottom:
+
+- **Status:** the card's verdict in its full words, or its live state ("Measuring · 5 fixed · 0 broke so far · 3m10s"), with its glyph and tone. It stays in place.
+- **Fields:** Kind (Fix, "Fix · wildcard", "Merge of w3-2 + w4-1", Probe, New eval, Measure, Re-measure), Wave (the wave's number, "4 · probe phase", or "Recon"), Parent (the run config it builds on) or Run config (the one a probe, measure or re-measure runs on), Issue (eval builds and measures), Targets (as the Results cards name them, one per line), Lever (the planner's technique), Spend ("$1.60 so far · measurement cap $4.00 ($0.90 used)": the item's whole spend, then the cap on its measurement alone; before measurement, the planner's cap), Time (from its first live state to its train outcome).
+- **Sections:** Hypothesis and Predicted effect (fix), Question, What it unblocks and Evidence (probe), Plan (the card's sentence, for the other kinds), Reason (the planner's reason for an eval build, a measure or a re-measure, in its words), What the build changed (the build agent's summary, its list of changes, and what stayed), Result on train (judged, fixed and broke; each concern's estimated change against the parent, "could be noise" when its interval crosses zero), Result on val (each concern's value before and after, from the item's gate), Findings (the analyzer's).
+- **Links:** "Show in Experiment Graph ↗" (the graph with the item's run config selected) and "Compare to parent in Kiln ↗" (the item's run config beside its parent). They stay in place. A link with no target yet (no run config built) is left out.
+
+Only the fields and sections with data show. The middle scrolls, so long text works. The panel updates live while it is open and keeps its scroll position. Not in v1: the full prompt, a diff (the Compare link covers both), per-item log lines.
+
+**The experiment picker** (`e`): every item of the run under its wave's header, newest wave first and recon last. Each row is the item id, its card title and its status. ↑↓ move, Enter opens the item's panel, Esc closes. Esc in a panel opened from the picker goes back to the picker. The picker and the panel key each item by its `wave_start`, not by its id: a wave's probe phase and its re-plan can use the same ids. `e` is there in every mode that has items, Done included. Not in v1: Tab between cards, and ←/→ between items in the panel.
+
+**Stopping with a panel open.** `q` and Ctrl+C open the stop dialog over the panel or picker; Esc returns to it, and "Stop tuning" stops the run and closes the app as from the run screen. A run that ends while a panel is open leaves the panel open, with Done under it. A run that ends on a stop or a failure closes the app, whatever is open. On Done, `q` does nothing in a panel; Esc closes it.
 
 ## 8. Layout and conventions
 
@@ -371,7 +389,8 @@ Interaction is minimal, on purpose. The run is hands-off.
 - **Links:** clickable with the mouse, and the main ones also on keys (7.8).
 - **Log:** scrolls with the mouse wheel and the keys. It follows the newest line unless the person has scrolled up.
 - **Window:** a resize reflows the screen.
-- **Nothing else:** no detail views, no settings, no steering.
+- **Details:** a click on an experiment card, or `e` and its picker, opens the item's details panel (7.9).
+- **Nothing else:** no settings, no steering.
 
 **Exiting:**
 
@@ -416,7 +435,7 @@ The app shows only what the loop exposes. Most of it is already in the wave log'
 2. **Val tables per gate:** each candidate's and the incumbent's per-eval val values, changes and intervals, and cost and latency. Emitted at each gate.
 3. **Structured chunk counts:** judged, fixed and broke as fields on the per-chunk event, beside today's text line.
 4. **Gate progress per val fill:** one event as each val fill completes, instead of a burst at the end.
-5. **Item details at wave start:** each item's type, hypothesis, targets and kind of change, so cards show them from the start, not only at the verdict. (Approved.)
+5. **Item details at wave start:** each item's type, hypothesis, predicted effect, targets and kind of change, and the planner's reason for an eval build or a measurement, so cards and the details panel show them from the start, not only at the verdict. (Approved; the predicted effect and the reason in TUI iteration 2.)
 6. **The planner's open questions:** the question and the default it assumed, when the planner returns them.
 7. **Memory records the agents write:** lessons, dead ends and new issues. Agents write memory through the loop's gateway, which already appends the objects agents create to a file in the run folder (`gateway_created.jsonl`). Memory writes get the same treatment: the gateway appends each one (its kind tags and one-line overview) to a run-folder file, and the loop forwards new lines into the wave log as events when each agent session ends. About 20 lines in all. This replaces comparing memory snapshots, which was rejected as the wrong approach. (Decided.)
 
@@ -471,7 +490,8 @@ The key decisions from the design conversation and from speccing, with their rea
 | The gateway emits the memory records agents write, and the loop forwards them to the wave log | A direct event is simpler and more reliable than comparing memory snapshots, and the plain path gets the lines too | Comparing memory snapshots in the app |
 | One design for a full-screen laptop terminal (about 210×62); smaller windows scroll | Any modern computer can drag the window larger; a second, compact design doubles the work | A compact design for small terminals |
 | Links attach to things; the run summary is the Done mode | Neither is a section of its own | A links section, a separate summary screen |
-| Interaction: links and the stop key only | The run is hands-off | Detail views, steering |
+| Interaction: links, the stop key and the details panels | The run is hands-off | Steering |
+| Details that do not fit the overview open in a modal panel, the same way everywhere (TUI iteration 2) | The cards have much to say and little room; one reusable pattern keeps the overview one view | Drill-down pages, tabs, a second screen |
 | Confirm before stopping a running run; no report on stop | Stopping loses in-flight work, which costs money | Stop at once; stop after this wave |
 | Stay on Done until the person closes the app | They see the result | Exit on its own |
 | A plain closing block in the scrollback, the same text as the plain path | The scrollback held the summary and the rerun command | Textual inline mode |

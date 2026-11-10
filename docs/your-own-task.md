@@ -734,14 +734,27 @@ When the gate promotes another candidate, the card says `Not selected · w4-3
 promoted` in yellow: it can have beaten the baseline on val too. A card keeps
 its place until the next wave's plan replaces the cards.
 
+**The details panel.** A card has room for a little only. Click a card
+(`details ›` on its bottom border) to open its details panel over the screen,
+or press `e` to pick any item of the tuning, the earlier waves and recon
+included. The panel shows the item in full: what kind of item it is, its
+wave and its parent, its targets, its lever, its spend (and the spending cap
+on its measurement), the planner's whole hypothesis and predicted effect,
+what the build changed, its results on train and on val, and the analyzer's
+findings. A probe shows its question and its evidence. An eval build or a
+measurement shows why the planner added it. Two links open the
+Experiment Graph with the item selected, and Compare its run config with
+its parent's. The panel updates while it is open. Esc closes it.
+
 **Keys and links:**
 
 | Key | What it does |
 |---|---|
+| `e` | Opens the list of the tuning's items, newest wave first. ↑↓ and Enter open an item's details panel; Esc goes back. A click on a card opens its panel too. |
 | `c` | Opens Compare in Kiln: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
 | `g` | Opens the Experiment Graph in Kiln: the run configs of the task and where each came from. |
 | `r` | Opens the report. The key shows once the report is written. |
-| `q`, Ctrl-C | Opens the stop dialog. At the end, `q` or Enter closes the app. |
+| `q`, Ctrl-C | Opens the stop dialog, also over a details panel. At the end, `q` or Enter closes the app (in a panel, Esc closes the panel first). |
 
 A link on the screen (underlined, with `↗`) also opens with a click. With no
 graphical browser, or over SSH, nothing opens: the log shows

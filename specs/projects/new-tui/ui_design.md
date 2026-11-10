@@ -128,6 +128,10 @@ A Textual `ModalScreen`: a card centered over a dimmed screen, with a title, the
 
 Textual's `Footer`, showing the bindings of the current screen.
 
+### 4.13 Details modal
+
+The one way to show what does not fit the overview (functional spec 7.9): a `ModalScreen` with a card over the dimmed screen, as 4.11, 100 columns wide at most, in `$panel` with a blue round border. The title is what the panel shows, as on its card. A line at the top and the links at the bottom stay in place; the middle scrolls (at most 65% of the screen's height). Its own `Footer` shows its keys: Esc Close (or Back), ↑↓ Scroll, `q` Stop. A list to pick from (the experiment picker) is an `OptionList` in the same card: headers are disabled rows, the highlighted row is `$border-muted` and bold, so the rows' colors stay readable.
+
 ## 5. Glyphs
 
 | Glyph | Means |
@@ -226,8 +230,10 @@ The border title "EXPERIMENTS". The header line holds the mode and the wave ("Ru
 │ ✓ build  ⠸ measure  · analyze               │
 │ ████▓▓▓▓▓▓··························  14/36  │
 │ 5 fixed · 0 broke so far                    │
-╰────────────────────────────────────── $1.20 ╯
+╰─────────────────────────── details ›  $1.20 ╯
 ```
+
+The whole card is clickable: a click opens its details panel (4.13, section 16). On hover its border and its "details ›" marker turn `$text-primary`, and its background `$panel`. "details ›" is not "↗", which opens the browser.
 
 - Line 1–2: the hypothesis (foreground).
 - Line 3: the steps (4.6).
@@ -326,8 +332,10 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 | Screen | Keys |
 |---|---|
 | Start-up | The prompt's own keys (functional spec section 5); the footer shows `^c Stop` then `^d Exit` on every part |
-| Run | `c` Compare in Kiln, `g` Experiment graph, `r` Report (once it exists), `q` / Ctrl+C stop dialog; mouse wheel and Page Up / Page Down scroll the log or the screen |
-| Done | `c`, `g`, `r`, `q` / Enter close |
+| Run | `e` Experiments (once the run has items), `c` Compare in Kiln, `g` Experiment graph, `r` Report (once it exists), `q` / Ctrl+C stop dialog; mouse wheel and Page Up / Page Down scroll the log or the screen; a click on an experiment card opens its details panel |
+| Done | `e`, `c`, `g`, `r`, `q` / Enter close |
+| Experiment picker | ↑↓ Move, Enter Open, Esc Close, `q` / Ctrl+C stop dialog |
+| Details panel | Esc Close (Back, when opened from the picker), ↑↓ and Page Up / Page Down Scroll, `q` / Ctrl+C stop dialog. On Done, `q` does nothing here |
 | Stop dialog | Tab / arrows move, Enter chooses, Esc keeps tuning |
 
 ## 11. Departures from the mocks
@@ -395,3 +403,38 @@ The owner's review of a full run changed these. Where they differ from the secti
 - Done: "Next steps" with three links replaces the link row and the "Next:" line; the report path is a link. The closing block prints the same steps with their addresses.
 - Keys: `g` Experiment graph replaces `l`; the links say "Compare in Kiln" and "Experiment Graph in Kiln".
 - Beside the Log, Experiments and the Log fill the bottom area and always have the same height.
+
+## 16. The details panel (TUI iteration 2)
+
+What does not fit an experiment card opens in its details panel (4.13; functional spec 7.9). The panel for a fix:
+
+```
+╭ w4-1 target: Hold placement ────────────────────────────────────────╮
+│ ● Train success · checking validation set                           │
+│                                                                     │
+│ Kind        Fix                                                     │
+│ Wave        4                                                       │
+│ Parent      get_container wrapper · w3-4                            │
+│ Targets     Eval: Hold placement                                    │
+│ Lever       tool wrapper                                            │
+│ Spend       $2.30 · measurement cap $4.00 ($0.50 used)              │
+│ Time        14m00s                                                  │
+│                                                                     │
+│ Hypothesis                       (the middle scrolls)               │
+│ What the build changed                                              │
+│  · tool get_container replaced by get_container_for_hold, …         │
+│ Result on train                                                     │
+│ 36 judged · 5 fixed · 0 broke                                       │
+│ Eval: Hold placement  +5.0 pp · could be noise                      │
+│ Result on val, Findings          (once they have data)              │
+│                                                                     │
+│ Show in Experiment Graph ↗    Compare to parent in Kiln ↗           │
+╰─────────────────────────────────────────────────────────────────────╯
+esc Close  ↑↓ Scroll  q Stop
+```
+
+- Labels are muted, values in the foreground, section titles bold. A list line wraps under its own text.
+- An eval build, a measure or a re-measure shows its Plan (the card's sentence), then the planner's Reason.
+- Train changes are the estimated change against the parent, as for Best Unconfirmed, never the raw train score. Val shows the raw values before and after, then the change, colored by direction.
+- The picker (`e`): "Experiments" on its border; muted bold wave headers ("WAVE 4", "WAVE 4 · probes", "RECON") with a blank row between groups; each row the bold item id, its muted card title in a column, then its status (the card's verdict, or a spinner and its live state). Screenshots: `app_screenshots/run-details-*.svg` (a fix, a merge, a probe, a promoted fix with val results, an issue measurement over Done) and `run-picker-dark-210x62.svg`.
+- Changed from the first draft: the title is the card's title, not "Experiment w4-1"; Kind comes first; Parent is a field of its own, not part of Wave; the cap says it is the measurement's; the keys are in the footer, as on the stop dialog, not in the frame.

@@ -165,7 +165,7 @@ def _labelled(label: str, text: object) -> Line:
     return (Span(label), Span(said, "muted")) if said else ()
 
 
-def _about(model: RunModel, item: ItemModel) -> tuple[str, Line]:
+def about(model: RunModel, item: ItemModel) -> tuple[str, Line]:
     """(qualifier, text) by item type (functional spec 7.6): what the title
     says after the item id, and lines 1–2."""
     details = item.details
@@ -328,9 +328,10 @@ def line5(model: RunModel, item: ItemModel) -> Line:
 
 
 def card_view(model: RunModel, item: ItemModel, now: float) -> CardView:
-    qualifier, text = _about(model, item)
+    qualifier, text = about(model, item)
     found = verdict(model, item)
     return CardView(
+        key=item.key,
         item_id=item.item_id,
         title=item.item_id,
         qualifier=qualifier,

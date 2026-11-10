@@ -69,11 +69,13 @@ from kiln_harness_tuner.tui.widgets import (
     Timeline,
     TitleBar,
     bar,
+    card_title,
     has_spinner,
     key_width,
     legend,
     line_content,
     link,
+    muted,
     set_bar,
     tag,
 )
@@ -90,10 +92,6 @@ EXPERIMENT_CARD_WIDTH = 44
 META_GAP = 2
 
 ExperimentLine4 = StripView | GaugeLine | NoteLine | None
-
-
-def muted(text: str) -> Content:
-    return Content.styled(text, "$text-muted")
 
 
 # ---- the title bar ----
@@ -209,14 +207,6 @@ class TimelineSection(MetaSection):
 
 
 # ---- Results ----
-
-
-def card_title(title: str, qualifier: str) -> Content:
-    """A card's border title: the bold name, then the muted qualifier. The
-    change of style is the separator."""
-    if not qualifier:
-        return Content.styled(title, "bold")
-    return Content.assemble((title, "bold"), (f" {qualifier}", "$text-muted"))
 
 
 class ResultCard(Card):
@@ -360,9 +350,18 @@ class CardLineFour(Horizontal):
         self._fit()
 
 
+def experiment_subtitle(spend: str) -> Content:
+    """The card's bottom border: the details marker, then its spend. The
+    marker takes the border's color, which lights up on hover."""
+    if not spend:
+        return Content(words.DETAILS_MARK)
+    return Content.assemble(words.DETAILS_MARK, (f"  {spend}", "$text-muted"))
+
+
 class ExperimentCard(Card):
     """7.5: one item, the same height in every state: the hypothesis (two
-    lines), the steps, line 4 and line 5. The border is blue while live."""
+    lines), the steps, line 4 and line 5. The border is blue while live. A
+    click opens the item's details panel (functional spec 7.9)."""
 
     def __init__(self, view: CardView):
         self.hypothesis = Hypothesis(view.text)
@@ -375,7 +374,7 @@ class ExperimentCard(Card):
             self.line4,
             self.line5,
             title=card_title(view.title, view.qualifier),
-            subtitle=muted(view.subtitle),
+            subtitle=experiment_subtitle(view.subtitle),
             live=view.live,
             classes="experiment-card",
         )
@@ -388,12 +387,15 @@ class ExperimentCard(Card):
         if (view.title, view.qualifier) != (old.title, old.qualifier):
             self.border_title = card_title(view.title, view.qualifier)
         if view.subtitle != old.subtitle:
-            self.border_subtitle = muted(view.subtitle)
+            self.border_subtitle = experiment_subtitle(view.subtitle)
         self.set_class(view.live, "-live")
         self.hypothesis.show(view.text)
         self.steps.show(view.steps)
         self.line4.show(view.line4)
         self.line5.show(view.line5)
+
+    def on_click(self) -> None:
+        cast("TunerApp", self.app).show_item(self.view.key)
 
 
 def done_content(view: DoneView) -> Content:
@@ -470,7 +472,7 @@ class RunCompleteCard(Card):
 
 
 class ExperimentsSection(Section):
-    """The mode, its step lines, the cards (kept by item id: a card keeps
+    """The mode, its step lines, the cards (kept by item key: a card keeps
     its place from the start of the wave to its verdict) and the note; in
     the Done mode the run summary in place of the cards."""
 
@@ -526,8 +528,9 @@ class ExperimentsSection(Section):
         part.show(text, lambda: muted(text))
 
     def _show_cards(self, views: Sequence[CardView]) -> None:
-        ids = [view.item_id for view in views]
-        if ids != list(self.cards):
+        # By key: a wave's re-plan can use its probe phase's item ids.
+        keys = [view.key for view in views]
+        if keys != [card.view.key for card in self.cards.values()]:
             self.grid.remove_children()
             self.cards = {view.item_id: ExperimentCard(view) for view in views}
             self.grid.mount(*self.cards.values())
@@ -587,6 +590,7 @@ class LogSection(Section):
 class RunScreen(Screen[None]):
     HORIZONTAL_BREAKPOINTS = [(0, "-narrow"), (150, "-wide")]
     BINDINGS = [
+        Binding("e", "experiments", words.EXPERIMENTS_KEY),
         Binding("c", "compare", words.COMPARE_LINK),
         Binding("g", "graph", words.GRAPH_KEY),
         Binding("r", "report", words.REPORT_LINK),
@@ -606,6 +610,7 @@ class RunScreen(Screen[None]):
         self.log_section = LogSection()
         self._title: TitleView | None = None
         self._report = False
+        self._items = False
         # The Compare link, built once per refresh from the Results view, for
         # the Results header, the Done card and the `c` key alike.
         self.compare: str | None = None
@@ -674,8 +679,9 @@ class RunScreen(Screen[None]):
                 self._failing.discard(name)
         self.set_class(model.mode == "done", "-done")
         report = model.report_path is not None
-        if report != self._report:
-            self._report = report
+        items = any(wave.items for wave in model.waves)
+        if (report, items) != (self._report, self._items):
+            self._report, self._items = report, items
             self.refresh_bindings()
 
     def compare_url(self, model: RunModel) -> str:
@@ -708,6 +714,8 @@ class RunScreen(Screen[None]):
             return done
         if action == "report":
             return self._report_path() is not None
+        if action == "experiments":
+            return self._items
         return True
 
     def _report_path(self) -> str | None:
@@ -726,6 +734,9 @@ class RunScreen(Screen[None]):
         path = self._report_path()
         if path:
             self.tuner.action_open_link(path)
+
+    def action_experiments(self) -> None:
+        self.tuner.show_picker()
 
     def action_stop(self) -> None:
         self.tuner.action_ask_stop()

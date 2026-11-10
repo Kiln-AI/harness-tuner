@@ -100,13 +100,19 @@ def merge(item_id: str, *rc_ids: str) -> ExperimentItem:
     )
 
 
-def probe(item_id: str, question: str = "Does the agent call get_container?"):
+def probe(
+    item_id: str,
+    question: str = "Does the agent call get_container?",
+    *,
+    for_idea: str | None = None,
+):
     return ProbeItem(
         id=item_id,
         type="probe",
         question=question,
         method="drive three items and read the trace",
         max_drives=3,
+        for_idea=for_idea,
         reason="the planner needs it",
     )
 
@@ -401,6 +407,7 @@ class Run:
         stop_kind: str | None = None,
         measurement_status: str = "stopped",
         error_class: str | None = None,
+        findings: str = "",
     ) -> Run:
         item = self.plan_items[item_id]
         if rc_id is None and isinstance(item, RemeasureItem):
@@ -409,7 +416,7 @@ class Run:
         if successful is not None:
             result = ExperimentResult(
                 successful=successful,
-                findings="",
+                findings=findings,
                 memory_overview="+5",
                 memory_content="",
             )

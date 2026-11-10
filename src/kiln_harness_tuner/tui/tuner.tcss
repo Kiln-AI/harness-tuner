@@ -223,8 +223,14 @@ RunScreen.-narrow #top {
 #results-key { margin-bottom: 0; }
 TierBars { width: 1fr; }
 
-/* 7.5 Experiments */
+/* 7.5 Experiments. A card opens its details panel on a click: its border
+   and its "details ›" marker light up on hover. */
 .experiment-card {
+    &:hover {
+        border: round $text-primary;
+        border-subtitle-color: $text-primary;
+        background: $panel;
+    }
     & > .card-line { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
     & > .line4 { height: 1; }
     & > .line4 > .line4-label {
@@ -291,4 +297,63 @@ StopDialog {
     &:focus { background: $primary; color: $block-cursor-foreground; text-style: bold; }
     &.-error { color: $text-error; }
     &.-error:focus { background: $error; color: $block-cursor-foreground; }
+}
+
+/* ---- 4.13 Details modal: the details panel and the experiment picker ---- */
+
+DetailsPanel, ExperimentPicker {
+    align: center middle;
+    background: $background 60%;
+}
+#details, #picker {
+    width: 100;
+    max-width: 100%;
+    background: $panel;
+    border: round $primary;
+}
+#details {
+    padding: 0 2;
+    & > .detail-status { margin: 1 0; }
+    & > .detail-links { margin: 1 0; }
+}
+/* The middle scrolls: the status line and the links stay in place. */
+.detail-body {
+    height: auto;
+    max-height: 65vh;
+    scrollbar-size-vertical: 1;
+    &:focus { background-tint: transparent; }
+    & > .detail-title { margin-top: 1; }
+    & > .detail-title:first-child { margin-top: 0; }
+    & > .detail-line { height: auto; }
+}
+.detail-field {
+    height: auto;
+    & > .detail-label { width: 12; }
+    & > .detail-value { width: 1fr; }
+}
+.detail-bullet {
+    height: auto;
+    & > Static { width: auto; }
+    & > .detail-bullet-text { width: 1fr; }
+}
+#picker {
+    padding: 0 1;
+    & > OptionList {
+        height: auto;
+        max-height: 75vh;
+        border: none;
+        padding: 0;
+        background: transparent;
+        scrollbar-size-vertical: 1;
+        &:focus { border: none; background-tint: transparent; }
+        /* Not reverse blue: the rows' statuses keep their colors. */
+        & > .option-list--option-highlighted {
+            background: $border-muted;
+            text-style: bold;
+        }
+        &:focus > .option-list--option-highlighted {
+            background: $border-muted;
+            text-style: bold;
+        }
+    }
 }

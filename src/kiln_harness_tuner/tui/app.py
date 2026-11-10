@@ -35,7 +35,12 @@ from kiln_harness_tuner.tui.handles import (
 from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
-from kiln_harness_tuner.tui.model.state import RunInfo
+from kiln_harness_tuner.tui.model.state import ItemKey, RunInfo
+from kiln_harness_tuner.tui.screens.details import (
+    DetailsPanel,
+    ExperimentPicker,
+    RunModal,
+)
 from kiln_harness_tuner.tui.screens.run import RunScreen
 from kiln_harness_tuner.tui.screens.startup import StartupScreen
 from kiln_harness_tuner.tui.screens.stop import StopDialog
@@ -186,6 +191,23 @@ class TunerApp(App[None]):
         self.phase = phase
         self.refresh_bindings()
 
+    def now(self) -> float:
+        """The run's clock, which the run screen's views read."""
+        return self._clock()
+
+    # ---- the details panels (functional spec 7.9) ----
+
+    def show_item(self, key: ItemKey, *, from_picker: bool = False) -> None:
+        """A click on an experiment card, or Enter in the picker."""
+        model = self.model
+        if model is not None and model.item_at(key) is not None:
+            self.push_screen(DetailsPanel(key, from_picker=from_picker))
+
+    def show_picker(self) -> None:
+        """The `e` key: every item of the run, to open one."""
+        if self.model is not None:
+            self.push_screen(ExperimentPicker())
+
     # ---- the drain ----
 
     def drain(self) -> None:
@@ -257,6 +279,13 @@ class TunerApp(App[None]):
             screen.refresh_from(model, stopping=stopping, now=now)
         except Exception:
             logger.exception("the run screen could not show the run")
+        # An open panel shows the run live too, under a stop dialog as well.
+        for modal in self.screen_stack:
+            if isinstance(modal, RunModal):
+                try:
+                    modal.show(model, now=now)
+                except Exception:
+                    logger.exception("a details panel could not show the run")
 
     # ---- the run config names ----
 

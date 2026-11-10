@@ -339,11 +339,11 @@ async def test_running_mode_shows_one_card_per_item_in_order():
         assert text(measuring.line4.label) == "3/36"
         assert text(measuring.line5) == "1 fixed · 0 broke so far"
         assert text(landed.line5) == "● Train success · checking validation set"
-        # The item's own spend only, above 0; no id.
-        assert subtitle_of(landed) == ""
+        # The details marker, then the item's own spend only, above 0; no id.
+        assert subtitle_of(landed) == "details ›"
         run.emit("spend", item_id="w1-2", source="measurement", cost_usd=1.6)
         await harness.shown(pilot)
-        assert subtitle_of(measuring) == "$1.60"
+        assert subtitle_of(measuring) == "details ›  $1.60"
         assert text(asking.steps) == "* asking  · answered"
         assert text(queued.line4.label) == words.QUEUED
         # A card keeps its place from the start of the wave to its verdict.
@@ -464,7 +464,9 @@ async def test_done_mode_shows_the_run_summary_with_its_links():
             pilot, lambda: (harness.app.drain(), harness.app.phase)[1] == "done"
         )
         await pilot.pause()
+        # `e` too: Done keeps the run's items.
         assert footer(harness.app) == {
+            "e": words.EXPERIMENTS_KEY,
             "c": words.COMPARE_LINK,
             "g": words.GRAPH_KEY,
             "r": words.REPORT_LINK,
@@ -600,6 +602,7 @@ async def test_the_keys_open_compare_lineage_and_the_report():
     async with on_screen(run) as (harness, pilot):
         model = run.model
         assert footer(harness.app) == {
+            "e": words.EXPERIMENTS_KEY,
             "c": words.COMPARE_LINK,
             "g": words.GRAPH_KEY,
             "q": words.STOP_KEY,

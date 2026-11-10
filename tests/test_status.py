@@ -91,6 +91,8 @@ def test_run_id_scheme():
 NO_DETAILS = {
     "hypothesis": None,
     "technique": None,
+    "predicted_effect": None,
+    "reason": None,
     "issue_memory_id": None,
     "wildcard": None,
     "needs_eval": None,
@@ -119,6 +121,7 @@ def test_item_kind_and_label_fix():
         "type": "experiment",
         "hypothesis": "retry-skill for 429s",
         "technique": "prompt",
+        "predicted_effect": "+10% pass rate",
         "issue_memory_id": "issue_1",
         "wildcard": False,
         "needs_eval": False,
@@ -163,6 +166,8 @@ def test_wave_start_details_of_the_other_item_types():
     details = item_summary(eval_only_item("w1-3", "mem_102"))
     assert details["type"] == "eval_only"
     assert details["issue_memory_id"] == "mem_102"
+    # Why the planner added it, in its words.
+    assert details["reason"] == "cheap-kill check"
     remeasure = RemeasureItem(
         id="w2-4", type="remeasure", rc_id="rc_x", eval_ids=["e1", "e2"], reason="r"
     )
@@ -170,6 +175,7 @@ def test_wave_start_details_of_the_other_item_types():
         "rc_id": "rc_x",
         "eval_ids": ["e1", "e2"],
     }
+    assert item_summary(remeasure)["reason"] == "r"
     probe = ProbeItem(
         id="w2-5",
         type="probe",
@@ -222,6 +228,7 @@ def test_item_kind_and_label_measure_issue_baseline():
         **NO_DETAILS,
         "type": "measure_issue_baseline",
         "issue_memory_id": "mem_84",
+        "reason": "p1 issue, eval already exists — settle it cheap",
         "measure": {"eval_id": "424242966189", "scores": None},
     }
 

@@ -114,6 +114,18 @@ def runs(cells: Sequence[tuple[str, str]]) -> Content:
     return Content.assemble(*parts)
 
 
+def muted(text: str) -> Content:
+    return Content.styled(text, "$text-muted")
+
+
+def card_title(title: str, qualifier: str) -> Content:
+    """A card's border title: the bold name, then the muted qualifier. The
+    change of style is the separator."""
+    if not qualifier:
+        return Content.styled(title, "bold")
+    return Content.assemble((title, "bold"), (f" {qualifier}", "$text-muted"))
+
+
 class Card(Vertical):
     """4.3: a rounded container. The border title says what the card is; the
     border subtitle carries muted meta. The border is blue while live."""

@@ -301,6 +301,102 @@ def stopping_detail(live: int) -> str:
     return f"cancelling {plural(live, 'experiment')}"
 
 
+# ---- the details panel and the experiment picker (functional spec 7.9) ----
+
+# On an experiment card's bottom border, before its spend: a click on the
+# card opens the panel. Not "↗", which opens the browser.
+DETAILS_MARK = "details ›"
+EXPERIMENTS_KEY = "Experiments"
+BACK_KEY = "Back"
+SCROLL_KEY = "Scroll"
+MOVE_KEY = "Move"
+OPEN_KEY = "Open"
+PICKER_TITLE = "Experiments"
+# The panel's fields, in their order.
+KIND_FIELD = "Kind"
+WAVE_FIELD = "Wave"
+PARENT_FIELD = "Parent"
+RUN_CONFIG_FIELD = "Run config"
+ISSUE_FIELD = "Issue"
+TARGETS_FIELD = "Targets"
+LEVER_FIELD = "Lever"
+SPEND_FIELD = "Spend"
+TIME_FIELD = "Time"
+DETAIL_KINDS = {
+    "fix": "Fix",
+    "probe": "Probe",
+    "eval": "New eval",
+    "measure": "Measure",
+    "remeasure": "Re-measure",
+}
+WILDCARD = "wildcard"
+CODE_PROBE = "answered by code"
+RECON_WAVE = "Recon"
+# The panel's sections, in their order.
+HYPOTHESIS_SECTION = "Hypothesis"
+PREDICTED_SECTION = "Predicted effect"
+QUESTION_SECTION = "Question"
+UNBLOCKS_SECTION = "What it unblocks"
+EVIDENCE_SECTION = "Evidence"
+PLAN_SECTION = "Plan"
+REASON_SECTION = "Reason"
+CHANGE_SECTION = "What the build changed"
+TRAIN_SECTION = "Result on train"
+VAL_SECTION = "Result on val"
+FINDINGS_SECTION = "Findings"
+UNCHANGED_LABEL = "Unchanged: "
+LIST_BULLET = " · "
+ARROW = "→"
+# After a train change whose interval crosses zero.
+NOT_CLEAR = "could be noise"
+GRAPH_DETAIL_LINK = "Show in Experiment Graph"
+COMPARE_PARENT_LINK = "Compare to parent in Kiln"
+QUEUED_STATUS = "Queued: waiting for an agent slot"
+LIVE_STATES = {
+    "building": "Building",
+    "measuring": "Measuring",
+    "asking": "Asking",
+    "analyzing": "Analyzing",
+}
+
+
+def detail_wave(wave: int, probe_phase: bool) -> str:
+    """The panel's Wave field: recon is no wave to the person."""
+    if wave == 0:
+        return RECON_WAVE
+    return f"{wave} · probe phase" if probe_phase else str(wave)
+
+
+def merge_kind(ingredients: Sequence[str]) -> str:
+    return f"Merge of {' + '.join(ingredients)}"
+
+
+def item_spend(spent: float, live: bool, cap: float | None, used: float | None) -> str:
+    """The item's whole spend, then the cap on its measurement alone: "$1.60
+    so far · measurement cap $4.00 ($0.90 used)"."""
+    text = money(spent) + (" so far" if live else "")
+    if cap is None:
+        return text
+    text += f" · measurement cap {money(cap)}"
+    return text + (f" ({money(used)} used)" if used is not None else "")
+
+
+def judged_counts(judged: int, total: int) -> str:
+    return f"{judged} of {total} judged" if total > judged else f"{judged} judged"
+
+
+def change_unit(kind: ConcernKind, change: str) -> str:
+    """A change as the panel says it: a pass rate's in percentage points."""
+    return f"{change} pp" if kind == "pass" and change else change
+
+
+def picker_group(wave: int, probe_phase: bool) -> str:
+    """A picker header: the run screen's subhead words, with no state."""
+    if wave == 0:
+        return "RECON"
+    return f"WAVE {wave} · probes" if probe_phase else f"WAVE {wave}"
+
+
 # The stop dialog (functional spec section 9, ui_design section 9).
 STOP_TITLE = "Stop tuning?"
 KEEP_TUNING = "Keep tuning"
