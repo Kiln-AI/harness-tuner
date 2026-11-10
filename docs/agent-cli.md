@@ -506,4 +506,8 @@ What else differs:
   `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
   the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy
   of its `AGENTS.md`. OpenCode also loads the user's own skills, as Claude
-  Code does.
+  Code does. OpenCode takes its workspace from the `PWD` variable, not from
+  the working directory of its process, so every session is started with
+  `PWD` set to its workspace. With the `PWD` of the folder that
+  `harness-tuner` was started in, a session finds none of the tuner's
+  skills.

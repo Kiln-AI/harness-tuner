@@ -353,7 +353,12 @@ class AsyncioSubprocessRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=self._env,
+            # `PWD` names the session's folder too. A child inherits the
+            # tuner's own `PWD`, the folder `harness-tuner` was started in,
+            # and OpenCode takes its project folder from `PWD`, not from the
+            # process's working directory: with the tuner's `PWD` it does not
+            # see the session folder's `.agents/skills` and `AGENTS.md`.
+            env={**self._env, "PWD": cwd},
             # Its own session ⇒ its own process group, so a kill reaches the
             # MCP servers and Bash children too (`_kill_and_reap`).
             start_new_session=True,
