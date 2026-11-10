@@ -418,6 +418,24 @@ config failure gets a lever; an eval-data or judge failure gets
 never an arm, because no config change fixes an eval; an environment
 failure (a tool server, a provider) and noise get nothing until they recur.
 
+**The expected outputs are the owner's policy.** The task's instructions
+can be shorter than the rules its expected outputs follow. Then the expected
+outputs are where the owner's rules are written: they are not a policy
+question for a human. When many failing items of one kind of input have the
+same expected output, and the prompt does not give that rule, the failure is
+a config failure. Write the rule in general words — the kind of input, and
+the decision for it — and make it an arm. A rule of that form is not
+memorisation: the generality check refuses a rule that names a train item,
+copies its text or gives answers case by case, and it accepts a rule that a
+new input of the same kind also follows. The val split then shows whether
+the rule holds on items the build did not see, and the promotion gate
+refuses a rule that does not. Do not hold such an arm back for an
+`open_questions` entry, and do not end the loop on it. An `open_questions`
+entry is correct only when the expected outputs disagree: the same kind of
+input with different expected outputs, or an expected output that the
+instructions forbid. Then name the conflict, and still run the arm for the
+rule that most of the expected outputs follow.
+
 **Name the failure class before the lever**. For every issue
 you consider, read its failing items' `findings` for the decision point
 (before / with / after which tool call) and pick the FIRST lever in that
