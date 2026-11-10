@@ -22,6 +22,12 @@ from typing import TypeVar
 
 from kiln_harness_tuner.dispatch.agent_cli import AgentCli, parse_agent_cli
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.onboarding.agent_models import (
+    CODEX_MODELS_URL,
+    ModelList,
+    ModelLister,
+    listed_models,
+)
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
@@ -219,8 +225,13 @@ class AgentKind:
 # test holds the two equal: Claude Code's default model is the dispatcher's
 # `AGENT_MODEL`, and `reports_cost` its `REPORTS_COST` (a CLI that reports
 # tokens and no cost can't count toward the budget).
-_OWN_DEFAULT_MODEL = (
-    "Enter uses the CLI's own default model. OpenCode models are PROVIDER/MODEL."
+_CODEX_MODEL_HINT = (
+    "Enter uses Codex's own default model. For example gpt-6.1-sol. The models:"
+    f" {CODEX_MODELS_URL}"
+)
+_OPENCODE_MODEL_HINT = (
+    "Enter uses OpenCode's own default model. OpenCode models are"
+    " PROVIDER/MODEL, and `opencode models` lists them."
 )
 AGENT_KINDS = (
     AgentKind(
@@ -229,11 +240,12 @@ AGENT_KINDS = (
         "-p",
         "--model",
         "opus",
-        "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.",
+        "Enter keeps opus. An alias, such as sonnet, or a full model name, such as"
+        " claude-fable-5-2.",
         reports_cost=True,
     ),
-    AgentKind("codex", "Codex", "exec", "-m", "", _OWN_DEFAULT_MODEL, False),
-    AgentKind("opencode", "OpenCode", "run", "-m", "", _OWN_DEFAULT_MODEL, True),
+    AgentKind("codex", "Codex", "exec", "-m", "", _CODEX_MODEL_HINT, False),
+    AgentKind("opencode", "OpenCode", "run", "-m", "", _OPENCODE_MODEL_HINT, True),
 )
 _KINDS = {agent.kind: agent for agent in AGENT_KINDS}
 
@@ -308,6 +320,8 @@ class QuestionContext:
     policy_loader: Callable[[str | None], ModelPolicy | None]
     demo: bool = False
     which: Callable[[str], str | None] = shutil.which
+    # The models each agent CLI offers (`agent_models.py`).
+    list_models: ModelLister = listed_models
 
 
 @dataclass(frozen=True)
@@ -356,17 +370,80 @@ def _ask_agents(answers: Answers, ctx: QuestionContext) -> None:
     model = agent.default_model
     if current is not None and current.kind == kind and current.model:
         model = current.model  # asked again: the model it has
-    answer = ctx.terminal.text(
-        "Model for the agents",
-        default=model,
-        hint=agent.model_hint,
-        validate=_model_refusal,
-    )
-    answers.agent_cli = agent_command(kind, answer.strip())
+    answer = _ask_model(agent, model, ctx)
+    answers.agent_cli = agent_command(kind, answer)
     # One Agents line, after the model: the spec's only-one note (FS §8)
     # follows the model, which FS §10.1 adds to the same line.
     text = agents_text(answers.agent_cli)
     ctx.terminal.step("ok", "Agents", f"{text} · {note}" if note else text)
+
+
+MODEL_QUESTION = "Model for the agents"
+MODEL_NAME_QUESTION = "Model name for the agents"
+# The value of the picker's last row, which asks for a typed name. A model
+# name has no spaces (`_model_refusal`), so no model has this value.
+_OTHER_MODEL = " other"
+
+
+def _model_hint(agent: AgentKind) -> str:
+    """The picker's hint: where the rows come from, and where to read more."""
+    if agent.kind == "codex":
+        return (
+            "The models your Codex account lists. Other to type a name."
+            f" All of them: {CODEX_MODELS_URL}"
+        )
+    if agent.kind == "opencode":
+        return "The models `opencode models` lists. Type to filter."
+    return "Other to type a model name: an alias or a full name."
+
+
+def _model_options(agent: AgentKind, listed: ModelList) -> list[Option[str]]:
+    """The Default row of a CLI with no default of the tuner's own, each
+    listed model, and Other."""
+    options: list[Option[str]] = []
+    if not agent.default_model:
+        own = (
+            f"{agent.name}'s own default: {listed.own_default}."
+            if listed.own_default
+            else f"{agent.name}'s own default model."
+        )
+        options.append(Option("", "Default", description=own))
+    options += [
+        Option(m.name, m.name, description=m.description) for m in listed.models
+    ]
+    options.append(Option(_OTHER_MODEL, "Other…", description="Type a model name."))
+    return options
+
+
+def _ask_model(agent: AgentKind, model: str, ctx: QuestionContext) -> str:
+    """The model for the agents: picked from the CLI's own list, or typed
+    when the CLI gives no list or Other is picked."""
+    if agent.kind == "claude":
+        listed = ctx.list_models(agent.kind)  # a fixed list: nothing to wait for
+    else:
+        with ctx.terminal.busy(f"Reading {agent.name}'s models…"):
+            listed = ctx.list_models(agent.kind)
+    if listed is not None and listed.models:
+        options = _model_options(agent, listed)
+        values = {option.value for option in options}
+        picked = ctx.terminal.pick(
+            MODEL_QUESTION,
+            options,
+            hint=_model_hint(agent),
+            default=model if model in values else _OTHER_MODEL,
+        )
+        if picked != _OTHER_MODEL:
+            return picked
+        question = MODEL_NAME_QUESTION
+    else:
+        question = MODEL_QUESTION
+    answer = ctx.terminal.text(
+        question,
+        default=model,
+        hint=agent.model_hint,
+        validate=_model_refusal,
+    )
+    return answer.strip()
 
 
 def _choose_agent_cli(ctx: QuestionContext, current: str | None) -> tuple[str, str]:

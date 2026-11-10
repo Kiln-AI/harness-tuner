@@ -22,6 +22,7 @@ from onboarding_fakes import (
     RouteKiln,
     ScriptedTerminal,
     available_models,
+    claude_models_only,
     eval_config,
     import_project_route,
     kiln_routes,
@@ -108,6 +109,7 @@ def start(
     home=None,
     which=every_cli,
     report=None,
+    list_models=claude_models_only,
 ):
     parser = build_parser()
     return prepare_start(
@@ -121,6 +123,7 @@ def start(
         home=home,
         which=which,
         report=report,
+        list_models=list_models,
     )
 
 
@@ -216,6 +219,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         'step Guidance: "Keep the output format."',
         "busy Looking for agent CLIs…",
         "pick Which agent CLI should run the tuner's agents?",
+        "busy Reading Codex's models…",
         "text Model for the agents",
         "step Agents: Codex (codex exec) · gpt-6.1-sol",
         "text Budget for this run",

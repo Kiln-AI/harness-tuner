@@ -16,6 +16,7 @@ from typing import Any, TypeVar
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.cli import build_parser
 from kiln_harness_tuner.kiln import KilnAPIError
+from kiln_harness_tuner.onboarding.agent_models import CLAUDE_MODELS, ModelList
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import KilnRunner
 from kiln_harness_tuner.onboarding.terminal import (
@@ -26,6 +27,14 @@ from kiln_harness_tuner.onboarding.terminal import (
 )
 
 T = TypeVar("T")
+
+
+def claude_models_only(kind: str) -> ModelList | None:
+    """The model lister of a machine where only Claude Code's fixed list is
+    known: Codex and OpenCode give none, so their model is typed. The tests
+    never read `~/.codex` or run `opencode models`."""
+    return ModelList(CLAUDE_MODELS) if kind == "claude" else None
+
 
 Answer = Any  # a value, a key, a text, a callable, or an exception to raise
 
