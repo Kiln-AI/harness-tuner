@@ -1168,6 +1168,25 @@ class UnloadableEval(BaseModel):
     reason: str
 
 
+class DroppedEvalItem(BaseModel):
+    """A planned item that would build a new eval, which code dropped
+    before the wave ran because eval building is off
+    (`eval_item_dropped` events). No eval measures its issue."""
+
+    item_id: str
+    wave: int
+    kind: str  # `item_kind`: "eval" (an eval_only item) or "fix"
+    issue_memory_id: str
+
+
+class IssueWithoutEval(BaseModel):
+    """An open issue that no eval binds, read from memory when the report
+    is written — the issues setup found and the ones the run created."""
+
+    issue_memory_id: str
+    overview: str  # the record's one-line overview, prefix included
+
+
 Objective = Literal["quality", "speed", "cost"]
 # `--objective`: what the loop optimises. quality = the eval scores (the
 # behaviour before the other objectives); speed = per-request wall-clock latency, and
@@ -1805,6 +1824,10 @@ class BatchPlanInput(BaseModel):
     #   the flag). Neither carries a val number.
     train_detectability: list[TrainDetectability] = []
     train_noise: list[NoiseRow] = []
+    # `--experimental-eval-building`. False (the default): plan no
+    #   `eval_only` item and no fix with `needs_eval: true` — code drops
+    #   them before the wave runs. True: both are allowed.
+    eval_building: bool = False
 
 
 class EvalBuildInput(BaseModel):
@@ -2074,6 +2097,14 @@ class RunStatus(BaseModel):
     # Every screening result of this run, in round order
     # (`screening_round` events) — the report's trade-off appendix.
     screen_results: list[ScreenResult] = []
+    # `--experimental-eval-building`, from run_start, and the planned items
+    # code dropped because it was off (`eval_item_dropped` events) — the
+    # report's "Issues with no eval" section. `issues_without_eval`: the open
+    # issues no eval binds, read from memory when the report is written
+    # (None = not read: eval building on, or the read failed).
+    eval_building: bool = False
+    dropped_eval_items: list[DroppedEvalItem] = []
+    issues_without_eval: list[IssueWithoutEval] | None = None
 
 
 class ReportInput(BaseModel):

@@ -30,6 +30,7 @@ from kiln_harness_tuner.schemas import (
     SUBSCRIPTION_LANE,
     BatchItem,
     DetectabilityReport,
+    DroppedEvalItem,
     EvalOnlyItem,
     GateBlock,
     ItemOutcome,
@@ -231,10 +232,13 @@ class RunStatusTracker:
         timeout_mins: object = None,
         budget_usd: object = None,
         objective: object = None,
+        eval_building: object = None,
         **_: object,
     ) -> None:
         if objective in ("quality", "speed", "cost"):
             self._status.objective = objective  # type: ignore[assignment]
+        if isinstance(eval_building, bool):
+            self._status.eval_building = eval_building
         # Both `object`: event fields are untrusted audit data, and the
         # isinstance guards below — not the annotations — are what make them
         # safe to fold.
@@ -349,6 +353,27 @@ class RunStatusTracker:
         self._status.unloadable_evals.append(
             UnloadableEval(
                 eval_id=str(eval_id), name=str(name or eval_id), reason=str(reason)
+            )
+        )
+
+    def _on_eval_item_dropped(
+        self,
+        item_id: object = None,
+        wave: object = None,
+        item_kind: object = None,
+        issue_memory_id: object = None,
+        **_: object,
+    ) -> None:
+        # A planned eval build code dropped (eval building off): its issue
+        # has no eval, which the report names.
+        if not isinstance(wave, int) or isinstance(wave, bool):
+            return
+        self._status.dropped_eval_items.append(
+            DroppedEvalItem(
+                item_id=str(item_id),
+                wave=wave,
+                kind=str(item_kind),
+                issue_memory_id=str(issue_memory_id),
             )
         )
 

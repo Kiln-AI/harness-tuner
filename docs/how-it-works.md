@@ -151,9 +151,12 @@ flowchart TD
    4. An analysis agent reads the numbers and says if the experiment met its
       goal. Code writes the verdict to memory.
 
-   Other items are smaller: a probe, an eval build for an issue that has no
-   eval, a measurement of an issue on the baseline, or a re-run of items with
-   no stored result.
+   Other items are smaller: a probe, a measurement of an issue on the
+   baseline, or a re-run of items with no stored result. An eval build for
+   an issue that has no eval is experimental and off by default; only
+   `--experimental-eval-building` turns it on. While it is off, code drops a
+   planned eval build before its wave runs, and the report names the issue
+   so that you can create its eval in the Kiln app.
 4. **The promotion gate.** For each successful experiment that the planner
    marked as a promotion candidate:
    1. Code runs the candidate and the baseline on **every val item** of every
@@ -223,8 +226,11 @@ The goal is higher eval scores.
 
 - **What the planner works on.** Issues: one failure class of one eval. A fix
   experiment targets one issue's eval. When an issue has no eval that can
-  measure it, an eval-build item makes one first. The eval is frozen before
-  the fix is built, so the fix cannot shape its own test.
+  measure it, the planner leaves it, and the report names it so that you can
+  create its eval in the Kiln app. With `--experimental-eval-building`
+  (experimental, off by default), an eval-build item makes the eval first.
+  The eval is frozen before the fix is built, so the fix cannot shape its
+  own test.
 - **Which train items are judged first.** The items that the baseline fails
   on the target evals (up to 8), then a few that it passes (up to 4) as
   guards, then the rest of the split. A fix must show on the failures first.
@@ -304,8 +310,9 @@ same way as `speed`, with cost in place of latency.
 ## What the loop does not do
 
 - It does not read test.
-- It does not change the evals of a run, except through an eval-build item,
-  which makes a new eval before any fix is built.
+- It does not change the evals of a run. With
+  `--experimental-eval-building` (experimental, off by default), an
+  eval-build item can make a new eval before any fix is built.
 - It does not resume a stopped run.
 - It cannot show a change smaller than the evals can measure. A split of a
   few hundred items or fewer cannot rule out a drop of a few points.

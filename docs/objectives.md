@@ -22,7 +22,9 @@ few items.
 - **`quality`** works on issues: one failure class of one eval. The planner
   builds a fix for an issue, such as a prompt change, a skill, a tool or a
   model change, and the fix must show on the items the baseline fails. When no
-  eval can measure an issue, the loop builds that eval first.
+  eval can measure an issue, the report names it, so that you can create the
+  eval in the Kiln app. The loop builds that eval itself only with
+  `--experimental-eval-building`, which is experimental and off by default.
 - **`speed`** measures the sum of the LLM call latencies of one task run. A
   simulated user's calls are not counted. Before wave 1 it tries each lower
   thinking level of the baseline's model. It judges the items the baseline

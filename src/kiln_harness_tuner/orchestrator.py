@@ -77,6 +77,7 @@ from kiln_harness_tuner.integrity import (
 from kiln_harness_tuner.items import (
     LOOP_DISPATCH_BACKOFFS,
     call_with_retries,
+    drop_eval_building_items,
     execute_plan_item,
 )
 from kiln_harness_tuner.judge_copy import read_eval_texts
@@ -397,6 +398,11 @@ class Ctx:
     #   measurement (`require_policy`) this run.
     model_preflight: bool = False
     flagged_models: dict[tuple[str, str], str] = field(default_factory=dict)
+    # `--experimental-eval-building`. Off (the default): no item reaches
+    #   the eval-build agent — the planner is told so, and code drops an
+    #   `eval_only` item or a `needs_eval` fix before its wave runs
+    #   (`items.drop_eval_building_items`). On: both run as planned.
+    eval_building: bool = False
 
 
 def should_wrap(
@@ -471,6 +477,7 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         budget_usd=ctx.budget_usd,
         objective=ctx.objective,
         model_policy=ctx.model_policy.summary() if ctx.model_policy else None,
+        eval_building=ctx.eval_building,
     )
     progress = _RunProgress()
     try:
@@ -981,6 +988,7 @@ async def _dispatch_plan(
                 ],
                 train_detectability=detect_rows,
                 train_noise=list(ctx.train_noise),
+                eval_building=ctx.eval_building,
             ),
             backoffs=LOOP_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,
@@ -1004,6 +1012,14 @@ async def _dispatch_plan(
         cost_usd=result.usage.cost_usd,
         unmeasured_tokens=result.usage.unmeasured_tokens,
     )
+    if result.data is not None:
+        # Every plan the loop runs comes from here, so the wave that follows
+        # (and its `wave_start` line) carries only the items that will run.
+        kept = drop_eval_building_items(ctx, result.data.items, wave)
+        if len(kept) != len(result.data.items):
+            result = result.model_copy(
+                update={"data": result.data.model_copy(update={"items": kept})}
+            )
     return result
 
 
@@ -1157,6 +1173,10 @@ async def _run_wave(
     in flight AT the deadline are cancelled (the dispatcher's kill/reap path
     stops their subprocess spend) and land as failed_infra(timeout); returns
     (outcomes, deadline_hit)."""
+    # Every item reaches `execute_plan_item` through here, so this is the
+    # guard no path around the planner check can pass. A no-op for a plan
+    # `_dispatch_plan` already checked.
+    items = drop_eval_building_items(ctx, items, wave)
     tasks = [
         asyncio.ensure_future(execute_plan_item(ctx, item, baseline, lineage, wave))
         for item in items

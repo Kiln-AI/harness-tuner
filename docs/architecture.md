@@ -227,7 +227,16 @@ Per wave, in order:
    it. The planner receives the run-config id and nothing else.
 4. **Plan.** One `batch_plan` dispatch. A hard failure exits the run
    (`planner_failed`) — it is the loop's brain, and another attempt after the
-   retry ladder only burns budget.
+   retry ladder only burns budget. **The eval-building guard**
+   (`items.drop_eval_building_items`): eval building is experimental and off
+   by default. While it is off (no `--experimental-eval-building`), code
+   drops every planned `eval_only` item and every fix with
+   `needs_eval: true` from each plan the planner returns, with one
+   `eval_item_dropped` event and log line for each. The rest of the wave
+   runs. `_run_wave` applies the same guard, and `_run_eval_build` itself
+   refuses to dispatch (the item ends `failed_infra`), so no path dispatches
+   the `eval_build` role. A plan that has no item left exits `empty_plan`.
+   The report names each open issue that has no eval (section 11).
 5. **Optionally, screening rounds** (`_screening_phase`). When the plan
    carries `screen` instead of items, code measures every variant it names
    on the screening subset and calls the planner again with the table
@@ -278,7 +287,7 @@ where one-crack and eval-freeze are visible.
 
 | Item | Path |
 |---|---|
-| `eval_only` | one `eval_build` dispatch. Reproduced → link the eval to the issue. Not reproduced → mark the issue `WONT_FIX:` with the reason. Both are useful outcomes. |
+| `eval_only` | experimental, off by default (section 3.2): one `eval_build` dispatch. Reproduced → link the eval to the issue. Not reproduced → mark the issue `WONT_FIX:` with the reason. Both are useful outcomes. |
 | `measure_issue_baseline` | pure code. Run the issue's existing eval against the baseline on train, apply the headroom rule, PATCH the issue. No builder, no analyst, no new run config. |
 | `remeasure` | pure code. Re-drive only the items an existing run config never stored a row for. |
 | `probe` with a `check` | pure code. Fork the parent, attach a throwaway surface, apply overrides, drive a few train items, count in the traces. |
@@ -287,7 +296,8 @@ where one-crack and eval-freeze are visible.
 
 The full path:
 
-1. If the item needs an eval it does not have, one `eval_build` dispatch
+1. If the item needs an eval it does not have (only with
+   `--experimental-eval-building`; section 3.2), one `eval_build` dispatch
    **first**, given the issue id and the baseline run config and nothing else.
    The hypothesis and the technique deliberately do not cross that boundary:
    the eval measures the *issue*, not the planned fix.
@@ -871,7 +881,19 @@ writer's input. Another host can render it its own way.
   ratios against its round's baseline, the verdict and the rc id. The rows
   are cheapest first under `cost`, fastest first under `speed`, and highest
   net change first under `quality`. These tables only report. They change
-  no stop rule, no screening verdict and no promotion.
+  no stop rule, no screening verdict and no promotion. "Issues with no
+  eval" is there only while eval building is off (section 3.2). It lists
+  each open issue that no eval binds, read from memory when the report is
+  written (`RunStatus.issues_without_eval`), so the issues the run created
+  are in it too. Closed issues and the baseline-audit issues are left out.
+  A row says when the eval-building guard dropped a planned eval build for
+  the issue (`RunStatus.dropped_eval_items`, folded from the
+  `eval_item_dropped` events). The code-rendered fallback report reads
+  once, without the client's retry ladder, because on a fatal exit Kiln
+  can be what failed. When the read fails, the rows are the dropped items'
+  issues and the ones setup found with no eval binding. The
+  section tells the owner to create each eval in the Kiln app, with a link
+  to the Kiln docs on evals.
 - **The transcripts.** The dispatcher copies every agent session's
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential

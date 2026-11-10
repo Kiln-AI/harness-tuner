@@ -80,6 +80,7 @@ from kiln_harness_tuner.schemas import (
     Usage,
 )
 from kiln_harness_tuner.snapshots import snapshot_memory
+from kiln_harness_tuner.status import item_kind
 from kiln_harness_tuner.stop_rules import (
     default_stop_rules,
     merge_rules,
@@ -255,9 +256,67 @@ async def _infra_outcome(
     )
 
 
+def eval_build_issue(item: BatchItem) -> str | None:
+    """The issue an item would dispatch the eval-build agent for — an
+    `eval_only` item, or a fix with `needs_eval: true` — else None."""
+    if isinstance(item, EvalOnlyItem):
+        return item.issue_memory_id
+    if (
+        isinstance(item, ExperimentItem)
+        and isinstance(item.work, FixWork)
+        and item.work.needs_eval
+    ):
+        return item.work.issue_memory_id
+    return None
+
+
+def drop_eval_building_items(ctx: Ctx, items: list, wave: int) -> list:
+    """The eval-building guard: eval building is experimental and off
+    unless `--experimental-eval-building` turns it on. While it is off,
+    every item that would reach `_run_eval_build` is dropped here, before
+    any dispatch, with one `eval_item_dropped` event (and log line) each;
+    the rest of the wave runs as planned. The planner is told the setting,
+    so a dropped item is a planner error, not a normal outcome."""
+    if ctx.eval_building:
+        return list(items)
+    kept = []
+    for item in items:
+        issue_id = eval_build_issue(item)
+        if issue_id is None:
+            kept.append(item)
+            continue
+        line = (
+            f"dropped {item.id}: it builds a new eval for issue {issue_id},"
+            " and eval building is off (experimental:"
+            " --experimental-eval-building turns it on)"
+        )
+        ctx.log.event(
+            "eval_item_dropped",
+            wave=wave,
+            item_id=item.id,
+            item_kind=item_kind(item),
+            issue_memory_id=issue_id,
+            line=line,
+        )
+        logger.warning("%s", line)
+    return kept
+
+
 async def _run_eval_build(
     ctx: Ctx, item_id: str, issue_memory_id: str, baseline: BaselineRef
 ) -> AgentResult:
+    if not ctx.eval_building:
+        # The boundary refuses too, whatever path brought the item here: the
+        # wave runner drops these items, but `execute_plan_item` is public.
+        detail = (
+            f"eval building is off: {item_id} was not dispatched"
+            " (--experimental-eval-building turns it on)"
+        )
+        logger.error("%s", detail)
+        return AgentResult[EvalBuildReport](
+            status="failed_infra",
+            error=ErrorInfo(error_class="provider_error", detail=detail),
+        )
     # The eval-build boundary — issue id + baseline ONLY
     # (hypothesis/technique never cross; the eval measures the issue, not the
     # planned fix).

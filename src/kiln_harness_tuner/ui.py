@@ -503,6 +503,8 @@ SETUP_LINE_EVENTS = frozenset(
         "model_preflight_untested",
         # An eval Kiln can't load, which the run leaves out.
         "eval_unloadable",
+        # A planned eval build dropped because eval building is off.
+        "eval_item_dropped",
     }
 )
 
