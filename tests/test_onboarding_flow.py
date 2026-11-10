@@ -220,7 +220,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "step Agents: Codex (codex exec) · gpt-6.1-sol",
         "text Budget for this run",
         "step Budget: $20.00",
-        "text Time limit",
+        "text Time limit (1h, 24h, 45m)",
         "step Time: 90 minutes",
         f"act {ADVANCED_PROMPT}",
         "step Advanced: defaults",
@@ -356,7 +356,7 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     budget = terminal.options[change][2]
     assert (budget.label, budget.columns) == ("Budget", ("$50.00",))
     assert terminal.asked_about("Budget for this run").default == "50"
-    assert terminal.asked_about("Time limit").default == "12h"
+    assert terminal.asked_about("Time limit (1h, 24h, 45m)").default == "12h"
     limits = [s.splitlines()[-2] for s in summaries(terminal)]
     assert limits == [
         "  Limits       $50.00 · 12 hours",
