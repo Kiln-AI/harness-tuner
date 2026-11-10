@@ -124,7 +124,7 @@ user and the judges. What the tuner does today:
    billing. API cost is paid only to run the target agent, the synthetic user
    and the evals.
 3. **Early stopping.** A candidate that can no longer win stops being
-   measured. (Designed, and believed to be shipped. Confirm.)
+   measured. (Shipped: the `futility` stop rule in `stop_rules.py`.)
 
 The link to this project: **being right often is the largest cost saving.**
 A planner with the right early hypotheses converges perhaps ten times
@@ -524,5 +524,4 @@ overview. Integrate them.
   skill improves convergence.
 - **"JEV"** is kept as spoken. Confirm the name and the Kiln feature it maps
   to.
-- **Confirm early stopping is shipped** (section 5).
 - **Whether Kiln skills support code files** (section 6.2).
