@@ -85,8 +85,8 @@ The exit codes stay as they are today:
 
 | Code | When |
 |---|---|
-| 0 | The run finished, or the person declined "Start the run?" |
-| 1 | Ctrl+D at a start-up question, `x) Exit` in a problem menu, or a start-up error |
+| 0 | The run finished |
+| 1 | Ctrl+D at a start-up question, `x) Exit` in any menu ("Start the run?" included), or a start-up error |
 | 2 | Argument errors (before the app starts) |
 | 130 | Ctrl+C during the start-up, or "Stop the run" during the run |
 
