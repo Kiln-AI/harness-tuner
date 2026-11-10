@@ -169,6 +169,8 @@ going looking.
   merge-eligible next run; any stamped `— REJECTED AT VAL` only as
   ingredients of a different combination, never re-run as-is) · `tripwire`
   (infra broke — say which class) · `planner_failed`.
+- `exit_detail`, when it is set, says why a `timeout` exit came: how much
+  time was left, under the minimum to start a wave. Give it with the exit.
 
 ## Report template
 

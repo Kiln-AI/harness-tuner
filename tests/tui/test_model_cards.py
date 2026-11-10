@@ -548,6 +548,27 @@ def test_done_mode_shows_the_run_summary():
     assert run.model.experiments(run.t).done.report == "/r/report.md"
 
 
+def test_done_says_how_little_time_was_left():
+    run = Run().standard_start()
+    run.emit(
+        "exit",
+        reason="timeout",
+        detail="3m46s left after setup, under the 15-minute minimum to start a wave",
+    )
+    assert run.model.experiments(run.t).done.ended == (
+        "Time limit reached (3m46s left after setup, under the 15-minute"
+        " minimum to start a wave)"
+    )
+
+
+def test_done_shows_only_a_timeout_detail():
+    run = Run().standard_start()
+    run.emit("exit", reason="quota_exhausted", detail="429 from the provider")
+    assert run.model.experiments(run.t).done.ended == (
+        "Stopped on a provider error: quota or authentication"
+    )
+
+
 def test_a_stopped_run_has_no_report():
     run = wave_one(fix("w1-1"))
     run.emit("exit", reason="interrupted")

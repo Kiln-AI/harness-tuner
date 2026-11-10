@@ -29,6 +29,7 @@ from kiln_harness_tuner.orchestrator import (
     _run_wave,
     orchestrate,
     should_wrap,
+    wave_floor_detail,
 )
 from kiln_harness_tuner.schemas import (
     BaselineRef,
@@ -1190,7 +1191,38 @@ async def test_under_the_floor_no_wave_is_planned():
     assert result == "timeout"
     assert len(d.calls_to("batch_plan")) == 1  # no wrap-up planner session
     (exit_event,) = [f for k, f in ctx.log.events if k == "exit"]
-    assert "floor" in exit_event["detail"]
+    assert exit_event["detail"] == (
+        "13m20s left after wave 1, under the 15-minute minimum to start a wave"
+    )
+
+
+async def test_under_the_floor_after_setup_no_wave_starts():
+    # The clock reads 10000 at the first wave boundary: setup left 800s.
+    ctx = make_ctx(clock=FakeClock(0, 0, 0, 0, 0, 10000, 10000))
+    seed_baseline(ctx.kiln)
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "timeout"
+    assert ctx.dispatch.calls_to("batch_plan") == []
+    (exit_event,) = [f for k, f in ctx.log.events if k == "exit"]
+    assert exit_event["detail"] == (
+        "13m20s left after setup, under the 15-minute minimum to start a wave"
+    )
+
+
+@pytest.mark.parametrize(
+    ("left", "waves_done", "detail"),
+    [
+        (226.4, 0, "3m46s left after setup"),
+        (45, 2, "45s left after wave 2"),
+        (-3, 1, "0s left after wave 1"),
+    ],
+)
+def test_the_wave_floor_detail_reads_as_words(left, waves_done, detail):
+    assert wave_floor_detail(left, waves_done) == (
+        f"{detail}, under the 15-minute minimum to start a wave"
+    )
 
 
 async def test_hard_deadline_no_wave_starts_past_it():

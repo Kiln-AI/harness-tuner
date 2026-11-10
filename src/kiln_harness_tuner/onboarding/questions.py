@@ -41,6 +41,15 @@ T = TypeVar("T")
 NO_CAP = "none"
 BUDGET_ERROR = "Enter an amount in USD, like 50, or none"
 DURATION_ERROR = "Enter a time like 90m or 12h"
+# The shortest time limit, for the question and for `--timeout-mins`. Setup
+# runs before the first wave, and no wave starts with under 15 minutes left
+# (`orchestrator.MIN_WAVE_START_SECS`).
+MIN_TIME_LIMIT_MINS = 30
+TIME_LIMIT_ERROR = (
+    f"Enter at least {MIN_TIME_LIMIT_MINS} minutes. Below that the run can end"
+    " before its first wave: setup takes a few minutes, and no wave starts with"
+    " less than 15 minutes left"
+)
 FRACTION_ERROR = "Enter a fraction above 0 and at most 1, like 0.1 for 10%"
 COUNT_ERROR = "Enter a whole number, 0 or more"
 MODEL_ERROR = "Enter one model name, with no spaces"
@@ -74,7 +83,7 @@ def parse_budget(text: str) -> float | None:
 def parse_duration(text: str) -> int:
     """Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), as
     whole minutes, rounded to the nearest: the flag takes whole minutes. At
-    least 1 minute."""
+    least `MIN_TIME_LIMIT_MINS`."""
     match = _DURATION.fullmatch(text.strip().lower())
     if match is None:
         raise ValueError(DURATION_ERROR)
@@ -82,7 +91,15 @@ def parse_duration(text: str) -> int:
     minutes = float(number) * (60 if unit == "h" else 1)
     if not math.isfinite(minutes) or minutes < 1:
         raise ValueError(DURATION_ERROR)
-    return math.floor(minutes + 0.5)
+    return check_time_limit(math.floor(minutes + 0.5))
+
+
+def check_time_limit(minutes: int) -> int:
+    """`minutes`, if it is at least `MIN_TIME_LIMIT_MINS`. The time question
+    and `--timeout-mins` both use this check."""
+    if minutes < MIN_TIME_LIMIT_MINS:
+        raise ValueError(TIME_LIMIT_ERROR)
+    return minutes
 
 
 def parse_fraction(text: str) -> float:
@@ -424,12 +441,17 @@ def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Budget", budget_text(answers.budget_usd))
 
 
+TIME_HINT = (
+    f"At least {MIN_TIME_LIMIT_MINS}m. Plan on 1h or more for more than one wave."
+    " No wave starts after the limit, and work still running at it is cancelled."
+)
+
+
 def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Time limit (1h, 24h, 45m)",
         default=duration_default(answers.timeout_mins),
-        hint="No wave starts after this, and work still running at the limit is"
-        " cancelled, so leave room for a whole wave.",
+        hint=TIME_HINT,
         validate=_refusal(parse_duration),
     )
     answers.timeout_mins = parse_duration(answer)

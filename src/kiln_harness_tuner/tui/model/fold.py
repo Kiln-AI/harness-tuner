@@ -31,7 +31,7 @@ from kiln_harness_tuner.schemas import (
     ScreenResult,
     spend_lane_labels,
 )
-from kiln_harness_tuner.status import spend_split
+from kiln_harness_tuner.status import exit_detail, spend_split
 from kiln_harness_tuner.tui.model import cards, links, log, results, timeline, words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.names import RcNames
@@ -163,6 +163,7 @@ class RunModel:
         self.ends_wall: datetime | None = None
         self.budget: float | None = None
         self.exit_reason: str | None = None
+        self.exit_detail: str | None = None
         self.exit_at: float | None = None
         self.report_path: str | None = None
         self.run_ended = False
@@ -1365,6 +1366,7 @@ class RunModel:
         if self.exit_reason is not None:
             return
         self.exit_reason = _text(f.get("reason")) or None
+        self.exit_detail = exit_detail(self.exit_reason, f.get("detail"))
         self.exit_at = s.mono
         self._set_mode("done", s.mono)
         for kind in list(self.open_segments):
@@ -1372,7 +1374,7 @@ class RunModel:
         for index, step in enumerate(self.start_steps):
             if step.status == "busy":
                 self.start_steps[index] = replace(step, status="fail", since=None)
-        self._say(s, "run", log.ended(self.exit_reason))
+        self._say(s, "run", log.ended(self.exit_reason, self.exit_detail))
 
     def _on_report_written(self, s: Stamped, f: Mapping[str, Any]) -> None:
         self.report_path = _text(f.get("path")) or None

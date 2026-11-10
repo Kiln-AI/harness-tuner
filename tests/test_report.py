@@ -372,6 +372,19 @@ def test_spend_appendix_header_states_budget_elapsed_and_exit():
     )
 
 
+def test_spend_appendix_header_says_how_little_time_was_left():
+    tracker = timed_tracker(4 * 60, deadline=1200.0, timeout_mins=20)
+    tracker.event(
+        "exit",
+        reason="timeout",
+        detail="3m46s left after setup, under the 15-minute minimum to start a wave",
+    )
+    assert render_spend_header(tracker.snapshot()) == (
+        "budget 20 min · elapsed 4 min · exit timeout (3m46s left after setup,"
+        " under the 15-minute minimum to start a wave)"
+    )
+
+
 def test_spend_appendix_header_omits_an_unset_budget():
     # The totals row's `left` states the facts the run has, never a guessed
     # one.

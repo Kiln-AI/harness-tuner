@@ -534,7 +534,7 @@ shows why in red under the field and asks again, keeping what you typed.
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; empty, the CLI's own default, for Codex and OpenCode | One model name. OpenCode models are `PROVIDER/MODEL`. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), at least 1 minute, rounded to the nearest minute. |
+| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 30 minutes: setup takes a few minutes, and no wave starts with less than 15 minutes left. Plan on 1 hour or more for more than one wave. |
 | Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
 - **The agent CLI and its model** make one `--agent-cli` command: the model
@@ -550,8 +550,14 @@ shows why in red under the field and asks again, keeping what you typed.
   and no wave starts past it. It never counts the tuner's agents: they run on
   your agent CLI's account, and the run shows their tokens for information.
   The summary's Limits line says so.
-- **The time limit**: no wave starts after it, and work still running at the
-  limit is cancelled, so leave room for a whole wave.
+- **The time limit**: at least 30 minutes. Setup runs first and takes a few
+  minutes, and no wave starts with less than 15 minutes left, so a shorter
+  limit can end the run before its first wave. Plan on 1 hour or more for more
+  than one wave. No wave starts after the limit, and work still running at
+  the limit is cancelled, so leave room for a whole wave. When a run ends
+  because too little time is left, the Done screen, the exit line and the
+  report say how much was left, for example `3m46s left after setup, under
+  the 15-minute minimum to start a wave`.
 
 The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or

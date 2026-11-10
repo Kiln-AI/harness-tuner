@@ -129,7 +129,10 @@ def render_spend_header(status: RunStatus) -> str:
         segments.append(f"budget {_fmt_usd(status.budget_usd)}")
     segments.append(f"elapsed {_fmt_mins(status.elapsed_secs)}")
     if status.exit_reason is not None:
-        segments.append(f"exit {status.exit_reason}")
+        exit_text = f"exit {status.exit_reason}"
+        if status.exit_detail:
+            exit_text += f" ({status.exit_detail})"
+        segments.append(exit_text)
     return " · ".join(segments)
 
 

@@ -95,6 +95,8 @@ from kiln_harness_tuner.onboarding.error_screen import (
     show_error,
 )
 from kiln_harness_tuner.onboarding.questions import (
+    MIN_TIME_LIMIT_MINS,
+    check_time_limit,
     number_text,
     parse_budget,
     parse_fraction,
@@ -302,10 +304,10 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--timeout-mins",
-        type=int,
+        type=_timeout_mins,
         default=DEFAULT_TIMEOUT_MINS,
-        help="time budget in minutes, wave-boundary checked (default"
-        f" {DEFAULT_TIMEOUT_MINS}, 12 hours)",
+        help="time budget in minutes, wave-boundary checked, at least"
+        f" {MIN_TIME_LIMIT_MINS} (default {DEFAULT_TIMEOUT_MINS}, 12 hours)",
     )
     parser.add_argument(
         "--no-progress",
@@ -500,6 +502,21 @@ def _budget(text: str) -> float | None:
     question takes the same values."""
     try:
         return parse_budget(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
+def _timeout_mins(text: str) -> int:
+    """`--timeout-mins`: whole minutes, at least `MIN_TIME_LIMIT_MINS`. The
+    start's time question uses the same check."""
+    try:
+        minutes = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: enter whole minutes, like 90"
+        ) from None
+    try:
+        return check_time_limit(minutes)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
