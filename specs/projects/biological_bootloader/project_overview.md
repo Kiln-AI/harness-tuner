@@ -271,6 +271,10 @@ newer one of the same line is out. The tuner needs access to benchmarks and
 tools that give the latest state, and a maintained set of "reasonable models
 to try in this situation".
 
+**A provider guide.** The same idea for providers, and it changes as fast.
+Examples: Groq and Cerebras offer extremely fast inference; providers X, Y
+and Z offer zero data retention; Cloudflare is slow; OpenRouter has gotchas.
+
 **Model and harness are a pair.** A very large model may do well with one
 big prompt in one context. A small model may need a small prompt,
 progressive disclosure and sub-agents. You cannot design the harness and
