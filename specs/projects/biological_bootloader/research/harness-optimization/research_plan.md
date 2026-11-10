@@ -20,12 +20,17 @@ from the last 12 months are preferred.
 - Model: Opus (subtopic agents and the summary agent)
 - Web tools: Tavily and Exa (search and extract), WebSearch
 
+## Out of scope
+
+Competitive research on other optimisation systems (GEPA, DSPy and similar)
+is out of scope. This repository is about our own ideas. The owner will
+supply a separate report on that subject.
+
 ## Subtopics
 
 - [ ] Instructions and context — prompts, skills, progressive disclosure, caching, context loading, and how to author and maintain skills
 - [ ] Tool design for agents — agent-optimised tools, wrappers, response size, tool search, code execution, tool smells
 - [ ] Architecture levers — sub-agents, RAG versus skills, compaction, decision models, input feature engineering, fine-tuning
-- [ ] Optimisation systems and experiment order — automated prompt and harness optimisers, and how they choose what to try next
 - [ ] Model and provider selection — current guidance, benchmarks, live data sources, provider speed and data retention
 - [ ] Trace diagnostics and red flags — failure taxonomies, error analysis, metrics that software can compute from a harness and its traces
 - [ ] Kiln capability gap — what Kiln can tune, against what Harness Tuner knows about and can reach
@@ -75,19 +80,6 @@ conversation; and when fine-tuning is worth it after harness work. Flag any
 lever that sources rate highly and the overview does not mention. Model
 choice itself belongs to "Model and provider selection".
 
-### Optimisation systems and experiment order
-
-How do existing systems improve an agent automatically, and how do they
-decide what to try next? Cover GEPA, DSPy optimisers, meta-harness and
-agent-architecture search work, evolutionary and reflective optimisers,
-commercial agent-optimisation products, and published case studies of
-manual harness tuning. For each: what it changes (prompt only, or tools and
-structure too), how it generates hypotheses from failures, how it orders and
-budgets experiments, how it avoids overfitting to the eval set, and reported
-results. Extract any guidance on **order of operations** (what to fix first,
-what blocks what, when to lock the model). Per-lever knowledge belongs to
-the three subtopics above.
-
 ### Model and provider selection
 
 How should an optimiser choose candidate models and providers today, and how
@@ -123,7 +115,8 @@ agents know about it (the skills in
 (the typed gateway operations in `src/kiln_harness_tuner/gateway/`, since
 loop agents have no generic Kiln API). Sources: the vendored API reference
 in `agent_files/skills/kiln-api/references/api_docs/`, the Kiln docs at
-docs.kiln.tech, and the public Kiln repository on GitHub. Cover at least run
+docs.kiln.tech, and the Kiln repository, cloned at `/home/user/kiln-ai/kiln` (open source, main
+branch). Cover at least run
 config fields and model settings, structured output modes, skills (and
 whether they support code files), code tools, MCP tool servers, Kiln task as
 tool (sub-agents), RAG configs (extractor, chunker, embedding, search type,
