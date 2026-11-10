@@ -567,7 +567,9 @@ class MemoryWriter:
             "PATCH", f"{self._memories_path}/{memory_id}", body=body, retries=True
         )
 
-    async def _list(self, scope: str, tags: Iterable[str]) -> list[MemorySummary]:
+    async def _list(
+        self, scope: str, tags: Iterable[str], *, retries: bool | None = None
+    ) -> list[MemorySummary]:
         """Full listing for (scope, tags), paged (the API caps at 50/page).
 
         Live shape: rows come under `"listings"` as
@@ -589,6 +591,7 @@ class MemoryWriter:
                     "limit": _LIST_PAGE_SIZE,
                     "offset": offset,
                 },
+                retries=retries,
             )
             # KilnClient.call returns None for an empty 2xx body and str
             # for non-JSON — guard before .get, then require the envelope.
@@ -613,7 +616,9 @@ class MemoryWriter:
                 return summaries
             offset += len(page)
 
-    async def _get_many(self, memory_ids: Iterable[str]) -> list[MemoryRecord]:
+    async def _get_many(
+        self, memory_ids: Iterable[str], *, retries: bool | None = None
+    ) -> list[MemoryRecord]:
         """Hydrate FULL records (with `content`) — `/by_ids` returns a bare
         array of them (verified against the live server). Missing ids are simply absent
         from the result. Chunked (ids ride the query string, so one call
@@ -626,6 +631,7 @@ class MemoryWriter:
                 "GET",
                 f"{self._memories_path}/by_ids",
                 query_params={"ids": ids[start : start + _BY_IDS_CHUNK_SIZE]},
+                retries=retries,
             )
             records.extend(MemoryRecord.from_api(raw) for raw in response or [])
         return records
@@ -678,16 +684,20 @@ class MemoryWriter:
                 mapping.setdefault(eval_id, []).append(row.id)
         return mapping
 
-    async def list_issues(self) -> list[IssueView]:
+    async def list_issues(self, *, retries: bool | None = None) -> list[IssueView]:
         """Every task-scope `issue` memory, hydrated and typed — the setup
         phase's coverage read.
 
         FULL records, not the listing's summaries: the sync needs each
         record's setup head (ownership + the stored fingerprint), and that
         lives in `content`. Costs one listing plus one chunked `/by_ids` —
-        and nothing at all on a cold project, where the listing is empty."""
-        summaries = await self._list(self.task_scope, [RecordKind.ISSUE.value])
-        records = await self._get_many(s.id for s in summaries)
+        and nothing at all on a cold project, where the listing is empty.
+        `retries=False`: one attempt per call, no retry ladder (the report's
+        read after a fatal exit, where Kiln may be what failed)."""
+        summaries = await self._list(
+            self.task_scope, [RecordKind.ISSUE.value], retries=retries
+        )
+        records = await self._get_many((s.id for s in summaries), retries=retries)
         return [IssueView.from_record(r) for r in records]
 
     # ---- baseline record (reads for the loop; write = promote below) ----

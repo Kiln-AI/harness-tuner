@@ -11,14 +11,22 @@ stays structural: a report always ships.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kiln_harness_tuner.items import LOOP_DISPATCH_BACKOFFS, call_with_retries
+from kiln_harness_tuner.memory_schema import (
+    BASELINE_AUDIT_TAG,
+    BASELINE_JUDGE_COPY_TAG,
+    ISSUE_TERMINAL_STATES,
+)
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
+    IssueWithoutEval,
     ItemOutcome,
     ItemStatus,
     LatencyComparison,
@@ -34,6 +42,8 @@ from kiln_harness_tuner.ui import outcome_cell
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
+
+logger = logging.getLogger(__name__)
 
 # The report_writer hard-fail row — wording refinable, guarantee structural.
 FALLBACK_INTRO = (
@@ -742,6 +752,98 @@ def render_tradeoff_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+MISSING_EVALS_APPENDIX_HEADING = "## Issues with no eval (code-computed)"
+KILN_EVALS_DOCS_URL = "https://docs.kiln.tech/docs/evaluations"
+# A bound on the report-time issue read on either path: a Kiln server that
+# hangs must not hold the report back.
+ISSUE_READ_TIMEOUT_SECS = 60.0
+
+
+async def read_issues_without_eval(
+    ctx: Ctx, *, retries: bool | None = None
+) -> list[IssueWithoutEval] | None:
+    """The open issues no eval binds, read from memory when the report is
+    written, so the report also names the issues this run created. Closed
+    issues are left out, and so are the baseline-audit issues: their own
+    checks measure them (setup skips them for the same reason). None when
+    the read fails; the section then uses what the run recorded."""
+    try:
+        issues = await asyncio.wait_for(
+            ctx.memory.list_issues(retries=retries), ISSUE_READ_TIMEOUT_SECS
+        )
+    except Exception as exc:  # the report must ship without it
+        logger.warning("report: the issue read failed: %r", exc)
+        return None
+    return [
+        IssueWithoutEval(issue_memory_id=issue.id, overview=_md(issue.overview))
+        for issue in issues
+        if not issue.bound_eval_ids
+        and issue.state not in ISSUE_TERMINAL_STATES
+        and BASELINE_AUDIT_TAG not in issue.tags
+        and BASELINE_JUDGE_COPY_TAG not in issue.tags
+    ]
+
+
+async def _add_issues_without_eval(
+    ctx: Ctx, status: RunStatus, *, retries: bool | None = None
+) -> None:
+    """Both report paths: the report-time issue read, onto the snapshot the
+    report renders from (and the report agent reads). Only while eval
+    building is off — the section it feeds is empty otherwise."""
+    if not status.eval_building:
+        status.issues_without_eval = await read_issues_without_eval(
+            ctx, retries=retries
+        )
+
+
+def render_missing_evals_appendix(status: RunStatus) -> str:
+    """The open issues no eval can measure, while eval building is off:
+    the loop cannot work on them, so the section tells the owner to create
+    each eval in the Kiln app. The rows are the report-time read
+    (`issues_without_eval`), each marked when code dropped a planned eval
+    build for it. Without that read, the rows are the dropped items' issues
+    and the ones setup found with no eval binding. Empty string when there
+    are none, and with eval building on, where the loop builds the evals."""
+    if status.eval_building:
+        return ""
+    dropped: dict[str, list[str]] = {}
+    for entry in status.dropped_eval_items:
+        dropped.setdefault(entry.issue_memory_id, []).append(
+            f"`{entry.item_id}` in wave {entry.wave}"
+        )
+    if status.issues_without_eval is not None:
+        rows = [(i.issue_memory_id, i.overview) for i in status.issues_without_eval]
+    else:
+        unbound = status.setup.unbound_unresolved_issue_ids if status.setup else []
+        rows = [(issue_id, "") for issue_id in dict.fromkeys([*dropped, *unbound])]
+    if not rows:
+        return ""
+    lines = [
+        MISSING_EVALS_APPENDIX_HEADING,
+        "",
+        "No eval measures these issues, so the loop cannot work on them.",
+        "",
+    ]
+    for issue_id, overview in rows:
+        line = f"- `{issue_id}`"
+        if overview:
+            line += f": {overview}"
+        if issue_id in dropped:
+            line += (
+                " — code dropped its planned eval build"
+                f" ({', '.join(dropped[issue_id])})"
+            )
+        lines.append(line)
+    lines += [
+        "",
+        "Eval building is experimental and off by default in this release, so"
+        " the loop builds no eval itself. To measure an issue, create an eval"
+        " for it in the Kiln app, then run the tuner again. The Kiln docs say"
+        f" how: [Evals]({KILN_EVALS_DOCS_URL}).",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _cost_cells(c: object) -> str:
     if not isinstance(c, dict) or c.get("median_ratio") is None:
         return " — | — | — |"
@@ -912,6 +1014,9 @@ class ReportWriter:
         tradeoffs = render_tradeoff_appendix(status)
         if tradeoffs:
             markdown = markdown.rstrip("\n") + "\n\n" + tradeoffs
+        missing_evals = render_missing_evals_appendix(status)
+        if missing_evals:
+            markdown = markdown.rstrip("\n") + "\n\n" + missing_evals
         path = self.report_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")
@@ -927,6 +1032,9 @@ class ReportWriter:
         status = self._tracker.snapshot()
         if status.exit_reason is None:
             status.exit_reason = exit_reason
+        # One attempt, no retry ladder: on a fatal exit Kiln may be what
+        # failed, and the report must not wait on it.
+        await _add_issues_without_eval(ctx, status, retries=False)
         path = self._write(render_fallback_report(status), status)
         ctx.log.event("report_written", path=path, fallback=True)
         return path
@@ -951,6 +1059,7 @@ class ReportWriter:
         # still ships a report either way.
         past_deadline = ctx.deadline is not None and ctx.clock() >= ctx.deadline
         await snapshot_memory(ctx, "report-before")  # the store at exit
+        await _add_issues_without_eval(ctx, status)
         try:
             result = await call_with_retries(
                 ctx.dispatch.report_writer,

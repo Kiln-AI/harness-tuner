@@ -180,6 +180,10 @@ A skill is installed with the skill installer tool, not the gateway.
 
 ### Building an eval (eval_build)
 
+Eval building is experimental and off by default. The loop starts an
+eval_build session only when the run turns eval building on; while it is
+off, no session has these operations.
+
 | Operation | Fields | Answer |
 |---|---|---|
 | `create_spec` | `name` (32 characters at most), `definition`, `properties`, `priority?`, `status?`, `tags?`, `evaluate_full_trace?` | the spec |

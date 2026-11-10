@@ -758,6 +758,30 @@ def test_both_views_print_each_eval_kiln_cant_load():
         assert 'Kiln can\'t load eval "Tone": bad.' in out.getvalue()
 
 
+def test_both_views_print_each_dropped_eval_build():
+    line = (
+        "dropped w1-2: it builds a new eval for issue issue_2, and eval building"
+        " is off (experimental: --experimental-eval-building turns it on)"
+    )
+    for build in (
+        lambda console: LiveUi(make_tracker(), console=console),
+        lambda console: PlainUi(make_tracker(), console=console),
+    ):
+        console, out = capture_console()
+        with build(console) as ui:
+            ui.event(
+                "eval_item_dropped",
+                wave=1,
+                item_id="w1-2",
+                item_kind="eval",
+                issue_memory_id="issue_2",
+                line=line,
+            )
+        assert "dropped w1-2: it builds a new eval for issue issue_2" in (
+            " ".join(out.getvalue().split())
+        )
+
+
 def test_live_ui_carries_exactly_one_totals_row_at_a_time():
     # Always visible, always exactly one — before wave 1, during a wave,
     # and (as the exit block's frozen row) after exit.

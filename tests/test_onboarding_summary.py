@@ -161,6 +161,14 @@ def test_the_flags_the_start_never_sets_are_kept_as_typed_on_their_own_line():
     ]
 
 
+def test_the_rerun_command_keeps_experimental_eval_building():
+    command = rerun(["--experimental-eval-building"])
+    parsed = build_parser().parse_args(tokens(command)[1:])
+    assert parsed.experimental_eval_building is True
+    parsed = build_parser().parse_args(tokens(rerun([]))[1:])
+    assert parsed.experimental_eval_building is False
+
+
 def test_no_cap_and_no_guidance_are_written_out():
     lines = rerun([], budget_usd=None, guidance="").splitlines()
     assert "  --guidance '' \\" in lines

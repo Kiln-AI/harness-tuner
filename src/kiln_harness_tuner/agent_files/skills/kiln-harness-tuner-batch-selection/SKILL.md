@@ -17,7 +17,10 @@ measured on — see Eval economics), `train_detectability` and `train_noise`
 `prior_rejected_summary` (the previous wave's `rejected_summary`, `null` on
 wave 1), and `gate_blocks` (this run's candidates the promotion
 gate blocked for copying eval text, each with its reasons — see Gate blocks
-below). You return a `BatchPlan` per the injected schema. You never execute
+below), `eval_building` (whether this run may build a new eval —
+experimental, off by default; see Hard rules) and `dropped_eval_items` (the
+items code dropped from earlier plans because eval building is off). You return a `BatchPlan` per
+the injected schema. You never execute
 experiments — the orchestrator dispatches builders/analyzers from your plan.
 
 Load the **`memory`** skill for the memory API, tags, and read conventions.
@@ -70,6 +73,20 @@ going looking.
 - Batch plans are working state, never memory. Your only writes are
   discovery writes (`lesson`/`dead_end`/new `issue` at the moment of
   learning); the orchestrator writes `OPEN:` records from `open_questions`.
+- **No new eval unless your input's `eval_building` is `true`.** Eval
+  building is experimental and off by default. While it is off, plan no
+  `eval_only` item and no fix with `needs_eval: true`: give each fix arm
+  `needs_eval: false` and the `eval_id` of an eval that exists. Merge,
+  probe, measure and remeasure items are not affected.
+  Code drops an item that builds an eval before the wave runs. An issue
+  that no eval measures is not a candidate while eval building is off: say
+  so in `rejected_summary`, and the report tells the owner to create its
+  eval in the Kiln app. Every rule below that plans an `eval_only` item or
+  `needs_eval: true` applies only when `eval_building` is `true`.
+  `dropped_eval_items` lists the items code dropped from earlier plans of
+  this run. They never ran: they are not attempts, and you do not plan them
+  again. When code drops every item of a plan, you plan the wave once more,
+  with this wave's drops in the list.
 
 ## The speed and cost objectives (`objective: "speed" | "cost"`)
 
@@ -442,8 +459,9 @@ runs; only "did the output change in the named way" needs the agent.
 
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
   new_tool | params | …`), with `needs_eval: true` when the issue has no eval
-  yet. `params` is a run-config-only arm — the model's provider parameters
-  (thinking level, temperature, top_p) on a clone of the parent
+  yet and `eval_building` is `true` (otherwise the issue is not a candidate —
+  Hard rules). `params` is a run-config-only arm — the model's provider
+  parameters (thinking level, temperature, top_p) on a clone of the parent
   with everything else byte-identical. Parameters are an ordinary lever:
   the kickoff guidance must NAME one to exclude it; "do not
   change the tools/eval/corpus" does not. **Thinking is a ladder**: start from the baseline's level (the minimum viable one)
@@ -470,8 +488,9 @@ runs; only "did the output change in the named way" needs the agent.
   `needs_eval: false` (required together; the schema rejects
   `needs_eval=false` without an `eval_id`).
 - **Merge experiments** — combine pooled unpromoted wins (see Merge timing).
-- **Eval-only items** — the rare exception: the anti-starvation valve, or a
-  cheap-kill confirmation without committing to a fix this wave.
+- **Eval-only items** — the rare exception, and only when `eval_building`
+  is `true`: the anti-starvation valve, or a cheap-kill confirmation without
+  committing to a fix this wave.
 - **Baseline-measurement items** — settle an `UNMEASURED:` issue against the
   current baseline (see below).
 
@@ -534,7 +553,8 @@ iteration (dominated by input count, more than judge type). A 5-case eval is
 cheap to build *and* run; an existing 200-case judge eval costs more per run
 than building a small eval from scratch. Weigh recurring run cost most
 heavily; treat build cost as an investment amortized over every future
-experiment on that issue. **Anti-starvation rule:** if an issue loses
+experiment on that issue. **Anti-starvation rule** (only when
+`eval_building` is `true`): if an issue loses
 selection *mainly on eval-build cost* twice running (track via the
 repeat-deferral counts below), schedule the eval build itself as an
 `eval_only` item — the fresh eval doubles as the issue's cheap-kill
@@ -557,8 +577,9 @@ eval sitting near 0 or 1 moves detectably on fewer items than one sitting at
 half), so this is judgment, never a formula and never a threshold. When the only
 eval for an issue is too small for the effect you expect, the moves are to
 predict a larger effect and say why, to pick a target whose eval can carry the
-question, or to schedule an `eval_only` item that grows it — and to say which
-you chose in `rationale` or `rejected_summary`.
+question, or (only when `eval_building` is `true`) to schedule an
+`eval_only` item that grows it — and to say which you chose in `rationale`
+or `rejected_summary`.
 
 **The floor, per score.** `train_detectability` gives, per
 active (eval, score), what the current baseline's stored train rows can show:
@@ -796,7 +817,8 @@ The two non-experiment item types are flatter — no build, no `evaluation_
 target`, no promotion:
 
 - **`eval_only`** (`issue_memory_id`, `reason`) — commissions a **new** eval
-  via the eval-build agent for an issue that has none. Like the item below,
+  via the eval-build agent for an issue that has none. Experimental and off
+  by default: plan it only when `eval_building` is `true`. Like the item below,
   it is refused on a **closed** issue: if its agent cannot reproduce the
   issue it writes `WONT_FIX:`, and the loop never un-closes a `FIXED:` one.
 - **`measure_issue_baseline`** (`issue_memory_id`, `eval_id`, optional

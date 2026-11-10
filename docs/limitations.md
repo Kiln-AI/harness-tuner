@@ -50,6 +50,18 @@ terminal state. What is live is coarser: a measured candidate shows its
 chunks (`measure_chunk`, for example `chunk 3/9 · 24 judged`), and the
 baseline measurement prints items done of total every 30 seconds.
 
+**The loop does not build evals by default.** Eval building — an
+`eval_only` item, or a fix with `needs_eval: true`, which starts the
+`eval_build` agent — is experimental and off by default. It is not well
+tested end to end, and an eval it builds can have no val split (see "The
+eval builder's splits" below). Only `--experimental-eval-building` turns it
+on. While it is off, the planner is told so, and code drops each such item
+before its wave runs, with one log line for each
+(`items.drop_eval_building_items`). The next planner input lists the
+dropped items. When code drops every item of a plan, the planner plans that
+wave once more. An issue that no eval measures is then left alone. The report's "Issues with no eval" section names it, so that
+you can create its eval in the Kiln app.
+
 **The loop never reads test.** That is deliberate — it is how the number you
 ship on stays one the loop did not optimize against — but it means the loop
 cannot tell you that number. You take it yourself, outside the loop.
@@ -280,7 +292,8 @@ the code. If that runtime can read the project directory or reach the Kiln
 API, an agent can get held-out records through its own tool. The loop does
 not test what the runtime can reach; that is a Kiln server property.
 
-**The eval builder's splits.** `create_eval` sets the new eval's test set
+**The eval builder's splits.** These apply only with
+`--experimental-eval-building`. `create_eval` sets the new eval's test set
 (`eval_set_filter_id`) and train set (`train_set_filter_id`) to tags the
 gateway chooses; the documented API offers no way to set a val split, so an
 eval built this way has no val split for the promotion gate. Its items are

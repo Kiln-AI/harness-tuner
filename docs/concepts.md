@@ -100,7 +100,7 @@ questions it wants a person to answer later.
 | Type | What it does | Agents |
 |---|---|---|
 | `experiment` | build one run config implementing one hypothesis, measure it, judge it | build + analysis |
-| `eval_only` | commission a new eval for an issue that has none | eval build |
+| `eval_only` | commission a new eval for an issue that has none (experimental, off by default: `--experimental-eval-building`) | eval build |
 | `measure_issue_baseline` | run an existing eval against the baseline to settle whether an `UNMEASURED:` issue is real | none — code |
 | `remeasure` | complete an existing run config's measurement where coverage was lost | none — code |
 | `probe` | answer one yes/no question about a mechanism | code, or a short agent session |
