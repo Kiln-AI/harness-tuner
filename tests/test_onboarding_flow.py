@@ -173,6 +173,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
             "Keep the output format.",
             "codex",
             "gpt-6.1-sol",
+            "high",
             "$20",
             "90m",
             "enter",
@@ -217,6 +218,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "busy Looking for agent CLIs…",
         "pick Which agent CLI should run the tuner's agents?",
         "pick Model for the agents",
+        "pick Thinking level for the agents",
         "step Agents: Codex (codex exec) · gpt-6.1-sol",
         "text Budget for this run",
         "step Budget: $20.00",
@@ -255,7 +257,18 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
 
 def test_a_rerun_with_the_printed_command_asks_nothing_and_gets_the_same_flags():
     terminal = ScriptedTerminal(
-        [PROJECT_ID, TASK_ID, "cost", "", "claude", "sonnet", "none", "2h", "enter"]
+        [
+            PROJECT_ID,
+            TASK_ID,
+            "cost",
+            "",
+            "claude",
+            "sonnet",
+            "high",
+            "none",
+            "2h",
+            "enter",
+        ]
         + ["s"]
     )
     first = start(two_projects(), terminal, ["--kiln-host", HOST])
@@ -334,7 +347,7 @@ def test_exit_at_the_start_prompt_stops_with_1():
 
 def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "50", "12h", "enter"]
+        ["", "claude", "opus", "high", "50", "12h", "enter"]
         + ["e", "budget", "$5", "e", "time", "3h", "s"]
     )
     args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
@@ -834,7 +847,7 @@ def test_an_error_is_shown_as_a_block_only_in_a_guided_start(interactive):
 def test_the_start_report_names_the_choice_and_repeats_the_last_texts():
     reports: list[StartReport] = []
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "50", "12h", "enter", "e", "budget", "$5", "s"]
+        ["", "claude", "opus", "high", "50", "12h", "enter", "e", "budget", "$5", "s"]
     )
     argv = [*EVERY_FLAG, "--objective", "speed"]
     start(two_projects(), terminal, argv, report=reports.append)

@@ -313,7 +313,7 @@ the text:
 | Option | Becomes |
 |---|---|
 | the model: `--model`, or `-m` for Codex and OpenCode | the run-wide model. `--agent-model ROLE=MODEL` still overrides it per role. |
-| the effort: `--effort` for Claude, `--variant` for OpenCode | the run-wide effort. `--agent-effort ROLE=EFFORT` still overrides it per role. |
+| the effort: `--effort` for Claude, `-c model_reasoning_effort=…` for Codex, `--variant` for OpenCode | the run-wide effort. `--agent-effort ROLE=EFFORT` still overrides it per role. |
 
 Every other option goes, unchanged, into every session's command. Do not
 repeat an option the dispatcher sets itself (the output format, the MCP
