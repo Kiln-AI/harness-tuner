@@ -28,12 +28,12 @@ supply a separate report on that subject.
 
 ## Subtopics
 
-- [ ] Instructions and context — prompts, skills, progressive disclosure, caching, context loading, and how to author and maintain skills
-- [ ] Tool design for agents — agent-optimised tools, wrappers, response size, tool search, code execution, tool smells
-- [ ] Architecture levers — sub-agents, RAG versus skills, compaction, decision models, input feature engineering, fine-tuning
+- [x] Instructions and context — prompts, skills, progressive disclosure, caching, context loading, and how to author and maintain skills
+- [x] Tool design for agents — agent-optimised tools, wrappers, response size, tool search, code execution, tool smells
+- [x] Architecture levers — sub-agents, RAG versus skills, compaction, decision models, input feature engineering, fine-tuning
 - [ ] Model and provider selection — current guidance, benchmarks, live data sources, provider speed and data retention
-- [ ] Trace diagnostics and red flags — failure taxonomies, error analysis, metrics that software can compute from a harness and its traces
-- [ ] Kiln capability gap — what Kiln can tune, against what Harness Tuner knows about and can reach
+- [x] Trace diagnostics and red flags — failure taxonomies, error analysis, metrics that software can compute from a harness and its traces
+- [x] Kiln capability gap — what Kiln can tune, against what Harness Tuner knows about and can reach
 
 ## Focus Details
 
