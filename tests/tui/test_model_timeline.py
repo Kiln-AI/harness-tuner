@@ -204,7 +204,7 @@ def test_clock_view_gauges_lanes_and_times():
     )
     assert clock.spend.limit == "$50.00"
     assert plain(clock.lanes) == (
-        "Kiln $3.00 · Claude Code $3.00 + 12k tokens unpriced · $4.29/h"
+        "API keys $3.00 · Claude Code $3.00 + 12k tokens unpriced · $4.29/h"
     )
     assert clock.times == "started 14:12 · ends 17:12"
 

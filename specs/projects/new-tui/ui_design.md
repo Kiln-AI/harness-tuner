@@ -77,7 +77,7 @@ Examples, the top of two sections:
 ┌ TIME & SPEND   wave 4 of ~7 ────────────────────────────────────────────────────────────┐
 
 ┌ RESULTS ────────────────────────────────────────────────────────────────────────────────┐
-│ ■ Start · val · starting point   ■ Best Confirmed · val · w3-4     Compare in Kiln UI ↗ │
+│ ■ Start · val · starting point   ■ Best Confirmed · val · w3-4        Compare in Kiln ↗ │
 │ ■ Best Unconfirmed · train estimate                                                     │
 │╭ Refusal honesty ──────────╮ ╭ Hold placement ───────────╮ ╭ Output format ────────────╮│
 ```
@@ -87,7 +87,7 @@ Examples, the top of two sections:
 A Textual container with a rounded border (`border: round`). It is used for Results concerns, experiment items and the run summary.
 
 - **Border title (top left):** what the card is. Bold name, then muted qualifiers. For example "Hold placement · p1" or "Hold placement · wrapper".
-- **Border subtitle (bottom right):** muted meta. For example "⠸ 1 in flight · w4-1" or "w4-1 · $1.20 of $4".
+- **Border subtitle (bottom right):** muted meta. For example "⠸ 1 in flight · w4-1" or "$1.20".
 - **Border color:** `$primary` while the card is live (an item in progress), muted otherwise. Results cards are never live.
 - **Padding:** one cell left and right, none top and bottom.
 - **Grid:** cards sit in a Textual grid with one cell gap. Column count follows the width (section 6).
@@ -188,7 +188,7 @@ The border title "TIME & SPEND", with "wave 4 of ~7" and the [LAST WAVE] tag aft
 
 ### 7.3 Run timeline
 
-The border title "RUN TIMELINE", with the muted legend after it on the border (4.2). The legend is 76 columns, so below 98 columns it goes on the first line inside the box. Then:
+The border title "TUNING TIMELINE", with the muted legend after it on the border (4.2). The legend is 76 columns, so below 101 columns it goes on the first line inside the box. Then:
 
 - a row of wave labels ("w1", "w2", …) above their planning segments;
 - the strip: planning in muted `░`, screening in yellow `▒`, experiments in blue `▓`, a gate with a promotion as a green `◆`, a gate with no winner as a muted `·`, and projected waves as a faint `┄`;
@@ -199,7 +199,7 @@ The border title "RUN TIMELINE", with the muted legend after it on the border (4
 
 ### 7.4 Results
 
-The border title "RESULTS". The header line holds the key and, on the right, the "Compare in Kiln UI ↗" link. The key's entries go on the link's line as far as they fit there (the app measures them; the whole key is about 124 columns, and its length depends on the Best Confirmed name). The rest go on the lines under it, and wrap between entries, never inside one. So the link never has a line of its own. Then a grid of cards, one per concern.
+The border title "RESULTS". The header line holds the key and, on the right, the "Compare in Kiln ↗" link. The key's entries go on the link's line as far as they fit there (the app measures them; the whole key is about 124 columns, and its length depends on the Best Confirmed name). The rest go on the lines under it, and wrap between entries, never inside one. So the link never has a line of its own. Then a grid of cards, one per concern.
 
 ```
 ╭ Refusal honesty · p0 ──────────────────╮
@@ -220,13 +220,13 @@ The border title "EXPERIMENTS". The header line holds the mode and the wave ("Ru
 **Card (Running and Promotion gate modes):**
 
 ```
-╭ Hold placement · wrapper ───────────────────╮
-│ Return only the 6 hold fields from          │
-│ get_container, so the model stops missing … │
+╭ w4-1 target: Hold placement ────────────────╮
+│ Hypothesis: Return only the 6 hold fields   │
+│ from get_container, so the model stops mi…  │
 │ ✓ build  ⠸ measure  · analyze               │
 │ ████▓▓▓▓▓▓··························  14/36  │
 │ 5 fixed · 0 broke so far                    │
-╰──────────────────────── w4-1 · $1.20 of $4 ╯
+╰────────────────────────────────────── $1.20 ╯
 ```
 
 - Line 1–2: the hypothesis (foreground).
@@ -254,9 +254,10 @@ The border title "EXPERIMENTS". The header line holds the mode and the wave ("Ru
 | Fix, measuring | concern · kind | hypothesis | steps | item strip and count | fixed and broke so far |
 | Fix, analyzing | concern · kind | hypothesis | steps | item strip and count | fixed and broke |
 | Fix, landed | concern · kind | hypothesis | steps | item strip and count | the verdict, colored by meaning |
-| At the gate | concern · kind | hypothesis | steps with gate current | val progress gauge, "312 of 520 val items" | the landed verdict, "● Success · goes to the gate", until the gate decides |
+| At the gate | concern · kind | hypothesis | steps with gate current | val progress gauge, "312 of 520 val items" | the landed verdict, "● Train success · checking validation set", until the gate decides |
 | Promoted | concern · kind | hypothesis | steps, gate ✓ | item strip and count | "◆ Promoted · now Best Confirmed" in green |
-| Rejected | concern · kind | hypothesis | steps, gate ✗ | item strip and count | "✗ Rejected at val" in red |
+| Rejected (no winner) | id · target | hypothesis | steps, gate ✗ | item strip and count | "✗ Rejected at val" in red |
+| Not selected (another won) | id · target | hypothesis | steps, gate ○ in yellow | item strip and count | "○ Not selected · w4-3 promoted" in yellow |
 | Merge | "All evals · merge" | "Combine w3-1 and w3-3 on top of w3-4" | steps | as Fix | as Fix |
 | Probe | "Question · probe" | the question | "✓ asked  ⠸ answering" | "3 drives" | "● YES, 3 of 3 drives" |
 | Eval build | concern · eval build | "Build an eval for \<issue\>" | "⠸ build" | – | "Eval built" or the reason |
@@ -264,9 +265,9 @@ The border title "EXPERIMENTS". The header line holds the mode and the wave ("Ru
 | Re-measure | concern · re-measure | "Complete the measurement of \<run config\>" | "⠸ measure" | gauge | "Measured" |
 | Queued | as the type | as the type | all stages `·` | "waiting for an agent slot" | – |
 
-**Starting and Planning modes** show step lines (4.7) above the cards. In Starting, the recon probes' cards sit under a muted header "WAVE 0 · recon probes", with "Wave 1 is planned when the recon probes finish." under them. In Planning, the previous wave's cards stay below with a muted header "WAVE 4 · landed", until the new plan replaces them. ("LAST WAVE" is only the tag, so it is not used here.)
+**Starting and Planning modes** show step lines (4.7) above the cards. In Starting, the recon probes' cards sit under a muted header "RECON · probes", with "Wave 1 is planned when the recon probes finish." under them. In Planning, the previous wave's cards stay below with a muted header "WAVE 4 · landed", until the new plan replaces them. ("LAST WAVE" is only the tag, so it is not used here.)
 
-**Done mode** shows one wide card titled "RUN COMPLETE" in place of the grid, with the summary lines and links from the functional spec.
+**Done mode** shows one wide card titled "TUNING COMPLETE" in place of the grid, with the summary lines and the "Next steps" links from the functional spec.
 
 ### 7.6 Log
 
@@ -278,7 +279,7 @@ The border title "LOG". Textual's `RichLog`, newest at the bottom. It follows th
 15:24 + w4-1 adds get_container_for_hold
 15:25 ! w4-4: copied judge text, rebuilding once
 15:29 ✗ w4-6 thinking low: stopped, can't beat its parent
-15:31 ● w4-2 Refusal honesty: success, goes to the gate
+15:31 ● w4-2 Refusal honesty: train success, checking validation set
 15:41 ◆ w4-2 promoted · Refusal honesty +7.8 on val
 ```
 
@@ -295,7 +296,7 @@ One screen, a transcript that grows down, with the title bar on top and the foot
 | Action menu ("What next?") | The question, then rows "r) Check again", one per action, the highlighted row in reverse `$primary`. One key acts at once. | `OptionList` with key bindings |
 | Picker | The question, a filter input, the rows with aligned columns, the highlighted row's description under the list, and the hint line in muted text. Disabled rows are muted with their reason and can't be highlighted. | `Input` and `OptionList` |
 | Text answer | The question, an input with the default pre-filled, the hint, and the validator's message in red under the input | `Input` with a validator |
-| Summary | A card titled "Ready to start" with the summary lines and the rerun command in muted text, then "Start the run?" as an action menu | Container, `OptionList` |
+| Summary | A card titled "Ready to start" with the summary lines and the rerun command in muted text, then "Start tuning?" as an action menu | Container, `OptionList` |
 
 When an answer is given, its prompt is removed and its step line takes its place. The newest part is always in view.
 
@@ -306,15 +307,15 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 **Stop dialog** (`q` or Ctrl+C during a run):
 
 ```
-╭ Stop the run? ──────────────────────────────────────╮
+╭ Stop tuning? ───────────────────────────────────────╮
 │ 4 experiments are in flight. Their work so far is   │
 │ lost, and no report is written.                     │
 │                                                     │
-│              [ Keep running ]  [ Stop the run ]     │
+│               [ Keep tuning ]  [ Stop tuning ]      │
 ╰─────────────────────────────────────────────────────╯
 ```
 
-"Keep running" has the focus. "Stop the run" is red. Esc closes the dialog.
+"Keep tuning" has the focus. "Stop tuning" is red. Esc closes the dialog.
 
 **Stopping:** the dialog closes, and the Experiments header shows "Stopping…" with a spinner until the run is cancelled.
 
@@ -325,9 +326,9 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 | Screen | Keys |
 |---|---|
 | Start-up | The prompt's own keys (functional spec section 5); the footer shows `^c Stop` then `^d Exit` on every part |
-| Run | `c` Compare in Kiln UI, `l` Lineage in Kiln UI, `r` Report (once it exists), `q` / Ctrl+C stop dialog; mouse wheel and Page Up / Page Down scroll the log or the screen |
-| Done | `c`, `l`, `r`, `q` / Enter close |
-| Stop dialog | Tab / arrows move, Enter chooses, Esc keeps running |
+| Run | `c` Compare in Kiln, `g` Experiment graph, `r` Report (once it exists), `q` / Ctrl+C stop dialog; mouse wheel and Page Up / Page Down scroll the log or the screen |
+| Done | `c`, `g`, `r`, `q` / Enter close |
+| Stop dialog | Tab / arrows move, Enter chooses, Esc keeps tuning |
 
 ## 11. Departures from the mocks
 
@@ -371,12 +372,26 @@ Building the preview on Textual 8.2.8 found these. The architecture has to allow
 Functional spec section 16 lists decisions that change some looks above. Where they differ, section 16 wins:
 
 - Results card titles drop the priority ("Hold placement", not "Hold placement · p1").
-- Experiment card subtitles show the item id and its total spend ("w4-1 · $2.30"), with no cap.
+- Experiment card subtitles show the item's total spend ("$2.30"), with no cap (and, from section 15, no item id).
 - Probe line 5 is "● YES · 3 drives". The probe steps are "⠸ asking" then "✓ answered".
 - Issue measurement and re-measure cards show "measuring · 3m10s" on line 4, not a gauge.
 - Best Confirmed's change is green or red only. Best Unconfirmed's change is dim when its interval crosses zero.
 - Cost and latency cards have no "N in flight" in their subtitle.
 - Run configs are named by their Kiln names, for example "Best Confirmed · val · Hold fields wrapper".
-- A cut-off item shows "✗ Cut off: the run ended" in red.
+- A cut-off item shows "✗ Cut off: tuning ended" in red.
 - The Goal's data line is "train 312 · held out 208 (val and test) · test never read" (functional spec 16, decision 4), 69 columns with its label. The Goal is at least 73 columns wide (the line, the frame and the padding), not 62, so at 210 columns the line fits on one row and the Goal is as tall as Time & spend. A longer line wraps under its own text, not under the label.
 - The run screen's sections are square boxes with their names on the top border (4.2), not header lines with a blank line between them. The owner found the sections not well divided; of four options drawn as screenshots, the bordered panels were the cleanest.
+
+## 15. Changes from the first full run (TUI iteration 1)
+
+The owner's review of a full run changed these. Where they differ from the sections above, this section wins:
+
+- Words: "TUNING TIMELINE", "TUNING COMPLETE", "Stop tuning?", "Keep tuning", "Stop tuning", "Tuning started · …", "Tuning ended: …", "Cut off: tuning ended". The run id, "Run folder" and the CLI's exit lines keep "run".
+- Recon is no wave: "RECON · probes", "Starting · recon", "Recon · 3 probes". Main waves keep their numbers.
+- The lane Kiln's eval jobs spend on is "API keys", not "Kiln".
+- Experiment cards: the title is the item id in bold, then muted "target: \<eval\>" (or "targets: \<first\> +N", "merge", "probe", "new eval", "measure: \<eval\>", "re-measure: \<eval\>"). Lines 1–2 are "Hypothesis: " (or "Question: " on a probe), then the planner's words, muted. The technique is not on the card. The subtitle is the item's own spend only ("$1.60", above 0): no item id and no cap.
+- Results cards: "Eval: \<name\>" in bold, then the score key (only when the eval has two or more cards) and "1–5" muted, with no " · ". "Latency median", "Cost / request". Best Unconfirmed stays inside its scale.
+- "Train success · checking validation set" replaces "Success · goes to the gate". A candidate the gate did not pick while it promoted another is "○ Not selected · \<winner\> promoted" in yellow, its gate step a yellow ○. "Rejected at val" stays for a gate with no winner.
+- Done: "Next steps" with three links replaces the link row and the "Next:" line; the report path is a link. The closing block prints the same steps with their addresses.
+- Keys: `g` Experiment graph replaces `l`; the links say "Compare in Kiln" and "Experiment Graph in Kiln".
+- Beside the Log, Experiments and the Log fill the bottom area and always have the same height.

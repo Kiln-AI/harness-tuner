@@ -75,7 +75,7 @@ Argument errors (exit 2) happen before the app starts and print as today.
 ## 4. Lifecycle
 
 1. **Launch.** The app opens on the start-up screen.
-2. **Start-up flow** (section 5). It ends when the person answers "Start the run?" with yes, or at once when no questions are asked.
+2. **Start-up flow** (section 5). It ends when the person answers "Start tuning?" with yes, or at once when no questions are asked.
 3. **The run's own start.** This covers the agent CLI test prompt, the loop's preflight, setup, the baseline measurement, the model preflight, the detectability and noise checks, wave 0 (recon probes) and the opening screen. The run screen shows it in the Starting mode (section 7.6). Today the agent CLI test prompt can take up to 3 minutes with nothing on screen. The app shows it as a step with a spinner.
 4. **Waves.** The run screen shows each wave's planning, experiments and promotion gate.
 5. **Done.** The run ends (time limit, budget, the planner has nothing left to try, the tripwire, or a provider quota or authentication error). The report is written, and the run screen shows the Done mode. The app stays open until the person closes it.
@@ -86,9 +86,9 @@ The exit codes stay as they are today:
 | Code | When |
 |---|---|
 | 0 | The run finished |
-| 1 | Ctrl+D at a start-up question, `x) Exit` in any menu ("Start the run?" included), or a start-up error |
+| 1 | Ctrl+D at a start-up question, `x) Exit` in any menu ("Start tuning?" included), or a start-up error |
 | 2 | Argument errors (before the app starts) |
-| 130 | Ctrl+C during the start-up, or "Stop the run" during the run |
+| 130 | Ctrl+C during the start-up, or "Stop tuning" during the run |
 
 ## 5. The start-up flow
 
@@ -96,7 +96,7 @@ The exit codes stay as they are today:
 
 The start-up flow keeps everything it has today:
 
-- the steps, in the same order: welcome, Kiln check, demo copy, project, task and folder, readiness, API keys, the questions, the key check again, the summary, the rerun command and "Start the run?";
+- the steps, in the same order: welcome, Kiln check, demo copy, project, task and folder, readiness, API keys, the questions, the key check again, the summary, the rerun command and "Start tuning?";
 - every user-facing string, exactly;
 - every choice, its key, its order and its default;
 - every validation rule and its error message;
@@ -229,7 +229,7 @@ The Experiments section is always visible. Its mode follows the loop:
 3. **How far along:** steps (build, measure, analyze), plus gate for promotion candidates. Done steps, the current step and later steps look different.
 4. **Is it working:** "14 of 36 judged · 5 fixed · 0 broke so far", spelled out. Then a strip with one cell per judged item, when it fits.
 
-Secondary, quieter: the kind of change (prompt, skill, tool wrapper, model, thinking, merge, question), the item id, and the spend against its cap.
+Secondary, quieter: after the item id on the top border, its target eval or its kind; on the bottom border, the item's total spend, with no cap (section 16, decision 9).
 
 A card keeps its size and its place from the start of the wave to its verdict. A finished card shows its verdict in plain words. Cards never fold, move or regroup.
 
@@ -259,7 +259,7 @@ A card keeps its size and its place from the start of the wave to its verdict. A
 
 | Outcome | Card text |
 |---|---|
-| Success, a promotion candidate | Success · goes to the gate |
+| Success, a promotion candidate | Train success · checking validation set |
 | Success, not a candidate | Success |
 | No win | No win |
 | Stopped by `futility` | Stopped: can't beat its parent |
@@ -275,7 +275,8 @@ A card keeps its size and its place from the start of the wave to its verdict. A
 | Infra failure | Failed: \<error class\> |
 | Not reproduced | Not reproduced |
 | Promoted at the gate | Promoted · now Best Confirmed |
-| Rejected at the gate | Rejected at val |
+| Rejected at the gate, which had no winner | Rejected at val |
+| Not picked at a gate that promoted another | Not selected · \<winner item id\> promoted (yellow) |
 | Held at the gate | Held: waiting on an open question |
 | Blocked at the gate | Blocked: copies eval text |
 | Probe answered | YES or NO, and the evidence count |
@@ -290,8 +291,8 @@ Four of these are too long for a card. The cards use shorter words for them, and
 - elapsed time, spend against the budget, waves, experiments, promotions, experiments stopped early;
 - Best Confirmed: its run config and its description;
 - the report path, or "no report" when the run was stopped;
-- links: Compare in Kiln UI, Lineage in Kiln UI, Report;
-- "Next: run your test split on \<run config\>. The tuner never read it."
+- the report path is a link;
+- "Next steps": "Visualize Experiment Graph in Kiln ↗"; "Compare \<Best Confirmed item id\> to the starting point in Kiln ↗", with a note that the evals may need a run on the withheld 'test' dataset (or, with no promotion, "No experiment was promoted, so the starting point stays best."); "Read Tuning Report ↗" (muted "(writing…)" until it exists). The compare link holds only the starting point and Best Confirmed.
 
 Results, the timeline and the log stay as they were at the end.
 
@@ -333,7 +334,7 @@ The density is "everything notable": outcomes, plus builds and check findings. T
 
 ### 7.8 Footer and links
 
-The footer holds the main links and keys: `c` Compare in Kiln UI, `l` Lineage in Kiln UI, `r` Report, `q` quit. Links are also clickable wherever they show.
+The footer holds the main links and keys: `c` Compare in Kiln, `g` Experiment graph, `r` Report, `q` quit. Links are also clickable wherever they show.
 
 Kiln web URLs, built from the Kiln host, the project id and the task id:
 
@@ -378,8 +379,8 @@ Interaction is minimal, on purpose. The run is hands-off.
 |---|---|---|
 | Start-up flow | Ctrl+C | Stops at once, exit 130, as today |
 | Start-up flow | Ctrl+D | Stops, exit 1, as today |
-| During the run | `q` or Ctrl+C | A dialog: "Stop the run?". It names what is in flight (for example "4 experiments in flight. Their work so far is lost.") and offers **Stop the run** and **Keep running**. Keep running is the default. |
-| After "Stop the run" | – | The app shows "Stopping…" while the run is cancelled through the run's existing cancel path (the one SIGTERM uses): agent sessions killed, the run lock released. No report is written. The app closes and prints the closing block. The exit code and the "interrupted" line are whatever that path gives today (decided: the exit code does not matter). |
+| During the run | `q` or Ctrl+C | A dialog: "Stop tuning?". It names what is in flight (for example "4 experiments in flight. Their work so far is lost.") and offers **Stop tuning** and **Keep tuning**. Keep tuning is the default. |
+| After "Stop tuning" | – | The app shows "Stopping…" while the run is cancelled through the run's existing cancel path (the one SIGTERM uses): agent sessions killed, the run lock released. No report is written. The app closes and prints the closing block. The exit code and the "interrupted" line are whatever that path gives today (decided: the exit code does not matter). |
 | Done | `q` or Enter | The app closes and prints the closing block. No confirmation; nothing is in flight. |
 | Any time | SIGTERM, SIGHUP | As today: the app forwards them to the run's existing stop code, which cancels the run (decided: the run thread must get them). |
 
@@ -492,8 +493,8 @@ The key decisions from the design conversation and from speccing, with their rea
 | 6 | Start values | Pass rates come from setup. Rating, cost and latency appear in the Start row when the first experiment that measures them completes. Until then the row says "not measured yet". |
 | 7 | Probe answers | "YES · 3 drives": the answer and the number of drives. "UNCLEAR" is a third answer. |
 | 8 | Issue measurement and re-measure cards | No progress gauge, because nothing is emitted while they measure. They show the elapsed time. |
-| 9 | Card spend | The card shows the item's total spend only, with no cap. |
-| 10 | Items cut off at the deadline | A new verdict, "Cut off: the run ended", from the existing deadline and fatal-cancel events. |
+| 9 | Card spend | The card shows the item's total spend only ("$1.60", above 0), with no cap and no item id. |
+| 10 | Items cut off at the deadline | A new verdict, "Cut off: tuning ended", from the existing deadline and fatal-cancel events. |
 | 11 | Promoted | "Promoted" shows only when the gate ends with no block for that run config. |
 | 12 | Cost and latency cards | No in-flight count: experiments target evals only. An experiment card always names an eval. |
 | 13 | Best Confirmed's change against Start | Colored by direction only (green better, red worse). There is no "no clear change" state for it. |

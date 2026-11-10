@@ -6,7 +6,7 @@ import logging
 
 import pytest
 from app_fakes import until
-from model_events import Run, fix, measure, probe, row
+from model_events import Run, fix, measure, probe, row, table, val_row
 from rich.color import ColorSystem
 from run_screen import (
     done,
@@ -19,6 +19,7 @@ from run_screen import (
     unspun,
     wave_one,
 )
+from textual.content import Content
 from textual.geometry import Region
 from textual.widgets import ProgressBar, Static
 
@@ -121,7 +122,7 @@ async def test_time_and_spend_show_two_gauges_lanes_and_the_wave():
         assert text(clock.spend.value) == "$12.50"
         assert text(clock.spend.limit) == "$50.00"
         assert clock.spend.bar.visible
-        assert text(clock.lanes).startswith("Kiln $12.50 · Claude Code $0.00")
+        assert text(clock.lanes).startswith("API keys $12.50 · Claude Code $0.00")
         assert text(clock.times) == "started 14:12 · ends 17:12"
         assert title_of(clock) == "TIME & SPEND   wave 1"
         assert not clock.meta.display
@@ -200,7 +201,7 @@ async def test_the_timeline_section_shows_the_run_and_its_legend():
         drawn = text(section.timeline).split("\n")
         assert drawn[0].split()[:2] == ["setup", "w1"]
         assert "▲ now 14:32" in drawn[3]
-        assert title_of(section) == f"RUN TIMELINE   {LEGEND}"
+        assert title_of(section) == f"TUNING TIMELINE   {LEGEND}"
 
 
 async def test_before_the_run_starts_the_timeline_is_blank():
@@ -216,10 +217,16 @@ async def test_results_show_one_card_per_concern_with_three_tiers():
     async with on_screen(running()) as (harness, _pilot):
         cards = harness.screen.results.cards
         assert [title_of(card) for card in cards] == [
-            "Hold placement",
-            "Refusal honesty",
+            "Eval: Hold placement",
+            "Eval: Refusal honesty",
             "Cost / request",
-            "Latency · median",
+            "Latency median",
+        ]
+        # The name bold, the qualifier muted: the change of style parts them.
+        latency = cards[3]._border_title
+        assert [(span.start, span.end, span.style) for span in latency.spans] == [
+            (0, 7, "bold"),
+            (7, 14, "$text-muted"),
         ]
         hold = text(cards[0].bars).split("\n")
         assert hold[0].endswith("60.0%      ")
@@ -244,7 +251,7 @@ async def test_the_results_key_wraps_under_the_link_when_it_does_not_fit():
     async with on_screen(running(), size=(120, 40)) as (harness, _pilot):
         results = harness.screen.results
         assert text(results.header.context) == f"{start}   {confirmed}"
-        assert text(results.header.meta) == "Compare in Kiln UI ↗"
+        assert text(results.header.meta) == "Compare in Kiln ↗"
         assert results.key.display
         assert text(results.key) == unconfirmed
 
@@ -260,7 +267,7 @@ async def test_results_cards_are_made_again_only_when_the_concerns_change():
         run.model.eval_names["e9"] = "New check"
         await harness.shown(pilot)
         cards = harness.screen.results.cards
-        assert [title_of(card) for card in cards][2] == "e9"
+        assert [title_of(card) for card in cards][2] == "Eval: e9"
         assert len(cards) == 5
 
 
@@ -280,7 +287,7 @@ async def test_starting_mode_shows_the_checklist_and_the_recon_cards():
         run.at(3).wave_start(0, probe("r0-1"), probe("r0-2"), headline="2 probes")
         await harness.shown(pilot)
         assert text(section.rows[0]).startswith("✓ Agent CLI ")
-        assert text(section.subhead) == "WAVE 0 · recon probes"
+        assert text(section.subhead) == "RECON · probes"
         assert list(section.cards) == ["r0-1", "r0-2"]
         assert text(section.note) == words.RECON_NOTE
         assert section.note.display and section.subhead.display
@@ -312,21 +319,31 @@ async def test_running_mode_shows_one_card_per_item_in_order():
         assert text(section.header.meta) == "8m00s"
         assert list(section.cards) == ["w1-1", "w1-2", "w1-3", "w1-4", "w1-5"]
         building, measuring, landed, asking, queued = section.cards.values()
-        assert title_of(building) == "Hold placement · prompt"
+        assert title_of(building) == "w1-1 target: Hold placement"
         assert text(building.hypothesis) == (
-            "Return only the hold fields from\nget_container"
+            "Hypothesis: Return only the hold fields\nfrom get_container"
         )
+        # The label in the normal style, the planner's words muted.
+        drawn = building.hypothesis.render()
+        assert [(span.start, span.style) for span in drawn.spans] == [
+            (12, "$text-muted"),
+            (40, "$text-muted"),
+        ]
         assert text(building.steps) == "* build  · measure  · analyze"
         assert text(building.line4.label).startswith("an agent is writing the change")
         assert building.has_class("-live") and not queued.has_class("-live")
-        assert title_of(measuring) == "Refusal honesty · skill"
+        assert title_of(measuring) == "w1-2 target: Refusal honesty"
         assert text(measuring.steps) == "✓ build  * measure  · analyze"
         assert measuring.line4.strip.display
         assert text(measuring.line4.strip).startswith("█▓░···")
         assert text(measuring.line4.label) == "3/36"
         assert text(measuring.line5) == "1 fixed · 0 broke so far"
-        assert text(landed.line5) == "● Success · goes to the gate"
-        assert subtitle_of(landed) == "w1-3"
+        assert text(landed.line5) == "● Train success · checking validation set"
+        # The item's own spend only, above 0; no id.
+        assert subtitle_of(landed) == ""
+        run.emit("spend", item_id="w1-2", source="measurement", cost_usd=1.6)
+        await harness.shown(pilot)
+        assert subtitle_of(measuring) == "$1.60"
         assert text(asking.steps) == "* asking  · answered"
         assert text(queued.line4.label) == words.QUEUED
         # A card keeps its place from the start of the wave to its verdict.
@@ -338,10 +355,15 @@ async def test_running_mode_shows_one_card_per_item_in_order():
 
 
 def test_a_hypothesis_is_cut_after_two_lines():
-    words_ = "word " * 30
-    lines = two_lines(words_, 20).split("\n")
+    said = Content.assemble("Hypothesis: ", ("word " * 30, "$text-muted"))
+    drawn = two_lines(said, 20)
+    lines = drawn.plain.split("\n")
     assert len(lines) == 2
+    assert lines[0].startswith("Hypothesis: word")
     assert lines[1].endswith("…") and len(lines[1]) <= 20
+    # The cut keeps the planner's words muted, its "…" too.
+    last = drawn.spans[-1]
+    assert (last.end, last.style) == (len(drawn.plain), "$text-muted")
 
 
 async def test_the_strip_turns_into_a_gauge_when_the_items_do_not_fit():
@@ -376,11 +398,28 @@ async def test_gate_mode_shows_val_progress_and_the_gate_verdict():
         assert text(card.steps) == "✓ build  ✓ measure  ✓ analyze  * gate"
         assert card.line4.bar.display and not card.line4.strip.display
         assert text(card.line4.label) == "0 of 100 val items"
-        assert text(card.line5) == "● Success · goes to the gate"
+        assert text(card.line5) == "● Train success · checking validation set"
         run.gate_end(1)
         await harness.shown(pilot)
         assert text(card.steps) == "✓ build  ✓ measure  ✓ analyze  ✓ gate"
         assert text(card.line5) == "◆ Promoted · now Best Confirmed"
+
+
+async def test_a_candidate_the_gate_did_not_pick_shows_a_warning():
+    run = wave_one(fix("w1-1"), fix("w1-2", "e2"))
+    run.success("w1-1", "rc_a", row("e1", 0.6, 0.7))
+    run.success("w1-2", "rc_b", row("e2", 0.8, 0.85))
+    tables = (
+        table("rc_a", val_row("e1", 0.62, 0.70)),
+        table("rc_b", val_row("e2", 0.80, 0.84)),
+    )
+    run.at(30).gate(1, *tables, winner="rc_a")
+    async with on_screen(run) as (harness, _pilot):
+        card = harness.screen.experiments.cards["w1-2"]
+        assert text(card.steps) == "✓ build  ✓ measure  ✓ analyze  ○ gate"
+        glyph = card.steps.render().spans[-2]
+        assert glyph.style == "$text-warning"
+        assert text(card.line5) == "○ Not selected · w1-1 promoted"
 
 
 async def test_issue_measurement_cards_show_the_time_they_measure():
@@ -397,7 +436,7 @@ async def test_done_mode_shows_the_run_summary_with_its_links():
         section = harness.screen.experiments
         assert not section.grid.display
         assert section.done.display
-        assert title_of(section.done) == words.RUN_COMPLETE
+        assert title_of(section.done) == words.TUNING_COMPLETE
         assert subtitle_of(section.done) == "run 261109-1412"
         body = text(section.done.body).split("\n")
         assert body[0] == (
@@ -406,11 +445,19 @@ async def test_done_mode_shows_the_run_summary_with_its_links():
         )
         assert body[1] == "1 wave · 2 experiments · 1 promotion · 1 stopped early"
         assert body[3].startswith("Best Confirmed  Hold fields · w1-1")
-        assert body[4] == "Report          /state/reports/report.md"
-        assert body[6] == "Compare in Kiln UI ↗   Lineage in Kiln UI ↗   Report ↗"
-        assert body[8] == (
-            "Next: run your test split on Hold fields · w1-1. The tuner never read it."
-        )
+        assert body[4] == "Report          /state/reports/report.md ↗"
+        assert len(body) == 5
+        title = section.done.query_one(".next-title", Static)
+        assert text(title) == "Next steps"
+        await pilot.pause()
+        steps = [text(row) for row in section.done.query(".next-step-text")]
+        assert steps == [
+            "Visualize Experiment Graph in Kiln ↗",
+            "Compare w1-1 to the starting point in Kiln ↗  You may need to run"
+            " evals on the 'test' dataset, which is intentionally withheld from"
+            " tuning.",
+            "Read Tuning Report ↗",
+        ]
         assert harness.screen.has_class("-done")
         harness.fake.release.set()
         await until(
@@ -419,10 +466,30 @@ async def test_done_mode_shows_the_run_summary_with_its_links():
         await pilot.pause()
         assert footer(harness.app) == {
             "c": words.COMPARE_LINK,
-            "l": words.LINEAGE_LINK,
+            "g": words.GRAPH_KEY,
             "r": words.REPORT_LINK,
             "q": words.CLOSE_KEY,
         }
+
+
+async def test_before_the_report_its_step_is_muted_and_with_no_promotion_no_link():
+    run = wave_one(fix("w1-1"))
+    run.at(170).emit("exit", reason="timeout")
+    async with on_screen(run) as (harness, pilot):
+        card = harness.screen.experiments.done
+        await pilot.pause()
+        rows = list(card.query(".next-step-text"))
+        assert [text(row) for row in rows] == [
+            "Visualize Experiment Graph in Kiln ↗",
+            "No experiment was promoted, so the starting point stays best.",
+            "Read Tuning Report (writing…)",
+        ]
+        assert rows[2].render().spans[0].style == "$text-muted"
+        assert text(card.body).split("\n")[4] == "Report          writing the report…"
+        run.emit("report_written", path="/state/reports/r.md", fallback=False)
+        await harness.shown(pilot)
+        rows = list(card.query(".next-step-text"))
+        assert text(rows[2]) == "Read Tuning Report ↗"
 
 
 async def test_stopping_shows_in_the_experiments_header():
@@ -534,10 +601,10 @@ async def test_the_keys_open_compare_lineage_and_the_report():
         model = run.model
         assert footer(harness.app) == {
             "c": words.COMPARE_LINK,
-            "l": words.LINEAGE_LINK,
+            "g": words.GRAPH_KEY,
             "q": words.STOP_KEY,
         }
-        await pilot.press("c", "l", "r")
+        await pilot.press("c", "g", "r")
         assert harness.opened == [model.compare_url(), model.lineage_url()]
         run.emit("report_written", path="/state/reports/r.md", fallback=False)
         await harness.shown(pilot)
@@ -623,6 +690,40 @@ async def test_the_wide_layout_puts_the_log_beside_experiments():
         assert screen.goal.region.y == screen.clock.region.y
 
 
+@pytest.mark.parametrize("cards", [1, 30])
+async def test_beside_the_log_experiments_and_the_log_are_always_as_tall(cards):
+    run = wave_one(*(fix(f"w1-{n}") for n in range(1, cards + 1)))
+    async with on_screen(run, size=(210, 62)) as (harness, pilot):
+        screen = harness.screen
+        await pilot.pause()
+        experiments, log = screen.experiments.region, screen.log_section.region
+        assert (experiments.y, experiments.height) == (log.y, log.height)
+        body = screen.query_one("#body")
+        if cards == 1:
+            # Both fill the rest of the screen, and nothing scrolls.
+            assert experiments.bottom == body.region.bottom
+            assert body.max_scroll_y == 0
+        else:
+            # Both grow to the cards, and the screen scrolls.
+            assert experiments.height == screen.experiments.content_height()
+            assert body.max_scroll_y > 0
+
+
+async def test_the_two_shrink_together_when_the_cards_go():
+    run = wave_one(*(fix(f"w1-{n}") for n in range(1, 31)))
+    async with on_screen(run, size=(210, 62)) as (harness, pilot):
+        screen = harness.screen
+        body = screen.query_one("#body")
+        assert body.max_scroll_y > 0
+        run.at(30).plan(2).at(31).planned(2)
+        run.wave_start(2, fix("w2-1"))
+        await harness.shown(pilot)
+        await pilot.pause()
+        experiments, log = screen.experiments.region, screen.log_section.region
+        assert experiments.height == log.height
+        assert body.max_scroll_y == 0
+
+
 def meta_shown(section) -> tuple[str, str]:
     """Where a section's meta is drawn, and its text: on the top border
     after the name, or on its own lines inside."""
@@ -639,7 +740,7 @@ def meta_shown(section) -> tuple[str, str]:
     return "inside", "  ".join(lines)
 
 
-@pytest.mark.parametrize("width", [*WIDTHS, 96, 97, 98])
+@pytest.mark.parametrize("width", [*WIDTHS, 99, 100, 101])
 async def test_the_wave_and_the_legend_are_never_cut_off(width):
     run = wave_one(fix("w1-1"))
     run.at(40).plan(2, wrap_up=True)
@@ -650,7 +751,7 @@ async def test_the_wave_and_the_legend_are_never_cut_off(width):
         where, legend = meta_shown(screen.timeline)
         assert legend == LEGEND
         # On the border, beside the name, where it fits.
-        assert where == ("inside" if width < 98 else "border")
+        assert where == ("inside" if width < 101 else "border")
 
 
 @pytest.mark.parametrize("width", WIDTHS)
@@ -658,7 +759,7 @@ async def test_the_wave_and_the_legend_are_never_cut_off(width):
 async def test_the_compare_link_never_has_a_line_of_its_own(make, width):
     async with on_screen(make(), size=(width, 40)) as (harness, _pilot):
         results = harness.screen.results
-        assert text(results.header.meta) == "Compare in Kiln UI ↗"
+        assert text(results.header.meta) == "Compare in Kiln ↗"
         assert text(results.header.context).startswith("■ Start")
         drawn = text(results.key).split("\n") if results.key.display else []
         assert all(len(line) <= results.key.size.width for line in drawn)
@@ -796,7 +897,7 @@ async def test_with_no_browser_the_keys_put_each_address_in_the_log(monkeypatch)
     run = running()
     run.emit("report_written", path="/state/reports/r.md", fallback=False)
     async with on_screen(run, catch_links=False) as (harness, pilot):
-        await pilot.press("c", "l", "r")
+        await pilot.press("c", "g", "r")
         await pilot.pause()
         compare, lineage = harness.screen.compare, run.model.lineage_url()
         assert asked == [compare, lineage, "/state/reports/r.md"]
@@ -822,16 +923,15 @@ async def test_with_no_browser_a_click_on_done_puts_the_address_in_the_log(
         await until(
             pilot, lambda: (harness.app.drain(), harness.app.phase)[1] == "done"
         )
-        body = harness.screen.experiments.done.body
-        line = (
-            text(body)
-            .split("\n")
-            .index("Compare in Kiln UI ↗   Lineage in Kiln UI ↗   Report ↗")
-        )
-        await pilot.click(body, offset=(len("Compare in Kiln UI ↗   ") + 2, line))
+        card = harness.screen.experiments.done
+        graph = card.query(".next-step-text").first()
+        await pilot.click(graph, offset=(2, 0))
+        # The report's path on the Report row opens as the `r` key does.
+        await pilot.click(card.body, offset=(len("Report          ") + 2, 4))
         await pilot.pause()
         assert link_lines(harness) == [
-            f"Open this link in your browser: {run.model.lineage_url()}"
+            f"Open this link in your browser: {run.model.lineage_url()}",
+            "Open this link in your browser: /state/reports/report.md",
         ]
 
 
@@ -858,8 +958,7 @@ async def test_the_compare_link_is_built_once_from_the_results_view():
         await harness.shown(pilot)
         screen = harness.screen
         compare = screen.compare
-        assert text(screen.results.header.meta) == "Compare in Kiln UI ↗"
-        assert screen.experiments.done.body.key[1] == compare
+        assert text(screen.results.header.meta) == "Compare in Kiln ↗"
         await pilot.press("c")
         assert harness.opened == [compare]
 

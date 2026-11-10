@@ -23,7 +23,7 @@ in the report's spend appendix.
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|
 | Claude Code | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. A Codex session reports tokens, not cost, and so does an OpenCode session on a plan that prices nothing: their tokens are booked as unmeasured ([agent-cli.md](agent-cli.md) sections 10 and 11). |
-| Kiln | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
+| API keys | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
 
 They are separate invoices, on separate accounts. `--budget-usd` is a ceiling on
 **both together**.
@@ -234,7 +234,7 @@ one line prints that estimate, priced from the baseline's own stored rows
 (the median drive and the median judgment per eval). With a budget (any
 `--budget-usd` but `none`), an estimate that does not fit the remaining
 budget skips the check with the reason. What it spent is booked as source
-`noise_check` in the Kiln lane, and it counts against the budget like every
+`noise_check` in the API keys lane, and it counts against the budget like every
 other line.
 
 ## How spend is booked

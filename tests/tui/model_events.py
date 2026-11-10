@@ -36,6 +36,7 @@ from kiln_harness_tuner.schemas import (
     WinRef,
 )
 from kiln_harness_tuner.status import item_summary
+from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.names import RcNames
@@ -250,8 +251,11 @@ class Run:
         cards = self.model.experiments(self.t).cards
         return next(c for c in cards if c.item_id == item_id)
 
-    def concern(self, title: str):
-        return next(c for c in self.model.results().cards if c.title == title)
+    def concern(self, name: str):
+        """The Results card of the concern `name`: an eval's card says
+        "Eval: " before its name."""
+        titles = (name, words.eval_title(name))
+        return next(c for c in self.model.results().cards if c.title in titles)
 
     def line5(self, item_id: str) -> str:
         return plain(self.card(item_id).line5)

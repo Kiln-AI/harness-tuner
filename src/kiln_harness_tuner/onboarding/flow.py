@@ -69,9 +69,9 @@ from kiln_harness_tuner.onboarding.terminal import (
 T = TypeVar("T")
 
 PICK_ANOTHER_TASK = Action("t", "Pick a different task", ActionKind.PICK_TASK)
-START = Action("s", "Start the run", ActionKind.START)
+START = Action("s", "Start tuning", ActionKind.START)
 CHANGE = Action("e", "Change an answer", ActionKind.CHANGE)
-START_QUESTION = "Start the run?"
+START_QUESTION = "Start tuning?"
 CHANGE_QUESTION = "Which answer do you want to change?"
 WELCOME_TITLE = "Kiln Harness Tuner"
 WELCOME_DESCRIPTION = (

@@ -7,7 +7,7 @@ The fake run writes to stdout and stderr in each way a stray writer does,
 then makes the file `started`. With `wait` it runs until it is cancelled;
 with `finish` it ends at once and the app shows Done. Its teardown makes
 the file `teardown`. With `ask` the process is `cli.main` itself, which
-picks the app for a terminal, and the fake start asks "Start the run?" in
+picks the app for a terminal, and the fake start asks "Start tuning?" in
 the app before it reports.
 """
 

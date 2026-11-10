@@ -267,7 +267,7 @@ async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
     text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
     assert text.startswith("# Report\nbody\n")
     assert SPEND_APPENDIX_HEADING in text
-    assert "| source | Claude Code | Kiln | total |" in text
+    assert "| source | Claude Code | API keys | total |" in text
     assert "| batch_plan | $0.50 | — | $0.50 |" in text
     assert "| eval_jobs | — | $1.25 | $1.25 |" in text
     assert "| val_pass | — | $0.75 | $0.75 |" in text
@@ -317,7 +317,7 @@ def test_render_spend_appendix_gives_unexpected_lane_its_own_column():
     spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
     tracker.event("spend", source="mystery", cost_usd=0.1)  # lane-less
     text = render_spend_appendix(tracker.snapshot())
-    assert "| source | Claude Code | Kiln | unknown | total |" in text
+    assert "| source | Claude Code | API keys | unknown | total |" in text
     assert "| mystery | — | — | $0.10 | $0.10 |" in text
     assert "| **total** | $0.50 | $0.00 | $0.10 | $0.60 |" in text
 

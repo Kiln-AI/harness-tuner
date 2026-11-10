@@ -14,7 +14,6 @@ the `Content` it drew, to know whether it changed.
 from __future__ import annotations
 
 import re
-import textwrap
 import time
 from collections import deque
 from collections.abc import Callable, Hashable, Sequence
@@ -516,7 +515,8 @@ class TierBars(Widget):
 
 def steps_content(steps: Sequence[tuple[str, StepState]], frame: str) -> Content:
     """4.6: done stages muted with a green ✓; the current one bold blue with
-    a spinner; later ones muted with `·`; a stop shows a red ✗."""
+    a spinner; later ones muted with `·`; a stop shows a red ✗, and a stage
+    that ended with a warning a yellow ○."""
     parts: list[str | tuple[str, str]] = []
     for index, (name, state) in enumerate(steps):
         if index:
@@ -527,6 +527,11 @@ def steps_content(steps: Sequence[tuple[str, StepState]], frame: str) -> Content
             parts += [(frame, "$text-primary"), (f" {name}", "bold $text-primary")]
         elif state == "stopped":
             parts += [("✗", "$text-error"), (f" {name}", "$text-muted")]
+        elif state == "warned":
+            parts += [
+                (words.NOT_SELECTED_GLYPH, "$text-warning"),
+                (f" {name}", "$text-muted"),
+            ]
         else:
             parts.append((f"· {name}", "$text-muted"))
     return Content.assemble(*parts)
@@ -667,34 +672,35 @@ def tag(text: str) -> Content:
 # ---- the experiment card's text (ui_design 7.5) ----
 
 
-def two_lines(text: str, width: int) -> str:
-    """The text wrapped at `width`, cut with "…" after two lines. Textual
-    has no line clamp (ui_design 13)."""
+def two_lines(text: Content, width: int) -> Content:
+    """The text wrapped at `width`, with its styles, cut with "…" after two
+    lines. Textual has no line clamp (ui_design 13)."""
     width = max(width, 8)
-    lines = textwrap.wrap(text, width) or [""]
+    lines = text.wrap(width) or [Content("")]
     if len(lines) > 2:
-        rest = " ".join(lines[1:])
-        lines = [lines[0], rest[: width - 1].rstrip() + "…"]
-    return "\n".join(lines)
+        cut = Content(" ").join(lines[1:])[: width - 1].rstrip()
+        style = cut.spans[-1].style if cut.spans else ""
+        lines = [lines[0], Content.assemble(cut, ("…", style))]
+    return Content("\n").join(lines)
 
 
 class Hypothesis(Widget):
-    """Lines 1–2 of an experiment card."""
+    """Lines 1–2 of an experiment card: a label, then the planner's words."""
 
     DEFAULT_CSS = "Hypothesis { height: 2; }"
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: Sequence[Span]) -> None:
         super().__init__()
         self.shrink = False
-        self.text = text
+        self.text = tuple(text)
 
-    def show(self, text: str) -> None:
-        if text != self.text:
-            self.text = text
+    def show(self, text: Sequence[Span]) -> None:
+        if tuple(text) != self.text:
+            self.text = tuple(text)
             self.refresh()
 
     def render(self) -> Content:
-        return Content(two_lines(self.text, self.size.width))
+        return two_lines(line_content(self.text), self.size.width)
 
 
 # ---- 7.3 The run timeline (custom character art) ----

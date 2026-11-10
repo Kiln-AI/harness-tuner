@@ -810,8 +810,8 @@ questions. With each pre-filled answer accepted, the app shows this:
 │   --no-interaction                                                                      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-Start the run?
- s) Start the run
+Start tuning?
+ s) Start tuning
  e) Change an answer
  x) Exit
 ```
@@ -899,7 +899,7 @@ harness-tuner: run finished — report: /home/you/.kiln_ai/harness_tuner/reports
 When a run stops after its folder exists, it names that folder. On an error,
 the error screen shows `Run folder: <run folder>`, and `Report: <path>` when
 the error exit wrote a fallback report ([Guided or not](#guided-or-not)). On
-a stop (Ctrl-C, "Stop the run" in the app, SIGTERM or SIGHUP) it prints
+a stop (Ctrl-C, "Stop tuning" in the app, SIGTERM or SIGHUP) it prints
 `harness-tuner: run folder: <run folder>`. That folder's
 `kiln-harness-tuner.log` holds the details. The run log also holds anything
 that was written to stdout or stderr while the app was open.

@@ -233,6 +233,17 @@ def test_the_agent_clis_match_the_dispatchers():
     assert claude.default_model == AGENT_MODEL
 
 
+def test_a_hint_says_what_a_blank_model_does_only_when_it_is_the_cli_s_own():
+    # A blank model leaves the model option out. The dispatcher then passes
+    # its pinned default, or nothing, so the CLI's own default applies.
+    for agent in AGENT_KINDS:
+        dispatcher, _bin = DISPATCHERS[agent.kind]
+        own = dispatcher.DEFAULT_MODEL is None and not dispatcher.MODEL_DEFAULTS
+        said = f"Blank uses {agent.name}'s default model." in agent.model_hint
+        assert said is own, agent.kind
+        assert "Enter" not in agent.model_hint
+
+
 def test_the_objectives_match_the_flags_choices():
     assert tuple(OBJECTIVES) == CLI_OBJECTIVES
 
@@ -335,11 +346,20 @@ def test_the_objective_rows_and_the_hints():
     assert hints == [
         "One objective per run. Speed and cost only promote a change that keeps"
         " quality equal or better.",
-        "What to try first and what not to touch, in your own words. For example:"
-        ' "Keep the output format. Don\'t switch models." Enter to skip.',
+        "These instructions guide the tuner when it plans new experiments. Some"
+        " examples:\n"
+        " · Where to focus: \"Start with the Correctness eval. It's our biggest"
+        ' quality gap."\n'
+        ' · Trade-offs: "Between options of equal quality, prefer the cheaper'
+        ' one."\n'
+        ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."\n'
+        ' · What not to touch: "Don\'t change the model or temperature."\n'
+        ' · Directives: "Only use models from OpenAI."\n'
+        "Enter to skip.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",
-        "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.",
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Opus, Fable, etc).",
         "The most this run may spend, in USD: the tuner's agents and the task's"
         " model calls together. No wave starts past it. Type none for no cap.",
         "No wave starts after this, and work still running at the limit is"
@@ -468,20 +488,22 @@ def test_with_no_agent_cli_installed_exit_stops_with_1():
         (
             "claude",
             "opus",
-            "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker"
-            " plans.",
+            "Which model will be used to plan and implement tuning experiments. We"
+            " suggest frontier quality (Opus, Fable, etc).",
         ),
         (
             "codex",
             "",
-            "Enter uses the CLI's own default model. OpenCode models are"
-            " PROVIDER/MODEL.",
+            "Which model will be used to plan and implement tuning experiments. We"
+            " suggest frontier quality (Astra, Terra, etc). Blank uses Codex's"
+            " default model.",
         ),
         (
             "opencode",
             "",
-            "Enter uses the CLI's own default model. OpenCode models are"
-            " PROVIDER/MODEL.",
+            "Which model will be used to plan and implement tuning experiments. We"
+            " suggest frontier quality (Fable, Opus, Astra, etc). Models are"
+            " PROVIDER/MODEL. Blank uses OpenCode's default model.",
         ),
     ],
 )

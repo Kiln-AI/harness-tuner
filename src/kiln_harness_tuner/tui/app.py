@@ -25,7 +25,7 @@ from textual.binding import Binding
 
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
 from kiln_harness_tuner.tui import opener
-from kiln_harness_tuner.tui.bridge import UI_REQUEST, Prompt, opened_text
+from kiln_harness_tuner.tui.bridge import UI_REQUEST, opened_text
 from kiln_harness_tuner.tui.handles import (
     RUN_ENDED,
     START_ENDED,
@@ -213,16 +213,9 @@ class TunerApp(App[None]):
         self._refresh()
 
     def _show_request(self, stamped: Stamped) -> None:
-        """A `Terminal` call of the start, on the start-up screen. A prompt
-        the screen can't show fails, so the start raises instead of waiting
-        for an answer that can't come."""
-        request = stamped.fields["request"]
-        try:
-            self.startup_screen.show(request)
-        except Exception as error:
-            logger.exception("the start-up screen could not show a request")
-            if isinstance(request, Prompt):
-                request.fail(error)
+        """A `Terminal` call of the start, on the start-up screen, which
+        fails a prompt it can't show (`StartupScreen.show`)."""
+        self.startup_screen.show(stamped.fields["request"])
 
     def _fold(self, stamped: Stamped) -> None:
         model = self.model

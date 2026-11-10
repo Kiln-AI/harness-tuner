@@ -51,7 +51,7 @@ def text(app, part: str) -> str:
     return " ".join(drawn.split())
 
 
-RUN_KEYS = {"c": words.COMPARE_LINK, "l": words.LINEAGE_LINK}
+RUN_KEYS = {"c": words.COMPARE_LINK, "g": words.GRAPH_KEY}
 
 
 # ---- the start-up ----
@@ -89,7 +89,7 @@ async def test_the_hand_off_shows_the_run_and_starts_it():
         await until(pilot, lambda: app.phase == "run")
         assert isinstance(app.screen, RunScreen)
         assert session.run.began
-        await until(pilot, lambda: "Run started" in text(app, "log"))
+        await until(pilot, lambda: "Tuning started" in text(app, "log"))
         assert "Moderate posts" in text(app, "title")
         assert footer(app) == {**RUN_KEYS, "q": "Stop"}
         session.run.stop(signal.SIGTERM)
@@ -131,7 +131,7 @@ async def test_q_opens_the_stop_dialog_once_and_esc_keeps_running():
         await until(pilot, lambda: isinstance(app.screen, StopDialog))
         dialog = app.screen
         message = str(dialog.query_one("#dialog-message", Static).render())
-        assert message == "The run's work so far is lost, and no report is written."
+        assert message == "The work so far is lost, and no report is written."
         assert app.focused.id == "keep"
         await pilot.press("ctrl+c")
         await pilot.press("q")
@@ -140,7 +140,7 @@ async def test_q_opens_the_stop_dialog_once_and_esc_keeps_running():
         await pilot.press("escape")
         await until(pilot, lambda: isinstance(app.screen, RunScreen))
         assert not session.run.stopping
-        # Enter on the focused "Keep running" keeps running too.
+        # Enter on the focused "Keep tuning" keeps tuning too.
         await pilot.press("ctrl+c")
         await until(pilot, lambda: isinstance(app.screen, StopDialog))
         await pilot.press("enter")
@@ -159,7 +159,7 @@ async def test_stop_the_run_stops_it_as_ctrl_c_does_a_plain_run():
         await running(pilot, session)
         await pilot.press("ctrl+c")
         await until(pilot, lambda: isinstance(app.screen, StopDialog))
-        assert app.screen.query_one("#stop", Button).label.plain == "Stop the run"
+        assert app.screen.query_one("#stop", Button).label.plain == "Stop tuning"
         await pilot.press("tab", "enter")
         await until(pilot, lambda: session.run.stopping)
         await until(pilot, lambda: closed(app))
@@ -448,7 +448,7 @@ async def test_the_stop_dialog_names_the_planner_only_while_it_plans():
         session.queue.put(Stamped.now("wave_start", {"wave": 1, "items": []}))
         await until(pilot, lambda: app.model.mode == "running")
         assert await stop_message(pilot) == (
-            "The run's work so far is lost, and no report is written."
+            "The work so far is lost, and no report is written."
         )
         session.run.stop(signal.SIGTERM)
         await until(pilot, lambda: closed(app))

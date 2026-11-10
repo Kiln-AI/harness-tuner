@@ -16,6 +16,7 @@ from model_events import (
 )
 
 from kiln_harness_tuner.schemas import ScreenResult
+from kiln_harness_tuner.tui.model import results
 from kiln_harness_tuner.tui.model.state import plain
 
 
@@ -31,13 +32,26 @@ def test_concerns_follow_the_detectability_rows_then_cost_and_latency():
         detect_row("e4", "Tone", score_key="accuracy"),
         detect_row("e4", "Tone", score_key="tone", score_type="five_star"),
     )
+    # "Eval: " says what the card is. The score key shows only for an eval
+    # with two or more cards, and no " · " parts the muted words.
     assert titles(run) == [
-        ("Hold placement", ""),
-        ("Tone", "accuracy"),
-        ("Tone", "tone · 1–5"),
+        ("Eval: Hold placement", ""),
+        ("Eval: Tone", "accuracy"),
+        ("Eval: Tone", "tone 1–5"),
         ("Cost / request", ""),
         ("Latency", "median"),
     ]
+
+
+def test_a_rating_card_with_one_score_shows_only_the_scale():
+    run = Run().start()
+    run.detectability(
+        detect_row("e4", "Tone", score_key="tone", score_type="five_star"),
+        detect_row("e5", "Escalation", score_key="a"),
+        detect_row("e5", "Escalation", score_key="b", driving=False),
+    )
+    # Escalation has two scores, but only one can decide: one card, no key.
+    assert titles(run)[:2] == [("Eval: Tone", "1–5"), ("Eval: Escalation", "")]
 
 
 def test_an_eval_first_named_mid_run_is_added_before_cost():
@@ -51,14 +65,14 @@ def test_an_eval_first_named_mid_run_is_added_before_cost():
     )
     run.success("w1-1", "rc_a", row("e9", 0.5, 0.6))
     assert [t for t, _ in titles(run)] == [
-        "Hold placement",
-        "Refusal honesty",
-        "Late escalations",
+        "Eval: Hold placement",
+        "Eval: Refusal honesty",
+        "Eval: Late escalations",
         "Cost / request",
         "Latency",
     ]
     # Its card names it too.
-    assert run.card("w1-1").title == "Late escalations"
+    assert run.card("w1-1").qualifier == "target: Late escalations"
 
 
 def test_start_is_train_until_the_first_gate_then_val():
@@ -137,8 +151,10 @@ def test_a_promotion_is_confirmed_only_when_the_gate_ends_unblocked():
     assert plain(run.model.results().key[1]) == "■ Best Confirmed · val · w1-1"
     assert run.line5("w1-1") == "◆ Promoted · now Best Confirmed"
     assert run.card("w1-1").steps[-1] == ("gate", "done")
-    assert run.line5("w1-2") == "✗ Rejected at val"
-    assert run.card("w1-2").steps[-1] == ("gate", "stopped")
+    # The gate picked w1-1: w1-2 is not a failure.
+    assert run.line5("w1-2") == "○ Not selected · w1-1 promoted"
+    assert run.card("w1-2").line5[0].tone == "warning"
+    assert run.card("w1-2").steps[-1] == ("gate", "warned")
 
 
 def test_a_blocked_winner_is_not_best_confirmed():
@@ -182,6 +198,31 @@ def test_best_unconfirmed_counts_only_successful_arms_that_beat_the_parent():
     assert hold.unconfirmed.change_tone == "success"
     assert plain(hold.subtitle) == "w1-1"
     assert run.concern("Refusal honesty").unconfirmed is None
+
+
+def test_best_unconfirmed_stays_inside_its_scale():
+    # A train change against a parent on another split can pass the scale's
+    # end when it is added to Start: the estimate stops at the end.
+    run = Run().standard_start()
+    run.detectability(detect_row("e5", "Tone", score_type="five_star"))
+    run.wave_start(1, fix("w1-1", "e1"), fix("w1-2", "e5"), fix("w1-3", "e5"))
+    run.success("w1-1", "rc_a", row("e1", 0.3, 0.8, parent="rc_x"))
+    hold = run.concern("Hold placement")
+    assert (hold.start.value, hold.unconfirmed.value) == ("60.0%", "100.0%")
+    assert (hold.unconfirmed.change, hold.unconfirmed.fraction) == ("+40.0", 1.0)
+    rating = {"score_type": "five_star"}
+    run.success("w1-2", "rc_b", row("e5", 4.5, 4.6, **rating))
+    run.success("w1-3", "rc_c", row("e5", 2.0, 4.0, parent="rc_x", **rating))
+    assert run.concern("Tone").unconfirmed.value == "5.00"
+
+
+def test_each_scale_has_its_own_ends():
+    assert results.on_scale("pass", -0.1) == 0.0
+    assert results.on_scale("pass", 1.07) == 1.0
+    assert results.on_scale("rating", 0.4) == 1.0
+    assert results.on_scale("rating", 5.3) == 5.0
+    assert results.on_scale("cost", -0.002) == 0.0
+    assert results.on_scale("latency", 9000.0) == 9000.0
 
 
 def test_best_unconfirmed_is_dim_when_its_interval_crosses_zero():

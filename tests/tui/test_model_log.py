@@ -9,10 +9,10 @@ def test_run_start_start_config_and_exit():
     run.at(180).emit("exit", reason="timeout")
     run.emit("report_written", path="/r.md", fallback=False)
     assert run.log() == [
-        "Run started · quality · $50.00 · 3h",
+        "Tuning started · quality · $50.00 · 3h",
         "Starting from rc 0003",
         "Tone can only guard",
-        "Run ended: Time limit reached",
+        "Tuning ended: Time limit reached",
         "Report written",
     ]
     first, second = run.model.log[:2]
@@ -22,7 +22,7 @@ def test_run_start_start_config_and_exit():
 
 def test_a_run_with_no_budget_says_so():
     run = Run().standard_start(budget=None, timeout_mins=90)
-    assert run.log()[0] == "Run started · quality · no budget · 1h30"
+    assert run.log()[0] == "Tuning started · quality · no budget · 1h30"
 
 
 def test_wave_lines_name_their_parent_and_counts():
@@ -46,7 +46,7 @@ def test_wave_lines_name_their_parent_and_counts():
     run.wave_start(2, fix("w2-2"), parent="rc_a", wrap_up=True, headline="1 experiment")
     waves = [line.text for line in run.model.log if line.glyph == "▸"]
     assert waves == [
-        "Wave 0, recon · 2 probes",
+        "Recon · 2 probes",
         "Wave 1 from start · 1 experiment",
         "Wave 2 probes from w1-1 · 1 probe",
         "Wave 2 from w1-1 · 1 experiment · last wave",
@@ -180,10 +180,32 @@ def test_gate_lines_at_the_gate_end():
     run.gate_end(1)
     assert run.log()[-2:] == [
         "w1-1 promoted · Hold placement +8.0 on val",
-        "w1-2 rejected at val · Refusal honesty train +6.0, val +1.0",
+        "w1-2 not selected · w1-1 promoted · Refusal honesty train +6.0, val +1.0",
     ]
-    promoted = run.model.log[-2]
+    promoted, other = run.model.log[-2:]
     assert (promoted.glyph, promoted.tone, promoted.bold) == ("◆", "success", True)
+    assert (other.glyph, other.tone) == ("○", "warning")
+
+
+def test_a_gate_with_no_winner_rejects_at_val():
+    run = Run().standard_start()
+    run.wave_start(1, fix("w1-1", "e1"), fix("w1-2", "e2"))
+    run.success("w1-1", "rc_a", row("e1", 0.6, 0.7))
+    run.success("w1-2", "rc_b", row("e2", 0.8, 0.86))
+    run.gate(
+        1,
+        table("rc_a", val_row("e1", 0.62, 0.61)),
+        table("rc_b", val_row("e2", 0.80, 0.79)),
+        winner=None,
+    )
+    assert run.log()[-3:] == [
+        "w1-1 rejected at val · Hold placement train +10.0, val −1.0",
+        "w1-2 rejected at val · Refusal honesty train +6.0, val −1.0",
+        "Promotion gate: no winner",
+    ]
+    assert run.line5("w1-1") == "✗ Rejected at val"
+    assert run.card("w1-1").steps[-1] == ("gate", "stopped")
+    assert run.model.log[-2].tone == "error"
 
 
 def test_refusals_before_the_gate():

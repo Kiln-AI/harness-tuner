@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     from kiln_harness_tuner.tui.model.fold import RunModel
 
 Metric = Literal["latency", "cost"]
+# A rating's scale (`words.RATING_SCALE`).
+RATING_LOW, RATING_HIGH = 1.0, 5.0
 # Cost and latency bars are drawn against Start, which sits at this share
 # of the bar, so a cut shows as a shorter bar.
 START_SHARE = 0.8
@@ -238,13 +240,24 @@ def survivor_unconfirmed(result: ScreenResult, generation: int) -> list[Unconfir
     return out
 
 
+def on_scale(kind: ConcernKind, value: float) -> float:
+    """`value` inside its concern's scale: a pass rate in 0–100%, a rating
+    in 1–5, cost and latency at 0 or more. A train change added to its
+    parent's value can pass the scale's end."""
+    if kind == "pass":
+        return max(0.0, min(1.0, value))
+    if kind == "rating":
+        return max(RATING_LOW, min(RATING_HIGH, value))
+    return max(0.0, value)
+
+
 def fraction(kind: ConcernKind, value: float, start: float | None) -> float:
     """The bar's length: a pass rate on 0–100%, a rating on 1–5, cost and
     latency against Start."""
     if kind == "pass":
         share = value
     elif kind == "rating":
-        share = (value - 1) / 4
+        share = (value - RATING_LOW) / (RATING_HIGH - RATING_LOW)
     else:
         share = value / start * START_SHARE if start else START_SHARE
     return max(0.0, min(1.0, share))
@@ -293,6 +306,7 @@ def best_unconfirmed(
         if not model.counts(result):
             continue
         value = parent * result.change if result.factor else parent + result.change
+        value = on_scale(concern.kind, value)
         if not concern.better(value, parent):
             continue
         if best is None or concern.better(value, best[0]):
@@ -326,6 +340,8 @@ def parent_value(model: RunModel, key: ConcernKey) -> float | None:
 
 
 def _title(concern: Concern, multi: Counter[str | None]) -> tuple[str, str]:
+    """An eval's card says it is an eval, and names its score only when
+    the eval has more than one card."""
     qualifiers = []
     if concern.eval_id is not None and multi[concern.eval_id] > 1:
         qualifiers.append(concern.key[1])
@@ -333,7 +349,8 @@ def _title(concern: Concern, multi: Counter[str | None]) -> tuple[str, str]:
         qualifiers.append(words.RATING_SCALE)
     if concern.kind == "latency":
         qualifiers.append(words.MEDIAN)
-    return concern.name, " · ".join(qualifiers)
+    name = words.eval_title(concern.name) if concern.eval_id else concern.name
+    return name, " ".join(qualifiers)
 
 
 def _subtitle(in_flight: int | None, holder: str | None) -> Line:

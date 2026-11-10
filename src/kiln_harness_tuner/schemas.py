@@ -78,7 +78,7 @@ PROVIDER_LANE: SpendLane = "provider"
 # words itself.
 SPEND_LANE_LABELS: dict[str, str] = {
     SUBSCRIPTION_LANE: "Claude Code",
-    PROVIDER_LANE: "Kiln",
+    PROVIDER_LANE: "API keys",
 }
 # The agent lane is named after the agent CLI the run dispatches through.
 AGENT_CLI_LABELS: dict[str, str] = {

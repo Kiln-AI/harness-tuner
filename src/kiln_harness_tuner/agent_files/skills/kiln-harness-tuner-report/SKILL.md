@@ -41,7 +41,7 @@ going looking.
   (source → lane → $). Two lanes, and **call them by their display names**,
   which is what the code-computed appendix's columns say: `subscription_
   equivalent` = **Claude Code** — `claude -p` agent-session cost, quota burn
-  now, real cost at deployment; `provider` = **Kiln** — the provider tokens
+  now, real cost at deployment; `provider` = **API keys** — the provider tokens
   Kiln burns on the drives and eval jobs this run triggered (subject
   `task_run_usage` + judge `eval_usage`), real money today. Each item's
   `spend_by_lane` carries the same split for that item alone.
@@ -217,7 +217,7 @@ deliberate) · still open, worth the next run.>
 it gates, re-ask condition.>
 
 ## Spend
-<narrate: both lanes named with what they mean (Kiln $ = real money today;
+<narrate: both lanes named with what they mean (API keys $ = real money today;
 Claude Code $ = quota burn now, real cost at deployment),
 notable line items (expensive evals, val passes), anything unusual. Code
 appends the appendix after your markdown — the budget/elapsed/exit header

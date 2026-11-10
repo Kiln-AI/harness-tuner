@@ -206,7 +206,18 @@ async def startup_shots() -> list[Path]:
         paths.append(
             save(app, "startup-text-answer-dark-210x62", "Start-up · Text answer")
         )
-    # The summary and "Start the run?".
+    # The guidance question, with its hint of one example per line.
+    guidance = list(ANSWERED)
+    at = guidance.index("--guidance")
+    del guidance[at : at + 2]
+    async with start_up(one_project_routes(), [*EVERY_FLAG, *guidance]) as (
+        app,
+        pilot,
+    ):
+        await prompted(pilot, TextAnswer)
+        await settle(pilot)
+        paths.append(save(app, "startup-guidance-dark-210x62", "Start-up · Guidance"))
+    # The summary and "Start tuning?".
     async with start_up(one_project_routes(), [*EVERY_FLAG, *ANSWERED]) as (
         app,
         pilot,

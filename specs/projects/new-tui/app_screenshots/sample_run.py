@@ -272,26 +272,26 @@ def starting() -> Run:
     )
     run.at(3).wave_start(
         0,
-        probe("w0-1", "Does the agent call get_container before it places a hold?"),
-        probe("w0-2", "Does the agent treat a 2xx with an error body as a success?"),
-        probe("w0-3", "Does haiku-5-5 follow a long escalation table without a skill?"),
+        probe("r0-1", "Does the agent call get_container before it places a hold?"),
+        probe("r0-2", "Does the agent treat a 2xx with an error body as a success?"),
+        probe("r0-3", "Does haiku-5-5 follow a long escalation table without a skill?"),
         probe_phase=True,
-        headline="3 recon probes",
+        headline="reconnaissance — 3 probes",
     )
-    for item in ("w0-1", "w0-2", "w0-3"):
+    for item in ("r0-1", "r0-2", "r0-3"):
         run.state(item, "probing")
-    _spend(run, 0.1, 0.1, "w0-1")
+    _spend(run, 0.1, 0.1, "r0-1")
     run.at(6)
-    answer(run, "w0-1", yes=True)
-    _spend(run, 0.1, 0.1, "w0-2")
+    answer(run, "r0-1", yes=True)
+    _spend(run, 0.1, 0.1, "r0-2")
     run.at(8)
-    answer(run, "w0-2", yes=True)
-    _spend(run, 0.0, 0.2, "w0-3")
+    answer(run, "r0-2", yes=True)
+    _spend(run, 0.0, 0.2, "r0-3")
     return run.at(9)
 
 
 def _waves_one_to_three(run: Run) -> None:
-    answer(run.at(9.5), "w0-3", yes=False)
+    answer(run.at(9.5), "r0-3", yes=False)
     run.at(10).emit("wave_end", wave=0)
     # Wave 1: a stop, a no win, and a success the gate rejects.
     run.plan(1).at(12).planned(1)

@@ -174,6 +174,11 @@ RATING_SCALE = "1–5"
 MEDIAN = "median"
 
 
+def eval_title(name: str) -> str:
+    """A Results card's title for an eval's score: what the card is."""
+    return f"Eval: {name}"
+
+
 def in_flight(count: int) -> str:
     return f"{count} in flight"
 
@@ -207,8 +212,9 @@ MEASURING = "measuring"
 REBUILDING = "rebuilding once"
 SO_FAR = "so far"
 NEW_EVAL = "New eval"
-ALL_EVALS = "All evals"
-QUESTION = "Question"
+# The labels before the planner's own words on a card's lines 1–2.
+HYPOTHESIS_LABEL = "Hypothesis: "
+QUESTION_LABEL = "Question: "
 RECON_NOTE = "Wave 1 is planned when the recon probes finish."
 FIX_STAGES = ("build", "measure", "analyze")
 GATE_STAGE = "gate"
@@ -220,6 +226,9 @@ KIND_WORDS = {
     "measure": "measure",
     "remeasure": "re-measure",
 }
+# What a card's title says after the item id, per kind (functional spec
+# 7.6): a fix names its target eval.
+CARD_KINDS = {**KIND_WORDS, "eval": "new eval"}
 # Why a build is made again (the check whose finding forced it).
 FINDINGS = {
     "judge_copy": "copied text found",
@@ -239,9 +248,25 @@ def wave_label(wave: int, probe_phase: bool) -> str:
 
 
 def subhead(wave: int, probe_phase: bool) -> str:
+    """Recon is no wave to the person: wave 0 is the loop's own number."""
     if wave == 0:
-        return "WAVE 0 · recon probes"
+        return "RECON · probes"
     return f"WAVE {wave} · {'probes' if probe_phase else 'landed'}"
+
+
+def card_targets(names: Sequence[str]) -> str:
+    """A fix card's targets after its id: "target: X", or "targets: X +2"."""
+    if not names:
+        return f"target: {NEW_EVAL}"
+    if len(names) == 1:
+        return f"target: {names[0]}"
+    return f"targets: {names[0]} +{len(names) - 1}"
+
+
+def card_kind(kind: str, eval_name: str | None = None) -> str:
+    """Another kind's words after its id: "merge", "measure: X"."""
+    what = CARD_KINDS.get(kind, kind)
+    return f"{what}: {eval_name}" if eval_name else what
 
 
 def merge_text(ingredients: Sequence[str], parent: str) -> str:
@@ -277,9 +302,9 @@ def stopping_detail(live: int) -> str:
 
 
 # The stop dialog (functional spec section 9, ui_design section 9).
-STOP_TITLE = "Stop the run?"
-KEEP_RUNNING = "Keep running"
-STOP_THE_RUN = "Stop the run"
+STOP_TITLE = "Stop tuning?"
+KEEP_TUNING = "Keep tuning"
+STOP_TUNING = "Stop tuning"
 
 
 def stop_question(live: int, planning_wave: int | None) -> str:
@@ -291,7 +316,7 @@ def stop_question(live: int, planning_wave: int | None) -> str:
         )
     if not live:
         # The run's own start, or a gate: no experiment to name.
-        return "The run's work so far is lost, and no report is written."
+        return "The work so far is lost, and no report is written."
     are = "is" if live == 1 else "are"
     return (
         f"{plural(live, 'experiment')} {are} in flight. Their work so far is"
@@ -321,7 +346,7 @@ STEP_ACTIVITY = {
     MODELS_STEP: "the model preflight",
     DETECTION_STEP: "the detectability check",
     NOISE_STEP: "the noise check",
-    RECON_STEP: "wave 0, recon",
+    RECON_STEP: "recon",
     SCREEN_STEP: "the opening screen",
 }
 
@@ -449,7 +474,7 @@ def _same(text: str, tone: Tone, glyph: str) -> Verdict:
     return Verdict(text, text, tone, glyph)
 
 
-SUCCESS_GATE = _same("Success · goes to the gate", "success", "●")
+SUCCESS_GATE = _same("Train success · checking validation set", "success", "●")
 SUCCESS = _same("Success", "success", "●")
 NO_WIN = _same("No win", "muted", "○")
 NOT_REPRODUCED = _same("Not reproduced", "muted", "○")
@@ -464,9 +489,11 @@ CAPPED = Verdict(
     "✗",
 )
 ABANDONED = _same("Stopped: abandoned", "error", "✗")
-CUT_OFF = _same("Cut off: the run ended", "error", "✗")
+CUT_OFF = _same("Cut off: tuning ended", "error", "✗")
 PROMOTED = _same("Promoted · now Best Confirmed", "promoted", "◆")
+# The gate had no winner: no candidate beat the incumbent on val.
 REJECTED = _same("Rejected at val", "error", "✗")
+NOT_SELECTED_GLYPH = "○"
 HELD = _same("Held: waiting on an open question", "warning", "?")
 COPIED = _same("Blocked: copies eval text", "error", "✗")
 # Gate results the spec's table has no row for (audit 1.7): a block by
@@ -519,6 +546,13 @@ def stop_verdict(stop_kind: str | None, objective: str) -> Verdict:
     return _STOPS.get(stop_kind or "", STOPPED_EARLY)
 
 
+def not_selected(winner: str) -> Verdict:
+    """The gate promoted another candidate: this one may have beaten the
+    incumbent too, so it is no failure."""
+    text = f"Not selected · {winner} promoted" if winner else "Not selected"
+    return _same(text, "warning", NOT_SELECTED_GLYPH)
+
+
 def dead_end(reason: str | None) -> Verdict:
     return _same(f"Dead end: {reason}" if reason else "Dead end", "error", "✗")
 
@@ -557,7 +591,7 @@ _ENDINGS = {
 
 def how_it_ended(reason: str | None) -> str:
     if reason is None:
-        return "The run ended"
+        return "Tuning ended"
     if reason in _ENDINGS:
         return _ENDINGS[reason]
     if reason.startswith("fatal:"):
@@ -570,11 +604,23 @@ DONE_BEST = "Best Confirmed"
 NO_REPORT = "no report"
 WRITING_REPORT = "writing the report…"
 MEASURED_ON_VAL = "measured on val"
-KEPT_START = "no promotion: the run kept its starting point"
+KEPT_START = "no promotion: the starting point stays best"
+
+# The Done card's next steps (functional spec 7.6, Done mode).
+NEXT_STEPS = "Next steps"
+NEXT_STEP_BULLET = " · "
+GRAPH_STEP = "Visualize Experiment Graph in Kiln"
+TEST_SPLIT_NOTE = (
+    "You may need to run evals on the 'test' dataset, which is intentionally"
+    " withheld from tuning."
+)
+NO_PROMOTION_STEP = "No experiment was promoted, so the starting point stays best."
+REPORT_STEP = "Read Tuning Report"
+REPORT_STEP_WRITING = "Read Tuning Report (writing…)"
 
 
-def next_step(rc: str) -> str:
-    return f"Next: run your test split on {rc}. The tuner never read it."
+def compare_step(best: str) -> str:
+    return f"Compare {best} to the starting point in Kiln"
 
 
 def run_label(run_id: str | None) -> str:
@@ -611,20 +657,20 @@ GOAL_ROLES = {"optimize": "▲ optimize", "hold": "═ hold", "watch": "○ watc
 GOAL_DATA_LABEL = "data"
 LAST_WAVE_TAG = "LAST WAVE"
 STOPPING = "Stopping…"
-RUN_COMPLETE = "RUN COMPLETE"
+TUNING_COMPLETE = "TUNING COMPLETE"
 DONE_REPORT = "Report"
 
 # The section names, on their top borders (ui_design 4.2).
 GOAL = "GOAL"
 TIME_AND_SPEND = "TIME & SPEND"
-RUN_TIMELINE = "RUN TIMELINE"
+TUNING_TIMELINE = "TUNING TIMELINE"
 RESULTS = "RESULTS"
 EXPERIMENTS = "EXPERIMENTS"
 LOG = "LOG"
 
 # The links and the keys (functional spec 7.8, ui_design 10).
-COMPARE_LINK = "Compare in Kiln UI"
-LINEAGE_LINK = "Lineage in Kiln UI"
+COMPARE_LINK = "Compare in Kiln"
+GRAPH_KEY = "Experiment graph"
 REPORT_LINK = "Report"
 STOP_KEY = "Stop"
 CLOSE_KEY = "Close"

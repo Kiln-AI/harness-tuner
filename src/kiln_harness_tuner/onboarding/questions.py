@@ -219,8 +219,13 @@ class AgentKind:
 # test holds the two equal: Claude Code's default model is the dispatcher's
 # `AGENT_MODEL`, and `reports_cost` its `REPORTS_COST` (a CLI that reports
 # tokens and no cost can't count toward the budget).
-_OWN_DEFAULT_MODEL = (
-    "Enter uses the CLI's own default model. OpenCode models are PROVIDER/MODEL."
+#
+# The hints say what a blank answer does only where it is the CLI's own
+# default. A blank Claude Code model is the dispatcher's pinned `AGENT_MODEL`,
+# not Claude Code's own default, so its hint says nothing about a blank.
+_MODEL_QUESTION = (
+    "Which model will be used to plan and implement tuning experiments."
+    " We suggest frontier quality"
 )
 AGENT_KINDS = (
     AgentKind(
@@ -229,11 +234,28 @@ AGENT_KINDS = (
         "-p",
         "--model",
         "opus",
-        "Enter keeps opus. sonnet or haiku makes the run cheaper, with weaker plans.",
+        f"{_MODEL_QUESTION} (Opus, Fable, etc).",
         reports_cost=True,
     ),
-    AgentKind("codex", "Codex", "exec", "-m", "", _OWN_DEFAULT_MODEL, False),
-    AgentKind("opencode", "OpenCode", "run", "-m", "", _OWN_DEFAULT_MODEL, True),
+    AgentKind(
+        "codex",
+        "Codex",
+        "exec",
+        "-m",
+        "",
+        f"{_MODEL_QUESTION} (Astra, Terra, etc). Blank uses Codex's default model.",
+        reports_cost=False,
+    ),
+    AgentKind(
+        "opencode",
+        "OpenCode",
+        "run",
+        "-m",
+        "",
+        f"{_MODEL_QUESTION} (Fable, Opus, Astra, etc). Models are PROVIDER/MODEL."
+        " Blank uses OpenCode's default model.",
+        reports_cost=True,
+    ),
 )
 _KINDS = {agent.kind: agent for agent in AGENT_KINDS}
 
@@ -337,12 +359,27 @@ def _ask_objective(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Improve", objective_text(answers.objective))
 
 
+# One example on each line (the start-up screen keeps the hint's lines).
+GUIDANCE_HINT = "\n".join(
+    (
+        "These instructions guide the tuner when it plans new experiments."
+        " Some examples:",
+        " · Where to focus: \"Start with the Correctness eval. It's our biggest"
+        ' quality gap."',
+        ' · Trade-offs: "Between options of equal quality, prefer the cheaper one."',
+        ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."',
+        ' · What not to touch: "Don\'t change the model or temperature."',
+        ' · Directives: "Only use models from OpenAI."',
+        "Enter to skip.",
+    )
+)
+
+
 def _ask_guidance(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Guidance for the tuner's planner (optional)",
         default=answers.guidance,
-        hint="What to try first and what not to touch, in your own words. For"
-        ' example: "Keep the output format. Don\'t switch models." Enter to skip.',
+        hint=GUIDANCE_HINT,
     )
     answers.guidance = answer.strip()
     ctx.terminal.step("ok", "Guidance", guidance_text(answers.guidance))

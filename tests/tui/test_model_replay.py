@@ -49,15 +49,17 @@ async def test_a_quality_run_rejected_at_val(tmp_path):
     assert model.confirmed_rc is None
     assert "rc_cand" in model.rejected
     log = [line.text for line in model.log if not line.divider]
-    assert "w1-1 Eval eval_1: success, goes to the gate" in log
+    assert "w1-1 Eval eval_1: train success, checking validation set" in log
     assert "w1-1 rejected at val · Eval eval_1 train +3.3, val +0.0" in log
-    assert log[-1] == "Run ended: Nothing left to try: done"
+    assert log[-1] == "Tuning ended: Nothing left to try: done"
     view = model.experiments(now)
     assert view.mode == "done"
     assert plain(view.done.best) == (
-        "Best Confirmed  no promotion: the run kept its starting point"
+        "Best Confirmed  no promotion: the starting point stays best"
     )
-    assert view.done.next_step.startswith("Next: run your test split on Baseline.")
+    assert view.done.next_steps[1].text == (
+        "No experiment was promoted, so the starting point stays best."
+    )
     kinds = [s.kind for s in model.timeline(now).segments]
     assert kinds == ["setup", "plan", "items", "gate", "plan"]
 

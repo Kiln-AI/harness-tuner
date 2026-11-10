@@ -208,7 +208,7 @@ def _fmt_tokens(count: int) -> str:
 
 
 def spend_split_text(status: RunStatus) -> str:
-    """` (Claude Code $x · Kiln $y)` — the two things the run's money is:
+    """` (Claude Code $x · API keys $y)` — the two things the run's money is:
     the agent sessions, named for the run's agent CLI, vs the provider tokens
     Kiln burns on the drives and eval jobs this run triggers. Agent tokens
     with no cost to read (a Codex session, a plan that prices nothing) are

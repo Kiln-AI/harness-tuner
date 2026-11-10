@@ -1254,12 +1254,21 @@ class RunModel:
             # written, and the candidates stay pooled.
             item.gate = "pooled"
         else:
-            item.gate = "rejected"
+            # Judged and not promoted. With a winner, another candidate
+            # was picked: this one may have beaten the incumbent too.
             if rc:
                 self.rejected.add(rc)
             concern, val = self._val_change(gate, item)
             train = self._train_change(item)
-            self._say(s, "stop", log.rejected(who, concern, train, val))
+            if gate.promoted:
+                item.gate = "not_selected"
+                item.gate_winner = self._who(gate.promoted)
+                verdict = words.not_selected(item.gate_winner)
+                text = log.not_selected(who, item.gate_winner, concern, train, val)
+                self.log.append(log.verdict_line(s.wall, verdict, text))
+            else:
+                item.gate = "rejected"
+                self._say(s, "stop", log.rejected(who, concern, train, val))
 
     def _headline_concern(self, item: ItemModel) -> Concern | None:
         """What a gate line reports: the objective's own measure under speed

@@ -198,12 +198,15 @@ RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
     &:focus { background-tint: transparent; }
 }
 
-/* At 150 columns and up: Experiments 68%, the Log the rest, full height.
-   Below: stacked, the Log 12 rows high. */
+/* At 150 columns and up: Experiments 68%, the Log the rest. Both fill the
+   bottom area, which is at least the rest of the screen and at least as
+   tall as the Experiments' content (`ExperimentsSection.fit_bottom`), so
+   the two are always the same height. Below: stacked, the Log 12 rows
+   high. */
 RunScreen.-wide #bottom {
     layout: horizontal;
     height: 1fr;
-    & > #experiments { width: 68%; height: auto; }
+    & > #experiments { width: 68%; height: 100%; }
     & > #log { width: 1fr; height: 100%; margin: 0 0 0 1; }
     & #log-lines { height: 1fr; }
 }
@@ -248,6 +251,13 @@ TierBars { width: 1fr; }
 #run-complete {
     width: 1fr;
     & > .run-complete-body { height: auto; }
+    & > .next-title { margin-top: 1; }
+    & > .next-steps { height: auto; }
+}
+.next-step {
+    height: auto;
+    & > Static { width: auto; }
+    & > .next-step-text { width: 1fr; }
 }
 .goal-rows { height: auto; }
 .goal-data {

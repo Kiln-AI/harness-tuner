@@ -149,10 +149,12 @@ class ItemModel:
     train_latency: LatencyComparison | None = None
     train_cost: LatencyComparison | None = None
     cut_off: bool = False
-    # Set by the gate: at_gate, promoted, rejected, held, copied (a
-    # `gate_block`), blocked (by the integrity checks), refused (by the
-    # model policy, before the gate) or pooled (not judged).
+    # Set by the gate: at_gate, promoted, rejected (no winner), not_selected
+    # (another candidate won), held, copied (a `gate_block`), blocked (by the
+    # integrity checks), refused (by the model policy, before the gate) or
+    # pooled (not judged).
     gate: str | None = None
+    gate_winner: str | None = None  # how a not-selected card names the winner
 
     @property
     def landed(self) -> bool:
@@ -263,7 +265,9 @@ class Segment:
 # ---- the views ----
 
 Mode = Literal["starting", "planning", "running", "gate", "done"]
-StepState = Literal["done", "current", "later", "stopped"]
+# `warned`: the stage ended with no failure, but not as hoped (a gate
+# candidate that another candidate beat).
+StepState = Literal["done", "current", "later", "stopped", "warned"]
 
 
 @dataclass(frozen=True)
@@ -378,14 +382,25 @@ class NoteLine:
 @dataclass(frozen=True)
 class CardView:
     item_id: str
-    title: str
-    qualifier: str
-    text: str
+    title: str  # the item id, bold on the top border
+    qualifier: str  # what the item is about, muted after the id
+    text: Line  # lines 1–2: a label, then the planner's words
     steps: tuple[tuple[str, StepState], ...]
     line4: StripView | GaugeLine | NoteLine | None
     line5: Line
     subtitle: str
     live: bool
+
+
+@dataclass(frozen=True)
+class NextStep:
+    """One of the Done card's next steps: a link, or plain words when
+    `url` is None. `note` follows a link; a `pending` step is muted."""
+
+    text: str
+    url: str | None = None
+    note: str = ""
+    pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -396,7 +411,7 @@ class DoneView:
     best: Line
     report: str
     report_path: str | None
-    next_step: str
+    next_steps: tuple[NextStep, ...]
     subtitle: str
 
 

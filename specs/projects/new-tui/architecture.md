@@ -204,8 +204,8 @@ When `_run_with_signals` returns or raises, the run thread wrapper stores the re
 - A signal during the run: append the number to `cli._stopped_by` (today's list, read by `main`'s `CancelledError` arm), then `run_handle.cancel()`. The app shows "Stopping…". Today's teardown runs on the run thread: agent children killed, lock released, `exit` event, no report.
 - A signal during the start-up: fail the open future (or cancel the runner) with `OnboardingStopped(128 + signum)`, and close the app.
 - A second signal: close the app at once. `run_app` then joins the run thread with plain output (section 11).
-- `q` or Ctrl+C on the run screen opens `StopDialog`. "Stop the run" does what a SIGINT does: `_stopped_by.append(SIGINT)`, cancel. `main` then prints today's "interrupted (SIGINT) — children killed, lock released" and exits 130. No new exit code and no new exit line (decided).
-- Bindings on the App, all `priority=True`: `ctrl+c` (stop or stop dialog), `ctrl+d` (start-up only: exit 1), `ctrl+q` (same as `ctrl+c`, so it never quits without the dialog). `q`, `c`, `l`, `r` are plain bindings on the run screen. The command palette is off. Ctrl+Z is not bound.
+- `q` or Ctrl+C on the run screen opens `StopDialog`. "Stop tuning" does what a SIGINT does: `_stopped_by.append(SIGINT)`, cancel. `main` then prints today's "interrupted (SIGINT) — children killed, lock released" and exits 130. No new exit code and no new exit line (decided).
+- Bindings on the App, all `priority=True`: `ctrl+c` (stop or stop dialog), `ctrl+d` (start-up only: exit 1), `ctrl+q` (same as `ctrl+c`, so it never quits without the dialog). `q`, `c`, `g`, `r` are plain bindings on the run screen. The command palette is off. Ctrl+Z is not bound.
 - After `App.run()` returns, `run_app` resets SIGTSTP and SIGCONT to `SIG_DFL` (Textual leaves its handlers, research 1).
 
 ## 7. The run model (model/, pure)
@@ -240,7 +240,7 @@ RunModel
 - **Promotion confirmed**: a `promotion` with a winner counts only when the gate's `phase_end promotion_gate` arrives with no `promotion_blocked` for that rc in between (audit finding 11).
 - **Best Unconfirmed**, per concern: among items since the last confirmed promotion, with a successful verdict and a C1b row for that concern, the best `parent value + delta`, shown only where it beats Best Confirmed. Screen survivors count for cost and latency (`screening_round.results`). It clears at each confirmed promotion and drops an rc rejected at val. Dim when the row's interval crosses zero.
 - **In flight**, per eval concern: live items whose C5 `targets` include that eval. None for cost and latency.
-- **Cards**: one per `wave_start.items` entry, in order. Lines from C5 details, `item_state`, C3 cells, `item_detail`, the verdict. Verdict words are a table in `words.py` (functional spec 7.6 plus 16.10, with the card short forms of ui_design 7.5). Items named by `deadline_cancel` or `fatal_cancel` with no outcome get "Cut off: the run ended".
+- **Cards**: one per `wave_start.items` entry, in order. Lines from C5 details, `item_state`, C3 cells, `item_detail`, the verdict. Verdict words are a table in `words.py` (functional spec 7.6 plus 16.10, with the card short forms of ui_design 7.5). Items named by `deadline_cancel` or `fatal_cancel` with no outcome get "Cut off: tuning ended".
 - **Timeline**: segments from phase, wave, screening and gate events by their stamps (audit 1.4). The projection uses the mean of finished main-wave cycles (planning start to planning start).
 - **Wave N of ~M** (priority 3): `M = N + min(floor((time_left − WRAP_UP_WINDOW_SECS) / mean_cycle), floor(budget_left / mean_cycle_cost))`, never below N, and only after wave 1 ends. The two constants are imported from `orchestrator.py` (lines 181, 187). If this proves awkward, show "wave N" alone.
 - **Log lines**: `log.py` maps each event in functional spec 7.7 to a glyph and plain words. `memory_written` (C7) lines show the record kind and its overview, for kinds lesson, dead end and issue.
@@ -290,7 +290,7 @@ Each change gets a unit test that the event appears with its fields, and a test 
 
 `ClosingBlock` collects three parts and prints them after the app has closed and the fds are restored:
 
-1. **Start**: `StartReport.summary` and `StartReport.rerun`, as said (today's texts). A start that ends with no report (Exit, Ctrl+C or Ctrl+D at "Start the run?", or an error after the summary) gives the last summary and rerun command it said instead (section 4.1). A report, when there is one, wins. In `app_startup` mode this is all it prints, before the plain run starts.
+1. **Start**: `StartReport.summary` and `StartReport.rerun`, as said (today's texts). A start that ends with no report (Exit, Ctrl+C or Ctrl+D at "Start tuning?", or an error after the summary) gives the last summary and rerun command it said instead (section 4.1). A report, when there is one, wins. In `app_startup` mode this is all it prints, before the plain run starts.
 2. **Run**: `run_exit_line` and `report: <path>` (both built by `TuiSink`, section 5.2), then "Run folder: <run_dir>" from `_RUN_PROGRESS`.
 3. **Error**: nothing new. `main`'s arms print it as today, because `run_app` re-raises inside `_finish`.
 

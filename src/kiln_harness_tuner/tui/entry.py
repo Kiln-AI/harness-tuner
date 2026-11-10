@@ -44,8 +44,10 @@ from kiln_harness_tuner.tui.closing import (
     display_stopped_line,
     print_lines,
     stray_line,
+    supports_hyperlinks,
 )
 from kiln_harness_tuner.tui.handles import RunHandle, StartHandle
+from kiln_harness_tuner.tui.model.cards import next_steps
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.names import RcNames
@@ -248,12 +250,16 @@ class _AppRun:
         finally:
             # Also after a Ctrl+C during the wait, which goes on to `main`.
             model = app.model
-            if model is not None and model.run_ended and model.confirmed_rc:
-                rc_id = model.confirmed_rc
-                self.closing.best_confirmed = (model.rc_label(rc_id), rc_id)
+            if model is not None and model.run_ended:
+                if model.confirmed_rc:
+                    rc_id = model.confirmed_rc
+                    self.closing.best_confirmed = (model.rc_label(rc_id), rc_id)
+                # The report as the run's display saw it written.
+                self.closing.next_steps = next_steps(model, self.closing.report_path)
             run_dir = cli._RUN_PROGRESS.run_dir
             stray = self._settle_stray()
-            print_lines(self.closing.run_lines(run_dir))
+            hyperlinks = supports_hyperlinks(sys.stdout)
+            print_lines(self.closing.run_lines(run_dir, hyperlinks=hyperlinks))
             if stray is not None:
                 print_lines([stray], sys.stderr)
         return self.run.result()

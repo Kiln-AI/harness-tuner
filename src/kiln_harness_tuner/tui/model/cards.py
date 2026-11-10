@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from kiln_harness_tuner.schemas import ItemOutcome
-from kiln_harness_tuner.tui.model import words
+from kiln_harness_tuner.tui.model import links, words
 from kiln_harness_tuner.tui.model.state import (
     BUILD_STATES,
     SPIN,
@@ -20,6 +20,7 @@ from kiln_harness_tuner.tui.model.state import (
     GaugeLine,
     ItemModel,
     Line,
+    NextStep,
     NoteLine,
     PlanStep,
     Span,
@@ -126,6 +127,8 @@ GATE_VERDICTS = {
 def verdict(model: RunModel, item: ItemModel) -> Verdict | None:
     """The card's verdict: the gate's, once the gate decided; else the
     item's own (also while it is at the gate)."""
+    if item.gate == "not_selected":
+        return words.not_selected(item.gate_winner or "")
     if item.gate in GATE_VERDICTS:
         return GATE_VERDICTS[item.gate]
     return landed_verdict(model, item)
@@ -155,46 +158,48 @@ def eval_name(model: RunModel, eval_id: str | None) -> str:
     return model.eval_names.get(eval_id, eval_id)
 
 
-def _title(model: RunModel, item: ItemModel) -> tuple[str, str, str]:
-    """(title, qualifier, text) by item type (functional spec 7.6)."""
+def _labelled(label: str, text: object) -> Line:
+    """The planner's own words, muted after a label; nothing when it wrote
+    none."""
+    said = str(text or "")
+    return (Span(label), Span(said, "muted")) if said else ()
+
+
+def _about(model: RunModel, item: ItemModel) -> tuple[str, Line]:
+    """(qualifier, text) by item type (functional spec 7.6): what the title
+    says after the item id, and lines 1–2."""
     details = item.details
     if item.kind == "fix":
-        targets = item.targets
-        technique = details.get("technique")
+        names = [eval_name(model, target) for target in item.targets]
         return (
-            eval_name(model, targets[0] if targets else None),
-            words.humane(str(technique)) if technique else "",
-            str(details.get("hypothesis") or ""),
+            words.card_targets(names),
+            _labelled(words.HYPOTHESIS_LABEL, details.get("hypothesis")),
         )
     if item.kind == "merge":
         wins = details.get("merge_wins") or []
         ingredients = [model.rc_label(str(w.get("rc_id"))) for w in wins]
-        return (
-            words.ALL_EVALS,
-            words.KIND_WORDS["merge"],
-            words.merge_text(ingredients, model.parent_label(item.wave)),
-        )
+        text = words.merge_text(ingredients, model.parent_label(item.wave))
+        return words.card_kind("merge"), (Span(text),)
     if item.kind == "probe":
         probe = details.get("probe") or {}
-        return words.QUESTION, words.KIND_WORDS["probe"], str(probe.get("question", ""))
+        return words.card_kind("probe"), _labelled(
+            words.QUESTION_LABEL, probe.get("question")
+        )
     issue = str(details.get("issue_memory_id") or "")
-    # The preview titles an eval build with a concern; the eval it builds is
-    # not one yet, so the card says "New eval".
     if item.kind == "eval":
-        return words.NEW_EVAL, words.KIND_WORDS["eval"], words.eval_build_text(issue)
+        return words.card_kind("eval"), (Span(words.eval_build_text(issue)),)
     if item.kind == "measure":
         measure = details.get("measure") or {}
         return (
-            eval_name(model, measure.get("eval_id")),
-            words.KIND_WORDS["measure"],
-            words.measure_text(issue),
+            words.card_kind("measure", eval_name(model, measure.get("eval_id"))),
+            (Span(words.measure_text(issue)),),
         )
     remeasure = details.get("remeasure") or {}
     eval_ids = remeasure.get("eval_ids") or [None]
+    rc = model.rc_label(str(remeasure.get("rc_id") or ""))
     return (
-        eval_name(model, eval_ids[0]),
-        words.KIND_WORDS["remeasure"],
-        words.remeasure_text(model.rc_label(str(remeasure.get("rc_id") or ""))),
+        words.card_kind("remeasure", eval_name(model, eval_ids[0])),
+        (Span(words.remeasure_text(rc)),),
     )
 
 
@@ -214,6 +219,7 @@ _GATE_STAGE_STATE: dict[str | None, StepState] = {
     "at_gate": "current",
     "promoted": "done",
     "rejected": "stopped",
+    "not_selected": "warned",
     "copied": "stopped",
     "blocked": "stopped",
 }
@@ -322,20 +328,19 @@ def line5(model: RunModel, item: ItemModel) -> Line:
 
 
 def card_view(model: RunModel, item: ItemModel, now: float) -> CardView:
-    title, qualifier, text = _title(model, item)
+    qualifier, text = _about(model, item)
     found = verdict(model, item)
-    subtitle = item.item_id
-    if item.spend_usd > 0:
-        subtitle += f" · {words.money(item.spend_usd)}"
     return CardView(
         item_id=item.item_id,
-        title=title,
+        title=item.item_id,
         qualifier=qualifier,
         text=text,
         steps=steps(item, found),
         line4=line4(model, item, now),
         line5=line5(model, item),
-        subtitle=subtitle,
+        # The item's own spend, every session and job of it: a number that
+        # only grows.
+        subtitle=words.money(item.spend_usd) if item.spend_usd > 0 else "",
         live=item.live,
     )
 
@@ -548,11 +553,10 @@ def done_view(model: RunModel) -> DoneView:
         best = (label, Span(words.KEPT_START))
     if model.report_path:
         report = model.report_path
-    elif model.exit_reason == "interrupted" or model.run_ended:
+    elif report_ended(model):
         report = words.NO_REPORT
     else:
         report = words.WRITING_REPORT
-    shipped = model.confirmed_rc or model.start_rc
     return DoneView(
         ended=words.how_it_ended(model.exit_reason),
         summary=summary,
@@ -560,9 +564,41 @@ def done_view(model: RunModel) -> DoneView:
         best=best,
         report=report,
         report_path=model.report_path,
-        next_step=words.next_step(model.rc_label(shipped)) if shipped else "",
+        next_steps=next_steps(model, model.report_path),
         subtitle=words.run_label(model.info.run_id),
     )
+
+
+def report_ended(model: RunModel) -> bool:
+    """No report will come: the run was stopped, or its thread has ended."""
+    return model.exit_reason == "interrupted" or model.run_ended
+
+
+def next_steps(model: RunModel, report_path: str | None) -> tuple[NextStep, ...]:
+    """What the person can do now (functional spec 7.6, Done mode): see the
+    experiment graph, compare Best Confirmed with the starting point, and
+    read the report. The compare link holds exactly those two configs."""
+    info = model.info
+    out = [NextStep(words.GRAPH_STEP, model.lineage_url())]
+    confirmed = model.confirmed_rc
+    if confirmed:
+        compare = links.compare_url(
+            info.kiln_host,
+            info.project_id,
+            info.task_id,
+            [rc for rc in (model.start_rc, confirmed) if rc],
+        )
+        best = model.rc_items.get(confirmed) or model.rc_label(confirmed)
+        out.append(
+            NextStep(words.compare_step(best), compare, note=words.TEST_SPLIT_NOTE)
+        )
+    else:
+        out.append(NextStep(words.NO_PROMOTION_STEP))
+    if report_path:
+        out.append(NextStep(words.REPORT_STEP, report_path))
+    elif not report_ended(model):
+        out.append(NextStep(words.REPORT_STEP_WRITING, pending=True))
+    return tuple(out)
 
 
 def experiments_view(model: RunModel, now: float) -> ExperimentsView:

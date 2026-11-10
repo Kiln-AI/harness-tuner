@@ -60,8 +60,8 @@ SPEND_APPENDIX_HEADING = "## Appendix: spend by source and lane (code-computed)"
 # notes keep the wire lane name in parentheses, because that is what the
 # `spend` events in `wave_log.jsonl` beside the report actually say.
 SPEND_APPENDIX_NOTES = (
-    "- **Kiln** $ (`provider`) = real money today (Kiln eval jobs: subject "
-    "`task_run_usage` + judge `eval_usage`).",
+    "- **API keys** $ (`provider`) = real money today (Kiln eval jobs: "
+    "subject `task_run_usage` + judge `eval_usage`).",
     "- **Claude Code** $ (`subscription_equivalent`) = `claude -p` session "
     "cost (`total_cost_usd`) — quota burn now, real cost at deployment.",
     "- Excludes this report-writing session and any prior aborted runs.",
