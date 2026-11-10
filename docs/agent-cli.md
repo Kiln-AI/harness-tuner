@@ -480,8 +480,9 @@ read of a skill file work; the `kiln-harness-tuner-*` skills are found; and the
 gateway answers through the rendered MCP config.
 
 Every session also runs with `--format json`, `--pure` (no external
-plugins) and `--auto` (approve what the rules do not deny, so a session
-never waits on a question nobody can answer). The effort is `--variant`,
+plugins), `--auto` (approve what the rules do not deny, so a session
+never waits on a question nobody can answer) and `--dir <workspace>`. Do not
+put any of these in `--agent-cli`: OpenCode then gets them twice. The effort is `--variant`,
 `high` by default; OpenCode ignores a variant the model does not have.
 
 Against section 6:
@@ -506,4 +507,8 @@ What else differs:
   `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
   the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy
   of its `AGENTS.md`. OpenCode also loads the user's own skills, as Claude
-  Code does.
+  Code does. OpenCode takes its project folder from the `PWD` variable, not
+  from the working directory of its process. So every session gets its
+  workspace twice: as `--dir <workspace>`, as Codex gets `-C`, and as
+  `PWD`. With the `PWD` of the folder that `harness-tuner` was started in
+  and no `--dir`, a session finds none of the tuner's skills.

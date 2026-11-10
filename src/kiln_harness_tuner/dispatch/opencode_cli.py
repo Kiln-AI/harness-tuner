@@ -322,6 +322,11 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
             # session never waits on a question nobody can answer.
             "--pure",
             "--auto",
+            # The workspace, named: OpenCode finds `.agents/skills` and
+            # `AGENTS.md` in its project folder, which it otherwise takes
+            # from `PWD` (the runner sets that too). As Codex's `-C`.
+            "--dir",
+            str(self._workspace(label)),
             "--variant",
             self._effort_for(agent),
         ]

@@ -158,6 +158,13 @@ class TestTheCommand:
         assert argv[argv.index("--variant") + 1] == "high"
         assert argv[argv.index("-m") + 1] == "zai-coding-plan/glm-5.3-flash"
 
+    def test_the_workspace_is_named_with_dir(self, tmp_path):
+        # Without it OpenCode takes its project folder from PWD, and finds no
+        # skills when that is the folder the tuner was started in.
+        dispatcher, _ = make(tmp_path, [])
+        argv = dispatcher._argv("batch_plan", label="b")
+        assert argv[argv.index("--dir") + 1] == str(dispatcher._cwd("b"))
+
     def test_no_model_option_by_default(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
         assert "-m" not in dispatcher._argv("generality_review", label="g")

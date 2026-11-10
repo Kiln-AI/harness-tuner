@@ -1413,6 +1413,18 @@ class TestAsyncioSubprocessRunner:
             ) from None
         return task, spawned[0]
 
+    async def test_the_child_s_pwd_is_its_working_folder(self, tmp_path, monkeypatch):
+        # OpenCode takes its project folder from PWD: with the tuner's own
+        # PWD it does not find the session folder's skills.
+        monkeypatch.setenv("PWD", "/somewhere/else")
+        result = await AsyncioSubprocessRunner().run(
+            [sys.executable, "-c", "import os; print(os.environ['PWD'])"],
+            stdin_text="",
+            timeout_secs=30,
+            cwd=str(tmp_path),
+        )
+        assert result.stdout.strip() == str(tmp_path)
+
     async def test_cancelling_kills_and_reaps_the_child(self, monkeypatch):
         # Without the kill, a cancelled dispatch leaves a live `claude -p`
         # session spending for the rest of its timeout — setup's describe
