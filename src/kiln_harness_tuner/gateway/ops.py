@@ -27,6 +27,7 @@ import secrets
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,9 @@ PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
 GATEWAY_RUN_TAG = "kiln_harness_tuner_gateway"
 CREATED_FILE = "gateway_created.jsonl"
+# One line per memory write an agent makes, for the loop to forward into
+# the wave log (`kiln_harness_tuner.memory_feed`).
+MEMORY_FILE = "gateway_memory.jsonl"
 VAL_SUMMARY_FILE = "val_summary.json"
 VAL_READERS = frozenset({"promote_best", "report_writer"})
 RC_PROP_KEYS = (
@@ -161,6 +165,39 @@ class State:
             os.write(fd, (line + "\n").encode())
         finally:
             os.close(fd)
+
+    def record_memory(self, op: str, view: m.MemoryView) -> None:
+        """Append one line for a memory write this session made: the
+        record's id, scope, tags and overview, the op and this role. Not the
+        content. One `os.write` on an `O_APPEND` file, as `record` does, so
+        the lines of concurrent sessions do not mix. The record is written
+        by then: a failed append loses only the line, never the write."""
+        if self.run_dir is None:
+            return
+        line = json.dumps(
+            {
+                "ts": datetime.now().isoformat(),
+                "op": op,
+                "id": view.id,
+                "role": self.role,
+                "scope": view.scope,
+                "tags": list(view.tags),
+                "overview": view.overview,
+            },
+            ensure_ascii=False,
+        )
+        try:
+            fd = os.open(
+                self.run_dir / MEMORY_FILE,
+                os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+                0o600,
+            )
+            try:
+                os.write(fd, (line + "\n").encode())
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
 
     def created_train(
         self, kind: str | None = None, eval_id: str | None = None
@@ -786,7 +823,9 @@ class Gateway:
         row = await self.call(
             "POST", f"{self.s.project}/memories", body=req.model_dump(exclude_none=True)
         )
-        return m.project(m.MemoryView, row)
+        view = m.project(m.MemoryView, row)
+        self.s.record_memory("create", view)
+        return view
 
     async def memory_update(self, req: m.MemoryUpdate) -> m.MemoryView:
         (current,) = await self.memory_get(m.MemoryIdsRequest(ids=[req.id])) or [None]
@@ -795,10 +834,12 @@ class Gateway:
         if req.tags is not None and VAL_MEMORY_TAG in req.tags:
             raise GatewayError("the `val` tag is written by the loop's code only")
         body = req.model_dump(exclude_none=True, exclude={"id"})
-        return m.project(
+        view = m.project(
             m.MemoryView,
             await self.call("PATCH", f"{self.s.project}/memories/{req.id}", body=body),
         )
+        self.s.record_memory("update", view)
+        return view
 
     # ------------------------------------------------------------ artifacts
 

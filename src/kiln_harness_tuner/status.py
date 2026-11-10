@@ -22,6 +22,7 @@ import time
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -93,8 +94,85 @@ def item_label(item: BatchItem) -> str:
     return f"{flag}{work.hypothesis} ({work.issue_memory_id})"
 
 
-def item_summary(item: BatchItem) -> dict[str, str]:
-    return {"item_id": item.id, "kind": item_kind(item), "label": item_label(item)}
+def item_summary(item: BatchItem) -> dict[str, Any]:
+    """One `wave_start.items` entry: the id, kind and label the tracker and
+    the plain lines read, then the item's details (`item_details`)."""
+    return {
+        "item_id": item.id,
+        "kind": item_kind(item),
+        "label": item_label(item),
+        **item_details(item),
+    }
+
+
+def item_details(item: BatchItem) -> dict[str, Any]:
+    """What a display shows of a planned item before its outcome: its type,
+    hypothesis, targets and kind of change. Every key is on every item, None
+    where it does not apply to the item's type. The lists are new lists:
+    the loop changes the item's own lists during the wave (a `needs_eval`
+    fix gains its new eval as a target)."""
+    details: dict[str, Any] = {
+        "type": item.type,
+        "hypothesis": None,
+        "technique": None,
+        "issue_memory_id": None,
+        "wildcard": None,
+        "needs_eval": None,
+        "eval_id": None,
+        "targets": None,
+        "promotion_candidate": None,
+        "max_usd": None,
+        "merge_wins": None,
+        "probe": None,
+        "remeasure": None,
+        "measure": None,
+        "parent_rc_id": None,
+        "existing_rc_id": None,
+    }
+    if isinstance(item, EvalOnlyItem):
+        details["issue_memory_id"] = item.issue_memory_id
+    elif isinstance(item, MeasureIssueBaselineItem):
+        details["issue_memory_id"] = item.issue_memory_id
+        details["measure"] = {"eval_id": item.eval_id, "scores": _copy(item.scores)}
+    elif isinstance(item, RemeasureItem):
+        details["remeasure"] = {"rc_id": item.rc_id, "eval_ids": list(item.eval_ids)}
+    elif isinstance(item, ProbeItem):
+        details["probe"] = {
+            "question": item.question,
+            "max_drives": item.max_drives,
+            "for_idea": item.for_idea,
+            "code": item.check is not None,
+        }
+        details["parent_rc_id"] = item.parent_rc_id
+    else:
+        details["targets"] = [
+            {"eval_id": t.eval_id, "scores": _copy(t.scores)}
+            for t in item.evaluation_target
+        ]
+        details["promotion_candidate"] = item.promotion_candidate
+        details["max_usd"] = item.max_usd
+        work = item.work
+        if isinstance(work, MergeWork):
+            details["merge_wins"] = [
+                {"experiment_memory_id": w.experiment_memory_id, "rc_id": w.rc_id}
+                for w in work.wins
+            ]
+        else:
+            details.update(
+                hypothesis=work.hypothesis,
+                technique=work.technique,
+                issue_memory_id=work.issue_memory_id,
+                wildcard=work.wildcard,
+                needs_eval=work.needs_eval,
+                eval_id=work.eval_id,
+                parent_rc_id=work.parent_rc_id,
+                existing_rc_id=work.existing_rc_id,
+            )
+    return details
+
+
+def _copy(scores: Sequence[str] | None) -> list[str] | None:
+    return list(scores) if scores is not None else None
 
 
 def spend_split(by_lane: Mapping[str, float]) -> tuple[float, float, float]:

@@ -28,6 +28,12 @@ def score_json_key(name: str) -> str:
     return _NON_KEY_CHARS.sub("", name.strip().lower().replace(" ", "_"))
 
 
+def dump_or_none(model: BaseModel | None) -> dict[str, Any] | None:
+    """A model as plain JSON data for an event field, or None. The dump is
+    also a copy: the loop may change the model after the emit."""
+    return model.model_dump(mode="json") if model is not None else None
+
+
 def _dedup_scores(base: list[str], extra: list[str]) -> list[str]:
     """First-seen spelling wins; duplicates keyed by `score_json_key` — the
     normalization expand_targets applies — so "Out Of Scope" and "out_of_scope"

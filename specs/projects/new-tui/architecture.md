@@ -280,7 +280,7 @@ The schemas, emit points and risks are in `data_contract_audit.md` section 2. Th
 | C4 | `gate_fills_planned`, `gate_fill` | `orchestrator.py` `_assemble_val_tables` | as proposed |
 | C5 | new keys in `wave_start.items[]` | `status.item_summary` | as proposed; copies only |
 | C6 | `open_questions` | after each `write_open_unknowns` | as proposed |
-| C7 | gateway file `gateway_memory.jsonl` + `memory_written` | `gateway/ops.py` `memory_create`, `memory_update`; forwarded from `ClaudeCliDispatcher._run` through an `on_session_end` hook, and once before the first `exit` | as proposed; the file joins `RUN_DIR_ENTRIES` |
+| C7 | gateway file `gateway_memory.jsonl` + `memory_written` | `gateway/ops.py` `memory_create`, `memory_update`; forwarded from `ClaudeCliDispatcher._run` through an `on_session_end` hook, and once before the first `exit` | as proposed, but the kind field is `record_kind` (`kind` is the event's own name); the file joins `RUN_DIR_ENTRIES` |
 
 Each change gets a unit test that the event appears with its fields, and a test that `PlainUi` prints nothing new.
 

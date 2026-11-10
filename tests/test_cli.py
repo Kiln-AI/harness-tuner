@@ -29,6 +29,7 @@ from kiln_harness_tuner.cli import (
 from kiln_harness_tuner.contract import ContractPreflightError
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.claude_cli import PreflightError
+from kiln_harness_tuner.gateway.ops import MEMORY_FILE
 from kiln_harness_tuner.gateway.trainset import TrainSetError
 from kiln_harness_tuner.install_agents import package_version
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
@@ -633,6 +634,42 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, state_dir):
     log_text = (run_dir / "kiln-harness-tuner.log").read_text()
     assert f"run {run_dir.name} starting" in log_text
     assert "project 424242748186 task 424242613304" in log_text
+
+
+def test_a_session_end_forwards_the_gateway_memory_lines(monkeypatch, state_dir):
+    """The gateway's memory file exists before the first session, so the
+    read fence names it. At each session's end the run forwards its new
+    lines into the wave log."""
+    line = {
+        "ts": "2026-11-10T14:00:00",
+        "op": "create",
+        "id": "424242500001",
+        "role": "batch_plan",
+        "scope": "project",
+        "tags": ["lesson"],
+        "overview": "LESSON: name the skill to make it read",
+    }
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        memory_file = ctx.run_dir / MEMORY_FILE
+        assert memory_file.read_text() == ""
+        memory_file.write_text(json.dumps(line) + "\n")
+        ctx.dispatch.on_session_end("batch_plan", "batch_plan-w1")
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    assert main(ARGS) == 0
+    run_dir = _run_dir(state_dir)
+    deny = json.loads((run_dir / "settings.json").read_text())["permissions"]["deny"]
+    assert any(rule.endswith(f"/{MEMORY_FILE})") for rule in deny)
+    events = [
+        json.loads(text)
+        for text in (run_dir / "wave_log.jsonl").read_text().splitlines()
+    ]
+    (written,) = [e for e in events if e["kind"] == "memory_written"]
+    assert written["id"] == "424242500001"
+    assert written["record_kind"] == "lesson"
+    assert written["forwarded_by"] == "batch_plan-w1"
 
 
 @pytest.mark.parametrize(

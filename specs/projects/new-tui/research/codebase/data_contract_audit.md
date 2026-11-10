@@ -634,7 +634,7 @@ gate_fill { rc_id: str, eval_id: str, role: "baseline" | "candidate",
 ```
 memory_written { id: str, op: "create" | "update", role: str, scope: str,
                  tags: [str], overview: str,
-                 kind: str,           # memory_schema.record_kind(tags, overview), memory_schema.py:204-213
+                 record_kind: str,    # memory_schema.record_kind(tags, overview), memory_schema.py:204-213
                  written_at: str,     # the gateway's ts
                  forwarded_by: str }  # the label of the session whose end forwarded it
 ```
@@ -653,7 +653,7 @@ memory_written { id: str, op: "create" | "update", role: str, scope: str,
     gateway: probe lessons, screen results, verdicts, dead-end stamps,
     open questions. They are not in this file. They are already evented
     (`item_probe`, `screening_round`, `item_outcome`, `item_detail`, C6).
-  - The app filters by `kind` (lesson, dead_end, issue). An agent's
+  - The app filters by `record_kind` (lesson, dead_end, issue). An agent's
     `memory_update` can touch other kinds.
 
 ---

@@ -1950,6 +1950,38 @@ async def test_every_dispatch_leaves_a_step_record(tmp_path):
     assert record["elapsed_secs"] >= 0
 
 
+async def test_the_session_end_hook_runs_after_the_step_record(tmp_path):
+    # cli.py forwards the gateway's memory lines from this hook, so it runs
+    # once per session, after the session's step is on disk.
+    dispatcher, _runner = make_wired_dispatcher(
+        tmp_path, [ok_proc(cli_payload(envelope_text(PLAN_DATA), session_id="s1"))]
+    )
+    write_transcript(tmp_path, "s1")
+    seen = []
+
+    def hook(agent: str, label: str) -> None:
+        steps = sorted(p.name for p in (tmp_path / "run" / "steps").glob("*.json"))
+        seen.append((agent, label, steps))
+
+    dispatcher.on_session_end = hook
+    await dispatcher.batch_plan(BATCH_PLAN_INPUT)
+    assert seen == [("batch_plan", "batch_plan-loop", ["001-batch_plan-loop.json"])]
+
+
+async def test_a_failing_session_end_hook_does_not_fail_the_dispatch(caplog):
+    dispatcher, _runner = make_dispatcher(
+        [ok_proc(cli_payload(envelope_text(PLAN_DATA)))]
+    )
+
+    def hook(agent: str, label: str) -> None:
+        raise RuntimeError("the hook broke")
+
+    dispatcher.on_session_end = hook
+    result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
+    assert result.status == "ok"
+    assert "session-end hook failed for batch_plan-loop" in caplog.text
+
+
 class TestReadOnlyRoles:
     """The val readers run under `settings.readonly.json` and get
     no scratch; every other role keeps the ordinary settings and a scratch."""

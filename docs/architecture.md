@@ -1139,7 +1139,7 @@ src/kiln_harness_tuner/
   memory.py         when a record is written
   memory_schema.py  what a record says
   schemas.py        every agent input and output, and RunStatus
-  status.py, ui.py, wave_log.py, report.py, logbook.py   observability
+  status.py, ui.py, wave_log.py, memory_feed.py, report.py, logbook.py   observability
   contract.py       the no-cost live response-shape pre-flight
   model_preflight.py  one test call per model before the first spend
   concurrency.py, provider_errors.py, snapshots.py

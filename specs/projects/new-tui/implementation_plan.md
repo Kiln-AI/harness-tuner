@@ -8,7 +8,7 @@ Each phase leaves `uv run pytest`, `uv run ruff check` and `uv run ruff format -
 
 ## Phases
 
-- [ ] Phase 1: Loop data additions. C1a, C1b, C2, C3 (with the per-item cells), C4, C5, C6 and C7 (architecture section 9; schemas in `research/codebase/data_contract_audit.md` section 2). Tests for each event; `PlainUi` output unchanged.
+- [x] Phase 1: Loop data additions. C1a, C1b, C2, C3 (with the per-item cells), C4, C5, C6 and C7 (architecture section 9; schemas in `research/codebase/data_contract_audit.md` section 2). Tests for each event; `PlainUi` output unchanged.
 - [ ] Phase 2: CLI seams, with no behavior change. `prepare_start(report=)` and `StartReport`; `_run(display=)` and `_run_with_signals(display=, on_started=)`; `main` split into `display_mode`, `_plain_body` and `_finish`; `plain_exit_line` moved out of `PlainUi`; `aligned_rows`, `PICK_HINT` and `graphical_browser_expected` moved out of `console.py` (architecture sections 2, 4.3, 5.1).
 - [ ] Phase 3: The run model, pure Python. `tui/model/`: `Stamped`, `UiTracker`, the state dataclasses, the fold, results tiers, cards and verdict words, timeline and wave estimate, log lines, links, `RcNames` (architecture sections 7, 8). Model tests on recorded event sequences.
 - [ ] Phase 4: The app shell and the terminal. Add `textual` and raise `rich`. `tui/theme.py` with the OSC 11 query, `terminal_io.py` (TTYDriver, fd redirect, stray-output file), `opener.py`, `handles.py`, `TunerApp` with signals, bindings and the drain, `StopDialog`, `closing.py`, `entry.run_app` for all three modes with placeholder screens. Entry tests with a fake `_run`; pty tests for SIGTERM, SIGHUP, stray output and the closing block.

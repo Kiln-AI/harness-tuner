@@ -50,7 +50,12 @@ from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
 from kiln_harness_tuner.gateway.hook import MCP_MATCHER, SKILL_INSTALLER_TOOLS
 from kiln_harness_tuner.gateway.hook import hook_command as gateway_hook_command
-from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, ROLE_OPS, TRACE_READER_ROLES
+from kiln_harness_tuner.gateway.ops import (
+    GATEWAY_SERVER,
+    MEMORY_FILE,
+    ROLE_OPS,
+    TRACE_READER_ROLES,
+)
 from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSetError
 from kiln_harness_tuner.install_agents import (
@@ -71,6 +76,7 @@ from kiln_harness_tuner.memory import (
     MemoryWriter,
     MemoryWriteRefused,
 )
+from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
 from kiln_harness_tuner.model_preflight import ModelPreflightError
@@ -655,6 +661,7 @@ RUN_DIR_ENTRIES = (
     "settings.readonly.json",
     "train_set.json",
     "gateway_created.jsonl",
+    "gateway_memory.jsonl",
     "val_summary.json",
     "model_policy.json",
 )
@@ -1311,6 +1318,14 @@ async def _run(args: argparse.Namespace) -> str:
                 # The analyzer logs too (`eval_job_errors`)
                 # — re-point it at the fan-out now that it exists.
                 ctx.analyzer.log = ctx.log
+                # The memory records agents write through the gateway, into
+                # the wave log at each session's end. `ctx.log` is read at
+                # call time: `orchestrate` wraps it.
+                feed = MemoryFeed(run_dir / MEMORY_FILE)
+                ctx.memory_feed = feed
+                ctx.dispatch.on_session_end = lambda _agent, label: feed.forward(
+                    ctx.log, label
+                )
                 report_writer = ReportWriter(tracker, run_id, state.reports)
                 _RUN_PROGRESS.report_path = report_writer.report_path
                 ctx.write_report = report_writer

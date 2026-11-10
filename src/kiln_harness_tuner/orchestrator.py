@@ -100,7 +100,8 @@ from kiln_harness_tuner.memory import (
     MemoryWriter,
     MemoryWriteRefused,
 )
-from kiln_harness_tuner.memory_schema import RecordKindError
+from kiln_harness_tuner.memory_feed import MemoryFeed
+from kiln_harness_tuner.memory_schema import RecordKindError, canonical_question
 from kiln_harness_tuner.model_policy import (
     ModelPolicy,
     allowed_models,
@@ -146,6 +147,7 @@ from kiln_harness_tuner.schemas import (
     LatencyComparison,
     LeverCost,
     MergeWork,
+    OpenUnknown,
     ProbeAnswer,
     PromotionDecision,
     PromotionInput,
@@ -275,6 +277,9 @@ class Ctx:
     # Where the run's memory snapshots go (runs/<id>/snapshots);
     # None = keep none. The dispatcher keeps its own step records beside them.
     run_dir: Path | None = None
+    # The gateway's memory lines, forwarded as `memory_written` events
+    # (`kiln_harness_tuner.memory_feed`); None = no feed (cli.py sets it).
+    memory_feed: MemoryFeed | None = None
     # Who decides a ONE-candidate gate. "auto" = the code rule
     # (`decide_single_candidate`) — a yes/no question the val table already
     # answers; the promote agent is dispatched only to RANK two or more.
@@ -438,7 +443,9 @@ class _ReconcileBeforeExit:
     `exit` event: whichever of the exits fires — the loop's own,
     the quota breaker, a fatal error, an interrupt — the records are priced
     and the gap booked first, so the exit line and the report carry the
-    reconciled figure (`kiln_harness_tuner.reconcile`)."""
+    reconciled figure (`kiln_harness_tuner.reconcile`). The memory lines no
+    session end forwarded (a cancelled session has no end) go out there
+    too."""
 
     def __init__(self, inner: EventLog, ctx: Ctx):
         self._inner = inner
@@ -449,6 +456,8 @@ class _ReconcileBeforeExit:
         if kind == "exit" and not self._done:
             self._done = True
             reconcile(self._ctx, when="exit")
+            if self._ctx.memory_feed is not None:
+                self._ctx.memory_feed.forward(self._inner, "exit")
         self._inner.event(kind, **fields)
 
     def __getattr__(self, name: str) -> Any:
@@ -737,7 +746,9 @@ async def _run_loop(
             exit_reason = "planner_failed"
             ctx.log.event("exit", reason=exit_reason)
             break
-        await ctx.memory.write_open_unknowns(plan.open_questions)  # code writes
+        # Code writes the open questions, not the planner.
+        written = await ctx.memory.write_open_unknowns(plan.open_questions)
+        _emit_open_questions(ctx, wave, "plan", plan.open_questions, written)
         await snapshot_memory(ctx, f"w{wave}-plan-after")
         ctx.screen_rounds_this_wave = 0
         ctx.screening_notes = []
@@ -797,7 +808,8 @@ async def _run_loop(
                 exit_reason = "planner_failed"
                 ctx.log.event("exit", reason=exit_reason)
                 break
-            await ctx.memory.write_open_unknowns(plan.open_questions)
+            written = await ctx.memory.write_open_unknowns(plan.open_questions)
+            _emit_open_questions(ctx, wave, "replan", plan.open_questions, written)
             await snapshot_memory(ctx, f"w{wave}-replan-after")
             plan = await _screening_phase(
                 ctx,
@@ -1064,8 +1076,40 @@ async def _screening_phase(
         if replanned.data is None:
             return None
         plan = replanned.data
-        await ctx.memory.write_open_unknowns(plan.open_questions)
+        written = await ctx.memory.write_open_unknowns(plan.open_questions)
+        _emit_open_questions(ctx, wave, "rescreen", plan.open_questions, written)
     return plan
+
+
+def _emit_open_questions(
+    ctx: Ctx,
+    wave: int,
+    phase: str,
+    questions: list[OpenUnknown],
+    constraint_ids: list[str],
+) -> None:
+    """The planner's open questions, as written: each question in the
+    form memory stores it, and the id of its constraint record. A repeated
+    question names the same record (`write_open_unknowns` patches it), and
+    a hold names it too (`hold_recorded.constraint_id`). No event for an
+    empty list."""
+    if not questions:
+        return
+    ctx.log.event(
+        "open_questions",
+        wave=wave,
+        phase=phase,
+        questions=[
+            {
+                "question": canonical_question(q.question),
+                "default_assumed": q.default_assumed,
+                "gates": q.gates,
+                "reask_when": q.reask_when,
+                "constraint_id": constraint_id,
+            }
+            for q, constraint_id in zip(questions, constraint_ids, strict=False)
+        ],
+    )
 
 
 async def run_opening_screen(ctx: Ctx, baseline: BaselineRef) -> None:
@@ -1410,6 +1454,10 @@ async def _run_promotion_gate(
     write_val_summary(ctx, tables)
     await apply_integrity_checks(ctx, tables, baseline.rc_id)
     await _record_gate_blocks(ctx, candidates, tables)
+    if not is_efficiency(ctx.objective):
+        # Final here under quality. Under speed and cost the speed pass and
+        # the eligibility marks below change the tables first.
+        _emit_val_tables(ctx, baseline.rc_id, tables)
     # Under --objective quality the gate times nothing. Each
     # row's passive `latency` and `cost` (the stored eval runs) show the
     # speed and the cost. There is no per-request ceiling.
@@ -1423,6 +1471,7 @@ async def _run_promotion_gate(
         for table in tables:
             apply_speed_eligibility(table, ctx.objective, weights)
         write_val_summary(ctx, tables)
+        _emit_val_tables(ctx, baseline.rc_id, tables)
         rule_decision = (
             decide_speed_gate(tables, ctx.objective, weights)
             if ctx.gate_agent == "auto"
@@ -1871,6 +1920,21 @@ async def _integrity_review(
 SPEED_TIE_RATIO = 0.03
 
 
+def _emit_val_tables(
+    ctx: Ctx, baseline_rc_id: str, tables: list[CandidateValTable]
+) -> None:
+    """Every candidate's final val table at this gate, against the
+    incumbent. The event keeps every gate; `val_summary.json` keeps the
+    latest one. The wave log is in the run folder, which the read fence
+    denies to every agent."""
+    ctx.log.event(
+        "gate_val_tables",
+        baseline_rc_id=baseline_rc_id,
+        objective=ctx.objective,
+        tables=[t.model_dump(mode="json") for t in tables],
+    )
+
+
 def write_val_summary(ctx: Ctx, tables: list[CandidateValTable]) -> None:
     """The gate's code-assembled val tables, for the val readers' gateway
     operation `get_val_summary`: the only val view an agent has.
@@ -2226,15 +2290,20 @@ async def _assemble_val_tables(
         for eval_id, eval_config_id, _specs in gate_evals
         for rc_id in rc_ids
     ]
+    # Gate progress, one event per fill. `done` counts every finished
+    # fill; a failed one has its `val_fill_failed` event and no `gate_fill`.
+    done = 0
 
     async def fill(
         eval_id: str, eval_config_id: str, rc_id: str
     ) -> tuple[list[dict[str, Any]], JobHealth] | ErrorInfo:
+        nonlocal done
         try:
-            return await ctx.analyzer.ensure_measured(
+            result = await ctx.analyzer.ensure_measured(
                 eval_id, eval_config_id, rc_id, "val"
             )
         except MeasurementFailed as fail:
+            done += 1
             ctx.log.event(
                 "val_fill_failed",
                 eval_id=eval_id,
@@ -2246,7 +2315,29 @@ async def _assemble_val_tables(
                 "val fill failed: eval %s rc %s — %s", eval_id, rc_id, fail.error.detail
             )
             return fail.error
+        done += 1
+        runs, health = result
+        ctx.log.event(
+            "gate_fill",
+            rc_id=rc_id,
+            eval_id=eval_id,
+            role="baseline" if rc_id == baseline_rc_id else "candidate",
+            stored=pairable_item_count(runs),
+            expected=health.n_expected,
+            missing=len(health.missing_item_ids),
+            clean=health.clean,
+            done=done,
+            total=len(fill_keys),
+        )
+        return result
 
+    ctx.log.event(
+        "gate_fills_planned",
+        baseline_rc_id=baseline_rc_id,
+        rc_ids=[o.rc_id for o in candidates],
+        eval_ids=[eval_id for eval_id, _config, _specs in gate_evals],
+        fills=len(fill_keys),
+    )
     # Hard errors (no-degradation rows — e.g. the 422 missing-split
     # answer) cancel the sibling fills and raise (running them to completion
     # would spend on a run that had already decided to exit).

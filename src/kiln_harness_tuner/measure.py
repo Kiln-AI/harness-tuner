@@ -121,6 +121,7 @@ from kiln_harness_tuner.schemas import (
     ResidualGateResult,
     ResidualItem,
     StopRule,
+    dump_or_none,
 )
 from kiln_harness_tuner.stop_rules import (
     RESIDUAL_MIN_FIXED_SHARE,
@@ -653,6 +654,8 @@ class _State:
     # candidate's measurement started (`kiln_harness_tuner.budget`, **Held**)
     remaining: float | None = None
     hold_key: tuple[object, int] = (None, 0)
+    # The judged rows a `measure_chunk` event has already carried as cells.
+    reported_n: int = 0
 
     @property
     def live(self) -> bool:
@@ -745,6 +748,85 @@ def progress_line(
             parts.append(f"{median(ratios):.2f}× {name}")
     parts.append(decision)
     return " · ".join(parts)
+
+
+def chunk_counts(ev: Evidence, since: int) -> dict[str, Any]:
+    """The counts a `measure_chunk` event carries beside its line: the
+    judged items so far, and those the candidate fixed and broke against
+    its queue parent. `cells` are the rows judged after the first `since`
+    (this chunk's), in judging order, as `[eval_id, item_id, parent_pass,
+    cand_pass]`. They tell an item that held from one that still fails.
+    Under speed and cost also `guard_losses()`: `lost`, `guards`, `fixes`,
+    `fails`."""
+    fixed, broke = ev.fixed_broke()
+    counts: dict[str, Any] = {
+        "judged": ev.judged_n,
+        "fixed": fixed,
+        "broke": broke,
+        "cells": [
+            [r.eval_id, r.item_id, r.parent_pass, r.cand_pass]
+            for r in ev.judged[since:]
+        ],
+    }
+    if ev.efficiency:
+        lost, guards, fixes, fails = ev.guard_losses()
+        counts.update(lost=lost, guards=guards, fixes=fixes, fails=fails)
+    return counts
+
+
+def arm_estimates(m: Measured, item_id: str, parent_rc_id: str) -> dict[str, Any]:
+    """The `arm_estimates` event's fields: an arm's train numbers when its
+    measurement ends, however it ends. One `per_eval` row per eval with an
+    estimate: the change in pass rate against the parent (`net`, its 95%
+    interval), the candidate's pass rate, the items judged and planned,
+    and the items fixed and broke. `pooled` is the estimate over every
+    eval. The four comparisons are the engine's paired timing: `latency`
+    and `cost` against the run's baseline, the `_vs_parent` pair only when
+    the parent is another run config."""
+    rows = []
+    for eval_id, est in m.per_eval.items():
+        low, high = est.ci()
+        fixed, broke = m.evidence.fixed_broke(eval_id)
+        rows.append(
+            {
+                "eval_id": eval_id,
+                "eval_name": m.evidence.eval_names.get(eval_id, eval_id),
+                "net": est.net,
+                "ci_low": low,
+                "ci_high": high,
+                "rate": est.rate,
+                "n": est.n,
+                "complete": est.complete,
+                "judged": sum(1 for r in m.evidence.judged if r.eval_id == eval_id),
+                "planned": m.planned_per_eval.get(eval_id, 0),
+                "fixed": fixed,
+                "broke": broke,
+            }
+        )
+    pooled = None
+    if m.estimate is not None:
+        low, high = m.estimate.ci()
+        pooled = {
+            "net": m.estimate.net,
+            "ci_low": low,
+            "ci_high": high,
+            "n": m.estimate.n,
+        }
+    return {
+        "item_id": item_id,
+        "rc_id": m.rc_id,
+        "parent_rc_id": parent_rc_id,
+        "status": m.status,
+        "stop_kind": m.stop_kind,
+        "per_eval": rows,
+        "pooled": pooled,
+        "latency": dump_or_none(m.latency),
+        "cost": dump_or_none(m.cost),
+        "latency_vs_parent": dump_or_none(m.vs_parent),
+        "cost_vs_parent": dump_or_none(m.vs_parent_cost),
+        "spend_usd": m.spend_usd,
+        "cap_usd": m.budget.usd if m.budget is not None else None,
+    }
 
 
 async def measure(
@@ -1272,7 +1354,13 @@ async def _measure(
                 chunk=k,
                 chunks=len(bounds),
                 line=line,
+                planned=sum(own_per_eval(s).values()),
+                spend_usd=s.spend,
+                cap_usd=s.budget.usd if s.budget is not None else None,
+                decision=decision,
+                **chunk_counts(s.ev, s.reported_n),
             )
+            s.reported_n = s.ev.judged_n
             if spec.progress is not None:
                 spec.progress(s.cand.rc_id, line)
 
