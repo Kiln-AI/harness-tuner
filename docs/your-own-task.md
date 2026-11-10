@@ -642,8 +642,8 @@ again, and one last question:
 │   --no-interaction                                                                      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-Start the run?
- s) Start the run
+Start tuning?
+ s) Start tuning
  e) Change an answer
  x) Exit
 ```
@@ -734,9 +734,9 @@ each question about the run:
 |---|---|
 | Title bar | The task, the run id, the agent CLI and the slot counts. |
 | Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
-| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the Kiln spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave; the start time and the time limit (`started 14:12 · limit 17:12`), which is not the end time. |
-| Run timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
-| Results | One card per eval score that can decide a promotion, then one for cost and one for latency per request. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the API keys spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave; the start time and the time limit (`started 14:12 · limit 17:12`), which is not the end time. |
+| Tuning timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
+| Results | One card per eval score that can decide a promotion (`Eval: <name>`), then one for cost and one for latency per request. |
 | Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |
 | Log | One line per notable event, newest at the bottom. A rule marks each wave. |
 
@@ -755,22 +755,40 @@ each question about the run:
 Green means better, red means worse, and every state also has a glyph or a
 word.
 
-**An experiment card** shows what the item tries, the concern it targets, its
-steps (build, measure, analyze, and gate for a promotion candidate) and how
-it goes: one cell per judged item, and how many it fixed and broke so far. A
-finished card shows its verdict in plain words, for example
-`Success · goes to the gate`, `Stopped: can't beat its parent` or
-`Promoted · now Best Confirmed`. A card keeps its place until the next wave's
-plan replaces the cards.
+**An experiment card** has the item id and the eval it targets on its top
+border, and what the item tries under it (`Hypothesis: …`, or `Question: …`
+for a probe). Then come its steps (build, measure, analyze, and gate for a
+promotion candidate) and how it goes: one cell per judged item, and how many
+it fixed and broke so far. The bottom border shows what the item has spent so
+far on API keys: its eval jobs, not its agents' tokens. A finished card shows its
+verdict in plain words, for example `Train success · checking validation
+set`, `Stopped: can't beat its parent` or `Promoted · now Best Confirmed`.
+When the gate promotes another candidate, the card says `Not selected · w4-3
+promoted` in yellow: it can have beaten the baseline on val too. A card keeps
+its place until the next wave's plan replaces the cards.
+
+**The details panel.** A card has room for a little only. Click a card
+(`details ›` on its bottom border) to open its details panel over the screen,
+or press `e` to pick any item of the tuning, the earlier waves and recon
+included. The panel shows the item in full: what kind of item it is, its
+wave and its parent, its targets, its lever, its spend (and the spending cap
+on its measurement), the planner's whole hypothesis and predicted effect,
+what the build changed, its results on train and on val, and the analyzer's
+findings. A probe shows its question and its evidence. An eval build or a
+measurement shows why the planner added it. Two links open the
+Experiment Graph with the item selected, and Compare its run config with
+its parent's. The panel updates while it is open. Esc, or a click outside
+it, closes it.
 
 **Keys and links:**
 
 | Key | What it does |
 |---|---|
-| `c` | Opens Compare in Kiln UI: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
-| `l` | Opens Lineage in Kiln UI: the run configs of the task and where each came from. |
+| `e` | Opens the list of the tuning's items, newest wave first. ↑↓ and Enter open an item's details panel; Esc goes back. A click on a card opens its panel too. |
+| `c` | Opens Compare in Kiln: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
+| `g` | Opens the Experiment Graph in Kiln: the run configs of the task and where each came from. |
 | `r` | Opens the report. The key shows once the report is written. |
-| `q`, Ctrl-C | Opens the stop dialog. At the end, `q` or Enter closes the app. |
+| `q`, Ctrl-C | Opens the stop dialog, also over a details panel. At the end, `q` or Enter closes the app (in a panel, Esc closes the panel first). |
 
 A link on the screen (underlined, with `↗`) also opens with a click. With no
 graphical browser, or over SSH, nothing opens: the log shows
@@ -779,24 +797,36 @@ log. Below 150 columns, Time & spend moves under Goal and the log under
 Experiments. A small window scrolls, and nothing is cut off. The app follows
 the terminal's light or dark background.
 
-**The stop dialog** asks `Stop the run?` and says what a stop loses, for
+**The stop dialog** asks `Stop tuning?` and says what a stop loses, for
 example `4 experiments are in flight. Their work so far is lost, and no report
-is written.` **Keep running** has the focus, and Esc also keeps the run going.
-**Stop the run** does what Ctrl-C does to a run with plain log lines (section
-5.4): the Experiments header shows `Stopping…` until the run has stopped, and
-the exit code is 130.
+is written.` **Keep tuning** has the focus, and Esc or a click outside the
+dialog also keeps the run going. **Stop tuning** does what Ctrl-C does to a
+run with plain log lines (section 5.4): the Experiments header shows
+`Stopping…` until the run has stopped, and the exit code is 130.
 
 **At the end** the Experiments section shows the run summary: how the run
 ended, the time, the spend against the budget, the waves, experiments,
-promotions and early stops, Best Confirmed, the report, and the links. Its
-last line is the next step: run your test split on Best Confirmed, which the
-tuner never read. The app stays open until you press `q` or Enter.
+promotions and early stops, Best Confirmed, and the report. Then come the
+next steps, each a link:
+
+```
+Next steps
+ · Visualize Experiment Graph in Kiln ↗
+ · Compare w2-1 to the starting point in Kiln ↗  You may need to run evals on the 'test' dataset, which is intentionally withheld from tuning.
+ · Read Tuning Report ↗
+```
+
+The compare link shows only the starting run config and Best Confirmed. The
+tuner never read the test split, so its evals there are a true measure of the
+result. With no promotion, the second line says that the starting point stays
+best. The app stays open until you press `q` or Enter.
 
 **The closing block.** When the app closes, it prints a plain block to the
 terminal, because the app's screen goes with it. It holds the start's summary
 and, after a guided start, the command that runs it again. Then come the run's
-exit line, Best Confirmed, the report (or `no report` after a stop) and the
-run folder:
+exit line, Best Confirmed, the report (or `no report` after a stop), the run
+folder and the next steps, with their addresses written out. Where the
+terminal supports it, each address and the report's path are links:
 
 ```
 Ready to start
@@ -809,10 +839,16 @@ To run this again with the same answers and no questions:
     …
     --no-interaction
 
-exit: timeout — total $27.20 (Kiln $27.20 · Claude Code ~8.4M tokens) · 2h41m elapsed · 19m left
+exit: timeout — total $27.20 (API keys $27.20 · Claude Code ~8.4M tokens) · 2h41m elapsed · 19m left
 Best Confirmed: refusal rule in prompt · w2-1 (424242002001)
 report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261109-1412
+
+Next steps
+ · Visualize Experiment Graph in Kiln: http://localhost:8757/optimize/424242975950/424242783061/experiment_lineage
+ · Compare w2-1 to the starting point in Kiln: http://localhost:8757/specs/424242975950/424242783061/compare?models=424242000003,424242002001&columns=2&from=optimize
+   You may need to run evals on the 'test' dataset, which is intentionally withheld from tuning.
+ · Read Tuning Report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 harness-tuner: run finished — report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 ```
 

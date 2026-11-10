@@ -40,7 +40,7 @@ def divider(wall: datetime, name: str) -> LogLine:
 
 
 def run_started(objective: str, budget: float | None, limit_mins: int | None) -> str:
-    parts = ["Run started", objective]
+    parts = ["Tuning started", objective]
     parts.append(words.money(budget) if budget is not None else words.NO_BUDGET)
     if limit_mins is not None:
         parts.append(words.span_of_minutes(limit_mins))
@@ -59,7 +59,7 @@ def wave_started(
     wave: int, probe_phase: bool, parent: str, headline: str, wrap_up: bool
 ) -> str:
     if wave == 0:
-        return f"Wave 0, recon · {headline.removeprefix(RECON_PREFIX)}"
+        return f"Recon · {headline.removeprefix(RECON_PREFIX)}"
     head = f"Wave {wave} probes" if probe_phase else f"Wave {wave}"
     text = f"{head} from {parent} · {headline.removeprefix(PROBE_PHASE_PREFIX)}"
     return text + (" · last wave" if wrap_up and not probe_phase else "")
@@ -140,10 +140,19 @@ def promoted(who: str, concern: str | None, change: str | None) -> str:
     return f"{who} promoted"
 
 
+def _changes(concern: str | None, train: str | None, val: str | None) -> str:
+    return f" · {concern} train {train}, val {val}" if concern and train and val else ""
+
+
 def rejected(who: str, concern: str | None, train: str | None, val: str | None) -> str:
-    if concern and train and val:
-        return f"{who} rejected at val · {concern} train {train}, val {val}"
-    return f"{who} rejected at val"
+    return f"{who} rejected at val" + _changes(concern, train, val)
+
+
+def not_selected(
+    who: str, winner: str, concern: str | None, train: str | None, val: str | None
+) -> str:
+    head = f"{who} not selected" + (f" · {winner} promoted" if winner else "")
+    return head + _changes(concern, train, val)
 
 
 def held(who: str, question: str | None) -> str:
@@ -223,7 +232,7 @@ def _without_label(overview: str) -> str:
 
 
 def ended(reason: str | None, detail: str | None = None) -> str:
-    return f"Run ended: {words.how_it_ended(reason, detail)}"
+    return f"Tuning ended: {words.how_it_ended(reason, detail)}"
 
 
 def report_written(fallback: bool) -> str:

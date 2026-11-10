@@ -518,7 +518,7 @@ def test_plain_ui_prints_one_line_per_event():
     # Plain mode states the same totals at each wave boundary and
     # at exit — and nowhere else (no ticking).
     totals = (
-        "— total $0.00 (Kiln $0.00 · Claude Code ~48k tokens) · 41m23s elapsed"
+        "— total $0.00 (API keys $0.00 · Claude Code ~48k tokens) · 41m23s elapsed"
         " · 2h18m left"
     )
     assert f"wave 1 done {totals}" in lines[14]
@@ -589,7 +589,7 @@ def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_its_tokens():
         agent_cli="codex",
     )
     text = totals_text(status)
-    assert text.startswith("$0.12 (Kiln $0.12 · Codex ~1.2M tokens)")
+    assert text.startswith("$0.12 (API keys $0.12 · Codex ~1.2M tokens)")
     assert "Claude Code" not in text
     opencode = run_status(
         spend_total_usd=0.1,
@@ -598,4 +598,6 @@ def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_its_tokens():
         agent_cli="opencode",
     )
     # The agents' cost is never in the total, nor shown in dollars.
-    assert totals_text(opencode).startswith("$0.10 (Kiln $0.10 · OpenCode ~2k tokens)")
+    assert totals_text(opencode).startswith(
+        "$0.10 (API keys $0.10 · OpenCode ~2k tokens)"
+    )

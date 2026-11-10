@@ -25,7 +25,7 @@ from textual.binding import Binding
 
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
 from kiln_harness_tuner.tui import opener
-from kiln_harness_tuner.tui.bridge import UI_REQUEST, Prompt, opened_text
+from kiln_harness_tuner.tui.bridge import UI_REQUEST, opened_text
 from kiln_harness_tuner.tui.handles import (
     RUN_ENDED,
     START_ENDED,
@@ -35,7 +35,12 @@ from kiln_harness_tuner.tui.handles import (
 from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
-from kiln_harness_tuner.tui.model.state import RunInfo
+from kiln_harness_tuner.tui.model.state import ItemKey, RunInfo
+from kiln_harness_tuner.tui.screens.details import (
+    DetailsPanel,
+    ExperimentPicker,
+    RunModal,
+)
 from kiln_harness_tuner.tui.screens.run import RunScreen
 from kiln_harness_tuner.tui.screens.startup import StartupScreen
 from kiln_harness_tuner.tui.screens.stop import StopDialog
@@ -186,6 +191,23 @@ class TunerApp(App[None]):
         self.phase = phase
         self.refresh_bindings()
 
+    def now(self) -> float:
+        """The run's clock, which the run screen's views read."""
+        return self._clock()
+
+    # ---- the details panels (functional spec 7.9) ----
+
+    def show_item(self, key: ItemKey, *, from_picker: bool = False) -> None:
+        """A click on an experiment card, or Enter in the picker."""
+        model = self.model
+        if model is not None and model.item_at(key) is not None:
+            self.push_screen(DetailsPanel(key, from_picker=from_picker))
+
+    def show_picker(self) -> None:
+        """The `e` key: every item of the run, to open one."""
+        if self.model is not None:
+            self.push_screen(ExperimentPicker())
+
     # ---- the drain ----
 
     def drain(self) -> None:
@@ -213,16 +235,9 @@ class TunerApp(App[None]):
         self._refresh()
 
     def _show_request(self, stamped: Stamped) -> None:
-        """A `Terminal` call of the start, on the start-up screen. A prompt
-        the screen can't show fails, so the start raises instead of waiting
-        for an answer that can't come."""
-        request = stamped.fields["request"]
-        try:
-            self.startup_screen.show(request)
-        except Exception as error:
-            logger.exception("the start-up screen could not show a request")
-            if isinstance(request, Prompt):
-                request.fail(error)
+        """A `Terminal` call of the start, on the start-up screen, which
+        fails a prompt it can't show (`StartupScreen.show`)."""
+        self.startup_screen.show(stamped.fields["request"])
 
     def _fold(self, stamped: Stamped) -> None:
         model = self.model
@@ -264,6 +279,13 @@ class TunerApp(App[None]):
             screen.refresh_from(model, stopping=stopping, now=now)
         except Exception:
             logger.exception("the run screen could not show the run")
+        # An open panel shows the run live too, under a stop dialog as well.
+        for modal in self.screen_stack:
+            if isinstance(modal, RunModal):
+                try:
+                    modal.show(model, now=now)
+                except Exception:
+                    logger.exception("a details panel could not show the run")
 
     # ---- the run config names ----
 

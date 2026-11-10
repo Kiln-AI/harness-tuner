@@ -403,7 +403,7 @@ def build_parser() -> _Parser:
         action="store_true",
         help="skip the setup reconnaissance battery (the code probes on the"
         " baseline — tool call, skill read, alternate output mode, thinking,"
-        " json validity, output on the longest inputs — run as wave 0 before"
+        " json validity, output on the longest inputs — run before"
         " the first plan)",
     )
     parser.add_argument(

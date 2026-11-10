@@ -20,6 +20,7 @@ from model_events import (
     probe,
     row,
 )
+from model_events import measure as issue_measure
 
 from kiln_harness_tuner.schemas import (
     CandidateValTable,
@@ -98,15 +99,22 @@ def val_table(rc: str, parent: str) -> CandidateValTable:
     )
 
 
+# The agent tokens for each unit of `agents`. An agent session books tokens,
+# not dollars.
+AGENT_TOKENS = 500_000
+
+
 def _spend(run: Run, kiln: float, agents: float, item: str | None = None) -> None:
     fields = {"item_id": item} if item else {}
     run.emit("spend", source="eval", lane="provider", cost_usd=kiln, **fields)
     lane = "subscription_equivalent"
-    run.emit("spend", source="agent", lane=lane, cost_usd=agents, **fields)
+    tokens = round(agents * AGENT_TOKENS)
+    run.emit("spend", source="agent", lane=lane, tokens=tokens, **fields)
 
 
 def _spend_each(run: Run, spends: dict[str, tuple[float, float]]) -> None:
-    """Each item's own spend, (Kiln, agents): its card shows the total."""
+    """Each item's own spend, (API keys USD, agents in `AGENT_TOKENS`): its
+    card shows the API keys money."""
     for item, (kiln, agents) in spends.items():
         _spend(run, kiln, agents, item)
 
@@ -142,20 +150,29 @@ def measure(run: Run, item: str, counts: tuple[int, int, int, int], planned=36):
     run.model.items[item].planned = planned
 
 
-def land(run: Run, item: str, *rows, parent: str, successful: bool = True, **kw):
+def land(
+    run: Run,
+    item: str,
+    *rows,
+    parent: str,
+    successful: bool = True,
+    findings: str = "",
+    **kw,
+):
     """Analyzed, with its train rows against `parent`, and its verdict."""
     run.emit("measurement", item_id=item, rc_id=RC[item], status="completed")
     run.state(item, "analyzing")
     run.arm_results(item, RC[item], *rows, parent=parent, **kw)
-    run.outcome(item, rc_id=RC[item], successful=successful)
+    run.outcome(item, rc_id=RC[item], successful=successful, findings=findings)
 
 
 def stop(run: Run, item: str, stop_kind: str) -> None:
     run.outcome(item, "not_landed", rc_id=RC[item], stop_kind=stop_kind)
 
 
-def answer(run: Run, item: str, yes: bool) -> None:
-    result = ProbeResult(answer="yes" if yes else "no", evidence="…", drives=3)
+def answer(run: Run, item: str, yes: bool, evidence: str = "") -> None:
+    said = evidence or ("3 of 3 drives did it." if yes else "0 of 3 drives did it.")
+    result = ProbeResult(answer="yes" if yes else "no", evidence=said, drives=3)
     run.emit("item_probe", item_id=item, probe=result.model_dump())
     run.outcome(item)
 
@@ -272,26 +289,26 @@ def starting() -> Run:
     )
     run.at(3).wave_start(
         0,
-        probe("w0-1", "Does the agent call get_container before it places a hold?"),
-        probe("w0-2", "Does the agent treat a 2xx with an error body as a success?"),
-        probe("w0-3", "Does haiku-5-5 follow a long escalation table without a skill?"),
+        probe("r0-1", "Does the agent call get_container before it places a hold?"),
+        probe("r0-2", "Does the agent treat a 2xx with an error body as a success?"),
+        probe("r0-3", "Does haiku-5-5 follow a long escalation table without a skill?"),
         probe_phase=True,
-        headline="3 recon probes",
+        headline="reconnaissance — 3 probes",
     )
-    for item in ("w0-1", "w0-2", "w0-3"):
+    for item in ("r0-1", "r0-2", "r0-3"):
         run.state(item, "probing")
-    _spend(run, 0.1, 0.1, "w0-1")
+    _spend(run, 0.1, 0.1, "r0-1")
     run.at(6)
-    answer(run, "w0-1", yes=True)
-    _spend(run, 0.1, 0.1, "w0-2")
+    answer(run, "r0-1", yes=True)
+    _spend(run, 0.1, 0.1, "r0-2")
     run.at(8)
-    answer(run, "w0-2", yes=True)
-    _spend(run, 0.0, 0.2, "w0-3")
+    answer(run, "r0-2", yes=True)
+    _spend(run, 0.0, 0.2, "r0-3")
     return run.at(9)
 
 
 def _waves_one_to_three(run: Run) -> None:
-    answer(run.at(9.5), "w0-3", yes=False)
+    answer(run.at(9.5), "r0-3", yes=False)
     run.at(10).emit("wave_end", wave=0)
     # Wave 1: a stop, a no win, and a success the gate rejects.
     run.plan(1).at(12).planned(1)
@@ -379,7 +396,11 @@ WAVE_4 = (
         hypothesis="Move the escalation table into a skill the prompt names by name",
     ),
     merge("w4-4", RC["w2-1"], RC["w3-4"]),
-    probe("w4-5", "Does haiku-5-5 load an attached skill under JSON output mode?"),
+    probe(
+        "w4-5",
+        "Does haiku-5-5 load an attached skill under JSON output mode?",
+        for_idea="the escalation table as a skill, on haiku-5-5",
+    ),
     fix(
         "w4-6",
         "e3",
@@ -418,7 +439,17 @@ def running(*, wrap_up: bool = False) -> Run:
         build(run, item)
     run.state("w4-5", "probing")
     run.at(69).emit(
-        "item_change", item_id="w4-1", change={"summary": "adds get_container_for_hold"}
+        "item_change",
+        item_id="w4-1",
+        change={
+            "summary": "adds get_container_for_hold",
+            "changes": [
+                "tool get_container replaced by get_container_for_hold, which"
+                " returns the 6 hold fields only",
+                "prompt v7 → v8: names get_container_for_hold in the hold steps",
+            ],
+            "unchanged": ["model", "temperature", "the other 11 tools"],
+        },
     )
     measure(run, "w4-1", (5, 31, 0, 0))
     measure(run, "w4-2", (9, 26, 1, 0))
@@ -438,7 +469,15 @@ def running(*, wrap_up: bool = False) -> Run:
     run.at(74).emit("judge_copy", item_id="w4-7", rc_id=RC["w4-7"], status="copied")
     build(run, "w4-7")
     run.at(76)
-    answer(run, "w4-5", yes=True)
+    answer(
+        run,
+        "w4-5",
+        yes=True,
+        evidence=(
+            "All 3 drives read the attached skill before the first tool call,"
+            " and each final output parsed as JSON."
+        ),
+    )
     run.at(78)
     measure(run, "w4-3", (2, 8, 1, 1), planned=24)
     run.state("w4-4", "analyzing")
@@ -451,6 +490,10 @@ def running(*, wrap_up: bool = False) -> Run:
         "w4-2",
         row("e1", 0.80, 0.89, parent=parent),
         parent=parent,
+        findings=(
+            "Refusal honesty rose on 9 of the 10 items where the API answered"
+            " 2xx with a refusal in its body. No passing item broke."
+        ),
         cost=comparison(0.039, 0.040, metric="cost_usd"),
         latency=comparison(7600, 7900),
     )
@@ -530,15 +573,27 @@ def done() -> Run:
     run.at(99).emit("screening_round", round=2, results=screened(2, 6, 3))
     run.plan(5, replan=True).at(101).planned(5)
     parent = RC["w4-2"]
+    # An issue the planner measures on the baseline before an arm targets it.
+    issue = issue_measure("w5-2", "e3")
+    issue.reason = (
+        "Output format may break on long tool output. Measure it on the"
+        " baseline before an arm targets it."
+    )
     run.wave_start(
         5,
         fix("w5-1", "e1", technique="model", hypothesis="Swap to a cheaper model"),
+        issue,
         parent=parent,
     )
     build(run, "w5-1")
+    run.state("w5-2", "measuring")
     run.at(105)
     measure(run, "w5-1", (0, 10, 2, 5))
-    _spend_each(run, {"w5-1": (0.8, 0.5)})
+    _spend_each(run, {"w5-1": (0.8, 0.5), "w5-2": (0.6, 0.0)})
+    run.at(108).emit(
+        "item_detail", item_id="w5-2", detail="reproduced: 9 of 40 items fail"
+    )
+    run.outcome("w5-2")
     run.at(110)
     stop(run, "w5-1", "eval_metric")
     run.at(112).emit("wave_end", wave=5)
@@ -571,7 +626,9 @@ def done() -> Run:
     land(run, "w7-2", row("e2", 0.70, 0.76, parent=parent), parent=parent)
     run.at(156)
     gate(run, 7, parent, RC["w7-2"], winner=RC["w7-2"])
-    run.at(161).emit("exit", reason="timeout")
+    run.at(161).emit(
+        "exit", reason="timeout", detail="finished wave 6, then the wrap-up"
+    )
     run.emit("phase_start", name="reporting")
     _spend(run, 0.4, 1.6)
     run.at(176).emit("phase_end", name="reporting", elapsed_secs=900)

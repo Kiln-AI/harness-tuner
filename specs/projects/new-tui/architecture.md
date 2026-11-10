@@ -91,6 +91,7 @@ tui/
     fold.py       RunModel.apply(stamped): the reducer
     results.py    concerns and the three tiers
     cards.py      item → CardView; verdict words
+    details.py    item key → DetailsView (the details panel); the picker's groups
     timeline.py   segments, projection, wave estimate
     log.py        event → LogLine
     words.py      every user-facing string of the run screen
@@ -100,9 +101,12 @@ tui/
     startup.py    StartupScreen, ProblemCard, SummaryCard
     prompts.py    ActionMenu, Picker, TextAnswer
     run.py        RunScreen and its sections
+    modal.py      CardModal: a click outside the card does what Esc does (ui_design 4.11)
     stop.py       StopDialog
-  widgets.py      TitleBar, SectionHeader, Card, TierBar, Gauge, Steps, JudgedStrip,
-                  Timeline, RunLog, KeyLine, Tag, Link, Spinner (from ui_preview/widgets.py)
+    details.py    RunModal, DetailsPanel, ExperimentPicker (functional spec 7.9)
+  widgets.py      TitleBar, Section, SectionHeader, Card, TierBar, Gauge, Steps,
+                  JudgedStrip, Timeline, RunLog, KeyLine, Tag, Link, Spinner (from
+                  ui_preview/widgets.py)
   tuner.tcss      the stylesheet (package data); CSS_PATH = Path(__file__).with_name(...)
 ```
 
@@ -203,8 +207,9 @@ When `_run_with_signals` returns or raises, the run thread wrapper stores the re
 - A signal during the run: append the number to `cli._stopped_by` (today's list, read by `main`'s `CancelledError` arm), then `run_handle.cancel()`. The app shows "Stopping…". Today's teardown runs on the run thread: agent children killed, lock released, `exit` event, no report.
 - A signal during the start-up: fail the open future (or cancel the runner) with `OnboardingStopped(128 + signum)`, and close the app.
 - A second signal: close the app at once. `run_app` then joins the run thread with plain output (section 11).
-- `q` or Ctrl+C on the run screen opens `StopDialog`. "Stop the run" does what a SIGINT does: `_stopped_by.append(SIGINT)`, cancel. `main` then prints today's "interrupted (SIGINT) — children killed, lock released" and exits 130. No new exit code and no new exit line (decided).
-- Bindings on the App, all `priority=True`: `ctrl+c` (stop or stop dialog), `ctrl+d` (start-up only: exit 1), `ctrl+q` (same as `ctrl+c`, so it never quits without the dialog). `q`, `c`, `l`, `r` are plain bindings on the run screen. The command palette is off. Ctrl+Z is not bound.
+- `q` or Ctrl+C on the run screen opens `StopDialog`. "Stop tuning" does what a SIGINT does: `_stopped_by.append(SIGINT)`, cancel. `main` then prints today's "interrupted (SIGINT) — children killed, lock released" and exits 130. No new exit code and no new exit line (decided).
+- Bindings on the App, all `priority=True`: `ctrl+c` (stop or stop dialog), `ctrl+d` (start-up only: exit 1), `ctrl+q` (same as `ctrl+c`, so it never quits without the dialog). `e`, `q`, `c`, `g`, `r` are plain bindings on the run screen. The command palette is off. Ctrl+Z is not bound.
+- The details panel and the picker are `RunModal` screens pushed over the run screen (`TunerApp.show_item`, `show_picker`; a card's click, `e`). Each has its own `q` (the stop dialog, as on the run screen; nothing on Done) and Esc. The stop dialog pushes over them: it is always the top screen while open, so the `isinstance(self.screen, StopDialog)` checks of the end and of a signal still hold, and its answer runs after its pop (Textual's `call_next`). A run that ends on a stop or a failure closes the app whatever is open; a normal end pops the stop dialog only, and an open panel stays over Done.
 - After `App.run()` returns, `run_app` resets SIGTSTP and SIGCONT to `SIG_DFL` (Textual leaves its handlers, research 1).
 
 ## 7. The run model (model/, pure)
@@ -239,7 +244,7 @@ RunModel
 - **Promotion confirmed**: a `promotion` with a winner counts only when the gate's `phase_end promotion_gate` arrives with no `promotion_blocked` for that rc in between (audit finding 11).
 - **Best Unconfirmed**, per concern: among items since the last confirmed promotion, with a successful verdict and a C1b row for that concern, the best `parent value + delta`, shown only where it beats Best Confirmed. Screen survivors count for cost and latency (`screening_round.results`). It clears at each confirmed promotion and drops an rc rejected at val. Dim when the row's interval crosses zero.
 - **In flight**, per eval concern: live items whose C5 `targets` include that eval. None for cost and latency.
-- **Cards**: one per `wave_start.items` entry, in order. Lines from C5 details, `item_state`, C3 cells, `item_detail`, the verdict. Verdict words are a table in `words.py` (functional spec 7.6 plus 16.10, with the card short forms of ui_design 7.5). Items named by `deadline_cancel` or `fatal_cancel` with no outcome get "Cut off: the run ended".
+- **Cards**: one per `wave_start.items` entry, in order. Lines from C5 details, `item_state`, C3 cells, `item_detail`, the verdict. Verdict words are a table in `words.py` (functional spec 7.6 plus 16.10, with the card short forms of ui_design 7.5). Items named by `deadline_cancel` or `fatal_cancel` with no outcome get "Cut off: tuning ended".
 - **Timeline**: segments from phase, wave, screening and gate events by their stamps (audit 1.4). The projection uses the mean of finished main-wave cycles (planning start to planning start).
 - **Wave N of ~M** (priority 3): `M = N + min(floor((time_left − WRAP_UP_WINDOW_SECS) / mean_cycle), floor(budget_left / mean_cycle_cost))`, never below N, and only after wave 1 ends. The two constants are imported from `orchestrator.py` (lines 181, 187). If this proves awkward, show "wave N" alone.
 - **Log lines**: `log.py` maps each event in functional spec 7.7 to a glyph and plain words. `memory_written` (C7) lines show the record kind and its overview, for kinds lesson, dead end and issue.
@@ -255,7 +260,7 @@ def drain(self):                      # set_interval(0.25) on the app
     if model.version changed: screen.refresh_from(model)
 ```
 
-`refresh_from` asks each section for its new text and calls `update()` only where the text changed (research 11: 65% CPU otherwise). `RichLog` gets `max_lines=2000` and only the new lines. Spinners and the clock live in two small widgets on their own 0.1 s timer.
+`refresh_from` asks each section for its new text and calls `update()` only where the text changed (research 11: 65% CPU otherwise). Then each open `RunModal` on the screen stack gets the model too (`show`), so a panel updates live under a stop dialog as well. A panel updates its rows in place while their shape holds, and mounts them again at the same scroll position when a field or section comes or goes. The panel and the picker find an item by its key, `(index of its wave_start in RunModel.waves, item id)`: item ids are only wave-unique, and `RunModel.items` (by id) holds the newest item of each id, the one the loop's events name. `RichLog` gets `max_lines=2000` and only the new lines. Spinners and the clock live in two small widgets on their own 0.1 s timer.
 
 ## 8. Run config names (model/names.py)
 
@@ -279,7 +284,7 @@ The schemas, emit points and risks are in `data_contract_audit.md` section 2. Th
 | C2 | `gate_val_tables` | `orchestrator.py` `_run_promotion_gate`, after the tables are final (quality: after `_record_gate_blocks`; speed and cost: after the second `write_val_summary`) | as proposed |
 | C3 | new fields on `measure_chunk` | `measure.py` `_measure` | plus `cells: [[eval_id, item_id, parent_pass, cand_pass]]` for the rows judged in this chunk (decision 16.1) |
 | C4 | `gate_fills_planned`, `gate_fill` | `orchestrator.py` `_assemble_val_tables` | as proposed |
-| C5 | new keys in `wave_start.items[]` | `status.item_summary` | as proposed; copies only |
+| C5 | new keys in `wave_start.items[]` | `status.item_summary` | as proposed; copies only. `predicted_effect` (fixes) and `reason` (eval builds, measures, re-measures) added for the details panel (TUI iteration 2) |
 | C6 | `open_questions` | after each `write_open_unknowns` | as proposed |
 | C7 | gateway file `gateway_memory.jsonl` + `memory_written` | `gateway/ops.py` `memory_create`, `memory_update`; forwarded from `ClaudeCliDispatcher._run` through an `on_session_end` hook, and once before the first `exit` | as proposed, but the kind field is `record_kind` (`kind` is the event's own name); the file joins `RUN_DIR_ENTRIES` |
 
@@ -289,7 +294,7 @@ Each change gets a unit test that the event appears with its fields, and a test 
 
 `ClosingBlock` collects three parts and prints them after the app has closed and the fds are restored:
 
-1. **Start**: `StartReport.summary` and `StartReport.rerun`, as said (today's texts). A start that ends with no report (Exit, Ctrl+C or Ctrl+D at "Start the run?", or an error after the summary) gives the last summary and rerun command it said instead (section 4.1). A report, when there is one, wins. In `app_startup` mode this is all it prints, before the plain run starts.
+1. **Start**: `StartReport.summary` and `StartReport.rerun`, as said (today's texts). A start that ends with no report (Exit, Ctrl+C or Ctrl+D at "Start tuning?", or an error after the summary) gives the last summary and rerun command it said instead (section 4.1). A report, when there is one, wins. In `app_startup` mode this is all it prints, before the plain run starts.
 2. **Run**: `run_exit_line` and `report: <path>` (both built by `TuiSink`, section 5.2), then "Run folder: <run_dir>" from `_RUN_PROGRESS`.
 3. **Error**: nothing new. `main`'s arms print it as today, because `run_app` re-raises inside `_finish`.
 

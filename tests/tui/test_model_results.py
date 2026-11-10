@@ -3,6 +3,7 @@ Best Confirmed and Best Unconfirmed tiers (functional spec 7.5 and 16)."""
 
 from dataclasses import replace
 
+import pytest
 from model_events import (
     INFO,
     START_RC,
@@ -15,7 +16,8 @@ from model_events import (
     val_row,
 )
 
-from kiln_harness_tuner.schemas import ScreenResult
+from kiln_harness_tuner.schemas import LatencyComparison, ScreenResult
+from kiln_harness_tuner.tui.model import results
 from kiln_harness_tuner.tui.model.state import plain
 
 
@@ -31,13 +33,26 @@ def test_concerns_follow_the_detectability_rows_then_cost_and_latency():
         detect_row("e4", "Tone", score_key="accuracy"),
         detect_row("e4", "Tone", score_key="tone", score_type="five_star"),
     )
+    # "Eval: " says what the card is. The score key shows only for an eval
+    # with two or more cards, and no " · " parts the muted words.
     assert titles(run) == [
-        ("Hold placement", ""),
-        ("Tone", "accuracy"),
-        ("Tone", "tone · 1–5"),
+        ("Eval: Hold placement", ""),
+        ("Eval: Tone", "accuracy"),
+        ("Eval: Tone", "tone 1–5"),
         ("Cost / request", ""),
         ("Latency", "median"),
     ]
+
+
+def test_a_rating_card_with_one_score_shows_only_the_scale():
+    run = Run().start()
+    run.detectability(
+        detect_row("e4", "Tone", score_key="tone", score_type="five_star"),
+        detect_row("e5", "Escalation", score_key="a"),
+        detect_row("e5", "Escalation", score_key="b", driving=False),
+    )
+    # Escalation has two scores, but only one can decide: one card, no key.
+    assert titles(run)[:2] == [("Eval: Tone", "1–5"), ("Eval: Escalation", "")]
 
 
 def test_an_eval_first_named_mid_run_is_added_before_cost():
@@ -51,14 +66,14 @@ def test_an_eval_first_named_mid_run_is_added_before_cost():
     )
     run.success("w1-1", "rc_a", row("e9", 0.5, 0.6))
     assert [t for t, _ in titles(run)] == [
-        "Hold placement",
-        "Refusal honesty",
-        "Late escalations",
+        "Eval: Hold placement",
+        "Eval: Refusal honesty",
+        "Eval: Late escalations",
         "Cost / request",
         "Latency",
     ]
     # Its card names it too.
-    assert run.card("w1-1").title == "Late escalations"
+    assert run.card("w1-1").qualifier == "target: Late escalations"
 
 
 def test_start_is_train_until_the_first_gate_then_val():
@@ -137,8 +152,10 @@ def test_a_promotion_is_confirmed_only_when_the_gate_ends_unblocked():
     assert plain(run.model.results().key[1]) == "■ Best Confirmed · val · w1-1"
     assert run.line5("w1-1") == "◆ Promoted · now Best Confirmed"
     assert run.card("w1-1").steps[-1] == ("gate", "done")
-    assert run.line5("w1-2") == "✗ Rejected at val"
-    assert run.card("w1-2").steps[-1] == ("gate", "stopped")
+    # The gate picked w1-1: w1-2 is not a failure.
+    assert run.line5("w1-2") == "○ Not selected · w1-1 promoted"
+    assert run.card("w1-2").line5[0].tone == "warning"
+    assert run.card("w1-2").steps[-1] == ("gate", "warned")
 
 
 def test_a_blocked_winner_is_not_best_confirmed():
@@ -182,6 +199,31 @@ def test_best_unconfirmed_counts_only_successful_arms_that_beat_the_parent():
     assert hold.unconfirmed.change_tone == "success"
     assert plain(hold.subtitle) == "w1-1"
     assert run.concern("Refusal honesty").unconfirmed is None
+
+
+def test_best_unconfirmed_stays_inside_its_scale():
+    # A train change against a parent on another split can pass the scale's
+    # end when it is added to Start: the estimate stops at the end.
+    run = Run().standard_start()
+    run.detectability(detect_row("e5", "Tone", score_type="five_star"))
+    run.wave_start(1, fix("w1-1", "e1"), fix("w1-2", "e5"), fix("w1-3", "e5"))
+    run.success("w1-1", "rc_a", row("e1", 0.3, 0.8, parent="rc_x"))
+    hold = run.concern("Hold placement")
+    assert (hold.start.value, hold.unconfirmed.value) == ("60.0%", "100.0%")
+    assert (hold.unconfirmed.change, hold.unconfirmed.fraction) == ("+40.0", 1.0)
+    rating = {"score_type": "five_star"}
+    run.success("w1-2", "rc_b", row("e5", 4.5, 4.6, **rating))
+    run.success("w1-3", "rc_c", row("e5", 2.0, 4.0, parent="rc_x", **rating))
+    assert run.concern("Tone").unconfirmed.value == "5.00"
+
+
+def test_each_scale_has_its_own_ends():
+    assert results.on_scale("pass", -0.1) == 0.0
+    assert results.on_scale("pass", 1.07) == 1.0
+    assert results.on_scale("rating", 0.4) == 1.0
+    assert results.on_scale("rating", 5.3) == 5.0
+    assert results.on_scale("cost", -0.002) == 0.0
+    assert results.on_scale("latency", 9000.0) == 9000.0
 
 
 def test_best_unconfirmed_is_dim_when_its_interval_crosses_zero():
@@ -429,3 +471,95 @@ def test_start_keeps_its_train_value_where_the_first_gate_has_none():
     assert (cost.start.value, cost.start_note) == ("$0.042", "train")
     refusal = run.concern("Refusal honesty")
     assert (refusal.start.value, refusal.start_note) == ("80.0%", "train")
+
+
+# ---- the cost and latency bars ----
+
+
+def bars(card) -> list[float | None]:
+    tiers = (card.start, card.confirmed, card.unconfirmed)
+    return [None if tier is None else tier.fraction for tier in tiers]
+
+
+def confirmed_run(**speed: LatencyComparison) -> Run:
+    """rc_a is Best Confirmed from the first gate, whose table carries
+    `speed`: its cost or latency against Start on val."""
+    run = Run().standard_start()
+    run.wave_start(1, fix("w1-1", "e1"))
+    run.success("w1-1", "rc_a", row("e1", 0.6, 0.7))
+    run.gate(1, table("rc_a", val_row("e1", 0.62, 0.70), **speed), winner="rc_a")
+    return run
+
+
+def arm_on(run: Run, wave: int, parent: str, **speed: LatencyComparison) -> Run:
+    """A successful arm of `wave` on Best Confirmed `parent`, which measures
+    `speed` on train."""
+    item_id = f"w{wave}-1"
+    run.plan(wave).planned(wave)
+    run.wave_start(wave, fix(item_id, "e1"), parent=parent)
+    return run.success(
+        item_id,
+        f"rc_w{wave}",
+        row("e1", 0.70, 0.75, parent=parent),
+        parent=parent,
+        **speed,
+    )
+
+
+def usd(base: float, cand: float) -> LatencyComparison:
+    return comparison(base, cand, metric="cost_usd")
+
+
+def test_a_card_with_only_cuts_draws_start_at_four_fifths_and_each_cut_shorter():
+    run = arm_on(
+        confirmed_run(cost=usd(0.040, 0.030)), 2, "rc_a", cost=usd(0.030, 0.015)
+    )
+    assert bars(run.concern("Cost / request")) == pytest.approx([0.8, 0.6, 0.3])
+
+
+def test_a_cost_rise_draws_its_largest_value_full_and_start_from_zero():
+    run = confirmed_run(cost=usd(0.00014, 0.00038))
+    card = run.concern("Cost / request")
+    assert bars(card) == pytest.approx([0.00014 / 0.00038, 1.0, None])
+    # Only the bars change: the values and the red change stay.
+    assert (card.start.value, card.confirmed.value) == ("$0.00014", "$0.00038")
+    assert (card.confirmed.change, card.confirmed.change_tone) == ("+171%", "error")
+
+
+def test_a_cut_below_a_risen_best_confirmed_draws_a_shorter_bar():
+    run = arm_on(
+        confirmed_run(cost=usd(0.00014, 0.00038)),
+        2,
+        "rc_a",
+        cost=usd(0.00038, 0.00019),
+    )
+    assert bars(run.concern("Cost / request")) == pytest.approx(
+        [0.00014 / 0.00038, 1.0, 0.5]
+    )
+
+
+@pytest.mark.parametrize(
+    ("confirmed", "expected"),
+    [
+        # A rise to less than Start ÷ 0.8 keeps Start at 0.8.
+        (9000.0, [0.8, 0.9, None]),
+        (16000.0, [0.5, 1.0, None]),
+    ],
+)
+def test_a_latency_rise_draws_linearly_from_zero(confirmed, expected):
+    run = confirmed_run(latency=comparison(8000.0, confirmed))
+    assert bars(run.concern("Latency")) == pytest.approx(expected)
+
+
+def test_a_card_with_no_start_value_draws_its_largest_value_full():
+    # The first gate measured no cost, so Start has none. The second gate
+    # promotes rc_w2 at $0.030, and a wave-3 arm halves it.
+    run = arm_on(confirmed_run(), 2, "rc_a")
+    gate_table = table(
+        "rc_w2", val_row("e1", 0.70, 0.75, parent="rc_a"), cost=usd(0.040, 0.030)
+    )
+    run.gate(2, gate_table, winner="rc_w2")
+    run = arm_on(run, 3, "rc_w2", cost=usd(0.030, 0.015))
+    card = run.concern("Cost / request")
+    assert card.start_note == "not measured yet"
+    assert bars(card) == pytest.approx([None, 1.0, 0.5])

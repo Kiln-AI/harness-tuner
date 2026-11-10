@@ -512,4 +512,4 @@ ADVANCED_PROMPT = (
     " · no minimum effect · no noise check"
 )
 KEEP_AND_START = ["enter", "s"]
-START_PROMPT = "Start the run?"
+START_PROMPT = "Start tuning?"

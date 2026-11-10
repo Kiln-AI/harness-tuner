@@ -212,7 +212,7 @@ def _fmt_tokens(count: int) -> str:
 
 
 def spend_split_text(status: RunStatus) -> str:
-    """` (Kiln $y · Claude Code ~1.2M tokens)` — the provider money Kiln
+    """` (API keys $y · Claude Code ~1.2M tokens)` — the provider money Kiln
     burns on the drives and eval jobs this run triggers, and the agent
     sessions' tokens, named for the run's agent CLI. The agents run on the
     agent CLI's own account: their tokens are a rough count for information,

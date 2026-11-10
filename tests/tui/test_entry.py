@@ -63,7 +63,7 @@ def no_kiln(monkeypatch):
 
 class FakeStart:
     """`cli.prepare_start`: it reports and returns `args`, or raises. With
-    `ask`, it first asks "Start the run?" on the terminal it is given, and
+    `ask`, it first asks "Start tuning?" on the terminal it is given, and
     stops as the flow does on `x`; with `say` too, it says the summary and
     the rerun command before it asks, as the flow does."""
 
@@ -221,9 +221,17 @@ def test_the_app_runs_the_start_and_the_run_then_prints_the_closing_block(
     assert code == 0
     out = capsys.readouterr().out
     assert out.index(SUMMARY) < out.index(RERUN) < out.index("exit: time_limit")
+    # Not a terminal: the addresses are words only.
     assert out.endswith(
         "report: /reports/kiln-harness-tuner-1.md\n"
         f"Run folder: {loop.run_dir}\n"
+        "\n"
+        "Next steps\n"
+        " · Visualize Experiment Graph in Kiln:"
+        " http://localhost:8757/optimize/424242975950/424242783061"
+        "/experiment_lineage\n"
+        " · No experiment was promoted, so the starting point stays best.\n"
+        " · Read Tuning Report: /reports/kiln-harness-tuner-1.md\n"
         "harness-tuner: run finished — report: /reports/kiln-harness-tuner-1.md\n"
     )
     # The start ran behind the app's terminal and its runner, and reported.
@@ -245,7 +253,14 @@ def test_the_closing_block_names_best_confirmed(monkeypatch, capsys, tmp_path):
     loop = FakeLoop(run_dir_of(tmp_path), events=run.events)
     code, _ = run_with(monkeypatch, FakeStart(), loop, close_on_done)
     assert code == 0
-    assert "Best Confirmed: w1-1 (rc_a)\n" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Best Confirmed: w1-1 (rc_a)\n" in out
+    # The compare link holds the starting point and Best Confirmed only.
+    compare = (
+        "http://localhost:8757/specs/424242975950/424242783061/compare"
+        "?models=424242000001,rc_a&columns=2&from=optimize"
+    )
+    assert f" · Compare w1-1 to the starting point in Kiln: {compare}\n" in out
 
 
 def test_stop_the_run_exits_130_with_the_interrupted_line(

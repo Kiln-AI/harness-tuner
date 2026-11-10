@@ -20,6 +20,7 @@ from kiln_harness_tuner.onboarding.questions import (
     BUDGET_ERROR,
     COUNT_ERROR,
     DURATION_ERROR,
+    EFFORT_ERROR,
     FRACTION_ERROR,
     MIN_TIME_LIMIT_MINS,
     MODEL_ERROR,
@@ -253,6 +254,17 @@ def test_the_agent_clis_match_the_dispatchers():
     assert claude.default_model == AGENT_MODEL
 
 
+def test_a_hint_says_what_a_blank_model_does_only_when_it_is_the_cli_s_own():
+    # A blank model leaves the model option out. The dispatcher then passes
+    # its pinned default, or nothing, so the CLI's own default applies.
+    for agent in AGENT_KINDS:
+        dispatcher, _bin = DISPATCHERS[agent.kind]
+        own = dispatcher.DEFAULT_MODEL is None and not dispatcher.MODEL_DEFAULTS
+        said = f"Blank uses {agent.name}'s default model." in agent.model_hint
+        assert said is own, agent.kind
+        assert "Enter" not in agent.model_hint
+
+
 def test_the_objectives_match_the_flags_choices():
     assert tuple(OBJECTIVES) == CLI_OBJECTIVES
 
@@ -367,11 +379,21 @@ def test_the_objective_rows_and_the_hints():
     assert hints == [
         "One objective per run. Speed and cost only promote a change that keeps"
         " quality equal or better.",
-        "What to try first and what not to touch, in your own words. For example:"
-        ' "Keep the output format. Don\'t switch models." Enter to skip.',
+        "These instructions guide the tuner when it plans new experiments. Some"
+        " examples:\n"
+        " · Where to focus: \"Start with the Correctness eval. It's our biggest"
+        ' quality gap."\n'
+        ' · Trade-offs: "Between options of equal quality, prefer the cheaper'
+        ' one."\n'
+        ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."\n'
+        ' · What not to touch: "Don\'t change the model or temperature."\n'
+        ' · Directives: "Only use models from OpenAI."\n'
+        "Optional. Blank means no guidance.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",
-        "Other to type a model name: an alias or a full name.",
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Opus, Fable, etc). Other to type a model"
+        " name: an alias or a full name.",
         "How much each agent reasons before it answers.",
         "The most this run may spend on the task's model calls, in USD. The"
         " tuner's agents run on your agent CLI's account and are not counted."
@@ -506,8 +528,10 @@ def test_opencode_has_no_list_so_its_model_is_typed():
     assert (model.kind, model.default, model.hint) == (
         "text",
         "",
-        "Enter uses OpenCode's own default model. A model is PROVIDER/MODEL, for"
-        " example zai-coding-plan/glm-5.3-flash. `opencode models` lists them.",
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Fable, Opus, Astra, etc). Models are"
+        " PROVIDER/MODEL, for example zai-coding-plan/glm-5.3-flash."
+        " `opencode models` lists them. Blank uses OpenCode's default model.",
     )
     # Enter on the default leaves the model out of the command.
     assert got.agent_cli == "opencode run"
@@ -521,7 +545,11 @@ def test_claude_code_models_are_picked_from_its_list():
     assert model.offered == (*(m.name for m in CLAUDE_MODELS), " other")
     assert "fable" in model.offered
     assert model.default == "opus"
-    assert model.hint == "Other to type a model name: an alias or a full name."
+    assert model.hint == (
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Opus, Fable, etc). Other to type a model"
+        " name: an alias or a full name."
+    )
     assert [o.label for o in terminal.options[-2]][-1] == "Other…"
     assert got.agent_cli == "claude -p --model fable"
 
@@ -533,8 +561,9 @@ def test_codex_models_are_picked_from_its_list():
     assert model.offered == ("", *(m.name for m in CODEX_MODELS), " other")
     assert model.default == ""
     assert model.hint == (
-        "Other to type a model name. All of Codex's models:"
-        " https://developers.openai.com/codex/models"
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Astra, Terra, etc). Other to type a model"
+        " name. All of Codex's models: https://developers.openai.com/codex/models"
     )
     rows = terminal.options[-2]
     assert (rows[0].label, rows[0].description) == (
@@ -561,11 +590,22 @@ def test_other_asks_for_a_typed_name():
         "Thinking level for the agents",
     ]
     assert terminal.asked_about("Model name for the agents").hint == (
-        "Enter uses Codex's own default model. For example gpt-6.1-sol. The"
+        "Blank uses Codex's default model. For example gpt-6.1-sol. The"
         " models: https://developers.openai.com/codex/models"
     )
     assert typed.refusals == [MODEL_ERROR]
     assert got.agent_cli == "codex exec -m gpt-7-preview"
+
+
+def test_claude_code_s_typed_name_does_not_say_what_a_blank_does():
+    # A blank Claude Code model is the dispatcher's pinned opus, not Claude
+    # Code's own default. The hint also does not name the field's value.
+    terminal = ScriptedTerminal(["claude", " other", "claude-opus-5-5", "high"])
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert terminal.asked_about("Model name for the agents").hint == (
+        "An alias, such as sonnet, or a full model name, such as claude-opus-5-5."
+    )
+    assert got.agent_cli == "claude -p --model claude-opus-5-5"
 
 
 def test_asked_again_a_model_not_in_the_list_starts_on_other():
@@ -621,18 +661,28 @@ def test_high_leaves_the_level_out_of_the_command():
 
 
 def test_other_types_a_level():
-    terminal = ScriptedTerminal(["codex", "", " other", Typed("very high", "ultra")])
+    typed = Typed("very high", "", "ultra")
+    terminal = ScriptedTerminal(["codex", "", " other", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
-    assert terminal.questions[-1] == "Thinking level name for the agents"
+    level = terminal.asked_about("Thinking level name for the agents")
+    # A blank level is refused, so the hint says nothing about a blank.
+    assert typed.refusals == [EFFORT_ERROR] * 2
+    assert level.hint == "A level name the model takes."
     assert got.agent_cli == "codex exec -c model_reasoning_effort=ultra"
 
 
 def test_opencode_types_its_variant():
-    terminal = ScriptedTerminal(["opencode", "zai/glm", "max"])
+    typed = Typed("", "max")
+    terminal = ScriptedTerminal(["opencode", "zai/glm", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     level = terminal.asked_about("Thinking level for the agents")
     assert (level.kind, level.default) == ("text", "high")
-    assert "--variant" in level.hint
+    # The hint does not name the field's value, which Esc back can change.
+    assert typed.refusals == [EFFORT_ERROR]
+    assert level.hint == (
+        "OpenCode's level is its --variant, whose names depend on the model,"
+        " such as high or max. A model ignores a variant it doesn't have."
+    )
     assert got.agent_cli == "opencode run -m zai/glm --variant max"
 
 
@@ -716,6 +766,18 @@ def test_customize_asks_each_advanced_question_with_its_value(tmp_path):
         " · any number of agents at once · minimum effect 25%"
         " · noise check on 10 items per eval"
     ]
+
+
+def test_the_policy_and_minimum_hints_say_what_a_blank_answer_does():
+    # Prefilled or not, a blank answer sets neither: the hint says so.
+    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0"])
+    got = ask_all(answers(min_effect=0.2), context(terminal), given=CORE_DESTS)
+    effect = terminal.asked[2]
+    assert effect.default == "0.2"
+    assert effect.hint.endswith(
+        " Optional. Blank means no minimum, and the run does not stop for it."
+    )
+    assert (got.model_policy, got.min_effect) == (None, None)
 
 
 def test_customize_skips_the_values_flags_gave():

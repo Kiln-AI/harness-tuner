@@ -269,7 +269,7 @@ async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
     assert text.startswith("# Report\nbody\n")
     assert SPEND_APPENDIX_HEADING in text
     # The agents are tokens, not dollars: never in the budget.
-    assert "| source | Kiln | Claude Code tokens |" in text
+    assert "| source | API keys | Claude Code tokens |" in text
     assert "| batch_plan | — | 12,345 |" in text
     assert "| eval_jobs | $1.25 | — |" in text
     assert "| val_pass | $0.75 | — |" in text
@@ -318,7 +318,7 @@ def test_render_spend_appendix_gives_unexpected_lane_its_own_column():
     spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
     tracker.event("spend", source="mystery", cost_usd=0.1)  # lane-less
     text = render_spend_appendix(tracker.snapshot())
-    assert "| source | Kiln | unknown | Claude Code tokens |" in text
+    assert "| source | API keys | unknown | Claude Code tokens |" in text
     assert "| mystery | — | $0.10 | — |" in text
     assert "| **total** | $0.00 | $0.10 | 0 |" in text
 

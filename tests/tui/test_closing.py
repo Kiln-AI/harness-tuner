@@ -7,9 +7,12 @@ from kiln_harness_tuner.onboarding import StartReport
 from kiln_harness_tuner.tui.closing import (
     ClosingBlock,
     display_stopped_line,
+    hyperlink,
     print_lines,
     stray_line,
+    supports_hyperlinks,
 )
+from kiln_harness_tuner.tui.model.state import NextStep
 
 SUMMARY = "\nReady to start\n  Project      Forum Moderation (424242975950)"
 RERUN = (
@@ -47,7 +50,7 @@ def test_a_start_with_no_report_keeps_the_last_summary_and_rerun_it_said():
     changed = SUMMARY.replace("Forum Moderation", "Support Triage")
     for text in (SUMMARY, RERUN, "Opening https://kiln.tech/download", changed):
         closing.said(text)
-    # Exit at "Start the run?" after a changed answer: the last of each.
+    # Exit at "Start tuning?" after a changed answer: the last of each.
     assert closing.start_lines() == [changed, RERUN]
 
 
@@ -82,6 +85,76 @@ def test_a_stopped_run_has_no_report():
         "Best Confirmed: 424242000009",
         "no report",
     ]
+
+
+STEPS = (
+    NextStep("Visualize Experiment Graph in Kiln", "http://k/optimize/p/t/graph"),
+    NextStep(
+        "Compare w3-4 to the starting point in Kiln",
+        "http://k/specs/p/t/compare?models=a,b",
+        note="You may need to run evals on the 'test' dataset.",
+    ),
+    NextStep("Read Tuning Report", "/reports/r.md"),
+)
+
+
+def test_the_next_steps_follow_with_their_addresses_written_out():
+    closing = ClosingBlock(
+        run_exit_line="exit: time_limit — total $3.10",
+        report_path="/reports/r.md",
+        next_steps=STEPS,
+    )
+    assert closing.run_lines(None)[2:] == [
+        "",
+        "Next steps",
+        " · Visualize Experiment Graph in Kiln: http://k/optimize/p/t/graph",
+        " · Compare w3-4 to the starting point in Kiln:"
+        " http://k/specs/p/t/compare?models=a,b",
+        "   You may need to run evals on the 'test' dataset.",
+        " · Read Tuning Report: /reports/r.md",
+    ]
+
+
+def test_a_step_with_no_link_is_words_only_and_one_still_to_come_is_left_out():
+    steps = (
+        NextStep("No experiment was promoted, so the starting point stays best."),
+        NextStep("Read Tuning Report (writing…)", pending=True),
+    )
+    closing = ClosingBlock(run_exit_line="exit: cancelled", next_steps=steps)
+    assert closing.run_lines(None)[-2:] == [
+        "Next steps",
+        " · No experiment was promoted, so the starting point stays best.",
+    ]
+
+
+def test_on_a_terminal_the_addresses_and_the_report_path_are_links():
+    closing = ClosingBlock(
+        run_exit_line="exit: time_limit",
+        report_path="/reports/r.md",
+        next_steps=STEPS[:1],
+    )
+    lines = closing.run_lines(None, hyperlinks=True)
+    assert lines[1] == (
+        "report: \x1b]8;;file:///reports/r.md\x1b\\/reports/r.md\x1b]8;;\x1b\\"
+    )
+    url = "http://k/optimize/p/t/graph"
+    assert lines[-1] == (
+        f" · Visualize Experiment Graph in Kiln: \x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\"
+    )
+
+
+class Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_links_go_only_to_a_terminal_that_can_draw_more_than_text(monkeypatch):
+    monkeypatch.setenv("TERM", "xterm-256color")
+    assert supports_hyperlinks(Tty())
+    assert not supports_hyperlinks(io.StringIO())
+    monkeypatch.setenv("TERM", "dumb")
+    assert not supports_hyperlinks(Tty())
+    assert hyperlink("text", "http://k/x", enabled=False) == "text"
 
 
 def test_a_run_that_never_reached_its_exit_prints_no_run_part():

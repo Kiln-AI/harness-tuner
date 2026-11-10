@@ -20,6 +20,7 @@ from kiln_harness_tuner.schemas import (
     PerEvalResult,
     ProbeResult,
     PromotionDecision,
+    RcChange,
 )
 
 Tone = Literal[
@@ -116,6 +117,10 @@ COST = Concern(COST_KEY, "Cost / request", "cost", LOWER_IS_BETTER)
 LATENCY = Concern(LATENCY_KEY, "Latency", "latency", LOWER_IS_BETTER)
 
 Cell = Literal["fixed", "held", "failing", "broke", "unknown"]
+# An item's place in the run: the index of its `wave_start` in
+# `RunModel.waves`, and its id. Item ids are only wave-unique: a wave's probe
+# phase and its re-plan can use the same id.
+ItemKey = tuple[int, str]
 # The loop's live item states, and the card states they map to.
 BUILD_STATES = frozenset({"building_eval", "building_rc", "reviewing"})
 
@@ -130,8 +135,11 @@ class ItemModel:
     wave: int
     kind: str  # fix, merge, eval, measure, remeasure, probe (`status.item_kind`)
     details: Mapping[str, Any]
+    wave_index: int = 0  # its `wave_start`'s index in `RunModel.waves`
     state: str = "planned"
     state_since: float = 0.0
+    started_at: float | None = None  # its first live state
+    landed_at: float | None = None
     builds: int = 0
     finding: str | None = None  # the last check finding that forces a rebuild
     rebuild_reason: str | None = None
@@ -143,16 +151,28 @@ class ItemModel:
     broke: int = 0
     cells: list[Cell] = field(default_factory=list)
     spend_usd: float = 0.0
+    # The measurement's spending cap, and what the measurement spent of it.
+    cap_usd: float | None = None
+    measure_spend_usd: float | None = None
+    change: RcChange | None = None  # what the build agent says it changed
+    parent_rc_id: str | None = None  # the parent its train results compare to
     outcome: ItemOutcome | None = None
     probe: ProbeResult | None = None
     train_rows: list[PerEvalResult] = field(default_factory=list)
     train_latency: LatencyComparison | None = None
     train_cost: LatencyComparison | None = None
     cut_off: bool = False
-    # Set by the gate: at_gate, promoted, rejected, held, copied (a
-    # `gate_block`), blocked (by the integrity checks), refused (by the
-    # model policy, before the gate) or pooled (not judged).
+    val_table: CandidateValTable | None = None  # its gate's val results
+    # Set by the gate: at_gate, promoted, rejected (no winner), not_selected
+    # (another candidate won), held, copied (a `gate_block`), blocked (by the
+    # integrity checks), refused (by the model policy, before the gate) or
+    # pooled (not judged).
     gate: str | None = None
+    gate_winner: str | None = None  # how a not-selected card names the winner
+
+    @property
+    def key(self) -> ItemKey:
+        return (self.wave_index, self.item_id)
 
     @property
     def landed(self) -> bool:
@@ -263,7 +283,9 @@ class Segment:
 # ---- the views ----
 
 Mode = Literal["starting", "planning", "running", "gate", "done"]
-StepState = Literal["done", "current", "later", "stopped"]
+# `warned`: the stage ended with no failure, but not as hoped (a gate
+# candidate that another candidate beat).
+StepState = Literal["done", "current", "later", "stopped", "warned"]
 
 
 @dataclass(frozen=True)
@@ -377,15 +399,27 @@ class NoteLine:
 
 @dataclass(frozen=True)
 class CardView:
+    key: ItemKey
     item_id: str
-    title: str
-    qualifier: str
-    text: str
+    title: str  # the item id, bold on the top border
+    qualifier: str  # what the item is about, muted after the id
+    text: Line  # lines 1–2: a label, then the planner's words
     steps: tuple[tuple[str, StepState], ...]
     line4: StripView | GaugeLine | NoteLine | None
     line5: Line
     subtitle: str
     live: bool
+
+
+@dataclass(frozen=True)
+class NextStep:
+    """One of the Done card's next steps: a link, or plain words when
+    `url` is None. `note` follows a link; a `pending` step is muted."""
+
+    text: str
+    url: str | None = None
+    note: str = ""
+    pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -396,7 +430,7 @@ class DoneView:
     best: Line
     report: str
     report_path: str | None
-    next_step: str
+    next_steps: tuple[NextStep, ...]
     subtitle: str
 
 
@@ -410,6 +444,72 @@ class ExperimentsView:
     cards: tuple[CardView, ...]
     note: str
     done: DoneView | None
+
+
+# ---- the details panel and the picker (functional spec 7.9) ----
+
+
+@dataclass(frozen=True)
+class DetailField:
+    """One labelled row at the top of the details panel. A value of more
+    than one line (several targets) has one `Line` per line."""
+
+    label: str
+    lines: tuple[Line, ...]
+
+
+@dataclass(frozen=True)
+class DetailLine:
+    """One line of a details section. It wraps at the panel's width; a list
+    line has a bullet and wraps under its own text."""
+
+    line: Line
+    bullet: bool = False
+
+
+@dataclass(frozen=True)
+class DetailSection:
+    """A titled part of the details panel: the planner's text in full, or a
+    result."""
+
+    title: str
+    lines: tuple[DetailLine, ...]
+
+
+@dataclass(frozen=True)
+class DetailLink:
+    text: str
+    url: str
+
+
+@dataclass(frozen=True)
+class DetailsView:
+    """One item in full. Only the fields and the sections with data are in
+    it; the links need a run config the item built."""
+
+    title: str  # the item id, as on its card
+    qualifier: str
+    status: Line  # the card's verdict or live state, in full words
+    fields: tuple[DetailField, ...]
+    sections: tuple[DetailSection, ...]
+    links: tuple[DetailLink, ...]
+
+
+@dataclass(frozen=True)
+class PickerRow:
+    key: ItemKey
+    title: str
+    qualifier: str
+    status: Line
+
+
+@dataclass(frozen=True)
+class PickerGroup:
+    """One `wave_start` in the experiment picker: its header and its items,
+    in plan order."""
+
+    header: str
+    rows: tuple[PickerRow, ...]
 
 
 @dataclass(frozen=True)

@@ -23,10 +23,10 @@ in the report's spend appendix.
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|
 | Claude Code (or Codex, or OpenCode) | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. The agents run on the agent CLI's own account. The loop shows their tokens, a rough count, and not their cost. |
-| Kiln | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
+| API keys | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
 
 They are separate invoices, on separate accounts. `--budget-usd` is a ceiling on
-the **Kiln lane only**, for every agent CLI. The agent lane is information: the
+the **API keys lane only**, for every agent CLI. The agent lane is information: the
 run screen, the log lines, the report's spend appendix and the error screen
 show the agents' tokens, and the budget does not count them. No figure the
 tuner shows or computes includes a dollar cost for the agents: their `spend`
@@ -236,7 +236,7 @@ one line prints that estimate, priced from the baseline's own stored rows
 (the median drive and the median judgment per eval). With a budget (any
 `--budget-usd` but `none`), an estimate that does not fit the remaining
 budget skips the check with the reason. What it spent is booked as source
-`noise_check` in the Kiln lane, and it counts against the budget like every
+`noise_check` in the API keys lane, and it counts against the budget like every
 other line.
 
 ## How spend is booked

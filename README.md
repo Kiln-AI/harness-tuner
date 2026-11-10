@@ -177,7 +177,7 @@ Harness Tuner runs on [Kiln](https://github.com/Kiln-AI/Kiln), our free app. Kil
 
 - **Evals:** creating and running them ([Kiln evals](https://kiln.tech/features/evals)).
 - **Experiment tracking:** the provenance of every experiment: what it changed, and which experiments it came from.
-- **Views of the results:** a Compare view to compare experiments on evals, cost and speed, and an Experiment Lineage view to see how the tuning progressed.
+- **Views of the results:** a Compare view to compare experiments on evals, cost and speed, and an Experiment Graph view to see how the tuning progressed.
 - **Harness history:** every experiment's harness is kept, for future experiments and comparisons.
 
 </details>

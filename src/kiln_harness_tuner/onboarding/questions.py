@@ -256,13 +256,32 @@ class AgentKind:
 # The thinking levels every listed Codex model takes. Codex also takes
 # `none`, `minimal` and, on some models, `ultra`, which Other can type.
 _CODEX_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+# The first model question a CLI asks says what the model is for: the
+# picker's hint (`_model_hint`), or the typed name's hint for a CLI with no
+# list. A hint says what a blank answer does only where it is the CLI's own
+# default, and never names the value in the field. A blank Claude Code model
+# is the dispatcher's pinned `AGENT_MODEL`, not Claude Code's own default,
+# so its hint says nothing about a blank.
+_MODEL_QUESTION = (
+    "Which model will be used to plan and implement tuning experiments."
+    " We suggest frontier quality"
+)
+_MODEL_INTROS = {
+    "claude": f"{_MODEL_QUESTION} (Opus, Fable, etc).",
+    "codex": f"{_MODEL_QUESTION} (Astra, Terra, etc).",
+}
+_CLAUDE_MODEL_HINT = (
+    "An alias, such as sonnet, or a full model name, such as claude-opus-5-5."
+)
 _CODEX_MODEL_HINT = (
-    "Enter uses Codex's own default model. For example gpt-6.1-sol. The models:"
+    "Blank uses Codex's default model. For example gpt-6.1-sol. The models:"
     f" {CODEX_MODELS_URL}"
 )
 _OPENCODE_MODEL_HINT = (
-    "Enter uses OpenCode's own default model. A model is PROVIDER/MODEL, for"
+    f"{_MODEL_QUESTION} (Fable, Opus, Astra, etc). Models are PROVIDER/MODEL, for"
     " example zai-coding-plan/glm-5.3-flash. `opencode models` lists them."
+    " Blank uses OpenCode's default model."
 )
 AGENT_KINDS = (
     AgentKind(
@@ -271,8 +290,7 @@ AGENT_KINDS = (
         "-p",
         "--model",
         "opus",
-        "Enter keeps opus. An alias, such as sonnet, or a full model name, such as"
-        " claude-opus-5-5.",
+        _CLAUDE_MODEL_HINT,
         efforts=CLAUDE_EFFORTS,
     ),
     AgentKind(
@@ -408,12 +426,27 @@ def _ask_objective(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Improve", objective_text(answers.objective))
 
 
+# One example on each line (the start-up screen keeps the hint's lines).
+GUIDANCE_HINT = "\n".join(
+    (
+        "These instructions guide the tuner when it plans new experiments."
+        " Some examples:",
+        " · Where to focus: \"Start with the Correctness eval. It's our biggest"
+        ' quality gap."',
+        ' · Trade-offs: "Between options of equal quality, prefer the cheaper one."',
+        ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."',
+        ' · What not to touch: "Don\'t change the model or temperature."',
+        ' · Directives: "Only use models from OpenAI."',
+        "Optional. Blank means no guidance.",
+    )
+)
+
+
 def _ask_guidance(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Guidance for the tuner's planner (optional)",
         default=answers.guidance,
-        hint="What to try first and what not to touch, in your own words. For"
-        ' example: "Keep the output format. Don\'t switch models." Enter to skip.',
+        hint=GUIDANCE_HINT,
         back=ctx.back,
     )
     answers.guidance = answer.strip()
@@ -474,10 +507,15 @@ _OTHER_MODEL = " other"
 
 
 def _model_hint(agent: AgentKind) -> str:
-    """The picker's hint: Other, and where to read about the models."""
+    """The picker's hint: what the model is for, Other, and where to read
+    about the models."""
+    intro = _MODEL_INTROS[agent.kind]
     if agent.kind == "codex":
-        return f"Other to type a model name. All of Codex's models: {CODEX_MODELS_URL}"
-    return "Other to type a model name: an alias or a full name."
+        return (
+            f"{intro} Other to type a model name. All of Codex's models:"
+            f" {CODEX_MODELS_URL}"
+        )
+    return f"{intro} Other to type a model name: an alias or a full name."
 
 
 def _model_options(
@@ -539,6 +577,8 @@ _LEVEL_TEXT = {
 }
 
 
+# A blank level is refused, so the typed level's hint says nothing about a
+# blank. Like every hint, it never names the value in the field.
 def _effort_refusal(text: str) -> str | None:
     words = text.split()
     return None if len(words) == 1 else EFFORT_ERROR
@@ -575,11 +615,11 @@ def _ask_effort(agent: AgentKind, effort: str, ctx: QuestionContext) -> str:
             answer = ctx.terminal.text(
                 EFFORT_NAME_QUESTION if agent.efforts else EFFORT_QUESTION,
                 default=effort,
-                hint=f"Enter keeps {agent.default_effort}. {agent.name}'s level is"
-                " its --variant, whose names depend on the model, such as high or"
-                " max. A model ignores a variant it doesn't have."
+                hint=f"{agent.name}'s level is its --variant, whose names depend"
+                " on the model, such as high or max. A model ignores a variant it"
+                " doesn't have."
                 if agent.kind == "opencode"
-                else f"Enter keeps {effort}. A level name the model takes.",
+                else "A level name the model takes.",
                 validate=_effort_refusal,
                 back=bool(agent.efforts) or ctx.back,
             )
@@ -666,6 +706,15 @@ def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Time", duration_text(answers.timeout_mins))
 
 
+# The last sentence says what a blank answer does, whatever the field holds.
+# With no minimum, the pre-run check never refuses for it
+# (`detectability.assess`).
+MIN_EFFECT_HINT = (
+    "The run stops before spending when no eval can show this change on val."
+    " Optional. Blank means no minimum, and the run does not stop for it."
+)
+
+
 def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:
     def refusal(text: str) -> str | None:
         path = text.strip()
@@ -693,7 +742,7 @@ def _ask_min_effect(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Smallest improvement worth acting on",
         default="" if answers.min_effect is None else number_text(answers.min_effect),
-        hint="The run stops before spending when no eval can show this change on val.",
+        hint=MIN_EFFECT_HINT,
         validate=_refusal(parse),
         back=ctx.back,
     )

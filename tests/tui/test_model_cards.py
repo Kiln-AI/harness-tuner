@@ -3,6 +3,8 @@ ui_design 7.5 and 14)."""
 
 import pytest
 from model_events import (
+    HOST,
+    INFO,
     START_NAME,
     START_RC,
     Run,
@@ -17,9 +19,16 @@ from model_events import (
     val_row,
 )
 
-from kiln_harness_tuner.schemas import ProbeResult
+from kiln_harness_tuner.schemas import EvalTarget, ProbeResult
 from kiln_harness_tuner.tui.model import words
-from kiln_harness_tuner.tui.model.state import GaugeLine, NoteLine, StripView, plain
+from kiln_harness_tuner.tui.model.state import (
+    GaugeLine,
+    NextStep,
+    NoteLine,
+    Span,
+    StripView,
+    plain,
+)
 
 FIX_LATER = (("build", "later"), ("measure", "later"), ("analyze", "later"))
 
@@ -33,12 +42,53 @@ def wave_one(*items) -> Run:
 def test_a_queued_fix_card():
     run = wave_one(fix("w1-1", "e1", technique="tool_config"))
     card = run.card("w1-1")
-    assert (card.title, card.qualifier) == ("Hold placement", "tool config")
-    assert card.text == "Name the hold fields in the prompt"
+    # The id, then its target; the technique is not on the card.
+    assert (card.title, card.qualifier) == ("w1-1", "target: Hold placement")
+    assert card.text == (
+        Span("Hypothesis: "),
+        Span("Name the hold fields in the prompt", "muted"),
+    )
     assert card.steps == FIX_LATER
     assert card.line4 == NoteLine("waiting for an agent slot")
     assert card.line5 == ()
-    assert (card.subtitle, card.live) == ("w1-1", False)
+    assert (card.subtitle, card.live) == ("", False)
+
+
+def test_a_fix_card_names_its_first_target_and_counts_the_rest():
+    item = fix("w1-1", "e1")
+    item.evaluation_target += [EvalTarget(eval_id="e2"), EvalTarget(eval_id="e9")]
+    run = wave_one(item)
+    assert run.card("w1-1").qualifier == "targets: Hold placement +2"
+
+
+def test_a_fix_card_with_no_hypothesis_has_no_label():
+    item = fix("w1-1")
+    item.work.hypothesis = ""
+    assert wave_one(item).card("w1-1").text == ()
+
+
+def test_a_fix_card_shows_the_item_s_whole_spend_and_no_cap():
+    # Every dollar the item books, in one number that only grows. Its agent
+    # sessions book tokens, not dollars. A spending cap is not on the card.
+    item = fix("w1-1")
+    item.max_usd, item.budget_reason = 6.0, "a long queue"
+    run = wave_one(item)
+    assert run.card("w1-1").subtitle == ""
+    run.state("w1-1", "building_rc")
+    run.emit("spend", item_id="w1-1", source="create_experiment_rc", tokens=9000)
+    assert run.card("w1-1").subtitle == ""
+    run.emit("spend", item_id="w1-1", source="eval_jobs", cost_usd=1.4)
+    assert run.card("w1-1").subtitle == "$1.40"
+    run.state("w1-1", "measuring")
+    run.emit("candidate_budget", item_id="w1-1", rc_id="rc_a", usd=3.0)
+    run.chunk("w1-1", "rc_a", [(False, True)])
+    run.emit("spend", item_id="w1-1", source="measurement", cost_usd=0.5)
+    assert run.card("w1-1").subtitle == "$1.90"
+    run.state("w1-1", "analyzing")
+    run.emit("spend", item_id="w1-1", source="analyze_experiment_results", tokens=500)
+    run.emit("spend", item_id="w1-1", source="val_pass", cost_usd=0.3)
+    run.emit("spend", source="eval_jobs", cost_usd=2.0)  # not the item's
+    assert run.card("w1-1").subtitle == "$2.20"
 
 
 def test_a_building_card_shows_the_time_in_its_state():
@@ -50,9 +100,10 @@ def test_a_building_card_shows_the_time_in_its_state():
     card = run.card("w1-1")
     assert card.steps[0] == ("build", "current")
     assert card.line4 == NoteLine("an agent is writing the change · 3m00s")
-    assert (card.subtitle, card.live) == ("w1-1", True)
+    # The item's own spend, with no cap: none yet.
+    assert (card.subtitle, card.live) == ("", True)
     run.emit("spend", item_id="w1-1", source="eval_jobs", cost_usd=0.4)
-    assert run.card("w1-1").subtitle == "w1-1 · $0.40"
+    assert run.card("w1-1").subtitle == "$0.40"
 
 
 def test_a_rebuild_shows_the_check_that_forced_it():
@@ -101,7 +152,7 @@ def test_landed_success_cards():
     run.success("w1-2", "rc_b", row())
     run.state("w1-3", "analyzing").outcome("w1-3", rc_id="rc_c", successful=False)
     card = run.card("w1-1")
-    assert plain(card.line5) == "● Success · goes to the gate"
+    assert plain(card.line5) == "● Train success · checking validation set"
     assert card.line5[0].tone == "success"
     assert card.steps[-1] == ("gate", "later")
     assert run.line5("w1-2") == "● Success"
@@ -135,7 +186,7 @@ def test_a_card_at_the_gate_shows_its_val_progress():
         total=4,
     )
     assert run.card("w1-1").line4 == GaugeLine(48, 102, "48 of 102 val items")
-    assert run.line5("w1-1") == "● Success · goes to the gate"
+    assert run.line5("w1-1") == "● Train success · checking validation set"
     header = run.model.experiments(run.t).header
     assert (
         plain(header) == "Promotion gate · wave 1 · every eval on val · 1 at the gate"
@@ -186,8 +237,8 @@ def test_a_merge_card():
     run.plan(2).planned(2)
     run.wave_start(2, merge("w2-1", "rc_a", "rc_b"), parent=START_RC)
     card = run.card("w2-1")
-    assert (card.title, card.qualifier) == ("All evals", "merge")
-    assert card.text == "Combine w1-1 and w1-2 on top of start"
+    assert (card.title, card.qualifier) == ("w2-1", "merge")
+    assert card.text == (Span("Combine w1-1 and w1-2 on top of start"),)
 
 
 @pytest.mark.parametrize(
@@ -202,8 +253,11 @@ def test_a_probe_card(answer, line5, tone):
     run = wave_one(probe("w1-1"))
     run.state("w1-1", "probing")
     card = run.card("w1-1")
-    assert (card.title, card.qualifier) == ("Question", "probe")
-    assert card.text == "Does the agent call get_container?"
+    assert (card.title, card.qualifier) == ("w1-1", "probe")
+    assert card.text == (
+        Span("Question: "),
+        Span("Does the agent call get_container?", "muted"),
+    )
     assert card.steps == (("asking", "current"), ("answered", "later"))
     assert card.line4 == NoteLine("3 drives")
     drives = 1 if answer == "unclear" else 3
@@ -221,8 +275,8 @@ def test_an_eval_build_card():
     run = wave_one(eval_only("w1-1"))
     run.state("w1-1", "building_eval")
     card = run.card("w1-1")
-    assert (card.title, card.qualifier) == ("New eval", "eval build")
-    assert card.text == "Build an eval for 424242500009"
+    assert (card.title, card.qualifier) == ("w1-1", "new eval")
+    assert card.text == (Span("Build an eval for 424242500009"),)
     assert (card.steps, card.line4) == ((("build", "current"),), None)
     run.outcome("w1-1")
     assert run.line5("w1-1") == "✓ Eval built"
@@ -241,8 +295,8 @@ def test_an_issue_baseline_measurement_card(detail, line5):
     run.at(20).state("w1-1", "measuring")
     run.at(23).emit("item_detail", item_id="w1-1", detail=detail)
     card = run.card("w1-1")
-    assert (card.title, card.qualifier) == ("Refusal honesty", "measure")
-    assert card.text == "Measure 424242500010 on the baseline"
+    assert (card.title, card.qualifier) == ("w1-1", "measure: Refusal honesty")
+    assert card.text == (Span("Measure 424242500010 on the baseline"),)
     assert card.line4 == NoteLine("measuring · 3m00s")
     run.outcome("w1-1")
     assert (run.line5("w1-1"), run.card("w1-1").line4) == (line5, None)
@@ -252,8 +306,8 @@ def test_a_re_measure_card():
     run = wave_one(remeasure("w1-1", START_RC))
     run.state("w1-1", "measuring")
     card = run.card("w1-1")
-    assert (card.title, card.qualifier) == ("Hold placement", "re-measure")
-    assert card.text == f"Complete the measurement of {START_NAME}"
+    assert (card.title, card.qualifier) == ("w1-1", "re-measure: Hold placement")
+    assert card.text == (Span(f"Complete the measurement of {START_NAME}"),)
     run.outcome("w1-1")
     assert run.line5("w1-1") == "✓ Measured"
 
@@ -263,11 +317,11 @@ def test_cut_off_cards():
     run.state("w1-1", "measuring").state("w1-3", "analyzing")
     run.outcome("w1-3")
     run.emit("fatal_cancel", wave=1, item_ids=["w1-1", "w1-2"], error="boom")
-    assert run.line5("w1-1") == "✗ Cut off: the run ended"
+    assert run.line5("w1-1") == "✗ Cut off: tuning ended"
     assert run.card("w1-1").steps[1] == ("measure", "stopped")
     assert not run.card("w1-1").live
-    assert run.line5("w1-2") == "✗ Cut off: the run ended"
-    assert run.line5("w1-3") != "✗ Cut off: the run ended"
+    assert run.line5("w1-2") == "✗ Cut off: tuning ended"
+    assert run.line5("w1-3") != "✗ Cut off: tuning ended"
     assert "Cut off after a fatal error: w1-1, w1-2" in run.log()
 
 
@@ -418,8 +472,9 @@ def test_starting_mode_shows_the_checklist_then_the_recon_cards():
         ("busy", "Noise", "measuring run-to-run noise · about $1.50 · 3m00s"),
         ("busy", "Recon", "1 of 2 probes answered · 2m00s"),
     ]
-    assert plain(view.header) == " Starting · wave 0, recon"
-    assert view.subhead == "WAVE 0 · recon probes"
+    # Recon is no wave to the person.
+    assert plain(view.header) == " Starting · recon"
+    assert view.subhead == "RECON · probes"
     assert [c.item_id for c in view.cards] == ["r0-1", "r0-2"]
     assert view.note == "Wave 1 is planned when the recon probes finish."
     run.emit("item_probe", item_id="r0-2", probe={"answer": "no", "evidence": ""})
@@ -539,12 +594,24 @@ def test_done_mode_shows_the_run_summary():
         "Best Confirmed  Hold fields · w1-1 · names them · measured on val"
     )
     assert done.report == "writing the report…"
-    assert done.next_step == (
-        "Next: run your test split on Hold fields · w1-1. The tuner never read it."
+    base = f"{HOST}/specs/{INFO.project_id}/{INFO.task_id}/compare"
+    graph = f"{HOST}/optimize/{INFO.project_id}/{INFO.task_id}/experiment_lineage"
+    assert done.next_steps == (
+        NextStep("Visualize Experiment Graph in Kiln", graph),
+        # The item id, and exactly two configs: the starting one and rc_a.
+        NextStep(
+            "Compare w1-1 to the starting point in Kiln",
+            f"{base}?models={START_RC},rc_a&columns=2&from=optimize",
+            note="You may need to run evals on the 'test' dataset, which is"
+            " intentionally withheld from tuning.",
+        ),
+        NextStep("Read Tuning Report (writing…)", pending=True),
     )
     assert done.subtitle == "run 261109-1412"
     run.emit("report_written", path="/r/report.md", fallback=False)
-    assert run.model.experiments(run.t).done.report == "/r/report.md"
+    done = run.model.experiments(run.t).done
+    assert done.report == "/r/report.md"
+    assert done.next_steps[-1] == NextStep("Read Tuning Report", "/r/report.md")
 
 
 @pytest.mark.parametrize(
@@ -580,12 +647,12 @@ def test_a_stopped_run_has_no_report():
     done = run.model.experiments(run.t).done
     assert (done.ended, done.report) == ("Stopped by you", "no report")
     assert plain(done.best) == (
-        "Best Confirmed  no promotion: the run kept its starting point"
+        "Best Confirmed  no promotion: the starting point stays best"
     )
-    assert (
-        done.next_step
-        == f"Next: run your test split on {START_NAME}. The tuner never read it."
-    )
+    # No compare link with no promotion, and no report line with no report.
+    assert [(step.text, step.url) for step in done.next_steps[1:]] == [
+        ("No experiment was promoted, so the starting point stays best.", None)
+    ]
 
 
 def test_a_re_measure_never_names_the_rc_it_completes():
@@ -597,7 +664,7 @@ def test_a_re_measure_never_names_the_rc_it_completes():
     run.wave_start(2, remeasure("w2-1", "rc_a"), parent="rc_a")
     run.state("w2-1", "measuring").outcome("w2-1")
     assert run.model.rc_label("rc_a") == "w1-1"
-    assert run.card("w2-1").text == "Complete the measurement of w1-1"
+    assert run.card("w2-1").text == (Span("Complete the measurement of w1-1"),)
     assert plain(run.model.results().key[1]) == "■ Best Confirmed · val · w1-1"
 
 

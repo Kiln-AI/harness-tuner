@@ -41,15 +41,15 @@ going looking.
 - Spend dimensions: `spend_by_lane` (lane → total) and `spend_by_source`
   (source → lane → $). Two lanes, and **call them by their display names**,
   which is what the code-computed appendix's columns say: `provider` =
-  **Kiln** — the provider tokens Kiln burns on the drives and eval jobs this
-  run triggered (subject `task_run_usage` + judge `eval_usage`), real money
-  today, and the only spend in the budget; `subscription_equivalent` = the
-  agent lane, named for the agent CLI (**Claude Code**, **Codex** or
+  **API keys** — the provider tokens Kiln burns on the drives and eval jobs
+  this run triggered (subject `task_run_usage` + judge `eval_usage`), real
+  money today, and the only spend in the budget; `subscription_equivalent` =
+  the agent lane, named for the agent CLI (**Claude Code**, **Codex** or
   **OpenCode**) — the agent sessions, on the agent CLI's own account. State
   the agent lane in tokens only: `agent_tokens` and `agent_tokens_by_source`,
   a rough count. Never state it in dollars: no dollar figure in `RunStatus`
-  includes the agents. Each item's `spend_by_lane` carries the Kiln money for
-  that item alone.
+  includes the agents. Each item's `spend_by_lane` carries the API keys money
+  for that item alone.
 - The run's own clock: `elapsed_secs` (how long the run ran),
   `timeout_mins` (its budget, `None` if it had none) and
   `time_remaining_secs` (meaningful only when `time_remaining_known`).
@@ -227,7 +227,7 @@ deliberate) · still open, worth the next run.>
 it gates, re-ask condition.>
 
 ## Spend
-<narrate: both lanes named with what they mean (Kiln $ = real money today,
+<narrate: both lanes named with what they mean (API keys $ = real money today,
 and the only spend the budget counts; the agent lane = the agents' tokens,
 `agent_tokens`, a rough count on the agent CLI's own account, never in the
 budget — name it in tokens, not dollars),

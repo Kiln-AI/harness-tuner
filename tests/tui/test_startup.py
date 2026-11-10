@@ -16,6 +16,7 @@ from kiln_harness_tuner.onboarding import demo
 from kiln_harness_tuner.onboarding.choose import TaskRow, _step
 from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import WELCOME_DESCRIPTION
+from kiln_harness_tuner.onboarding.questions import GUIDANCE_HINT
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING, SUMMARY_HEADING
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
@@ -25,10 +26,10 @@ from kiln_harness_tuner.onboarding.terminal import (
     Option,
     aligned_rows,
 )
-from kiln_harness_tuner.tui import opener
+from kiln_harness_tuner.tui import bridge, opener
 from kiln_harness_tuner.tui.bridge import CancellableRunner
 from kiln_harness_tuner.tui.screens.prompts import ActionMenu, Picker, TextAnswer
-from kiln_harness_tuner.tui.screens.startup import task_name
+from kiln_harness_tuner.tui.screens.startup import StartupScreen, task_name
 from kiln_harness_tuner.tui.widgets import BusyLine, StepLineView, TitleBar
 
 PROJECTS = [
@@ -209,6 +210,17 @@ async def test_a_prompt_the_screen_cannot_show_fails_instead_of_waiting():
     assert isinstance(harness.start.outcome.error, ValueError)
 
 
+def test_a_prompt_that_comes_before_the_mount_and_cannot_be_drawn_fails():
+    # The screen keeps a request that comes before it has mounted, and
+    # draws it on the mount: a failure there fails the prompt too.
+    screen = StartupScreen()
+    request = bridge.Pick("Which?", (), None, None)
+    screen.show(request)
+    assert not request.answer.done()
+    screen.on_mount()
+    assert isinstance(request.answer.exception(timeout=0), ValueError)
+
+
 # ---- act ----
 
 
@@ -254,6 +266,27 @@ async def test_text_enter_accepts_the_default():
 async def test_text_typed_after_the_default():
     typed = ["backspace", "backspace", *"12.5", "enter"]
     assert await answered(text(), *typed) == "12.5"
+
+
+@pytest.mark.parametrize("width", [210, 60])
+async def test_a_hint_of_several_lines_keeps_its_lines(width):
+    async with asking(text(hint=GUIDANCE_HINT), size=(width, 40)) as (_h, pilot):
+        hint = pilot.app.screen.query_one(TextAnswer).query_one(".hint")
+        # Laid out: at least one row per line of the hint.
+        lines = GUIDANCE_HINT.count("\n") + 1
+        await until(pilot, lambda: hint.region.height >= lines)
+        drawn = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in hint.render_lines(hint.region.reset_offset)
+        ]
+        # One line per example; a line too long for the width wraps.
+        assert drawn[0].startswith("These instructions guide the tuner")
+        assert drawn[-1] == "Optional. Blank means no guidance."
+        assert sum(line.startswith(" · ") for line in drawn) == 5
+        # Nothing is cut off: every word of the hint is drawn, in order.
+        assert " ".join(drawn).split() == GUIDANCE_HINT.split()
+        if width == 210:
+            assert drawn == GUIDANCE_HINT.split("\n")
 
 
 def digits(answer: str) -> str | None:
@@ -518,7 +551,7 @@ async def test_a_rewind_takes_away_the_parts_shown_since_its_mark():
         terminal.step("ok", "Guidance", "none")
         terminal.say(SUMMARY)
         try:
-            terminal.act("Start the run?", ACTIONS, back=True)
+            terminal.act("Start tuning?", ACTIONS, back=True)
         except GoBack:
             terminal.rewind(before)
         terminal.step("ok", "Guidance", '"Shorter."')
@@ -795,7 +828,7 @@ def long_texts(terminal):
 async def test_long_lines_in_cards_wrap_and_titles_show_whole(width):
     def start(terminal):
         long_texts(terminal)
-        return terminal.act("Start the run?", ACTIONS)
+        return terminal.act("Start tuning?", ACTIONS)
 
     harness = Asking(start)
     async with harness.app.run_test(size=(width, 140)) as pilot:

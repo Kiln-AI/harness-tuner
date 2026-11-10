@@ -35,6 +35,7 @@ from kiln_harness_tuner.tui.model.state import (
     GoalView,
     Line,
     LogLine,
+    NextStep,
     NoteLine,
     ResultsView,
     StepLine,
@@ -55,7 +56,9 @@ from kiln_harness_tuner.tui.widgets import (
     Hypothesis,
     KeyLine,
     LineView,
+    MetaSection,
     RunLog,
+    Section,
     SectionHeader,
     Shown,
     StepRow,
@@ -66,11 +69,13 @@ from kiln_harness_tuner.tui.widgets import (
     Timeline,
     TitleBar,
     bar,
+    card_title,
     has_spinner,
     key_width,
     legend,
     line_content,
     link,
+    muted,
     set_bar,
     tag,
 )
@@ -83,16 +88,10 @@ logger = logging.getLogger("kiln_harness_tuner.tui")
 # Card widths (ui_design section 6).
 RESULT_CARD_WIDTH = 34
 EXPERIMENT_CARD_WIDTH = 44
-# The cells between a section header's title and its context.
-HEADER_GAP = 3
 # The cells between a section header's context and its meta.
 META_GAP = 2
 
 ExperimentLine4 = StripView | GaugeLine | NoteLine | None
-
-
-def muted(text: str) -> Content:
-    return Content.styled(text, "$text-muted")
 
 
 # ---- the title bar ----
@@ -137,16 +136,15 @@ def goal_content(rows: Sequence[GoalRow]) -> Content:
     return Content("\n").join(lines)
 
 
-class GoalSection(Vertical):
+class GoalSection(Section):
     def __init__(self) -> None:
-        super().__init__(id="goal", classes="section")
+        super().__init__(words.GOAL, id="goal")
         self.body = Shown(classes="goal-rows")
         # The split sizes: a long line wraps under its own text, not under
         # the label.
         self.data = LineView(classes="goal-data-text")
 
     def compose(self) -> ComposeResult:
-        yield SectionHeader(words.GOAL)
         yield self.body
         with Horizontal(classes="goal-data"):
             yield Static(Content.styled(DATA_LABEL, "$text-muted"), classes="label")
@@ -160,32 +158,31 @@ class GoalSection(Vertical):
 # ---- Time and spend ----
 
 
-def wave_meta(view: ClockView) -> Content:
+def wave_meta(view: ClockView) -> tuple[Content, ...]:
     """7.2: "wave 4 of ~7", and the tag on the wrap-up wave only."""
     wave = line_content(view.wave)
     if not view.last_wave:
-        return wave
-    return Content.assemble(wave, "  ", tag(words.LAST_WAVE_TAG))
+        return (wave,)
+    return wave, tag(words.LAST_WAVE_TAG)
 
 
-class ClockSection(Vertical):
+class ClockSection(MetaSection):
     def __init__(self) -> None:
-        super().__init__(id="spend", classes="section")
-        self.header = SectionHeader(words.TIME_AND_SPEND)
+        super().__init__(words.TIME_AND_SPEND, id="spend")
         self.time = Gauge(id="time-gauge")
         self.spend = Gauge(id="spend-gauge")
         self.lanes = LineView(classes="gauge-note")
         self.times = Shown(classes="gauge-note")
 
     def compose(self) -> ComposeResult:
-        yield self.header
+        yield from super().compose()
         yield self.time
         yield self.spend
         yield self.lanes
         yield self.times
 
     def show(self, view: ClockView) -> None:
-        self.header.meta.show((view.wave, view.last_wave), lambda: wave_meta(view))
+        self.show_meta((view.wave, view.last_wave), lambda: wave_meta(view))
         self.time.show(view.time)
         self.spend.show(view.spend)
         self.lanes.show(view.lanes)
@@ -195,31 +192,21 @@ class ClockSection(Vertical):
 # ---- the run timeline ----
 
 
-class TimelineSection(Vertical):
+class TimelineSection(MetaSection):
     def __init__(self) -> None:
-        super().__init__(id="timeline", classes="section")
-        self.header = SectionHeader(words.RUN_TIMELINE)
+        super().__init__(words.TUNING_TIMELINE, id="timeline")
         self.timeline = Timeline()
+        self.show_meta("legend", legend)
 
     def compose(self) -> ComposeResult:
-        yield self.header
+        yield from super().compose()
         yield self.timeline
-
-    def on_mount(self) -> None:
-        self.header.meta.show("legend", legend)
 
     def show(self, view: TimelineView | None) -> None:
         self.timeline.show(view)
 
 
 # ---- Results ----
-
-
-def card_title(title: str, qualifier: str) -> Content:
-    """A card's border title: the bold name, then muted qualifiers."""
-    if not qualifier:
-        return Content.styled(title, "bold")
-    return Content.assemble((title, "bold"), (f" · {qualifier}", "$text-muted"))
 
 
 class ResultCard(Card):
@@ -256,13 +243,14 @@ class ResultCard(Card):
         self.border_subtitle = line_content(self.view.subtitle)
 
 
-class ResultsSection(Vertical):
-    """The key sits on the header line when it fits there, else on its own
-    line under it. The cards are made again only when the concerns change."""
+class ResultsSection(Section):
+    """The header line holds the key's first entries and the Compare link;
+    the entries that don't fit beside the link wrap on the lines under it.
+    The cards are made again only when the concerns change."""
 
     def __init__(self) -> None:
-        super().__init__(id="results", classes="section")
-        self.header = SectionHeader(words.RESULTS)
+        super().__init__(words.RESULTS, id="results")
+        self.header = SectionHeader()
         self.key = KeyLine(id="results-key")
         self.grid = CardGrid(min_width=RESULT_CARD_WIDTH, id="result-cards")
         self.cards: list[ResultCard] = []
@@ -276,7 +264,6 @@ class ResultsSection(Vertical):
 
     def show(self, view: ResultsView, compare: str) -> None:
         self._entries = view.key
-        self.key.show(view.key)
         self.header.meta.show(compare, lambda: link(compare, words.COMPARE_LINK))
         self._place_key()
         concerns = tuple((card.title, card.qualifier) for card in view.cards)
@@ -293,18 +280,17 @@ class ResultsSection(Vertical):
         self._place_key()
 
     def _place_key(self) -> None:
-        width = self.size.width
-        needed = (
-            len(words.RESULTS)
-            + HEADER_GAP
-            + key_width(self._entries)
-            + META_GAP
-            + link("", words.COMPARE_LINK).cell_length
-        )
-        inline = 0 < width and needed <= width
+        """As many entries as fit beside the link go on its line, so the
+        link never has a line of its own once the width is known."""
+        width = self.header.size.width
+        room = width - META_GAP - link("", words.COMPARE_LINK).cell_length
+        entries = self._entries
+        fit = [n for n in range(1, len(entries) + 1) if key_width(entries[:n]) <= room]
+        inline = max(fit, default=0) if width else 0
         # Empty rather than hidden: the context also pushes the link right.
-        self.header.context.show(joined(self._entries, KEY_GAP) if inline else ())
-        self.key.display = not inline and bool(self._entries)
+        self.header.context.show(joined(entries[:inline], KEY_GAP))
+        self.key.show([line_content(entry) for entry in entries[inline:]])
+        self.key.display = inline < len(entries)
 
 
 # ---- Experiments ----
@@ -364,9 +350,18 @@ class CardLineFour(Horizontal):
         self._fit()
 
 
+def experiment_subtitle(spend: str) -> Content:
+    """The card's bottom border: the details marker, then its spend. The
+    marker takes the border's color, which lights up on hover."""
+    if not spend:
+        return Content(words.DETAILS_MARK)
+    return Content.assemble(words.DETAILS_MARK, (f"  {spend}", "$text-muted"))
+
+
 class ExperimentCard(Card):
     """7.5: one item, the same height in every state: the hypothesis (two
-    lines), the steps, line 4 and line 5. The border is blue while live."""
+    lines), the steps, line 4 and line 5. The border is blue while live. A
+    click opens the item's details panel (functional spec 7.9)."""
 
     def __init__(self, view: CardView):
         self.hypothesis = Hypothesis(view.text)
@@ -379,7 +374,7 @@ class ExperimentCard(Card):
             self.line4,
             self.line5,
             title=card_title(view.title, view.qualifier),
-            subtitle=muted(view.subtitle),
+            subtitle=experiment_subtitle(view.subtitle),
             live=view.live,
             classes="experiment-card",
         )
@@ -392,25 +387,27 @@ class ExperimentCard(Card):
         if (view.title, view.qualifier) != (old.title, old.qualifier):
             self.border_title = card_title(view.title, view.qualifier)
         if view.subtitle != old.subtitle:
-            self.border_subtitle = muted(view.subtitle)
+            self.border_subtitle = experiment_subtitle(view.subtitle)
         self.set_class(view.live, "-live")
         self.hypothesis.show(view.text)
         self.steps.show(view.steps)
         self.line4.show(view.line4)
         self.line5.show(view.line5)
 
+    def on_click(self) -> None:
+        cast("TunerApp", self.app).show_item(self.view.key)
 
-def done_content(view: DoneView, compare: str, lineage: str) -> Content:
-    """The run summary (functional spec 7.6, Done mode)."""
+
+def done_content(view: DoneView) -> Content:
+    """The run summary (functional spec 7.6, Done mode). The report's path
+    is a link: it opens as the `r` key does."""
     label_width = len(words.DONE_BEST) + 2
     totals: list[str | tuple[str, str]] = []
     for index, (count, word) in enumerate(view.totals):
         if index:
             totals.append((" · ", "$text-muted"))
         totals += [(count, "bold"), (f" {word}", "$text-muted")]
-    linked = [link(compare, words.COMPARE_LINK), link(lineage, words.LINEAGE_LINK)]
-    if view.report_path:
-        linked.append(link(view.report_path, words.REPORT_LINK))
+    report = link(view.report_path, view.report_path) if view.report_path else None
     lines = [
         Content.assemble(
             (view.ended, "bold"), (" · ", "$text-muted"), line_content(view.summary)
@@ -419,45 +416,69 @@ def done_content(view: DoneView, compare: str, lineage: str) -> Content:
         Content(""),
         line_content(view.best),
         Content.assemble(
-            (f"{words.DONE_REPORT:<{label_width}}", "$text-muted"), view.report
+            (f"{words.DONE_REPORT:<{label_width}}", "$text-muted"),
+            report if report is not None else view.report,
         ),
-        Content(""),
-        Content(KEY_GAP).join(linked),
     ]
-    if view.next_step:
-        lines += [Content(""), Content(view.next_step)]
     return Content("\n").join(lines)
 
 
+def next_step_content(step: NextStep) -> Content:
+    """A link with its note after it, a muted step still to come, or plain
+    words."""
+    if step.url is not None:
+        shown = link(step.url, step.text)
+        return Content.assemble(shown, f"  {step.note}") if step.note else shown
+    return muted(step.text) if step.pending else Content(step.text)
+
+
+class NextStepRow(Horizontal):
+    """One next step after its bullet: a long one wraps under its own text."""
+
+    def __init__(self, step: NextStep) -> None:
+        super().__init__(
+            Static(Content.styled(words.NEXT_STEP_BULLET, "$text-muted")),
+            Static(next_step_content(step), classes="next-step-text"),
+            classes="next-step",
+        )
+
+
 class RunCompleteCard(Card):
-    """Done mode: one wide card in place of the grid."""
+    """Done mode: one wide card in place of the grid, the run summary and
+    then the next steps."""
 
     def __init__(self) -> None:
         self.body = Shown(classes="run-complete-body")
+        self.next_steps = Vertical(classes="next-steps")
         super().__init__(
             self.body,
-            title=Content.styled(words.RUN_COMPLETE, "bold"),
+            Static(Content.styled(words.NEXT_STEPS, "bold"), classes="next-title"),
+            self.next_steps,
+            title=Content.styled(words.TUNING_COMPLETE, "bold"),
             id="run-complete",
         )
         self._subtitle = ""
+        self._steps: tuple[NextStep, ...] | None = None
 
-    def show(self, view: DoneView, compare: str, lineage: str) -> None:
+    def show(self, view: DoneView) -> None:
         if view.subtitle != self._subtitle:
             self._subtitle = view.subtitle
             self.border_subtitle = muted(view.subtitle)
-        self.body.show(
-            (view, compare, lineage), lambda: done_content(view, compare, lineage)
-        )
+        self.body.show(view, lambda: done_content(view))
+        if view.next_steps != self._steps:
+            self._steps = view.next_steps
+            self.next_steps.remove_children()
+            self.next_steps.mount(*(NextStepRow(step) for step in view.next_steps))
 
 
-class ExperimentsSection(Vertical):
-    """The mode, its step lines, the cards (kept by item id: a card keeps
+class ExperimentsSection(Section):
+    """The mode, its step lines, the cards (kept by item key: a card keeps
     its place from the start of the wave to its verdict) and the note; in
     the Done mode the run summary in place of the cards."""
 
     def __init__(self) -> None:
-        super().__init__(id="experiments", classes="section")
-        self.header = SectionHeader(words.EXPERIMENTS, id="experiments-header")
+        super().__init__(words.EXPERIMENTS, id="experiments")
+        self.header = SectionHeader()
         self.steps = Vertical(classes="step-lines")
         self.subhead = Shown(classes="subhead")
         self.grid = CardGrid(min_width=EXPERIMENT_CARD_WIDTH, id="experiment-cards")
@@ -465,6 +486,7 @@ class ExperimentsSection(Vertical):
         self.done = RunCompleteCard()
         self.rows: list[StepRow] = []
         self.cards: dict[str, ExperimentCard] = {}
+        self._bottom_height: int | None = None
         for part in (self.steps, self.subhead, self.note, self.done):
             part.display = False
 
@@ -476,15 +498,7 @@ class ExperimentsSection(Vertical):
         yield self.note
         yield self.done
 
-    def show(
-        self,
-        view: ExperimentsView,
-        *,
-        stopping: bool,
-        live: int,
-        compare: str,
-        lineage: str,
-    ) -> None:
+    def show(self, view: ExperimentsView, *, stopping: bool, live: int) -> None:
         self.header.context.show(
             words.stopping_header(live) if stopping else view.header
         )
@@ -496,7 +510,7 @@ class ExperimentsSection(Vertical):
         self.grid.display = view.done is None
         self.done.display = view.done is not None
         if view.done is not None:
-            self.done.show(view.done, compare, lineage)
+            self.done.show(view.done)
 
     def _show_steps(self, steps: Sequence[StepLine]) -> None:
         self.steps.display = bool(steps)
@@ -514,8 +528,9 @@ class ExperimentsSection(Vertical):
         part.show(text, lambda: muted(text))
 
     def _show_cards(self, views: Sequence[CardView]) -> None:
-        ids = [view.item_id for view in views]
-        if ids != list(self.cards):
+        # By key: a wave's re-plan can use its probe phase's item ids.
+        keys = [view.key for view in views]
+        if keys != [card.view.key for card in self.cards.values()]:
             self.grid.remove_children()
             self.cards = {view.item_id: ExperimentCard(view) for view in views}
             self.grid.mount(*self.cards.values())
@@ -523,23 +538,46 @@ class ExperimentsSection(Vertical):
         for view in views:
             self.cards[view.item_id].show(view)
 
-    def on_resize(self) -> None:
-        """Beside the Log, the bottom area is at least as tall as this
-        section, so the whole screen scrolls and no card is cut off."""
-        bottom = self.screen.query_one("#bottom")
-        bottom.styles.min_height = self.outer_size.height
+    def on_mount(self) -> None:
+        # Beside the Log this section is as tall as the bottom area, so a
+        # change of its content resizes nothing: each layout is the moment
+        # to measure it.
+        self.screen.screen_layout_refresh_signal.subscribe(
+            self, lambda _screen: self.fit_bottom()
+        )
+
+    def content_height(self) -> int:
+        """The height the section needs: its parts and its frame. Beside
+        the Log it is as tall as the bottom area, so its own height is no
+        measure of what it holds."""
+        shown = [part for part in self.children if part.display]
+        if not shown:
+            return self.styles.gutter.height
+        last = max(shown, key=lambda part: part.region.bottom)
+        used = last.region.bottom + last.styles.margin.bottom - self.content_region.y
+        return max(used, 0) + self.styles.gutter.height
+
+    def fit_bottom(self) -> None:
+        """The bottom area is at least as tall as this section's content.
+        So the whole screen scrolls and no card is cut off, and beside the
+        Log the two grow together."""
+        if not self.is_mounted:
+            return
+        height = self.content_height()
+        if height != self._bottom_height:
+            self._bottom_height = height
+            self.screen.query_one("#bottom").styles.min_height = height
 
 
 # ---- the Log ----
 
 
-class LogSection(Vertical):
+class LogSection(Section):
     def __init__(self) -> None:
-        super().__init__(id="log", classes="section")
+        super().__init__(words.LOG, id="log")
         self.lines = RunLog(id="log-lines")
 
     def compose(self) -> ComposeResult:
-        yield SectionHeader(words.LOG)
         yield self.lines
 
     def show(self, lines: Sequence[LogLine]) -> None:
@@ -552,8 +590,9 @@ class LogSection(Vertical):
 class RunScreen(Screen[None]):
     HORIZONTAL_BREAKPOINTS = [(0, "-narrow"), (150, "-wide")]
     BINDINGS = [
+        Binding("e", "experiments", words.EXPERIMENTS_KEY),
         Binding("c", "compare", words.COMPARE_LINK),
-        Binding("l", "lineage", words.LINEAGE_LINK),
+        Binding("g", "graph", words.GRAPH_KEY),
         Binding("r", "report", words.REPORT_LINK),
         Binding("q", "stop", words.STOP_KEY),
         Binding("q", "close", words.CLOSE_KEY),
@@ -571,6 +610,7 @@ class RunScreen(Screen[None]):
         self.log_section = LogSection()
         self._title: TitleView | None = None
         self._report = False
+        self._items = False
         # The Compare link, built once per refresh from the Results view, for
         # the Results header, the Done card and the `c` key alike.
         self.compare: str | None = None
@@ -617,14 +657,8 @@ class RunScreen(Screen[None]):
             self.results.show(view, self.compare)
 
         def show_experiments() -> None:
-            view = model.experiments(now)
-            done = view.done is not None
             self.experiments.show(
-                view,
-                stopping=stopping,
-                live=model.live_count(),
-                compare=self.compare_url(model) if done else "",
-                lineage=model.lineage_url() if done else "",
+                model.experiments(now), stopping=stopping, live=model.live_count()
             )
 
         parts: tuple[tuple[str, Callable[[], None]], ...] = (
@@ -645,8 +679,9 @@ class RunScreen(Screen[None]):
                 self._failing.discard(name)
         self.set_class(model.mode == "done", "-done")
         report = model.report_path is not None
-        if report != self._report:
-            self._report = report
+        items = any(wave.items for wave in model.waves)
+        if (report, items) != (self._report, self._items):
+            self._report, self._items = report, items
             self.refresh_bindings()
 
     def compare_url(self, model: RunModel) -> str:
@@ -679,6 +714,8 @@ class RunScreen(Screen[None]):
             return done
         if action == "report":
             return self._report_path() is not None
+        if action == "experiments":
+            return self._items
         return True
 
     def _report_path(self) -> str | None:
@@ -689,7 +726,7 @@ class RunScreen(Screen[None]):
         if self.tuner.model is not None:
             self.tuner.action_open_link(self.compare_url(self.tuner.model))
 
-    def action_lineage(self) -> None:
+    def action_graph(self) -> None:
         if self.tuner.model is not None:
             self.tuner.action_open_link(self.tuner.model.lineage_url())
 
@@ -697,6 +734,9 @@ class RunScreen(Screen[None]):
         path = self._report_path()
         if path:
             self.tuner.action_open_link(path)
+
+    def action_experiments(self) -> None:
+        self.tuner.show_picker()
 
     def action_stop(self) -> None:
         self.tuner.action_ask_stop()

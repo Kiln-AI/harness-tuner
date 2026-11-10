@@ -181,7 +181,7 @@ async def test_the_estimate_is_printed_before_any_spend_and_the_spend_is_booked(
     assert spend["cost_usd"] == pytest.approx(6 * 0.01 + 6 * 0.002 + 6 * 0.002)
     assert result.spend_usd == pytest.approx(spend["cost_usd"])
     assert lane_for_source("noise_check") == "provider"
-    assert SPEND_LANE_LABELS[lane_for_source("noise_check")] == "Kiln"
+    assert SPEND_LANE_LABELS[lane_for_source("noise_check")] == "API keys"
 
 
 async def test_an_estimate_past_the_run_budget_skips_the_check():

@@ -115,16 +115,28 @@ Input {
 
 /* ---- Run screen (6, 7) ---- */
 
-/* 4.2 Section header: no border, one blank line between sections */
-SectionHeader {
-    height: 1;
-    & > .header-title { width: auto; }
-    & > .header-context { width: 1fr; margin-left: 3; text-wrap: nowrap; text-overflow: ellipsis; }
-    & > .header-meta { width: auto; margin-left: 2; }
-}
+/* 4.2 Section: a square box, its name the border title. The frame is
+   $text-muted, so it differs from the cards' $border-muted in 256 colours
+   too, where $faint and $border-muted become almost one grey. */
 .section {
     height: auto;
-    margin-top: 1;
+    padding: 0 1;
+    border: solid $text-muted;
+    border-title-color: $foreground;
+    border-title-style: none;
+}
+SectionHeader {
+    height: 1;
+    & > .header-context { width: 1fr; text-wrap: nowrap; text-overflow: ellipsis; }
+    & > .header-meta { width: auto; margin-left: 2; }
+}
+/* The card grids reach the frame, so the frame costs the cards no width;
+   the lines of text keep one cell of padding. */
+#results, #experiments {
+    padding: 0;
+    & > SectionHeader, & > KeyLine, & > .step-lines, & > .subhead, & > .wave-note {
+        padding: 0 1;
+    }
 }
 
 CardGrid {
@@ -156,25 +168,24 @@ RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
 }
 
 /* The layout (6) */
-/* The scrollbars keep their column when they are not shown: else a
-   scrollbar that comes or goes changes the width under it, and the log
-   writes all its lines again (ui_design 13). */
+/* The boxes reach the screen's edges. The scrollbars keep their column
+   when they are not shown: else a scrollbar that comes or goes changes the
+   width under it, and the log writes all its lines again (ui_design 13). */
 #body {
-    padding: 0 1;
+    padding: 0;
     scrollbar-size-vertical: 1;
     scrollbar-gutter: stable;
 }
 /* ui_design 6 and 14: the Goal's data line (functional spec 16.4) needs
-   69 columns, so the Goal takes 70. At 210 columns the line then fits on
-   one row, and the Goal is as tall as Time & spend. */
+   69 columns, and its frame and padding 4 more, so the Goal takes 73. At
+   210 columns the line then fits on one row, and the Goal is as tall as
+   Time & spend. */
 #top {
     height: auto;
-    margin-top: 1;
-    & > #goal { width: 1fr; min-width: 70; margin-top: 0; }
-    & > #spend { width: 2fr; margin: 0 0 0 4; }
+    & > #goal { width: 1fr; min-width: 73; }
+    & > #spend { width: 2fr; margin: 0 0 0 1; }
 }
 #bottom {
-    margin-top: 1;
     height: auto;
     layout: vertical;
 }
@@ -187,34 +198,39 @@ RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
     &:focus { background-tint: transparent; }
 }
 
-/* At 150 columns and up: Experiments 68%, the Log the rest, full height.
-   Below: stacked, the Log 12 rows high. */
+/* At 150 columns and up: Experiments 68%, the Log the rest. Both fill the
+   bottom area, which is at least the rest of the screen and at least as
+   tall as the Experiments' content (`ExperimentsSection.fit_bottom`), so
+   the two are always the same height. Below: stacked, the Log 12 rows
+   high. */
 RunScreen.-wide #bottom {
     layout: horizontal;
     height: 1fr;
-    & > #experiments { width: 68%; height: auto; margin-top: 0; }
-    & > #log { width: 1fr; height: 100%; margin: 0 0 0 2; }
+    & > #experiments { width: 68%; height: 100%; }
+    & > #log { width: 1fr; height: 100%; margin: 0 0 0 1; }
     & #log-lines { height: 1fr; }
 }
-RunScreen.-narrow #bottom {
-    & > #experiments { margin-top: 0; }
-    & #log-lines { height: 12; }
-}
+RunScreen.-narrow #bottom #log-lines { height: 12; }
 
-/* Below 150 columns the Goal (70 columns of text, its data line the
-   widest) can't take a third of the width, so Goal and Time & spend stack
-   too. */
+/* Below 150 columns the Goal (73 columns, its data line the widest) can't
+   take a third of the width, so Goal and Time & spend stack too. */
 RunScreen.-narrow #top {
     layout: vertical;
-    & > #spend { width: 1fr; margin: 1 0 0 0; }
+    & > #spend { width: 1fr; margin: 0; }
 }
 
 /* 7.4 Results */
 #results-key { margin-bottom: 0; }
 TierBars { width: 1fr; }
 
-/* 7.5 Experiments */
+/* 7.5 Experiments. A card opens its details panel on a click: its border
+   and its "details ›" marker light up on hover. */
 .experiment-card {
+    &:hover {
+        border: round $text-primary;
+        border-subtitle-color: $text-primary;
+        background: $panel;
+    }
     & > .card-line { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
     & > .line4 { height: 1; }
     & > .line4 > .line4-label {
@@ -241,6 +257,13 @@ TierBars { width: 1fr; }
 #run-complete {
     width: 1fr;
     & > .run-complete-body { height: auto; }
+    & > .next-title { margin-top: 1; }
+    & > .next-steps { height: auto; }
+}
+.next-step {
+    height: auto;
+    & > Static { width: auto; }
+    & > .next-step-text { width: 1fr; }
 }
 .goal-rows { height: auto; }
 .goal-data {
@@ -274,4 +297,63 @@ StopDialog {
     &:focus { background: $primary; color: $block-cursor-foreground; text-style: bold; }
     &.-error { color: $text-error; }
     &.-error:focus { background: $error; color: $block-cursor-foreground; }
+}
+
+/* ---- 4.13 Details modal: the details panel and the experiment picker ---- */
+
+DetailsPanel, ExperimentPicker {
+    align: center middle;
+    background: $background 60%;
+}
+#details, #picker {
+    width: 100;
+    max-width: 100%;
+    background: $panel;
+    border: round $primary;
+}
+#details {
+    padding: 0 2;
+    & > .detail-status { margin: 1 0; }
+    & > .detail-links { margin: 1 0; }
+}
+/* The middle scrolls: the status line and the links stay in place. */
+.detail-body {
+    height: auto;
+    max-height: 65vh;
+    scrollbar-size-vertical: 1;
+    &:focus { background-tint: transparent; }
+    & > .detail-title { margin-top: 1; }
+    & > .detail-title:first-child { margin-top: 0; }
+    & > .detail-line { height: auto; }
+}
+.detail-field {
+    height: auto;
+    & > .detail-label { width: 12; }
+    & > .detail-value { width: 1fr; }
+}
+.detail-bullet {
+    height: auto;
+    & > Static { width: auto; }
+    & > .detail-bullet-text { width: 1fr; }
+}
+#picker {
+    padding: 0 1;
+    & > OptionList {
+        height: auto;
+        max-height: 75vh;
+        border: none;
+        padding: 0;
+        background: transparent;
+        scrollbar-size-vertical: 1;
+        &:focus { border: none; background-tint: transparent; }
+        /* Not reverse blue: the rows' statuses keep their colors. */
+        & > .option-list--option-highlighted {
+            background: $border-muted;
+            text-style: bold;
+        }
+        &:focus > .option-list--option-highlighted {
+            background: $border-muted;
+            text-style: bold;
+        }
+    }
 }
