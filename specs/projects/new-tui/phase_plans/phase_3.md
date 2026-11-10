@@ -89,7 +89,7 @@ Nothing in `tui/model/` imports Textual, and nothing outside `tui/` imports `tui
    - **Best Confirmed**: the confirmed winner's table values (`candidate_score`; cost and latency from the table's paired comparison, else from the row comparison with the most items). Its change against Start is green or red by direction only.
    - **Best Unconfirmed**: among this generation's successful arms (C1b rows) and screen survivors (cost and latency only), not rejected at val, the best of parent value + change (cost and latency: parent value × candidate ÷ baseline median), where the parent value is Best Confirmed's (Start's before the first promotion). Shown only where it beats that parent value. Dim when the row's interval crosses zero (cost and latency: not `clearly_faster`).
    - **In flight**: live items whose C5 targets name the concern's eval; None for cost and latency.
-   - The bar fraction per tier (pass rate on 0–1, rating on 1–5, cost and latency against Start at 0.8).
+   - The bar fraction per tier (pass rate on 0–1, rating on 1–5, cost and latency linear from zero, the full bar the card's largest value but at least Start ÷ 0.8).
    - `results_view(model) -> ResultsView`: the key's three entries (Start's split, Best Confirmed's name or "no promotion yet"), one `ConcernView` per concern (the score key in the title only for an eval with more than one score), and the rc ids for Compare (Start, Best Confirmed, each distinct Best Unconfirmed holder).
 
 10. **`cards.py`**: one `CardView` per item (functional spec 7.6, ui_design 7.5 and 14).

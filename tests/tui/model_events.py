@@ -510,9 +510,18 @@ class Run:
         return self
 
 
-def table(rc_id: str, *rows: PerEvalResult) -> CandidateValTable:
+def table(
+    rc_id: str,
+    *rows: PerEvalResult,
+    latency: LatencyComparison | None = None,
+    cost: LatencyComparison | None = None,
+) -> CandidateValTable:
     return CandidateValTable(
-        rc_id=rc_id, experiment_memory_id=f"exp-{rc_id}", per_eval=list(rows)
+        rc_id=rc_id,
+        experiment_memory_id=f"exp-{rc_id}",
+        per_eval=list(rows),
+        latency=latency,
+        cost=cost,
     )
 
 

@@ -20,6 +20,7 @@ from kiln_harness_tuner.onboarding.questions import (
     BUDGET_ERROR,
     COUNT_ERROR,
     DURATION_ERROR,
+    EFFORT_ERROR,
     FRACTION_ERROR,
     MIN_TIME_LIMIT_MINS,
     MODEL_ERROR,
@@ -660,18 +661,28 @@ def test_high_leaves_the_level_out_of_the_command():
 
 
 def test_other_types_a_level():
-    terminal = ScriptedTerminal(["codex", "", " other", Typed("very high", "ultra")])
+    typed = Typed("very high", "", "ultra")
+    terminal = ScriptedTerminal(["codex", "", " other", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
-    assert terminal.questions[-1] == "Thinking level name for the agents"
+    level = terminal.asked_about("Thinking level name for the agents")
+    # A blank level is refused, so the hint says nothing about a blank.
+    assert typed.refusals == [EFFORT_ERROR] * 2
+    assert level.hint == "A level name the model takes."
     assert got.agent_cli == "codex exec -c model_reasoning_effort=ultra"
 
 
 def test_opencode_types_its_variant():
-    terminal = ScriptedTerminal(["opencode", "zai/glm", "max"])
+    typed = Typed("", "max")
+    terminal = ScriptedTerminal(["opencode", "zai/glm", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     level = terminal.asked_about("Thinking level for the agents")
     assert (level.kind, level.default) == ("text", "high")
-    assert "--variant" in level.hint
+    # The hint does not name the field's value, which Esc back can change.
+    assert typed.refusals == [EFFORT_ERROR]
+    assert level.hint == (
+        "OpenCode's level is its --variant, whose names depend on the model,"
+        " such as high or max. A model ignores a variant it doesn't have."
+    )
     assert got.agent_cli == "opencode run -m zai/glm --variant max"
 
 

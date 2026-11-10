@@ -3,6 +3,7 @@ Best Confirmed and Best Unconfirmed tiers (functional spec 7.5 and 16)."""
 
 from dataclasses import replace
 
+import pytest
 from model_events import (
     INFO,
     START_RC,
@@ -15,7 +16,7 @@ from model_events import (
     val_row,
 )
 
-from kiln_harness_tuner.schemas import ScreenResult
+from kiln_harness_tuner.schemas import LatencyComparison, ScreenResult
 from kiln_harness_tuner.tui.model import results
 from kiln_harness_tuner.tui.model.state import plain
 
@@ -470,3 +471,95 @@ def test_start_keeps_its_train_value_where_the_first_gate_has_none():
     assert (cost.start.value, cost.start_note) == ("$0.042", "train")
     refusal = run.concern("Refusal honesty")
     assert (refusal.start.value, refusal.start_note) == ("80.0%", "train")
+
+
+# ---- the cost and latency bars ----
+
+
+def bars(card) -> list[float | None]:
+    tiers = (card.start, card.confirmed, card.unconfirmed)
+    return [None if tier is None else tier.fraction for tier in tiers]
+
+
+def confirmed_run(**speed: LatencyComparison) -> Run:
+    """rc_a is Best Confirmed from the first gate, whose table carries
+    `speed`: its cost or latency against Start on val."""
+    run = Run().standard_start()
+    run.wave_start(1, fix("w1-1", "e1"))
+    run.success("w1-1", "rc_a", row("e1", 0.6, 0.7))
+    run.gate(1, table("rc_a", val_row("e1", 0.62, 0.70), **speed), winner="rc_a")
+    return run
+
+
+def arm_on(run: Run, wave: int, parent: str, **speed: LatencyComparison) -> Run:
+    """A successful arm of `wave` on Best Confirmed `parent`, which measures
+    `speed` on train."""
+    item_id = f"w{wave}-1"
+    run.plan(wave).planned(wave)
+    run.wave_start(wave, fix(item_id, "e1"), parent=parent)
+    return run.success(
+        item_id,
+        f"rc_w{wave}",
+        row("e1", 0.70, 0.75, parent=parent),
+        parent=parent,
+        **speed,
+    )
+
+
+def usd(base: float, cand: float) -> LatencyComparison:
+    return comparison(base, cand, metric="cost_usd")
+
+
+def test_a_card_with_only_cuts_draws_start_at_four_fifths_and_each_cut_shorter():
+    run = arm_on(
+        confirmed_run(cost=usd(0.040, 0.030)), 2, "rc_a", cost=usd(0.030, 0.015)
+    )
+    assert bars(run.concern("Cost / request")) == pytest.approx([0.8, 0.6, 0.3])
+
+
+def test_a_cost_rise_draws_its_largest_value_full_and_start_from_zero():
+    run = confirmed_run(cost=usd(0.00014, 0.00038))
+    card = run.concern("Cost / request")
+    assert bars(card) == pytest.approx([0.00014 / 0.00038, 1.0, None])
+    # Only the bars change: the values and the red change stay.
+    assert (card.start.value, card.confirmed.value) == ("$0.00014", "$0.00038")
+    assert (card.confirmed.change, card.confirmed.change_tone) == ("+171%", "error")
+
+
+def test_a_cut_below_a_risen_best_confirmed_draws_a_shorter_bar():
+    run = arm_on(
+        confirmed_run(cost=usd(0.00014, 0.00038)),
+        2,
+        "rc_a",
+        cost=usd(0.00038, 0.00019),
+    )
+    assert bars(run.concern("Cost / request")) == pytest.approx(
+        [0.00014 / 0.00038, 1.0, 0.5]
+    )
+
+
+@pytest.mark.parametrize(
+    ("confirmed", "expected"),
+    [
+        # A rise to less than Start ÷ 0.8 keeps Start at 0.8.
+        (9000.0, [0.8, 0.9, None]),
+        (16000.0, [0.5, 1.0, None]),
+    ],
+)
+def test_a_latency_rise_draws_linearly_from_zero(confirmed, expected):
+    run = confirmed_run(latency=comparison(8000.0, confirmed))
+    assert bars(run.concern("Latency")) == pytest.approx(expected)
+
+
+def test_a_card_with_no_start_value_draws_its_largest_value_full():
+    # The first gate measured no cost, so Start has none. The second gate
+    # promotes rc_w2 at $0.030, and a wave-3 arm halves it.
+    run = arm_on(confirmed_run(), 2, "rc_a")
+    gate_table = table(
+        "rc_w2", val_row("e1", 0.70, 0.75, parent="rc_a"), cost=usd(0.040, 0.030)
+    )
+    run.gate(2, gate_table, winner="rc_w2")
+    run = arm_on(run, 3, "rc_w2", cost=usd(0.030, 0.015))
+    card = run.concern("Cost / request")
+    assert card.start_note == "not measured yet"
+    assert bars(card) == pytest.approx([None, 1.0, 0.5])

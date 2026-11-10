@@ -577,6 +577,8 @@ _LEVEL_TEXT = {
 }
 
 
+# A blank level is refused, so the typed level's hint says nothing about a
+# blank. Like every hint, it never names the value in the field.
 def _effort_refusal(text: str) -> str | None:
     words = text.split()
     return None if len(words) == 1 else EFFORT_ERROR
@@ -613,11 +615,11 @@ def _ask_effort(agent: AgentKind, effort: str, ctx: QuestionContext) -> str:
             answer = ctx.terminal.text(
                 EFFORT_NAME_QUESTION if agent.efforts else EFFORT_QUESTION,
                 default=effort,
-                hint=f"Enter keeps {agent.default_effort}. {agent.name}'s level is"
-                " its --variant, whose names depend on the model, such as high or"
-                " max. A model ignores a variant it doesn't have."
+                hint=f"{agent.name}'s level is its --variant, whose names depend"
+                " on the model, such as high or max. A model ignores a variant it"
+                " doesn't have."
                 if agent.kind == "opencode"
-                else f"Enter keeps {effort}. A level name the model takes.",
+                else "A level name the model takes.",
                 validate=_effort_refusal,
                 back=bool(agent.efforts) or ctx.back,
             )
