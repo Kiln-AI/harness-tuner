@@ -335,6 +335,7 @@ The card titles are the flow's own strings ("Kiln Harness Tuner", "Ready to star
 - Run it: see `ui_preview/README.md`.
 - Keys in the preview switch between the start-up parts, the run modes, the card variants, the stop dialog, and the light and dark themes. They are hidden from the footer, so the footer shows only the real app's keys.
 - `ui_preview/screenshots/` holds SVG screenshots of each screen at 210×62 and at 120×40, made by its screenshot script.
+- The screenshots, rendered to PNG for review: https://claude.ai/artifact/JJZx4ScbTBQbgr1fHickVK
 
 ## 13. Textual notes from the preview
 
