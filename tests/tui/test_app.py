@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from app_fakes import SIZE, FakeRun, FakeStart, make_app, make_session, until
+from run_screen import unspun
 from textual.widgets import Button, Static
 
 from kiln_harness_tuner.onboarding import OnboardingError
@@ -38,7 +39,19 @@ def closed(app) -> bool:
 
 
 def text(app, part: str) -> str:
-    return str(app.screen.query_one(f"#{part}", Static).render())
+    """What one part of the run screen shows: the title, the Experiments
+    header, or the log (its lines as one text, spaces collapsed)."""
+    screen = app.run_screen
+    if part == "title":
+        return str(screen.title_bar.query_one(".title-context", Static).render())
+    if part == "mode":
+        return unspun(str(screen.experiments.header.context.render()))
+    # Wrapped lines read as one text.
+    drawn = " ".join(strip.text for strip in screen.log_section.lines.lines)
+    return " ".join(drawn.split())
+
+
+RUN_KEYS = {"c": words.COMPARE_LINK, "l": words.LINEAGE_LINK}
 
 
 # ---- the start-up ----
@@ -76,9 +89,9 @@ async def test_the_hand_off_shows_the_run_and_starts_it():
         await until(pilot, lambda: app.phase == "run")
         assert isinstance(app.screen, RunScreen)
         assert session.run.began
-        await until(pilot, lambda: "Run started" in text(app, "run-log"))
-        assert "Moderate posts" in text(app, "run-title")
-        assert footer(app) == {"q": "Stop"}
+        await until(pilot, lambda: "Run started" in text(app, "log"))
+        assert "Moderate posts" in text(app, "title")
+        assert footer(app) == {**RUN_KEYS, "q": "Stop"}
         session.run.stop(signal.SIGTERM)
         await until(pilot, lambda: closed(app))
 
@@ -167,7 +180,7 @@ async def test_the_run_screen_says_stopping_until_the_run_has_stopped():
         app.drain()
         await until(pilot, lambda: session.run.began and run.handle._task is not None)
         app.on_signal(signal.SIGTERM)
-        assert text(app, "run-mode") == words.STOPPING
+        assert text(app, "mode") == f"* {words.STOPPING}"
         await until(pilot, lambda: session.run.outcome is not None)
         app.drain()
         await until(pilot, lambda: closed(app))
@@ -227,7 +240,7 @@ async def test_done_stays_open_until_the_person_closes_it(key):
     app = make_app(session)
     async with app.run_test(size=SIZE) as pilot:
         await until(pilot, lambda: app.phase == "done")
-        assert footer(app) == {"q": "Close"}
+        assert footer(app) == {**RUN_KEYS, "q": "Close"}
         await pilot.pause(0.1)
         assert not closed(app)
         await pilot.press(key)
@@ -248,7 +261,7 @@ async def test_the_end_of_the_run_closes_an_open_stop_dialog():
         await until(pilot, lambda: app.phase == "done")
         assert isinstance(app.screen, RunScreen)
         assert not session.run.stopping
-        assert footer(app) == {"q": "Close"}
+        assert footer(app) == {**RUN_KEYS, "q": "Close"}
         await pilot.press("q")
         await until(pilot, lambda: closed(app))
 
@@ -307,16 +320,17 @@ async def test_an_event_the_model_cannot_fold_is_skipped_and_noted():
         session.queue.put(Stamped.now("wave_start", {"wave": 1, "items": []}))
         app.drain()
         assert model.ui_errors == 1
-        assert words.UI_ERROR in text(app, "run-log")
-        assert "Wave 1" in text(app, "run-log")
+        await until(pilot, lambda: "Wave 1" in text(app, "log"))
+        assert words.UI_ERROR in text(app, "log")
         assert not closed(app)
         session.run.stop(signal.SIGTERM)
         await until(pilot, lambda: closed(app))
 
 
-async def test_an_unchanged_model_is_not_shown_again():
+async def test_the_screen_is_shown_again_on_a_change_or_a_new_second():
     session = make_session(run=FakeRun([RUN_START]))
-    app = make_app(session, drain_interval=60)
+    now = [100.0]
+    app = make_app(session, drain_interval=60, clock=lambda: now[0])
     async with app.run_test(size=SIZE) as pilot:
         await until(pilot, lambda: session.start.outcome is not None)
         app.drain()
@@ -324,18 +338,23 @@ async def test_an_unchanged_model_is_not_shown_again():
         await pilot.pause()
         app.drain()
         screen = app.run_screen
-        updates: list[str] = []
-        for part in ("run-title", "run-mode", "run-log"):
-            widget = screen.query_one(f"#{part}", Static)
-            widget.update = lambda text, part=part: updates.append(part)
+        shown: list[tuple[int, bool, float]] = []
+        screen.refresh_from = lambda model, *, stopping, now: shown.append(
+            (model.version, stopping, now)
+        )
         app.drain()
-        screen.refresh_from(app.model, stopping=False, now=0.0)
-        assert updates == []
+        now[0] = 100.6
+        app.drain()
+        assert shown == []
         session.queue.put(Stamped.now("wave_start", {"wave": 1, "items": []}))
         app.drain()
-        assert updates == ["run-mode", "run-log"]
+        now[0] = 101.1
+        app.drain()
+        version = app.model.version
+        assert shown == [(version, False, 100.6), (version, False, 101.1)]
         session.run.stop(signal.SIGTERM)
         app.drain()
+        assert shown[-1][1] is True
         await until(pilot, lambda: session.run.outcome is not None)
         app.drain()
         await until(pilot, lambda: closed(app))
@@ -352,7 +371,7 @@ async def test_the_drain_reads_the_run_id_and_the_agent_cli_check():
         progress.run_dir = Path("/state/runs/261110-0912")
         await until(pilot, lambda: app.model.info.run_id == "261110-0912")
         assert app.model.cli_checked is not None
-        assert "run 261110-0912" in text(app, "run-title")
+        assert "run 261110-0912" in text(app, "title")
         session.run.stop(signal.SIGTERM)
         await until(pilot, lambda: closed(app))
 

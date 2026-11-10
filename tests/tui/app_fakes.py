@@ -16,7 +16,7 @@ from textual.pilot import Pilot
 
 from kiln_harness_tuner.onboarding import OnboardingStopped
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
-from kiln_harness_tuner.tui.app import AppMode, Session, TunerApp
+from kiln_harness_tuner.tui.app import AppMode, NamesLookup, Session, TunerApp
 from kiln_harness_tuner.tui.bridge import AppTerminal, CancellableRunner
 from kiln_harness_tuner.tui.handles import RunHandle, StartHandle
 from kiln_harness_tuner.tui.model.events import Stamped
@@ -139,6 +139,8 @@ def make_session(
     run: FakeRun | None = None,
     stopped_by: list[int] | None = None,
     progress: RunProgress | None = None,
+    model: Callable[[], RunModel] | None = None,
+    lookup_names: NamesLookup | None = None,
 ) -> Session:
     queue: SimpleQueue[Stamped] = SimpleQueue()
     run = run if run is not None else FakeRun()
@@ -151,8 +153,9 @@ def make_session(
         queue=queue,
         start=StartHandle(start, queue, on_stop=start.stop),
         run=run_handle,
-        make_model=lambda: RunModel(INFO, started=time.monotonic()),
+        make_model=model or (lambda: RunModel(INFO, started=time.monotonic())),
         progress=lambda: run_progress,
+        lookup_names=lookup_names,
     )
 
 

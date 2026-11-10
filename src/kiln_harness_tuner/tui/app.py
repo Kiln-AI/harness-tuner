@@ -13,11 +13,11 @@ import asyncio
 import logging
 import signal
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, SimpleQueue
-from typing import Literal
+from typing import Any, Literal
 
 from textual import events
 from textual.app import App
@@ -25,7 +25,7 @@ from textual.binding import Binding
 
 from kiln_harness_tuner.onboarding.error_screen import RunProgress
 from kiln_harness_tuner.tui import opener
-from kiln_harness_tuner.tui.bridge import UI_REQUEST, Prompt
+from kiln_harness_tuner.tui.bridge import UI_REQUEST, Prompt, opened_text
 from kiln_harness_tuner.tui.handles import (
     RUN_ENDED,
     START_ENDED,
@@ -35,6 +35,7 @@ from kiln_harness_tuner.tui.handles import (
 from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
+from kiln_harness_tuner.tui.model.state import RunInfo
 from kiln_harness_tuner.tui.screens.run import RunScreen
 from kiln_harness_tuner.tui.screens.startup import StartupScreen
 from kiln_harness_tuner.tui.screens.stop import StopDialog
@@ -58,6 +59,11 @@ def _never() -> bool:
     return False
 
 
+# The task's run configs, as Kiln lists them: the rows the run screen takes
+# its run config names from (architecture section 8).
+NamesLookup = Callable[[RunInfo], Awaitable[Iterable[Mapping[str, Any]]]]
+
+
 @dataclass(frozen=True)
 class Session:
     """What the app runs over: the queue both threads put on, the two
@@ -73,6 +79,8 @@ class Session:
     # Whether the start is in a step a stop can't cut short (the demo copy).
     # A first stop then waits for the start to end, with no grace period.
     uninterruptible: Callable[[], bool] = _never
+    # Where the run config names come from; None looks nothing up.
+    lookup_names: NamesLookup | None = None
 
 
 class TunerApp(App[None]):
@@ -97,6 +105,7 @@ class TunerApp(App[None]):
         print_sink: Callable[[str], None] | None = None,
         drain_interval: float = DRAIN_INTERVAL_SECS,
         stop_grace: float = START_STOP_GRACE_SECS,
+        clock: Callable[[], float] = time.monotonic,
     ):
         super().__init__()
         # Before the first screen mounts (ui_design section 13).
@@ -116,7 +125,10 @@ class TunerApp(App[None]):
         self._print_sink = print_sink
         self._drain_interval = drain_interval
         self._stop_grace = stop_grace
-        self._shown: tuple[int, bool] | None = None
+        # The clock the run screen's views read: the run's own monotonic
+        # clock, which stamps the events.
+        self._clock = clock
+        self._shown: tuple[int, bool, int] | None = None
 
     def get_theme_variable_defaults(self) -> dict[str, str]:
         return {name: KILN_DARK.variables[name] for name in CUSTOM_VARIABLES}
@@ -158,9 +170,17 @@ class TunerApp(App[None]):
             self.exit()
 
     def action_open_link(self, url: str) -> None:
-        """A click on a link (ui_design 4.9). Not `App.open_url`, which waits
-        for the browser and lets it draw on the screen."""
-        opener.open_link(url)
+        """A click on a link, or a link's key (ui_design 4.9). Not
+        `App.open_url`, which waits for the browser and lets it draw on the
+        screen. With no graphical browser, or over SSH, nothing opens: after
+        the start, the run screen's log then gives the whole address, in the
+        start-up's words (functional spec section 5)."""
+        if opener.open_link(url):
+            return
+        model = self.model
+        if model is not None and self.phase != "startup":
+            model.note_link(opened_text(url, opened=False))
+            self._refresh()
 
     def _set_phase(self, phase: Phase) -> None:
         self.phase = phase
@@ -189,6 +209,7 @@ class TunerApp(App[None]):
                 self._run_ended()
             self._fold(stamped)
         self._read_progress()
+        self._look_up_names()
         self._refresh()
 
     def _show_request(self, stamped: Stamped) -> None:
@@ -221,23 +242,55 @@ class TunerApp(App[None]):
             return
         progress = self.session.progress()
         if model.cli_checked is None and progress.cli_checked:
-            model.agent_cli_checked(time.monotonic())
+            model.agent_cli_checked(self._clock())
         if model.info.run_id is None and progress.run_dir is not None:
             model.update_info(run_id=progress.run_dir.name)
 
     def _refresh(self) -> None:
+        """The run screen shows the model again when it changed, when the
+        stop began, or once a second: the elapsed times and the gauges move
+        with no event. Each widget still updates only when its text did."""
         model, screen = self.model, self.run_screen
         # Not yet mounted in the drain that switched to it: the next one shows.
         if model is None or screen is None or not screen.is_mounted:
             return
         stopping = self.session.run.stopping
-        if self._shown == (model.version, stopping):
+        now = self._clock()
+        shown = (model.version, stopping, int(now))
+        if self._shown == shown:
             return
-        self._shown = (model.version, stopping)
+        self._shown = shown
         try:
-            screen.refresh_from(model, stopping=stopping, now=time.monotonic())
+            screen.refresh_from(model, stopping=stopping, now=now)
         except Exception:
             logger.exception("the run screen could not show the run")
+
+    # ---- the run config names ----
+
+    def _look_up_names(self) -> None:
+        """One lookup at a time, at most once every 10 s, when the model has
+        seen a run config id it has no name for (architecture section 8). It
+        runs on the app's own loop: an async worker, not a thread."""
+        model, lookup = self.model, self.session.lookup_names
+        if model is None or lookup is None:
+            return
+        now = self._clock()
+        if not model.names.lookup_due(now):
+            return
+        model.names.lookup_started(now)
+        self.run_worker(
+            self._names_from(model, lookup),
+            group="run-config-names",
+            exit_on_error=False,
+        )
+
+    async def _names_from(self, model: RunModel, lookup: NamesLookup) -> None:
+        try:
+            model.learn_names(await lookup(model.info))
+        except Exception:
+            # The ids stay on screen; the next unknown id asks again.
+            logger.warning("the run config names could not be read", exc_info=True)
+            model.names.lookup_failed()
 
     # ---- the hand-off and the end ----
 

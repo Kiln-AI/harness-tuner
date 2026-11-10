@@ -4,11 +4,11 @@ invoked manually from a terminal).
 Wires `Ctx` (dispatcher, KilnClient, Analyzer, MemoryWriter) plus the
 observability: run id, wave log (`<state>/runs/<run_id>/`, run scratch),
 `RunStatus` tracker + UI (the terminal app, `tui/`, when stdin and stdout are
-terminals; else rich live display, or plain lines under `--no-progress` /
-non-TTY), and the report hook (`<state>/reports/kiln-harness-tuner-<run_id>.md`)
-— then runs `orchestrate`, which returns the report path. `<state>` is the
-state folder (`paths.py`); the agents' skills and instructions come from the
-package and are installed into it (`install_agents.py`).
+terminals; else plain lines, also under `--no-progress`), and the report hook
+(`<state>/reports/kiln-harness-tuner-<run_id>.md`) — then runs `orchestrate`,
+which returns the report path. `<state>` is the state folder (`paths.py`);
+the agents' skills and instructions come from the package and are installed
+into it (`install_agents.py`).
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ from kiln_harness_tuner.setup import (
 )
 from kiln_harness_tuner.skill_installer import sweep_staging
 from kiln_harness_tuner.status import RunStatusTracker, make_run_id
-from kiln_harness_tuner.ui import LiveUi, PlainUi
+from kiln_harness_tuner.ui import PlainUi
 from kiln_harness_tuner.wave_log import FanoutLog, WaveLog
 
 logger = logging.getLogger(__name__)
@@ -1238,11 +1238,12 @@ async def _run(
         run_id = _unique_run_id(state.runs, run_started_at)
         run_dir = state.runs / run_id
         _RUN_PROGRESS.run_dir = run_dir
-        # Before the live display, which owns the terminal from then on.
+        # Before the display. In the app it lands in the stray-output file,
+        # and the closing block names the run folder.
         print(f"{PROG}: run {run_id} — files in {run_dir}/", flush=True)
         # Diagnostics to `runs/<run_id>/kiln-harness-tuner.log` from the first moment
         # the run has a directory — before `render_run_configs`, so a startup failure
-        # there is in the file too. File only: the live UI owns the
+        # there is in the file too. File only: the display owns the
         # terminal.
         configure_run_logging(run_dir)
         logger.info(
@@ -1333,10 +1334,9 @@ async def _run(
             ui: RunDisplay
             if display is not None:
                 ui = display(tracker, console)
-            elif not args.no_progress and console.is_terminal:
-                ui = LiveUi(tracker, console=console)
             else:
-                # --no-progress (and CI / non-TTY) falls back to plain log lines.
+                # The app passes its own display; every other run, --no-progress
+                # and CI / non-TTY included, prints plain log lines.
                 ui = PlainUi(tracker, console=console)
             with WaveLog(run_dir / "wave_log.jsonl") as wave_log, ui:
                 # Tracker before UI: renders always see post-update snapshots.

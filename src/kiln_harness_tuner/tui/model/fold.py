@@ -40,6 +40,7 @@ from kiln_harness_tuner.tui.model.state import (
     LATENCY,
     LATENCY_KEY,
     Cell,
+    CheckStatus,
     ClockView,
     Concern,
     ConcernKey,
@@ -58,7 +59,6 @@ from kiln_harness_tuner.tui.model.state import (
     Segment,
     Span,
     StartStep,
-    StepStatus,
     TimelineView,
     TitleView,
     Unconfirmed,
@@ -235,6 +235,12 @@ class RunModel:
 
     def update_info(self, **changes: Any) -> None:
         self.info = replace(self.info, **changes)
+        self.version += 1
+
+    def note_link(self, text: str) -> None:
+        """A line the app adds to the log itself: the address of a link it
+        could not open (no graphical browser, or over SSH)."""
+        self.log.append(log.line(datetime.now(), "link", text))
         self.version += 1
 
     def note_ui_error(self) -> None:
@@ -447,7 +453,7 @@ class RunModel:
     def _step(
         self,
         label: str,
-        status: StepStatus,
+        status: CheckStatus,
         text: str,
         *,
         since: float | None = None,
@@ -459,7 +465,7 @@ class RunModel:
             self._step_at[label] = len(self.start_steps)
             self.start_steps.append(step)
 
-    def _extra_step(self, status: StepStatus, text: str) -> None:
+    def _extra_step(self, status: CheckStatus, text: str) -> None:
         """A line under a step, with no label of its own (a warning)."""
         self.start_steps.append(StartStep(status, "", text))
 

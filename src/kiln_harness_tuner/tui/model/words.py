@@ -10,7 +10,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from kiln_harness_tuner.tui.model.state import ConcernKind, GoalRow, Tone
+from kiln_harness_tuner.tui.model.state import (
+    SPIN,
+    ConcernKind,
+    GoalRow,
+    Line,
+    Span,
+    Tone,
+)
 
 MINUS = "−"
 
@@ -589,6 +596,8 @@ LOG_GLYPHS: dict[str, tuple[str, Tone]] = {
     "assumed": ("?", "warning"),
     "lesson": ("≈", "muted"),
     "built": ("+", "muted"),
+    # A link the app could not open: its address, to open by hand.
+    "link": ("↗", "primary"),
 }
 START_DIVIDER = "start"
 UI_ERROR = "The display skipped an event it could not read; details in the run log"
@@ -604,3 +613,41 @@ LAST_WAVE_TAG = "LAST WAVE"
 STOPPING = "Stopping…"
 RUN_COMPLETE = "RUN COMPLETE"
 DONE_REPORT = "Report"
+
+# The section headers (ui_design 4.2).
+GOAL = "GOAL"
+TIME_AND_SPEND = "TIME & SPEND"
+RUN_TIMELINE = "RUN TIMELINE"
+RESULTS = "RESULTS"
+EXPERIMENTS = "EXPERIMENTS"
+LOG = "LOG"
+
+# The links and the keys (functional spec 7.8, ui_design 10).
+COMPARE_LINK = "Compare in Kiln UI"
+LINEAGE_LINK = "Lineage in Kiln UI"
+REPORT_LINK = "Report"
+STOP_KEY = "Stop"
+CLOSE_KEY = "Close"
+
+# The run timeline's legend, in its order (ui_design 7.3).
+LEGEND_PLAN = "plan"
+LEGEND_SCREEN = "screen"
+LEGEND_EXPERIMENTS = "experiments"
+LEGEND_PROMOTION = "promotion"
+LEGEND_NO_WINNER = "gate, no winner"
+LEGEND_PROJECTED = "projected"
+SETUP_LABEL = "setup"
+REPORT_LABEL = "report"
+
+
+def wave_mark(wave: int) -> str:
+    """A wave's label on the timeline: "w4"."""
+    return f"w{wave}"
+
+
+def stopping_header(live: int) -> Line:
+    """The Experiments header while the run stops (ui_design section 9)."""
+    line: Line = (SPIN, Span(" "), Span(STOPPING, "error"))
+    if live:
+        line += (Span(f" · {stopping_detail(live)}", "muted"),)
+    return line

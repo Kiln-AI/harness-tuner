@@ -200,7 +200,10 @@ class WaveModel:
     items: list[ItemModel]
 
 
-StepStatus = Literal["ok", "fail", "warn", "busy", "skip"]
+# A step line's status on the run screen: the start-up's three
+# (`onboarding.terminal.StepStatus`), plus a check still running and one
+# skipped.
+CheckStatus = Literal["ok", "fail", "warn", "busy", "skip"]
 PlanKind = Literal["plan", "replan", "rescreen", "screen", "probes"]
 
 
@@ -224,7 +227,7 @@ class PlanStep:
 class StartStep:
     """One line of the Starting checklist, kept in first-seen order."""
 
-    status: StepStatus
+    status: CheckStatus
     label: str
     text: str
     since: float | None = None  # a busy line's start: its text adds the elapsed
@@ -344,7 +347,7 @@ class ResultsView:
 
 @dataclass(frozen=True)
 class StepLine:
-    status: StepStatus
+    status: CheckStatus
     label: str
     text: str
 

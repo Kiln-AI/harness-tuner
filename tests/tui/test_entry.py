@@ -9,12 +9,14 @@ import threading
 import time
 from pathlib import Path
 
+import httpx
 import pytest
 from app_fakes import HeadlessTakeover, prompted, until
 from model_events import Run, fix, row, table, val_row
 from rich.console import Console
 
 from kiln_harness_tuner import cli
+from kiln_harness_tuner.kiln import KilnAPIError, KilnClient
 from kiln_harness_tuner.logbook import configure_run_logging, log_path
 from kiln_harness_tuner.onboarding import (
     OnboardingError,
@@ -25,8 +27,9 @@ from kiln_harness_tuner.onboarding.error_screen import RunProgress
 from kiln_harness_tuner.onboarding.flow import START, START_QUESTION
 from kiln_harness_tuner.onboarding.terminal import EXIT_ACTION
 from kiln_harness_tuner.status import RunStatusTracker
+from kiln_harness_tuner.tui import entry
 from kiln_harness_tuner.tui.bridge import AppTerminal, CancellableRunner
-from kiln_harness_tuner.tui.entry import _AppRun, run_app
+from kiln_harness_tuner.tui.entry import _AppRun, run_app, run_config_rows, run_model
 from kiln_harness_tuner.tui.handles import RunHandle
 from kiln_harness_tuner.tui.screens.stop import StopDialog
 from kiln_harness_tuner.tui.sink import TuiSink
@@ -46,6 +49,16 @@ REPORT = StartReport(
     summary=SUMMARY,
     rerun=RERUN,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_kiln(monkeypatch):
+    """The app looks the run config names up in Kiln; here Kiln knows none."""
+
+    async def no_names(_info):
+        return []
+
+    monkeypatch.setattr(entry, "run_config_rows", no_names)
 
 
 class FakeStart:
@@ -570,3 +583,49 @@ def test_with_no_progress_the_plain_run_follows_the_start_part(
     # Today's plain path: its own display, on the main thread.
     assert loop.display is None
     assert loop.thread is threading.main_thread()
+
+
+# ---- the run config names ----
+
+
+def kiln_answering(body, requests: list):
+    """A `KilnClient` maker over a mock transport that answers `body`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if body is None:
+            return httpx.Response(500)
+        return httpx.Response(200, json=body)
+
+    def connect(host: str) -> KilnClient:
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return KilnClient(host, client=client, retry_backoff_secs=(0.0,))
+
+    return connect
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        [{"id": "rc_1", "name": "Hold fields"}, "junk"],
+        {"run_configs": [{"id": "rc_1", "name": "Hold fields"}]},
+    ],
+)
+def test_run_config_rows_reads_the_task_run_configs(body):
+    requests: list[httpx.Request] = []
+    info = run_model(cli.build_parser().parse_args(ARGS), REPORT).info
+    rows = asyncio.run(run_config_rows(info, connect=kiln_answering(body, requests)))
+    assert rows == [{"id": "rc_1", "name": "Hold fields"}]
+    (request,) = requests
+    assert request.method == "GET"
+    assert (
+        request.url.path == "/api/projects/424242975950/tasks/424242783061/run_configs"
+    )
+
+
+def test_run_config_rows_does_not_retry_a_failed_read():
+    requests: list[httpx.Request] = []
+    info = run_model(cli.build_parser().parse_args(ARGS), REPORT).info
+    with pytest.raises(KilnAPIError):
+        asyncio.run(run_config_rows(info, connect=kiln_answering(None, requests)))
+    assert len(requests) == 1

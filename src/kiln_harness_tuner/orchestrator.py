@@ -11,8 +11,7 @@ promotion gate, the tripwire backoff, report writing — `wave_start`,
 items.py, `promotion`, `rejection_recorded`, `memory_write_failed` from
 either swallowed-write path (the gate's rejection writeback and
 the promotion's `val` stats write — `write` says which),
-`tripwire`, `wave_end` once a wave's block is final (the live UI's
-scrollback-flush trigger), `exit`) that
+`tripwire`, `wave_end` once a wave's block is final, `exit`) that
 wave_log.py records, status.py folds into `RunStatus`, and ui.py renders.
 `Ctx.write_report` is report.py's hook — when unset, `orchestrate` returns the
 exit reason (test wiring).
@@ -1399,8 +1398,7 @@ async def _maybe_promote(
     candidates = allowed
     if not candidates:
         # No gate — the wave's block (items + tripwire banner) is already
-        # final: `wave_end` lets the live UI freeze it into scrollback now
-        # (chronological terminal history).
+        # final: `wave_end` says so now.
         ctx.log.event("wave_end", wave=wave)
         return None
     if ctx.deadline is not None and ctx.clock() >= ctx.deadline:

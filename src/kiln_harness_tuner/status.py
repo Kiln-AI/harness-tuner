@@ -3,7 +3,7 @@
 
 The tracker is an `EventLog` consumer: the loop keeps emitting events, and the
 tracker folds them into one `RunStatus`. Everything
-downstream is a view of it — the live UI renders snapshots, and the end-of-run
+downstream is a view of it — the plain display reads snapshots, and the end-of-run
 report gets the full structured history via `ReportInput` (report.py).
 
 Also home of the run-id scheme (the run's start timestamp,
@@ -259,8 +259,8 @@ class RunStatusTracker:
         # it — the ItemStatus.phase_secs fold.
         self._item_state_started: dict[str, tuple[str, float]] = {}
         self._phase_started: float | None = None  # phase_start clock reading
-        # rich.live's refresh thread snapshots between events (ui.py's
-        # __rich__ adapter) — folds and copies must not interleave.
+        # A reader on another thread may snapshot between events — folds
+        # and copies must not interleave.
         self._lock = threading.Lock()
 
     # ---- EventLog surface ----

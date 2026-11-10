@@ -113,15 +113,132 @@ Input {
     &.-invalid:focus { border: round $error; }
 }
 
-/* ---- Run screen ---- */
+/* ---- Run screen (6, 7) ---- */
 
-#run-title, #run-mode, #run-log {
-    height: auto;
-    padding: 0 1;
+/* 4.2 Section header: no border, one blank line between sections */
+SectionHeader {
+    height: 1;
+    & > .header-title { width: auto; }
+    & > .header-context { width: 1fr; margin-left: 3; text-wrap: nowrap; text-overflow: ellipsis; }
+    & > .header-meta { width: auto; margin-left: 2; }
 }
-#run-title { margin-top: 1; }
-#run-mode { margin-top: 1; text-style: bold; }
-#run-log { margin-top: 1; }
+.section {
+    height: auto;
+    margin-top: 1;
+}
+
+CardGrid {
+    height: auto;
+    grid-size: 3;
+    grid-rows: auto;
+    grid-gutter: 1 1;
+}
+
+/* 4.5 Gauge, and every ProgressBar */
+ProgressBar {
+    width: 1fr;
+    & > Bar { width: 1fr; }
+    & > Bar > .bar--bar { color: $primary; background: $border-muted; }
+    & > Bar > .bar--complete { color: $primary; background: $border-muted; }
+}
+RunScreen.-done ProgressBar > Bar > .bar--bar { color: $foreground; }
+RunScreen.-done ProgressBar > Bar > .bar--complete { color: $foreground; }
+.gauge {
+    height: 1;
+    & > .gauge-label { width: 6; color: $text-muted; }
+    & > .gauge-value { width: 8; text-align: right; text-style: bold; }
+    & > ProgressBar { margin: 0 2; }
+    & > .gauge-limit { width: 9; text-align: right; color: $text-muted; }
+}
+.gauge-note {
+    padding-left: 16;
+    color: $text-muted;
+}
+
+/* The layout (6) */
+/* The scrollbars keep their column when they are not shown: else a
+   scrollbar that comes or goes changes the width under it, and the log
+   writes all its lines again (ui_design 13). */
+#body {
+    padding: 0 1;
+    scrollbar-size-vertical: 1;
+    scrollbar-gutter: stable;
+}
+#top {
+    height: auto;
+    margin-top: 1;
+    & > #goal { width: 1fr; min-width: 62; margin-top: 0; }
+    & > #spend { width: 2fr; margin: 0 0 0 4; }
+}
+#bottom {
+    margin-top: 1;
+    height: auto;
+    layout: vertical;
+}
+#log-lines {
+    background: transparent;
+    overflow-x: hidden;
+    padding: 0;
+    scrollbar-size-vertical: 1;
+    scrollbar-gutter: stable;
+    &:focus { background-tint: transparent; }
+}
+
+/* At 150 columns and up: Experiments 68%, the Log the rest, full height.
+   Below: stacked, the Log 12 rows high. */
+RunScreen.-wide #bottom {
+    layout: horizontal;
+    height: 1fr;
+    & > #experiments { width: 68%; height: auto; margin-top: 0; }
+    & > #log { width: 1fr; height: 100%; margin: 0 0 0 2; }
+    & #log-lines { height: 1fr; }
+}
+RunScreen.-narrow #bottom {
+    & > #experiments { margin-top: 0; }
+    & #log-lines { height: 12; }
+}
+
+/* Below 150 columns the Goal (62 columns of text) can't take a third of
+   the width, so Goal and Time & spend stack too. */
+RunScreen.-narrow #top {
+    layout: vertical;
+    & > #spend { width: 1fr; margin: 1 0 0 0; }
+}
+
+/* 7.4 Results */
+#results-key { margin-bottom: 0; }
+TierBars { width: 1fr; }
+
+/* 7.5 Experiments */
+.experiment-card {
+    & > .card-line { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    & > .line4 { height: 1; }
+    & > .line4 > .line4-label {
+        width: auto;
+        margin-left: 1;
+        text-wrap: nowrap;
+        text-overflow: ellipsis;
+    }
+    & > .line4.-note > .line4-label { width: 1fr; margin-left: 0; }
+}
+.step-lines {
+    height: auto;
+    margin-bottom: 1;
+    & > .step-line { height: auto; }
+}
+.subhead {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+.wave-note {
+    color: $text-muted;
+    margin-top: 1;
+}
+#run-complete {
+    width: 1fr;
+    & > .run-complete-body { height: auto; }
+}
+.goal-rows { height: auto; }
 
 /* ---- 4.11 Stop dialog ---- */
 

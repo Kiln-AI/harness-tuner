@@ -406,13 +406,13 @@ async def test_the_check_is_off_unless_asked(tmp_path):
     assert "detectability" not in [k for k, _f in ctx.log.events]
 
 
-def test_the_check_lines_print_in_both_displays():
+def test_the_check_lines_print_in_the_plain_display():
     from io import StringIO
 
     from rich.console import Console
 
     from kiln_harness_tuner.status import RunStatusTracker
-    from kiln_harness_tuner.ui import LiveUi, PlainUi
+    from kiln_harness_tuner.ui import PlainUi
 
     kinds = (
         "detectability",
@@ -423,15 +423,14 @@ def test_the_check_lines_print_in_both_displays():
         "noise_row",
         "noise_warning",
     )
-    for ui_class in (PlainUi, LiveUi):
-        out = StringIO()
-        tracker = RunStatusTracker(project_id="p", task_id="t", guidance="")
-        ui = ui_class(tracker, console=Console(file=out, width=200))
-        for kind in kinds:
-            ui.event(kind, line=f"{kind} line")
-        text = out.getvalue()
-        for kind in kinds:
-            assert f"{kind} line" in text, (ui_class, kind)
+    out = StringIO()
+    tracker = RunStatusTracker(project_id="p", task_id="t", guidance="")
+    ui = PlainUi(tracker, console=Console(file=out, width=200))
+    for kind in kinds:
+        ui.event(kind, line=f"{kind} line")
+    text = out.getvalue()
+    for kind in kinds:
+        assert f"{kind} line" in text, kind
 
 
 def test_the_tracker_keeps_both_results_for_the_report():

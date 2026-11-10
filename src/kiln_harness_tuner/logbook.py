@@ -12,8 +12,8 @@ Design notes:
 - **Root logger, file handler.** Attaching at the root is what makes third-party
   warnings (httpx, asyncio, pydantic) land in the file too — the point is to
   catch what we did NOT think to log.
-- **Nothing is added to stderr.** The live UI owns the terminal; a second
-  handler writing there would tear through `rich.live`'s frame. The file is the
+- **Nothing is added to stderr.** The display owns the terminal; a second
+  handler writing there would tear through the app's screen. The file is the
   only sink this module installs.
 - **Idempotent.** `configure_run_logging` removes a handler it installed before
   re-installing, so a second call in one process (tests, a future in-process

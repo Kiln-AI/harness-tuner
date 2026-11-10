@@ -21,14 +21,16 @@ import signal
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from queue import SimpleQueue
 from types import FrameType
+from typing import Any
 
 from rich.console import Console
 
 from kiln_harness_tuner import cli
 from kiln_harness_tuner.dispatch.agent_cli import parse_agent_cli
+from kiln_harness_tuner.kiln import KilnClient
 from kiln_harness_tuner.logbook import log_path, run_log_configured
 from kiln_harness_tuner.onboarding import (
     OnboardingError,
@@ -55,6 +57,9 @@ from kiln_harness_tuner.ui import PlainUi
 
 logger = logging.getLogger("kiln_harness_tuner.tui")
 
+# The name lookup is a nicety: it waits this long, once, with no retries.
+NAMES_TIMEOUT_SECS = 15.0
+
 
 class DisplayClosed(RuntimeError):
     """The app closed with no stop, no end and no error of its own: its
@@ -75,6 +80,25 @@ def run_app(
     last line and the exit code."""
     taken = takeover if takeover is not None else TerminalTakeover()
     return finish(lambda: _AppRun(args, raw_argv, parser, mode, taken).body())
+
+
+async def run_config_rows(
+    info: RunInfo, *, connect: Callable[[str], KilnClient] = KilnClient
+) -> list[Mapping[str, Any]]:
+    """The task's run configs, as Kiln lists them: the route the loop reads
+    too (`probes.task_run_configs`). Its own client, on the app's loop."""
+    async with connect(info.kiln_host) as kiln:
+        response = await kiln.call(
+            "GET",
+            f"/api/projects/{info.project_id}/tasks/{info.task_id}/run_configs",
+            timeout_secs=NAMES_TIMEOUT_SECS,
+            retries=False,
+        )
+    if isinstance(response, Mapping):
+        response = response.get("run_configs")
+    if not isinstance(response, list):
+        return []
+    return [row for row in response if isinstance(row, Mapping)]
 
 
 def run_model(args: argparse.Namespace, report: StartReport | None) -> RunModel:
@@ -183,6 +207,7 @@ class _AppRun:
             make_model=lambda: run_model(self.start.result(), self.closing.start),
             progress=lambda: cli._RUN_PROGRESS,
             uninterruptible=lambda: self.terminal.copying_demo,
+            lookup_names=run_config_rows,
         )
         app = TunerApp(
             session,

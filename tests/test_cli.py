@@ -634,7 +634,7 @@ def test_main_runs_orchestrate_with_wired_args(capsys, monkeypatch, state_dir):
     assert isinstance(ctx.write_report, ReportWriter)
     assert ctx.write_report.report_path.parent == state_dir / "reports"
     # The wave log landed under <state>/runs/<run_id>/, and the start line,
-    # printed before the live display, named the folder.
+    # printed before the display, named the folder.
     run_dir = _run_dir(state_dir)
     assert (run_dir / "wave_log.jsonl").exists()
     assert out.startswith(f"harness-tuner: run {run_dir.name} — files in {run_dir}/\n")
@@ -681,36 +681,30 @@ def test_a_session_end_forwards_the_gateway_memory_lines(monkeypatch, state_dir)
     assert written["forwarded_by"] == "batch_plan-w1"
 
 
-@pytest.mark.parametrize(
-    ("flags", "display"), [([], "live"), (["--no-progress"], "plain")]
-)
-def test_no_progress_gives_the_plain_display_on_a_terminal(
-    monkeypatch, tmp_path, flags, display
+@pytest.mark.parametrize("flags", [[], ["--no-progress"]])
+def test_a_run_with_no_display_given_shows_plain_lines_on_a_terminal(
+    monkeypatch, tmp_path, flags
 ):
+    # The app passes its own display; a run without one prints plain lines,
+    # on a terminal too, whatever `--no-progress` says.
     built = []
 
-    def recorded(name):
-        # Each records which display the run chose, and builds the plain
-        # one, so the test starts no live display thread.
-        def build(tracker, console):
-            built.append(name)
-            return PlainUi(tracker, console=console)
-
-        return build
+    def recorded(tracker, console):
+        built.append("plain")
+        return PlainUi(tracker, console=console)
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
         return "wrap_up"
 
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
-    monkeypatch.setattr(kiln_harness_tuner.cli, "LiveUi", recorded("live"))
-    monkeypatch.setattr(kiln_harness_tuner.cli, "PlainUi", recorded("plain"))
+    monkeypatch.setattr(kiln_harness_tuner.cli, "PlainUi", recorded)
     monkeypatch.setattr(
         kiln_harness_tuner.cli,
         "Console",
         lambda: Console(file=io.StringIO(), force_terminal=True),
     )
     assert main(ARGS + flags) == 0
-    assert built == [display]
+    assert built == ["plain"]
 
 
 @pytest.fixture
@@ -761,7 +755,6 @@ def test_the_run_shows_its_events_on_the_display_it_is_given(
         return "wrap_up"
 
     monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
-    monkeypatch.setattr(kiln_harness_tuner.cli, "LiveUi", neither)
     monkeypatch.setattr(kiln_harness_tuner.cli, "PlainUi", neither)
     args = build_parser().parse_args(ARGS)
     assert asyncio.run(_run_with_signals(args, display=display)) == "wrap_up"

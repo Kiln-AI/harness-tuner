@@ -356,6 +356,8 @@ async def test_ctrl_c_during_a_busy_check_cancels_its_kiln_read():
         await until(pilot, kiln.calling.is_set)
         await until(pilot, lambda: pilot.app.screen.query(BusyLine))
         busy = pilot.app.screen.query_one(BusyLine)
+        # The line is found a moment before it mounts and draws its first frame.
+        await until(pilot, lambda: rendered(busy) != "")
         assert rendered(busy)[2:] == "Checking Kiln at http://localhost:8757…"
         await pilot.press("ctrl+c")
         await until(pilot, lambda: harness.app.return_code is not None, timeout=5)
@@ -549,7 +551,10 @@ async def test_the_busy_line_shows_while_its_check_runs():
 
     async with asking_after(busy, checking) as pilot:
         await until(pilot, lambda: pilot.app.screen.query(BusyLine))
-        line = rendered(pilot.app.screen.query_one(BusyLine))
+        busy_line = pilot.app.screen.query_one(BusyLine)
+        # The line is found a moment before it mounts and draws its first frame.
+        await until(pilot, lambda: rendered(busy_line) != "")
+        line = rendered(busy_line)
         assert line[0] in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         assert line[1:] == " Checking the task is ready…"
         done.set()

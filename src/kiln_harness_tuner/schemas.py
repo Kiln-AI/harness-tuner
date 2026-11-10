@@ -1112,7 +1112,7 @@ class EvalBuildReport(BaseModel):
 class RcChange(BaseModel):
     """What an arm changed against its parent, for HUMANS.
     Provenance on the run config is the audit trail; this is the one-screen
-    explanation the live UI, the experiment memory and the report all show.
+    explanation the display, the experiment memory and the report all show.
     Written by the build agent per the kiln-harness-tuner-experiment-build
     skill; every field is plain text a reader can act on."""
 
@@ -2024,7 +2024,7 @@ class RunStatus(BaseModel):
     time_remaining_known: bool = False
     # The loop phase running OUTSIDE item work — "planning", "promotion_gate",
     # "tripwire_backoff", "reporting" — with its display label and a
-    # snapshot-computed elapsed, so the live UI always has something ticking.
+    # snapshot-computed elapsed, so a display always has something ticking.
     phase: str | None = None
     phase_detail: str = ""  # the `label` the phase_start event carried
     phase_elapsed_secs: float = 0.0
