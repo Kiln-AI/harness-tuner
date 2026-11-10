@@ -250,7 +250,7 @@ AGENT_KINDS = (
         "--model",
         "opus",
         "Enter keeps opus. An alias, such as sonnet, or a full model name, such as"
-        " claude-fable-5-2.",
+        " claude-opus-5-5.",
         efforts=CLAUDE_EFFORTS,
     ),
     AgentKind(
