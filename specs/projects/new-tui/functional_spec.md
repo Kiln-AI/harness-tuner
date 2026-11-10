@@ -341,7 +341,13 @@ Kiln web URLs, built from the Kiln host, the project id and the task id:
 | Compare | `{kiln_host}/specs/{project_id}/{task_id}/compare?models={rc_1},{rc_2},…&columns={n}&from=optimize` |
 | A run config | The run-config route the code already has (`onboarding/kiln_urls.py`) |
 
-Compare opens Start, Best Confirmed and each distinct Best Unconfirmed config, in that order, without repeats. The column limit and the meaning of `models` and `columns` are to be checked against the Kiln app's code during architecture.
+Compare opens Start, Best Confirmed and each distinct Best Unconfirmed config, in that order, without repeats. These are the Kiln app's own rules (`compare_run_configs_link` in `app/web_ui/src/lib/utils/link_builder.ts` of the Kiln repo):
+
+- `models` is a comma-separated list of run config ids, one per column;
+- `columns` is the number of entries, from 2 to 10, and the page ignores a value outside that range;
+- so the link always has at least 2 configs (Start and Best Confirmed are the same before the first promotion, which leaves one empty column), and it keeps the first 10.
+
+Lineage also takes `?selected=<id>` to open with one node selected. A card's id can link there.
 
 Report opens the report file when it exists. Before then, the key shows nothing.
 
