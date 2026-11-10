@@ -31,7 +31,6 @@ from kiln_harness_tuner.onboarding import demo
 from kiln_harness_tuner.onboarding.demo import IMPORT_PATH
 from kiln_harness_tuner.onboarding.errors import OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import START_QUESTION, prepare_start
-from kiln_harness_tuner.onboarding.questions import TIME_LIMIT_WARNING
 from kiln_harness_tuner.tui.bridge import CancellableRunner
 from kiln_harness_tuner.tui.screens.prompts import ActionMenu
 from kiln_harness_tuner.tui.widgets import BusyLine, TitleBar
@@ -170,9 +169,7 @@ async def test_with_no_interaction_the_start_shows_its_steps_and_asks_nothing():
         await until(pilot, lambda: pilot.app.screen.query(".-summary"))
         # A spinner whose check was quick can take a turn to go.
         await until(pilot, lambda: not pilot.app.screen.query(BusyLine))
-        # The time limit is approximate: a `!` line says so before the
-        # summary, also when nothing is asked.
-        assert lines(pilot.app) == [*PASSED, f"! {TIME_LIMIT_WARNING}"]
+        assert lines(pilot.app) == PASSED
         assert pilot.app.screen.query_one(".-summary").border_title
         assert not pilot.app.screen.query(ActionMenu)
         start.hold.set()

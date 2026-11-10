@@ -56,21 +56,8 @@ DURATION_ERROR = "Enter a time like 90m or 12h"
 # runs before the first wave and takes a few minutes. A shorter limit passes
 # during setup, and the run gets only the wrap-up wave.
 MIN_TIME_LIMIT_MINS = 10
-# What the time limit does, in the words the refusal and the hint share.
-TIME_LIMIT_RULE = (
-    "No new wave starts after this. The wave in flight finishes, then a last"
-    " wrap-up wave, so the run can end later than this"
-)
-# The start-up's warning once a time limit is set: the limit stops new waves,
-# not the wave in flight, so a run ends later than it.
-TIME_LIMIT_WARNING = (
-    "The time limit is approximate. No new wave starts after it, but the wave"
-    " in flight finishes and a last wrap-up wave follows, so the run can end"
-    " later than the limit, by the length of one or two waves."
-)
 TIME_LIMIT_ERROR = (
-    f"Enter at least {MIN_TIME_LIMIT_MINS} minutes: setup alone takes a few."
-    f" {TIME_LIMIT_RULE}"
+    f"Enter at least {MIN_TIME_LIMIT_MINS} minutes: setup alone takes a few"
 )
 FRACTION_ERROR = "Enter a fraction above 0 and at most 1, like 0.1 for 10%"
 COUNT_ERROR = "Enter a whole number, 0 or more"
@@ -183,7 +170,7 @@ def duration_text(minutes: int) -> str:
 
 def limits_time_text(minutes: int) -> str:
     """The time limit on the summary's Limits line: `about 12 hours`. The
-    limit is approximate (`TIME_LIMIT_WARNING`)."""
+    limit is approximate (`TIME_HINT`)."""
     return f"about {duration_text(minutes)}"
 
 
@@ -659,7 +646,12 @@ def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Budget", budget_text(answers.budget_usd))
 
 
-TIME_HINT = f"At least {MIN_TIME_LIMIT_MINS}m. {TIME_LIMIT_RULE}."
+# The limit is approximate: no new wave starts after it, the wave in flight
+# finishes, then a wrap-up wave runs (`orchestrator._run_loop`).
+TIME_HINT = (
+    f"At least {MIN_TIME_LIMIT_MINS}m. The limit is approximate: as the run"
+    " nears it, the tuner starts to wrap up, so the run can end a little later."
+)
 
 
 def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
@@ -672,7 +664,6 @@ def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     )
     answers.timeout_mins = parse_duration(answer)
     ctx.terminal.step("ok", "Time", duration_text(answers.timeout_mins))
-    ctx.terminal.warn(TIME_LIMIT_WARNING)
 
 
 def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:

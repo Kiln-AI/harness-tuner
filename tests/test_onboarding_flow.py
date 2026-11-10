@@ -49,7 +49,7 @@ from kiln_harness_tuner.onboarding.flow import (
     StartReport,
     prepare_start,
 )
-from kiln_harness_tuner.onboarding.questions import TIME_LIMIT_WARNING
+from kiln_harness_tuner.onboarding.questions import TIME_HINT
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING
 
 SUPPORT = project("118230554411", "Support Triage", "/kiln-projects/Support Triage")
@@ -229,7 +229,6 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "step Budget: $20.00",
         "text Time limit (1h, 24h, 45m)",
         "step Time: 90 minutes",
-        f"warn {TIME_LIMIT_WARNING}",
         f"act {ADVANCED_PROMPT}",
         "step Advanced: defaults",
         "say Ready to start",
@@ -394,13 +393,17 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
 # ---- the time limit is approximate ----
 
 
-def test_the_time_answer_is_followed_by_the_approximate_warning():
+def test_the_time_question_says_the_limit_is_approximate_with_no_warning():
     # Every core flag but the time limit: the time is the one question.
     no_time = [a for a in CORE_ANSWERED if a not in ("--timeout-mins", "720")]
     terminal = ScriptedTerminal(["45m", *KEEP_AND_START])
     start(two_projects(), terminal, [*EVERY_FLAG, *no_time])
+    assert terminal.asked_about("Time limit (1h, 24h, 45m)").hint == TIME_HINT
+    assert "approximate" in TIME_HINT
+    # No warning line follows the answer: nothing went wrong.
     time_step = terminal.transcript.index("step Time: 45 minutes")
-    assert terminal.transcript[time_step + 1] == f"warn {TIME_LIMIT_WARNING}"
+    assert not terminal.transcript[time_step + 1].startswith("warn ")
+    assert terminal.err == []
     assert summaries(terminal)[-1].splitlines()[-2] == (
         "  Limits       $50.00 on the task's model calls · about 45 minutes"
     )
@@ -408,27 +411,12 @@ def test_the_time_answer_is_followed_by_the_approximate_warning():
     assert "--timeout-mins 45" in rerun_commands(terminal)[-1]
 
 
-def test_a_time_limit_given_by_flag_still_gets_the_warning_once():
-    terminal = ScriptedTerminal()
-    start_answered(two_projects(), terminal, EVERY_FLAG)
-    assert terminal.err == [TIME_LIMIT_WARNING]
-    assert "text Time limit (1h, 24h, 45m)" not in terminal.transcript
-
-
-def test_not_guided_the_start_says_the_time_limit_is_approximate():
+def test_a_start_that_is_not_guided_has_no_time_warning():
     terminal = ScriptedTerminal(interactive=False)
     start(two_projects(), terminal, [*EVERY_FLAG, "--timeout-mins", "45"])
-    assert terminal.err == [TIME_LIMIT_WARNING]
+    assert terminal.err == []
     (summary,) = summaries(terminal)
     assert "· about 45 minutes" in summary
-
-
-def test_the_warning_says_what_the_limit_really_means():
-    assert TIME_LIMIT_WARNING == (
-        "The time limit is approximate. No new wave starts after it, but the wave"
-        " in flight finishes and a last wrap-up wave follows, so the run can end"
-        " later than the limit, by the length of one or two waves."
-    )
 
 
 # ---- Esc at the start prompt and while changing an answer ----
@@ -788,7 +776,7 @@ def test_not_guided_an_eval_kiln_cant_load_warns_on_stderr_and_the_start_goes_on
     terminal = ScriptedTerminal(interactive=False)
     args = start(with_tone_answering(tone_answers(400)), terminal, EVERY_FLAG)
     assert args.task_id == TASK_ID
-    assert terminal.err == [TONE_WARNING, TIME_LIMIT_WARNING]
+    assert terminal.err == [TONE_WARNING]
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
@@ -1145,7 +1133,7 @@ def test_demo_project_when_not_guided_asks_nothing_and_takes_the_default_guidanc
     args = start(demo_kiln(), terminal, ["--demo-project"], home=tmp_path)
     assert args.task_id == TASK_ID
     assert args.guidance == ""
-    assert terminal.asked == [] and terminal.err == [TIME_LIMIT_WARNING]
+    assert terminal.asked == [] and terminal.err == []
 
 
 def test_no_projects_m_makes_the_demo_and_runs_on_it(tmp_path):

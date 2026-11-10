@@ -175,9 +175,7 @@ def test_a_timeout_under_10_minutes_exits_2(given, capsys):
     assert exited.value.code == 2
     assert capsys.readouterr().err.splitlines()[-1] == (
         f"harness-tuner: error: argument --timeout-mins: {given!r}:"
-        " Enter at least 10 minutes: setup alone takes a few. No new wave"
-        " starts after this. The wave in flight finishes, then a last wrap-up"
-        " wave, so the run can end later than this"
+        " Enter at least 10 minutes: setup alone takes a few"
     )
 
 
