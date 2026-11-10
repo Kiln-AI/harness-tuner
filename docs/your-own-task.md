@@ -684,9 +684,9 @@ their own time caps.
 
 ### Every flag
 
-[cli.md](cli.md) lists every flag of `harness-tuner`, with its default. It
-also has the objectives (`--objective`) and the model policy file
-(`--model-policy`).
+[cli.md](cli.md) lists every flag of `harness-tuner`, with its default.
+[objectives.md](objectives.md) has the objectives (`--objective`) and the
+model policy file (`--model-policy`).
 
 ## 6. Reading the result
 

@@ -18,6 +18,9 @@ the parser of each public command is read here and compared with the page:
 - **A flag row lives nowhere else.** Not between the command sections of
   `docs/cli.md`, and not in another document under `docs/` or in
   `README.md`: a second table is a second description, which will disagree.
+- **`docs/objectives.md` matches the code too.** Its objectives table has one
+  row for each `--objective` choice, and its example policy is
+  `examples/model-policy.json`.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ from kiln_harness_tuner.onboarding.questions import number_text
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI_DOC = REPO_ROOT / "docs" / "cli.md"
+OBJECTIVES_DOC = REPO_ROOT / "docs" / "objectives.md"
 EXAMPLE_POLICY = REPO_ROOT / "examples" / "model-policy.json"
 MAIN_COMMAND = "harness-tuner"
 
@@ -54,6 +58,10 @@ PUBLIC_COMMANDS = {
 FLAG_ROW_RE = re.compile(r"^\|\s*`(--[A-Za-z0-9][A-Za-z0-9_.-]*)`\s*\|")
 FLAG_SPELLING_RE = re.compile(r"^--[A-Za-z0-9][A-Za-z0-9_.-]*$")
 COMMAND_HEADING_RE = re.compile(r"^## `([^`]+)`\s*$")
+# A row of the objectives table: the objective in backticks, and `(default)`
+# after the default one.
+OBJECTIVE_ROW_RE = re.compile(r"^\|\s*`([a-z_]+)`(\s*\(default\))?\s*\|")
+OBJECTIVES_HEADING = "What to optimize: `--objective`"
 CELL_BORDER_RE = re.compile(r"(?<!\\)\|")
 FENCE = "```"
 
@@ -147,10 +155,10 @@ def command_headings() -> list[str]:
     ]
 
 
-def section_text(command: str) -> str:
-    """The lines of `docs/cli.md` under `command`'s heading."""
-    lines = CLI_DOC.read_text(encoding="utf-8").splitlines()
-    start = lines.index(f"## `{command}`") + 1
+def section_text(path: Path, heading: str) -> str:
+    """The lines of `path` under the level-2 `heading`, up to the next one."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = lines.index(f"## {heading}") + 1
     end = next(
         (i for i in range(start, len(lines)) if lines[i].startswith("## ")),
         len(lines),
@@ -248,17 +256,18 @@ def test_no_flag_row_outside_a_command_section():
 def test_the_removed_flags_are_named():
     """An old command line stops with a message. The reference names each
     removed flag, so a reader who searches for one finds what replaced it."""
-    text = section_text(MAIN_COMMAND)
+    text = section_text(CLI_DOC, f"`{MAIN_COMMAND}`")
     unnamed = sorted(flag for flag in REMOVED_FLAGS if f"`{flag}`" not in text)
     assert not unnamed, f"removed flags docs/cli.md does not name: {unnamed}"
 
 
 def test_the_example_policy_is_the_example_file():
-    """The page shows `examples/model-policy.json` whole. Both are JSON, so
-    they are compared as JSON: a reflowed line is not a difference."""
+    """`docs/objectives.md` shows `examples/model-policy.json` whole. Both are
+    JSON, so they are compared as JSON: a reflowed line is not a
+    difference."""
     example = json.loads(EXAMPLE_POLICY.read_text(encoding="utf-8"))
     blocks = re.findall(
-        r"^```\n(.*?)^```$", CLI_DOC.read_text(encoding="utf-8"), re.M | re.S
+        r"^```\n(.*?)^```$", OBJECTIVES_DOC.read_text(encoding="utf-8"), re.M | re.S
     )
     shown = []
     for block in blocks:
@@ -267,8 +276,26 @@ def test_the_example_policy_is_the_example_file():
         except ValueError:
             continue
     assert example in shown, (
-        "docs/cli.md does not show examples/model-policy.json as it is."
+        "docs/objectives.md does not show examples/model-policy.json as it is."
         " Copy the file into the page's example policy block."
+    )
+
+
+def test_the_objectives_table_has_every_objective():
+    """`docs/objectives.md` has one row for each `--objective` choice, and
+    marks the parser's default `(default)`."""
+    action = long_options(cli.build_parser())["--objective"]
+    rows = [
+        (row.group(1), row.group(2) is not None)
+        for line in section_text(OBJECTIVES_DOC, OBJECTIVES_HEADING).splitlines()
+        if (row := OBJECTIVE_ROW_RE.match(line))
+    ]
+    assert sorted(name for name, _ in rows) == sorted(action.choices), (
+        f"the objectives table in docs/objectives.md has rows {rows}, and"
+        f" --objective takes {list(action.choices)}: one row for each."
+    )
+    assert [name for name, marked in rows if marked] == [action.default], (
+        f"the objectives table must mark only `{action.default}` (default)"
     )
 
 

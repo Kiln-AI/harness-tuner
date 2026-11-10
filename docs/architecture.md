@@ -1193,7 +1193,8 @@ module derives a path from outside the package),
 pre-flight error carries a fix line, and the site count is stated so the guard
 cannot narrow in silence), `test_docs.py`, and `test_cli_reference.py` (every
 console script is named in `docs/cli.md`, and every flag of `harness-tuner`
-and `harness-tuner-install-agents` is there, with its default).
+and `harness-tuner-install-agents` is there, with its default;
+`docs/objectives.md` has every objective and the example policy).
 
 **The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
 runs in CI, not under pytest, because the suite runs from the checkout and
