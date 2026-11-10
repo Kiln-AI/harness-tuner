@@ -123,16 +123,13 @@ class TestReadingTheOutput:
         # The last step's text, not the first step's.
         assert cli.result_text == "the answer"
         assert cli.error is None
-        # A plan that prices nothing: the tokens are unmeasured.
         assert cli.usage.tokens == 11_000
-        assert cli.usage.unmeasured_tokens == 11_000
         assert cli.usage.cost_usd == 0
 
     def test_a_priced_session_books_its_cost(self):
         cli = read_opencode_output(opencode_events("x", cost=0.02))
         assert cli is not None
         assert cli.usage.cost_usd == pytest.approx(0.04)
-        assert cli.usage.unmeasured_tokens == 0
 
     def test_an_error_event_is_the_sessions_error(self):
         cli = read_opencode_output(opencode_events(None, error="Insufficient balance"))
@@ -160,6 +157,13 @@ class TestTheCommand:
         assert argv[argv.index("--format") + 1] == "json"
         assert argv[argv.index("--variant") + 1] == "high"
         assert argv[argv.index("-m") + 1] == "zai-coding-plan/glm-5.3-flash"
+
+    def test_the_workspace_is_named_with_dir(self, tmp_path):
+        # Without it OpenCode takes its project folder from PWD, and finds no
+        # skills when that is the folder the tuner was started in.
+        dispatcher, _ = make(tmp_path, [])
+        argv = dispatcher._argv("batch_plan", label="b")
+        assert argv[argv.index("--dir") + 1] == str(dispatcher._cwd("b"))
 
     def test_no_model_option_by_default(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
@@ -341,7 +345,7 @@ class TestDispatching:
         )
         result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         assert result.status == "ok", result
-        assert result.usage.unmeasured_tokens == 11_000
+        assert result.usage.tokens == 11_000
         (call,) = runner.calls
         assert Path(call.cwd).parent == run_dir(tmp_path) / "scratch"
 

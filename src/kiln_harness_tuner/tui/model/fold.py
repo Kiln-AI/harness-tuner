@@ -32,7 +32,7 @@ from kiln_harness_tuner.schemas import (
     ScreenResult,
     spend_lane_labels,
 )
-from kiln_harness_tuner.status import spend_split
+from kiln_harness_tuner.status import exit_detail, spend_split
 from kiln_harness_tuner.tui.model import (
     cards,
     details,
@@ -175,6 +175,7 @@ class RunModel:
         self.ends_wall: datetime | None = None
         self.budget: float | None = None
         self.exit_reason: str | None = None
+        self.exit_detail: str | None = None
         self.exit_at: float | None = None
         self.report_path: str | None = None
         self.run_ended = False
@@ -393,6 +394,7 @@ class RunModel:
             limit,
             words.duration(limit) if limit else "",
         )
+        # The task's model calls: the agents' tokens are on the lanes line.
         spent = status.spend_total_usd
         spend_gauge = GaugeView(
             words.SPEND_LABEL,
@@ -413,21 +415,19 @@ class RunModel:
     def _lanes(self, spent: float, elapsed: float) -> Line:
         status = self.tracker.status
         labels = spend_lane_labels(status.agent_cli)
-        agent, kiln, other = spend_split(status.spend_by_lane)
+        kiln, other = spend_split(status.spend_by_lane)
         parts: list[Line] = [
             (Span(f"{labels[PROVIDER_LANE]} ", "muted"), Span(words.money(kiln))),
         ]
-        agent_part: Line = (
-            Span(f"{labels[SUBSCRIPTION_LANE]} ", "muted"),
-            Span(words.money(agent)),
-        )
-        if status.unmeasured_tokens:
-            agent_part += (
-                Span(f" {words.unpriced(status.unmeasured_tokens)}", "muted"),
-            )
-        parts.append(agent_part)
         if other:
             parts.append((Span("other ", "muted"), Span(words.money(other))))
+        # The agents' tokens: a rough count, not money, not in the budget.
+        parts.append(
+            (
+                Span(f"{labels[SUBSCRIPTION_LANE]} ", "muted"),
+                Span(words.tokens(status.agent_tokens)),
+            )
+        )
         main_waves = any(w.wave >= 1 for w in self.waves)
         if main_waves and self.exit_reason is None and elapsed > 0:
             parts.append((Span(words.burn(spent / (elapsed / 3600))),))
@@ -1102,7 +1102,7 @@ class RunModel:
             self.log.append(log.verdict_line(s.wall, verdict, text))
         self._check_wave_landed(s.mono)
 
-    def _cut_off(self, s: Stamped, f: Mapping[str, Any], fatal: bool) -> None:
+    def _cut_off(self, s: Stamped, f: Mapping[str, Any]) -> None:
         ids = []
         for item_id in _texts(f.get("item_ids")):
             item = self.item(item_id)
@@ -1111,21 +1111,16 @@ class RunModel:
                 item.landed_at = s.mono
                 ids.append(item_id)
         if ids:
-            self._say(s, "stop", log.cut_off(ids, fatal))
+            self._say(s, "stop", log.cut_off(ids))
         self._check_wave_landed(s.mono)
 
-    def _on_deadline_cancel(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._cut_off(s, f, fatal=False)
-
     def _on_fatal_cancel(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._cut_off(s, f, fatal=True)
-
-    def _on_deadline_grace(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._say(s, "warn", log.grace(_texts(f.get("item_ids")), f.get("grace_secs")))
+        self._cut_off(s, f)
 
     def _on_spend(self, s: Stamped, f: Mapping[str, Any]) -> None:
         # The tracker folds the run's money; an item's own spend is kept on
         # the item, which outlives the tracker's last wave.
+        # Agent sessions send tokens, not dollars, so this is Kiln money.
         item = self.item(f.get("item_id"))
         cost = _number(f.get("cost_usd"))
         if item is not None and cost is not None:
@@ -1432,6 +1427,7 @@ class RunModel:
         if self.exit_reason is not None:
             return
         self.exit_reason = _text(f.get("reason")) or None
+        self.exit_detail = exit_detail(self.exit_reason, f.get("detail"))
         self.exit_at = s.mono
         self._set_mode("done", s.mono)
         for kind in list(self.open_segments):
@@ -1439,7 +1435,7 @@ class RunModel:
         for index, step in enumerate(self.start_steps):
             if step.status == "busy":
                 self.start_steps[index] = replace(step, status="fail", since=None)
-        self._say(s, "run", log.ended(self.exit_reason))
+        self._say(s, "run", log.ended(self.exit_reason, self.exit_detail))
 
     def _on_report_written(self, s: Stamped, f: Mapping[str, Any]) -> None:
         self.report_path = _text(f.get("path")) or None

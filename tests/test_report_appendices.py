@@ -82,7 +82,7 @@ def _item(outcome, live_state="done", kind="fix"):
 def test_every_stop_rule_and_outcome_status_has_a_plain_sentence():
     # Every stop kind the engine can set, and every outcome status, maps to
     # a sentence: none of them falls back to the raw code.
-    # `failed_infra` is read as `error`, or as `cut_off` at the deadline.
+    # `failed_infra` is read as `error`; an arm with no outcome as `cut_off`.
     codes = [*get_args(StopKind), "lever_not_applied", "error", "cut_off"]
     codes += [
         s
@@ -178,16 +178,6 @@ def _capped(line):
             ),
             "Stopped by an error: the numbers say nothing about the change"
             " (error: provider_error, 502).",
-        ),
-        (
-            _arm(
-                "failed_infra",
-                infra_error=ErrorInfo(
-                    error_class="timeout",
-                    detail="run deadline reached — item cancelled in flight",
-                ),
-            ),
-            "Cut off: the run ended before this candidate finished (cut_off).",
         ),
         (
             _arm("dead_end"),

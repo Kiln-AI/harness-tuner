@@ -20,6 +20,14 @@ def test_run_start_start_config_and_exit():
     assert (second.time, second.glyph, second.tone) == ("14:12", "·", "muted")
 
 
+def test_the_end_line_says_how_the_time_limit_ended_the_run():
+    run = Run().standard_start()
+    run.emit("exit", reason="timeout", detail="finished wave 3, then the wrap-up")
+    assert run.log()[-1] == (
+        "Tuning ended: Time limit reached (finished wave 3, then the wrap-up)"
+    )
+
+
 def test_a_run_with_no_budget_says_so():
     run = Run().standard_start(budget=None, timeout_mins=90)
     assert run.log()[0] == "Tuning started · quality · no budget · 1h30"

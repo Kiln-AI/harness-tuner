@@ -113,7 +113,6 @@ def _sum_usage(a: Usage, b: Usage) -> Usage:
         cost_usd=a.cost_usd + b.cost_usd,
         tokens=a.tokens + b.tokens,
         wall_secs=a.wall_secs + b.wall_secs,
-        unmeasured_tokens=a.unmeasured_tokens + b.unmeasured_tokens,
     )
 
 
@@ -343,8 +342,7 @@ async def _run_eval_build(
         item_id=item_id,
         source="eval_build",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=rep.usage.cost_usd,
-        unmeasured_tokens=rep.usage.unmeasured_tokens,
+        tokens=rep.usage.tokens,
     )
     return rep
 
@@ -574,8 +572,7 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
             item_id=item.id,
             source="probe",
             lane=SUBSCRIPTION_LANE,
-            cost_usd=rep.usage.cost_usd,
-            unmeasured_tokens=rep.usage.unmeasured_tokens,
+            tokens=rep.usage.tokens,
         )
         if rep.data is None:
             if rep.status != "failed_expected":
@@ -666,10 +663,7 @@ async def _is_model_swap(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
 
 
 def _set_state(ctx: Ctx, item_id: str, state: str) -> None:
-    """One `item_state` event plus the in-memory copy the wave runner reads
-    at the deadline (an ANALYZING item is granted a grace, the rest are
-    cancelled — orchestrator `_run_wave`)."""
-    ctx.item_states[item_id] = state
+    """One `item_state` event."""
     ctx.log.event("item_state", item_id=item_id, state=state)
 
 
@@ -773,7 +767,7 @@ async def _execute_plan_item(
     reused = getattr(item.work, "existing_rc_id", None)
     if reused:
         # The run config already exists (a prior run built and
-        # measured it and lost only the analysis to its deadline) — no build
+        # measured it and lost only the analysis when that run stopped) — no build
         # session, no build spend; the item measures and analyzes it.
         rc = AgentResult[RcBuildResult](
             status="ok",
@@ -909,8 +903,7 @@ async def _execute_plan_item(
         item_id=item.id,
         source="analyze_experiment_results",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=res.usage.cost_usd,
-        unmeasured_tokens=res.usage.unmeasured_tokens,
+        tokens=res.usage.tokens,
     )
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
@@ -1023,15 +1016,14 @@ async def _build_rc(
         item_id=item.id,
         source="create_experiment_rc",
         lane=SUBSCRIPTION_LANE,
-        cost_usd=rc.usage.cost_usd,
-        unmeasured_tokens=rc.usage.unmeasured_tokens,
+        tokens=rc.usage.tokens,
     )
-    # One (usd, secs) sample per build, by technique — the planner's
+    # One (tokens, secs) sample per build, by technique — the planner's
     # `lever_costs`. A merge is its own class.
     await snapshot_memory(ctx, f"{item.id}-{phase}-after")
     technique = getattr(item.work, "technique", None) or "merge"
     ctx.build_samples.setdefault(technique, []).append(
-        (rc.usage.cost_usd, ctx.clock() - build_started)
+        (rc.usage.tokens, ctx.clock() - build_started)
     )
     return rc
 
@@ -1266,7 +1258,7 @@ async def _review_build(
     check does not run.
 
     A `reused` run config (`existing_rc_id`) is checked too: a check cut by
-    a deadline can leave one unchecked. It is never rebuilt — reuse means
+    a stopped run can leave one unchecked. It is never rebuilt — reuse means
     "measure this exact run config", and a rebuild has none of the stored
     rows it was reused for — so a finding ends the item a dead end."""
     copies = await _check_copies(ctx, item, built.rc_id, baseline.rc_id)

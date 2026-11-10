@@ -198,11 +198,11 @@ def test_setup_line_summarizes_the_sync():
         "repaired": 3,
         "unmeasurable": 1,
         "unbound_unresolved": 7,
-        "cost_usd": 1.5,
+        "tokens": 1_500_000,
     }
     assert setup_line(fields) == (
         "setup: 25 of 28 evals active — 25 seeded, 3 repaired, 1 unmeasurable;"
-        " 7 issue(s) need a human (no eval binding)   $1.50"
+        " 7 issue(s) need a human (no eval binding)   ~1.5M tokens"
     )
 
 
@@ -465,6 +465,7 @@ def test_plain_ui_prints_one_line_per_event():
             item_id="w1-1",
             source="create_experiment_rc",
             lane="subscription_equivalent",
+            tokens=48_000,
         )
         emit(
             "dispatch_retry",
@@ -517,7 +518,7 @@ def test_plain_ui_prints_one_line_per_event():
     # Plain mode states the same totals at each wave boundary and
     # at exit — and nowhere else (no ticking).
     totals = (
-        "— total $1.50 (Claude Code $1.50 · API keys $0.00) · 41m23s elapsed"
+        "— total $0.00 (API keys $0.00 · Claude Code ~48k tokens) · 41m23s elapsed"
         " · 2h18m left"
     )
     assert f"wave 1 done {totals}" in lines[14]
@@ -526,6 +527,18 @@ def test_plain_ui_prints_one_line_per_event():
     assert "report: reports/kiln-harness-tuner-x.md" in lines[17]
     assert len(lines) == 18
     assert sum("total $" in line for line in lines) == 2
+
+
+def test_plain_exit_line_says_how_the_time_limit_ended_the_run():
+    status = run_status(elapsed_secs=226.0, time_remaining_known=True)
+    detail = "finished wave 3, then the wrap-up"
+    assert plain_exit_line({"reason": "timeout", "detail": detail}, status) == (
+        f"exit: timeout ({detail}) — total $14.20 · 3m46s elapsed · 1h42m left"
+    )
+    # Only a timeout's detail: a provider error has its own line.
+    assert plain_exit_line(
+        {"reason": "quota_exhausted", "detail": "429"}, status
+    ).startswith("exit: quota_exhausted — total")
 
 
 def test_plain_exit_line_is_the_plain_ui_exit_line():
@@ -568,19 +581,23 @@ def test_change_lines_render_summary_changes_unchanged_and_check():
     assert change_lines({"item_id": "w1-1"}) == []
 
 
-def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_unpriced_tokens():
+def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_its_tokens():
     status = run_status(
         spend_total_usd=0.12,
         spend_by_lane={"subscription_equivalent": 0.0, "provider": 0.12},
-        unmeasured_tokens=1_234_567,
+        agent_tokens=1_234_567,
         agent_cli="codex",
     )
     text = totals_text(status)
-    assert "Codex $0.00 + 1.2M tokens unpriced" in text
-    assert "API keys $0.12" in text and "Claude Code" not in text
+    assert text.startswith("$0.12 (API keys $0.12 · Codex ~1.2M tokens)")
+    assert "Claude Code" not in text
     opencode = run_status(
-        spend_total_usd=0.5,
-        spend_by_lane={"subscription_equivalent": 0.4, "provider": 0.1},
+        spend_total_usd=0.1,
+        spend_by_lane={"provider": 0.1},
+        agent_tokens=2_000,
         agent_cli="opencode",
     )
-    assert "OpenCode $0.40" in totals_text(opencode)
+    # The agents' cost is never in the total, nor shown in dollars.
+    assert totals_text(opencode).startswith(
+        "$0.10 (API keys $0.10 · OpenCode ~2k tokens)"
+    )

@@ -92,11 +92,27 @@ class Opened(Request):
     opened: bool
 
 
+@dataclass(frozen=True)
+class Mark(Request):
+    """A place in the transcript, named by `token`, for a later `Rewind`."""
+
+    token: int
+
+
+@dataclass(frozen=True)
+class Rewind(Request):
+    """Take away every part the transcript got after `Mark(token)`."""
+
+    token: int
+
+
 @dataclass(frozen=True, eq=False)
 class Prompt(Request, Generic[T]):
-    """A question. The start-up thread waits on `answer`."""
+    """A question. The start-up thread waits on `answer`. With `back`, Esc
+    fails it with `GoBack`."""
 
     answer: Future[T] = field(default_factory=Future, kw_only=True)
+    back: bool = field(default=False, kw_only=True)
 
     def resolve(self, value: T) -> None:
         """The person's answer. A prompt the app abandoned stays failed."""
@@ -173,6 +189,7 @@ class AppTerminal:
         self._stop: OnboardingStopped | None = None
         # The text of the busy check that runs now, or None.
         self.busy_text: str | None = None
+        self._marks = 0
 
     @property
     def copying_demo(self) -> bool:
@@ -248,17 +265,20 @@ class AppTerminal:
         *,
         hint: str | None = None,
         default: T | None = None,
+        back: bool = False,
     ) -> T:
         self._guided()
-        value: T = self._ask(Pick(question, tuple(options), hint, default))
+        value: T = self._ask(Pick(question, tuple(options), hint, default, back=back))
         return value
 
-    def act(self, question: str, actions: Sequence[Action]) -> Action:
+    def act(
+        self, question: str, actions: Sequence[Action], *, back: bool = False
+    ) -> Action:
         self._guided()
         assert all(action.key != ENTER for action in actions[1:]), (
             "Enter picks the first action"
         )
-        return self._ask(Act(question, tuple(actions)))
+        return self._ask(Act(question, tuple(actions), back=back))
 
     def text(
         self,
@@ -267,13 +287,25 @@ class AppTerminal:
         default: str = "",
         hint: str | None = None,
         validate: Callable[[str], str | None] | None = None,
+        back: bool = False,
     ) -> str:
         self._guided()
-        return self._ask(Text(question, default, hint, validate))
+        return self._ask(Text(question, default, hint, validate, back=back))
 
     def open_url(self, url: str) -> None:
         self._guided()
         self._put(Opened(url, self._opener(url)))
+
+    def mark(self) -> object:
+        """The requests go in order, so the screen records the place when
+        this one comes, after every part before it."""
+        self._marks += 1
+        self._put(Mark(self._marks))
+        return self._marks
+
+    def rewind(self, mark: object) -> None:
+        assert isinstance(mark, int), mark
+        self._put(Rewind(mark))
 
 
 # ---- the Kiln runner ----

@@ -262,7 +262,7 @@ def test_the_summary_names_the_task_the_baseline_and_every_answer():
         "  Improve      Quality\n"
         '  Guidance     "Improve the moderation decisions. Keep the output format."\n'
         "  Agents       Claude Code (claude -p) · opus\n"
-        "  Limits       $50.00 · 12 hours\n"
+        "  Limits       $50.00 on the task's model calls · about 12 hours\n"
         "  Advanced     defaults"
     )
 
@@ -297,6 +297,13 @@ def test_the_summary_lists_only_the_advanced_values_that_changed():
     )
     lines = dict(summary_lines(SELECTION, changed, BASELINE, DEFAULTS))
     assert lines["Advanced"] == "model policy ./policy.json · 2 evals at once"
-    assert lines["Limits"] == "no cap · 90 minutes"
+    assert lines["Limits"] == "no cap · about 90 minutes"
     assert lines["Improve"] == "Speed"
     assert lines["Agents"] == "Codex (codex exec) · default model"
+
+
+@pytest.mark.parametrize("agent_cli", ["claude -p", "codex exec", "opencode run"])
+def test_the_limits_line_says_the_budget_is_the_task_model_calls(agent_cli):
+    changed = answers(agent_cli=agent_cli, budget_usd=50.0, timeout_mins=720)
+    lines = dict(summary_lines(SELECTION, changed, BASELINE, DEFAULTS))
+    assert lines["Limits"] == "$50.00 on the task's model calls · about 12 hours"

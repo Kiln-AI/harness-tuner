@@ -141,9 +141,9 @@ and says where to add it when it doesn't.
    Every agent's read fence denies that folder, because it holds the labels
    of every split.
 
-   The budget is a ceiling, not an estimate. It covers both the agent
-   sessions and the model calls of the task. Read
-   [docs/costs.md](../../docs/costs.md) to estimate a run.
+   The budget is a ceiling, not an estimate. It covers the model calls of
+   the task. The agent sessions are not counted: the run shows their tokens.
+   Read [docs/costs.md](../../docs/costs.md) to estimate a run.
 
    The loop shows its progress in the terminal. When the run ends, it prints
    the report's path. The report is in `~/.kiln_ai/harness_tuner/reports/` by

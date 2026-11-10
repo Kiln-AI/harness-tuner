@@ -119,7 +119,8 @@ probe answers), and after each screening round it asked for (`rescreen`,
 with the screening table).
 
 **Given** `BatchPlanInput`: the kickoff `guidance` verbatim; the baseline run
-config id; `should_wrap_up`, the code budget judgment rather than the clock;
+config id; `should_wrap_up`, code's judgment that this is the last wave (the time limit
+has passed, or the budget fits one more wave only) rather than the clock;
 `eval_sizes`, the count of train rows a comparison can actually pair per eval;
 `lever_attempts`, issue → technique → arms opened; `max_concurrent_agents` and
 `lever_costs`, so the plan is sized to what can run at once; `probe_results`,

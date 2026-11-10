@@ -68,14 +68,16 @@ def test_a_fix_card_with_no_hypothesis_has_no_label():
 
 
 def test_a_fix_card_shows_the_item_s_whole_spend_and_no_cap():
-    # Every spend the item books, its agent sessions and its eval jobs, in
-    # one number that only grows. A spending cap is not on the card.
+    # Every dollar the item books, in one number that only grows. Its agent
+    # sessions book tokens, not dollars. A spending cap is not on the card.
     item = fix("w1-1")
     item.max_usd, item.budget_reason = 6.0, "a long queue"
     run = wave_one(item)
     assert run.card("w1-1").subtitle == ""
     run.state("w1-1", "building_rc")
-    run.emit("spend", item_id="w1-1", source="create_experiment_rc", cost_usd=1.4)
+    run.emit("spend", item_id="w1-1", source="create_experiment_rc", tokens=9000)
+    assert run.card("w1-1").subtitle == ""
+    run.emit("spend", item_id="w1-1", source="eval_jobs", cost_usd=1.4)
     assert run.card("w1-1").subtitle == "$1.40"
     run.state("w1-1", "measuring")
     run.emit("candidate_budget", item_id="w1-1", rc_id="rc_a", usd=3.0)
@@ -83,21 +85,25 @@ def test_a_fix_card_shows_the_item_s_whole_spend_and_no_cap():
     run.emit("spend", item_id="w1-1", source="measurement", cost_usd=0.5)
     assert run.card("w1-1").subtitle == "$1.90"
     run.state("w1-1", "analyzing")
-    run.emit("spend", item_id="w1-1", source="analyze_experiment_results", cost_usd=0.3)
-    run.emit("spend", source="batch_plan", cost_usd=2.0)  # not the item's
+    run.emit("spend", item_id="w1-1", source="analyze_experiment_results", tokens=500)
+    run.emit("spend", item_id="w1-1", source="val_pass", cost_usd=0.3)
+    run.emit("spend", source="eval_jobs", cost_usd=2.0)  # not the item's
     assert run.card("w1-1").subtitle == "$2.20"
 
 
 def test_a_building_card_shows_the_time_in_its_state():
     run = wave_one(fix("w1-1"))
     run.at(13).state("w1-1", "building_rc")
-    run.emit("spend", item_id="w1-1", source="create_experiment_rc", cost_usd=0.4)
+    # An agent session books tokens, not dollars: the card shows no money.
+    run.emit("spend", item_id="w1-1", source="create_experiment_rc", tokens=900)
     run.at(16).emit("phase_start", name="other")  # moves the clock only
     card = run.card("w1-1")
     assert card.steps[0] == ("build", "current")
     assert card.line4 == NoteLine("an agent is writing the change · 3m00s")
-    # The item's own spend, with no cap.
-    assert (card.subtitle, card.live) == ("$0.40", True)
+    # The item's own spend, with no cap: none yet.
+    assert (card.subtitle, card.live) == ("", True)
+    run.emit("spend", item_id="w1-1", source="eval_jobs", cost_usd=0.4)
+    assert run.card("w1-1").subtitle == "$0.40"
 
 
 def test_a_rebuild_shows_the_check_that_forced_it():
@@ -309,15 +315,14 @@ def test_a_re_measure_card():
 def test_cut_off_cards():
     run = wave_one(fix("w1-1"), fix("w1-2"), fix("w1-3"))
     run.state("w1-1", "measuring").state("w1-3", "analyzing")
-    run.emit("deadline_grace", wave=1, item_ids=["w1-3"], grace_secs=600)
-    run.emit("deadline_cancel", wave=1, item_ids=["w1-1", "w1-2"])
+    run.outcome("w1-3")
+    run.emit("fatal_cancel", wave=1, item_ids=["w1-1", "w1-2"], error="boom")
     assert run.line5("w1-1") == "✗ Cut off: tuning ended"
     assert run.card("w1-1").steps[1] == ("measure", "stopped")
     assert not run.card("w1-1").live
     assert run.line5("w1-2") == "✗ Cut off: tuning ended"
-    assert run.card("w1-3").live
-    assert "Cut off at the deadline: w1-1, w1-2" in run.log()
-    assert "Deadline: w1-3 get 10m00s to finish their analysis" in run.log()
+    assert run.line5("w1-3") != "✗ Cut off: tuning ended"
+    assert "Cut off after a fatal error: w1-1, w1-2" in run.log()
 
 
 STOPS = [
@@ -577,7 +582,7 @@ def test_done_mode_shows_the_run_summary():
     done = view.done
     assert view.mode == "done"
     assert plain(view.header) == "Done · 1 wave"
-    assert done.ended == "Ended early: not enough time or budget for another wave"
+    assert done.ended == "Ended early: not enough budget for another wave"
     assert plain(done.summary) == "2h50m · $12.50 of $50.00"
     assert done.totals == (
         ("1", "wave"),
@@ -607,6 +612,33 @@ def test_done_mode_shows_the_run_summary():
     done = run.model.experiments(run.t).done
     assert done.report == "/r/report.md"
     assert done.next_steps[-1] == NextStep("Read Tuning Report", "/r/report.md")
+
+
+@pytest.mark.parametrize(
+    ("detail", "ended"),
+    [
+        (
+            "finished wave 2, then the wrap-up",
+            "Time limit reached (finished wave 2, then the wrap-up)",
+        ),
+        (
+            "finished wave 2; no wrap-up: nothing to merge",
+            "Time limit reached (finished wave 2; no wrap-up: nothing to merge)",
+        ),
+    ],
+)
+def test_done_says_how_the_time_limit_ended_the_run(detail, ended):
+    run = Run().standard_start()
+    run.emit("exit", reason="timeout", detail=detail)
+    assert run.model.experiments(run.t).done.ended == ended
+
+
+def test_done_shows_only_a_timeout_detail():
+    run = Run().standard_start()
+    run.emit("exit", reason="quota_exhausted", detail="429 from the provider")
+    assert run.model.experiments(run.t).done.ended == (
+        "Stopped on a provider error: quota or authentication"
+    )
 
 
 def test_a_stopped_run_has_no_report():
@@ -681,7 +713,7 @@ def test_a_probe_phase_step_counts_only_the_probes_with_an_answer():
     run.wave_start(1, probe("w1-1"), probe("w1-2"), probe_phase=True)
     run.emit("item_probe", item_id="w1-1", probe={"answer": "no", "evidence": ""})
     run.outcome("w1-1")
-    run.emit("deadline_cancel", wave=1, item_ids=["w1-2"])
+    run.emit("fatal_cancel", wave=1, item_ids=["w1-2"], error="boom")
     run.emit("wave_end", wave=1, probe_phase=True)
     run.plan(1, replan=True)
     steps = run.model.experiments(run.t).steps

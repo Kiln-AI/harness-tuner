@@ -31,8 +31,7 @@ the agents folder's `AGENTS.md`.
 
 **What it does not have.** A session id cannot be chosen before the spawn,
 so a session killed at its wall-clock cap is not resumed; the ladder re-runs
-it. A provider plan that prices nothing reports a cost of 0: such a
-session's tokens are booked as unmeasured.
+it.
 """
 
 from __future__ import annotations
@@ -200,12 +199,7 @@ def read_opencode_output(stdout: str) -> CliRound | None:
             error = str(message or "session failed")
     if not seen:
         return None
-    usage = (
-        Usage(cost_usd=cost, tokens=tokens)
-        if cost > 0
-        # A plan that prices nothing: the tokens are booked as unmeasured.
-        else Usage(tokens=tokens, unmeasured_tokens=tokens)
-    )
+    usage = Usage(cost_usd=cost, tokens=tokens)
     return CliRound(session_id=session_id, result_text=final, usage=usage, error=error)
 
 
@@ -328,6 +322,11 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
             # session never waits on a question nobody can answer.
             "--pure",
             "--auto",
+            # The workspace, named: OpenCode finds `.agents/skills` and
+            # `AGENTS.md` in its project folder, which it otherwise takes
+            # from `PWD` (the runner sets that too). As Codex's `-C`.
+            "--dir",
+            str(self._workspace(label)),
             "--variant",
             self._effort_for(agent),
         ]

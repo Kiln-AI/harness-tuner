@@ -443,7 +443,7 @@ Which project do you want to tune?
 ```
 
 The arrow keys move the highlight, typing filters the rows on their name or
-ID, and Enter picks; a long list scrolls. After the pick the picker goes, and
+ID, Esc clears the filter, and Enter picks; a long list scrolls. After the pick the picker goes, and
 a step line takes its place: `✓ Project   Forum Moderation (424242975950)`.
 The task picker works the same way, under `Which task in Forum Moderation?`,
 and shows the task's description from Kiln under the list. With only one
@@ -527,14 +527,30 @@ flag spells out the default value. Each question starts pre-filled, Enter
 accepts it, and a step line records the answer. An answer that isn't valid
 shows why in red under the field and asks again, keeping what you typed.
 
+**Esc goes back one step.** At each question but the first, Esc asks the
+question before it again, pre-filled with your answer, and takes away the step
+line of that answer. Then the questions go on from there. The steps are:
+
+- each question in the table below that no flag answered;
+- the Advanced options menu;
+- after `c`, each advanced question.
+
+The agents question is three steps. Esc at the thinking level asks the model
+again, and Esc at the model asks the agent CLI again. With only one CLI
+installed, Esc at the model asks the question before the agents question.
+After Other, Esc at the typed name or level shows the list again. In a picker
+with filter text, the first Esc clears the filter, and the second goes back.
+The footer shows `esc Back` only where Esc goes back.
+
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
 | What should the tuner improve? | `--objective` | Quality | Quality (higher eval scores), Speed (lower latency per request) or Cost (lower cost per request). Speed and cost only promote a change that keeps quality equal or better. |
 | Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. |
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
-| Model for the agents | `--agent-cli` | `opus` for Claude Code; empty, the CLI's own default, for Codex and OpenCode | One model name. OpenCode models are `PROVIDER/MODEL`. |
+| Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
+| Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), at least 1 minute, rounded to the nearest minute. |
+| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: as the run nears it, the tuner starts to wrap up, so the run can end a little later. |
 | Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
 - **The agent CLI and its model** make one `--agent-cli` command: the model
@@ -546,12 +562,26 @@ shows why in red under the field and asks again, keeping what you typed.
   install one ([install.md](install.md) section 4). The model is asked unless
   `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
   cheaper, with weaker plans.
-- **The budget** is the most this run may spend: the tuner's agents and the
-  task's model calls together, and no wave starts past it. Codex doesn't report
-  its cost, so with Codex the budget caps the task's model calls only, and the
-  question says so.
-- **The time limit**: no wave starts after it, and work still running at the
-  limit is cancelled, so leave room for a whole wave.
+- **The budget** is the most this run may spend on the task's model calls,
+  and no wave starts past it. It never counts the tuner's agents: they run on
+  your agent CLI's account, and the run shows their tokens for information.
+  The summary's Limits line says so.
+- **The time limit**: at least 10 minutes, because setup runs first and
+  takes a few. The time limit is approximate: the question's hint says so,
+  and the summary's Limits line reads `about 12 hours`. The rerun command
+  keeps the exact value. When the time
+  limit ends a run, the Done screen, the exit line and the report say how,
+  for example `Time limit reached (finished wave 3, then the wrap-up)`, or
+  `(finished wave 3; no wrap-up: nothing to merge)` when nothing was pooled.
+
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
 
 The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or
@@ -598,7 +628,7 @@ again, and one last question:
 │ Improve      Quality                                                                    │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 · 12 hours                                                          │
+│ Limits       $50.00 on the task's model calls · about 12 hours                          │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │
@@ -628,6 +658,10 @@ Start tuning?
   again, and shows the summary again; a new model policy gets the API-key
   check first. It is offered when there is such a question. **`x`** stops with
   exit code 1.
+- **Esc** asks the last question again, and the questions go on from there to
+  a new summary. It is not offered when the start asked no question. After
+  `e`, Esc at the list of questions, or at the question it asks again, leaves
+  the answer as it was and shows the summary again.
 
 **The command to run it again** is shown here, and the closing block prints it
 again when the app closes (section 5.5). It is your
@@ -655,14 +689,13 @@ harness-tuner --project-path "/path/to/Your Project" \
           --no-interaction
 ```
 
-**Start it bounded, with headroom for a whole wave.** The defaults are $50
-and 12 hours (`--budget-usd 50`, `--timeout-mins 720`), which the questions
-pre-fill; `--budget-usd none` runs with no cap. No wave ever *starts* past
-`--timeout-mins` or `--budget-usd`, but the two do not end a run the same way:
-at the budget ceiling the wave in flight runs to completion, while at the
-deadline every in-flight item except one that is already analyzing is cancelled,
-its drives paid for and no verdict stored. A first run against an unfamiliar
-task is the wrong place to discover how long a wave takes.
+**Start it bounded.** The defaults are $50 and 12 hours (`--budget-usd 50`,
+`--timeout-mins 720`), which the questions pre-fill; `--budget-usd none` runs
+with no cap. Neither limit stops a wave in flight. At the budget ceiling the
+run exits after the wave in flight. At the time limit the wave in flight
+finishes, then one wrap-up wave runs, so the run ends later than the limit.
+A first run against an unfamiliar task is the wrong place to discover how
+long a wave takes.
 
 **Keep the reconnaissance battery on a first run** — that is, do **not** pass
 `--no-recon`. It is a handful of short drives on your own baseline, and it is
@@ -701,7 +734,7 @@ each question about the run:
 |---|---|
 | Title bar | The task, the run id, the agent CLI and the slot counts. |
 | Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
-| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the spend by lane and per hour; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the API keys spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave; the start time and the time limit (`started 14:12 · limit 17:12`), which is not the end time. |
 | Tuning timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
 | Results | One card per eval score that can decide a promotion (`Eval: <name>`), then one for cost and one for latency per request. |
 | Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |
@@ -727,7 +760,7 @@ border, and what the item tries under it (`Hypothesis: …`, or `Question: …`
 for a probe). Then come its steps (build, measure, analyze, and gate for a
 promotion candidate) and how it goes: one cell per judged item, and how many
 it fixed and broke so far. The bottom border shows what the item has spent so
-far, its agent sessions and eval jobs together. A finished card shows its
+far on API keys: its eval jobs, not its agents' tokens. A finished card shows its
 verdict in plain words, for example `Train success · checking validation
 set`, `Stopped: can't beat its parent` or `Promoted · now Best Confirmed`.
 When the gate promotes another candidate, the card says `Not selected · w4-3
@@ -806,7 +839,7 @@ To run this again with the same answers and no questions:
     …
     --no-interaction
 
-exit: timeout — total $43.30 (Claude Code $16.10 · API keys $27.20) · 2h41m elapsed · 19m left
+exit: timeout — total $27.20 (API keys $27.20 · Claude Code ~8.4M tokens) · 2h41m elapsed · 19m left
 Best Confirmed: refusal rule in prompt · w2-1 (424242002001)
 report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261109-1412

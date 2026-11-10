@@ -88,14 +88,8 @@ def probe_answered(item_id: str, question: str, verdict: Verdict) -> str:
     return f"{item_id} {question}{joint}{verdict.log}"
 
 
-def cut_off(item_ids: Sequence[str], fatal: bool) -> str:
-    why = "after a fatal error" if fatal else "at the deadline"
-    return f"Cut off {why}: {', '.join(item_ids)}"
-
-
-def grace(item_ids: Sequence[str], secs: object) -> str:
-    time = words.duration(float(secs)) if isinstance(secs, (int, float)) else "a while"
-    return f"Deadline: {', '.join(item_ids)} get {time} to finish their analysis"
+def cut_off(item_ids: Sequence[str]) -> str:
+    return f"Cut off after a fatal error: {', '.join(item_ids)}"
 
 
 def screening_round(round_no: int | None, results: Sequence[ScreenResult]) -> str:
@@ -237,8 +231,8 @@ def _without_label(overview: str) -> str:
     return overview
 
 
-def ended(reason: str | None) -> str:
-    return f"Tuning ended: {words.how_it_ended(reason)}"
+def ended(reason: str | None, detail: str | None = None) -> str:
+    return f"Tuning ended: {words.how_it_ended(reason, detail)}"
 
 
 def report_written(fallback: bool) -> str:

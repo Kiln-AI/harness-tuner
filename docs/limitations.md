@@ -32,16 +32,13 @@ starts its MCP servers with that interpreter. A cache clean (`uv cache clean`)
 during the run removes them, and the run's later sessions then fail. A
 `uv tool install` has no such window.
 
-**The budget and the clock are checked at wave boundaries, and only the budget
-is purely that.** No wave *starts* past either limit, and a wave already running
-is never killed for the **budget**. The **clock** is not the same at the
-deadline itself: an item that is already analyzing is given
-`ANALYSIS_GRACE_SECS` to finish, and every other in-flight item is cancelled at
-once — its build and drives already paid for, no verdict stored. The wrap-up
-window is the larger of a static reserve and the run's own **mean** wave time so
-far, which is backward-looking: a wave much longer than the mean still runs into
-the deadline and loses its unfinished items there. What the loop guarantees is
-narrower than `--timeout-mins` sounds.
+**The time limit is not a hard stop.** The budget and the clock are checked
+at wave boundaries only, and a wave already running is never killed for
+either. At the time limit no new normal wave starts, but the wave in flight
+finishes (build, measurement, analysis and its promotion gate), and then one
+wrap-up wave runs. A run therefore ends later than `--timeout-mins`, by the
+wave in flight plus the wrap-up. A long wave makes this stretch long. The
+budget is the hard ceiling for money: the run never starts a wave past it.
 
 **Per-eval progress inside one eval job is not live.** The status model and
 the tracker have an `eval_progress` count, and nothing emits one: an eval job

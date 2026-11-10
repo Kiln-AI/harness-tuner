@@ -73,8 +73,17 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--budget-usd` | `50` | The cost ceiling for the run, in USD: the agent sessions and the task's model calls together. No wave starts past it. At the ceiling the run exits, and the wave in flight runs to completion. Within one projected wave of the ceiling, the next wave is the wrap-up. `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). With `codex exec` the agent sessions report no cost, so the ceiling caps the Kiln side only. |
-| `--timeout-mins` | `720` (12 hours) | The time limit in whole minutes. It is a monotonic deadline: no wave starts past it. At the deadline, an item that is already analyzing gets `ANALYSIS_GRACE_SECS` to finish. Every other item in flight is cancelled at once, after its drives are paid for, with no verdict stored. So leave room for a whole wave. |
+| `--budget-usd` | `50` | The cost ceiling for the run, in USD, on the task's model calls. It never counts the agent sessions, which run on the agent CLI's own account: the run shows their tokens for information. No wave starts past it. At the ceiling the run exits, and the wave in flight runs to completion. Within one projected wave of the ceiling, the next wave is the wrap-up. `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). |
+| `--timeout-mins` | `720` (12 hours) | The time limit in whole minutes, at least 10. Setup runs before the first wave and takes a few minutes, so the start refuses a shorter limit. The loop checks the limit at wave boundaries. No new wave starts after it. The wave in flight is not cancelled: it finishes, promotion gate included. Then one wrap-up wave merges the pooled wins, and the run writes its report. So the run can end later than this, by the wave in flight plus the wrap-up. |
+
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
 
 [costs.md](costs.md) helps you set both limits before you start.
 
@@ -82,9 +91,9 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--agent-cli` | `claude -p` | The agent CLI that every loop session runs, as the whole command that you type, not only its name. Also `codex exec` and `opencode run`, each with its own options, for example `'claude -p --model haiku'` for a cheaper run, `'codex exec -m gpt-6.1-sol'` or `'opencode run -m zai-coding-plan/glm-5.3-flash --variant high'`. The model and the effort in the command are the run-wide defaults under `--agent-model` and `--agent-effort`. The CLI must already be signed in: one short test prompt goes through it before the run starts, and a CLI that does not answer stops the start with what it printed. The agents are billed to the CLI's own account, not to your Kiln provider keys. [agent-cli.md](agent-cli.md) section 9. |
+| `--agent-cli` | `claude -p` | The agent CLI that every loop session runs, as the whole command that you type, not only its name. Also `codex exec` and `opencode run`, each with its own options, for example `'claude -p --model haiku'` for a cheaper run, `'codex exec -m gpt-6.1-sol'` or `'opencode run -m zai-coding-plan/glm-5.3-flash --variant high'`. The model and the effort in the command are the run-wide defaults under `--agent-model` and `--agent-effort`. The effort is `--effort` for Claude, `-c model_reasoning_effort=…` for Codex (for example `'codex exec -m gpt-6.1-sol -c model_reasoning_effort=xhigh'`) and `--variant` for OpenCode. The CLI must already be signed in: one short test prompt goes through it before the run starts, and a CLI that does not answer stops the start with what it printed. The agents are billed to the CLI's own account, not to your Kiln provider keys. [agent-cli.md](agent-cli.md) section 9. |
 | `--agent-model` | not set: `opus` for each role, and `sonnet` for `generality_review`, under `claude -p` | `ROLE=MODEL`, repeatable. A model for one agent role. A model in `--agent-cli` replaces the per-role defaults. Under `codex exec` and `opencode run` with no model, the CLI uses its own default model. The roles are `analyze_experiment_results`, `batch_plan`, `create_experiment_rc`, `describe_eval`, `eval_build`, `generality_review`, `integrity_review`, `preflight`, `probe`, `promote_best` and `report_writer`. An unknown role stops the start. |
-| `--agent-effort` | not set: the effort in `--agent-cli`, else `high` | `ROLE=EFFORT`, repeatable. A reasoning effort for one agent role. The roles are the same as for `--agent-model`, with the same check. |
+| `--agent-effort` | not set: the effort in `--agent-cli`, else `high` | `ROLE=EFFORT`, repeatable. A reasoning effort for one agent role. The roles are the same as for `--agent-model`, with the same check. Under Claude Code, a level other than `low`, `medium`, `high`, `xhigh` or `max` is refused at start-up. |
 | `--max-concurrent-agents` | `4` | The agent sessions in flight at once. `0` is no limit. The planner is told this number, so it sizes a wave to what can run. |
 | `--max-turns` | not set: no turn cap | A hard turn cap for each agent session. The per-role time limits stop a session that does not end. A cap near the longest session seen cuts off a large healthy session near its end, and the session is then paid for again. Under `codex exec` it has no effect, with a warning. Under `opencode run` it is the build agent's `steps` cap ([agent-cli.md](agent-cli.md) sections 10 and 11). |
 

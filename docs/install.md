@@ -680,6 +680,14 @@ Once the checks pass, a guided start asks the questions its flags didn't
 answer, and shows a summary before it starts the run
 ([your-own-task.md](your-own-task.md) section 5).
 
+- **Esc goes back one step** at each of these questions but the first. The
+  question before it is asked again, pre-filled with your answer, and the
+  step line of that answer goes. At `Start tuning?`, Esc asks the last
+  question again. The footer shows `esc Back` only where Esc goes back. The
+  project and task pickers and the `What next?` menus do not go back.
+- In a picker with filter text, Esc first clears the filter, and the footer
+  shows `esc Clear filter`.
+
 **When the app closes**, it prints a plain closing block to the terminal,
 because the app's own screen goes with it. The block holds the start's
 summary, the command that runs it again (after a guided start), and, after a
@@ -716,7 +724,8 @@ line:
   GET /api/projects/424242189194/tasks/424242920784/evals/424242136270/eval_config/424242913607
   HTTP 500: Internal Server Error
 
-  The run stopped. Spent $3.20 so far (agents and the task's model calls).
+  The run stopped. Spent $3.20 so far on the task's model calls.
+  The agents used about 1,240,000 tokens, which the budget does not count.
   Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261107-1412
   Report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261107-1412.md
 
@@ -796,7 +805,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ Improve      Quality                                                                    │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 · 12 hours                                                          │
+│ Limits       $50.00 on the task's model calls · about 12 hours                          │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │

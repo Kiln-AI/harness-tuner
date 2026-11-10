@@ -7,7 +7,9 @@ once: it posts `Answered` with the value, or `Failed` with an error for the
 start-up thread to raise. The start-up screen then removes it.
 
 Ctrl+C and Ctrl+D are the app's priority bindings, so they work in every
-prompt, a focused `Input` included.
+prompt, a focused `Input` included. A prompt asked with `back` also takes
+Esc, which fails it with `GoBack`: the question before it is asked again. In
+a picker with filter text, Esc first clears the filter.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from textual.message import Message
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option as Row
 
+from kiln_harness_tuner.onboarding.errors import GoBack
 from kiln_harness_tuner.onboarding.terminal import (
     COLUMN_GAP,
     ENTER,
@@ -76,6 +79,8 @@ def _hint(text: str) -> Static:
 class PromptPart(Vertical, Generic[P]):
     """One question in the transcript, answered once."""
 
+    BINDINGS = [Binding("escape", "back", "Back")]
+
     class Answered(Message):
         def __init__(self, part: PromptPart[Any], value: Any) -> None:
             super().__init__()
@@ -102,6 +107,15 @@ class PromptPart(Vertical, Generic[P]):
         if not self.done:
             self.done = True
             self.post_message(self.Failed(self, error))
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        # Esc, and its footer key, only where the question has one before it.
+        if action == "back":
+            return self.request.back
+        return True
+
+    def action_back(self) -> None:
+        self.fail(GoBack())
 
 
 class ActionMenu(PromptPart[Act]):
@@ -157,6 +171,10 @@ class Picker(PromptPart[Pick]):
     BINDINGS = [
         Binding("up", "move(-1)", show=False),
         Binding("down", "move(1)", show=False),
+        # One Esc key, two actions: `check_action` enables one at a time, so
+        # the footer names what Esc does now.
+        Binding("escape", "clear_filter", "Clear filter"),
+        Binding("escape", "back", "Back"),
     ]
 
     def __init__(self, request: Pick) -> None:
@@ -226,6 +244,17 @@ class Picker(PromptPart[Pick]):
         text = option.description if option is not None else None
         self.query_one(".description", Static).update(Content(text or ""))
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        # Esc clears the filter first, also where it can't go back.
+        if action == "clear_filter":
+            return bool(self.filter_text)
+        if action == "back":
+            return not self.filter_text and self.request.back
+        return True
+
+    def action_clear_filter(self) -> None:
+        self.query_one(Input).value = ""
+
     def action_move(self, step: int) -> None:
         menu = self.query_one(OptionList)
         if step > 0:
@@ -239,6 +268,7 @@ class Picker(PromptPart[Pick]):
         if event.value != self.filter_text:
             self.filter_text = event.value
             self._show(event.value)
+            self.refresh_bindings()
 
     @on(OptionList.OptionHighlighted)
     def _highlighted(self, event: OptionList.OptionHighlighted) -> None:

@@ -165,9 +165,9 @@ type, a missing default eval config — so those are reported as
 
 **A timeout.** The subprocess is killed and the result is
 `failed_infra(timeout)`. Every dispatch runs under a per-role cap, and the cap
-is what bounds a hang *inside* a wave. The run deadline does not do that job: it
-stops the wave, cancelling the item and losing what it had paid for, and it only
-arrives at the end of the time the operator asked for. A per-role cap turns a
+is what bounds a hang *inside* a wave. The run's time limit does not do that
+job: it is checked at wave boundaries only, and a wave in flight at the limit
+runs to its end. A per-role cap turns a
 wedged session into one failed item the ladder can retry, minutes after it
 wedged rather than hours.
 
@@ -254,6 +254,8 @@ worth, so the decision is informed.
   transcripts are files. One of them also changes billing: with an API key
   present, the CLI bills the API instead of the operator's login, and the
   reported cost silently turns from a shadow price into real money.
+  `--budget-usd` never counts the agents, for any agent CLI: the loop shows
+  their tokens for information ([costs.md](costs.md)).
 - **Per-role model and effort.** Pinned in code so that runs do not differ
   across machines, overridable per role from the CLI. Worth: the agent side is
   where a run's spend concentrates, and the mechanical roles do not need the
@@ -313,7 +315,29 @@ the text:
 | Option | Becomes |
 |---|---|
 | the model: `--model`, or `-m` for Codex and OpenCode | the run-wide model. `--agent-model ROLE=MODEL` still overrides it per role. |
-| the effort: `--effort` for Claude, `--variant` for OpenCode | the run-wide effort. `--agent-effort ROLE=EFFORT` still overrides it per role. |
+| the effort: `--effort` for Claude, `-c model_reasoning_effort=…` for Codex, `--variant` for OpenCode | the run-wide effort. `--agent-effort ROLE=EFFORT` still overrides it per role. |
+
+The effort is `high` for every role unless the text or `--agent-effort` sets
+another. The CLI's own setting is not used: Codex runs with
+`--ignore-user-config`, so its `config.toml` is not read. For example:
+
+```
+--agent-cli 'claude -p --effort xhigh'
+--agent-cli 'codex exec -m gpt-6.1-sol -c model_reasoning_effort=xhigh'
+--agent-cli 'opencode run -m zai-coding-plan/glm-5.3-flash --variant max'
+```
+
+For Codex, `-c model_reasoning_effort=VALUE`, `--config model_reasoning_effort=VALUE`
+and the `=` form of each are taken out of the text; a TOML-quoted value works
+too. Other `-c` options go into every session's command.
+
+A level the CLI does not have is handled like this:
+
+| CLI | Levels | Another value |
+|---|---|---|
+| Claude | `low`, `medium`, `high`, `xhigh`, `max` | Refused at start-up, before any session, in `--agent-cli` and in `--agent-effort`. Claude Code itself would only print a warning and use its own default. |
+| Codex | `low`, `medium`, `high`, `xhigh`, `max`, also `none` and `minimal`; some models take `ultra` | A name Codex does not know fails the start-up check with Codex's own message (HTTP 400, with the names it takes). Nothing else is spent. |
+| OpenCode | the model's own variants | Ignored by OpenCode: the model runs at its own default. |
 
 Every other option goes, unchanged, into every session's command. Do not
 repeat an option the dispatcher sets itself (the output format, the MCP
@@ -395,9 +419,9 @@ Against section 6:
 
 What else differs:
 
-- **Cost.** Codex reports tokens, not cost. Every session books $0 and its
-  tokens as unmeasured, and `--budget-usd` caps the Kiln side only; the run
-  log says so at start.
+- **Cost.** Codex reports tokens, not cost. That loses nothing: the loop
+  shows the agents in tokens for every agent CLI, and `--budget-usd` never
+  counts them.
 - **`--max-turns`** has no Codex equivalent and is ignored, with a warning.
 - **Errors.** A failed session exits non-zero and prints a `turn.failed`
   event with the provider's message. That event is structured output, so it
@@ -456,8 +480,9 @@ read of a skill file work; the `kiln-harness-tuner-*` skills are found; and the
 gateway answers through the rendered MCP config.
 
 Every session also runs with `--format json`, `--pure` (no external
-plugins) and `--auto` (approve what the rules do not deny, so a session
-never waits on a question nobody can answer). The effort is `--variant`,
+plugins), `--auto` (approve what the rules do not deny, so a session
+never waits on a question nobody can answer) and `--dir <workspace>`. Do not
+put any of these in `--agent-cli`: OpenCode then gets them twice. The effort is `--variant`,
 `high` by default; OpenCode ignores a variant the model does not have.
 
 Against section 6:
@@ -472,9 +497,8 @@ Against section 6:
 
 What else differs:
 
-- **Cost.** OpenCode reports a cost per step. A provider plan that prices
-  nothing reports 0: such a session's tokens are booked as unmeasured, as for
-  Codex.
+- **Cost.** OpenCode reports a cost and tokens per step. The loop shows the
+  tokens, as for every agent CLI.
 - **`--max-turns`** becomes the build agent's `steps` cap.
 - **Errors.** A failed session exits non-zero and prints an `error` event;
   that event is classified, as for Codex.
@@ -483,4 +507,8 @@ What else differs:
   `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
   the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy
   of its `AGENTS.md`. OpenCode also loads the user's own skills, as Claude
-  Code does.
+  Code does. OpenCode takes its project folder from the `PWD` variable, not
+  from the working directory of its process. So every session gets its
+  workspace twice: as `--dir <workspace>`, as Codex gets `-C`, and as
+  `PWD`. With the `PWD` of the folder that `harness-tuner` was started in
+  and no `--dir`, a session finds none of the tuner's skills.

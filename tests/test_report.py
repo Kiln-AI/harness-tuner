@@ -22,6 +22,7 @@ from kiln_harness_tuner.report import (
     render_missing_evals_appendix,
     render_spend_appendix,
     render_spend_header,
+    spend_appendix_notes,
 )
 from kiln_harness_tuner.schemas import (
     ErrorInfo,
@@ -250,14 +251,14 @@ def test_fallback_report_names_tripwire_and_spend():
 # ---- spend appendix ----
 
 
-def spend(tracker, source, lane, cost):
-    tracker.event("spend", source=source, lane=lane, cost_usd=cost)
+def spend(tracker, source, lane, cost, tokens=0):
+    tracker.event("spend", source=source, lane=lane, cost_usd=cost, tokens=tokens)
 
 
 async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
     ctx = make_ctx()
     writer, tracker = make_writer(tmp_path)
-    spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
+    spend(tracker, "batch_plan", "subscription_equivalent", 0.5, tokens=12_345)
     spend(tracker, "eval_jobs", "provider", 1.25)
     spend(tracker, "val_pass", "provider", 0.75)
     ctx.dispatch.queue("report_writer", ok(ReportMarkdown(markdown="# Report\nbody\n")))
@@ -267,11 +268,12 @@ async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
     text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
     assert text.startswith("# Report\nbody\n")
     assert SPEND_APPENDIX_HEADING in text
-    assert "| source | Claude Code | API keys | total |" in text
-    assert "| batch_plan | $0.50 | — | $0.50 |" in text
-    assert "| eval_jobs | — | $1.25 | $1.25 |" in text
-    assert "| val_pass | — | $0.75 | $0.75 |" in text
-    assert "| **total** | $0.50 | $2.00 | $2.50 |" in text
+    # The agents are tokens, not dollars: never in the budget.
+    assert "| source | API keys | Claude Code tokens |" in text
+    assert "| batch_plan | — | 12,345 |" in text
+    assert "| eval_jobs | $1.25 | — |" in text
+    assert "| val_pass | $0.75 | — |" in text
+    assert "| **total** | $2.00 | 12,345 |" in text
     for note in SPEND_APPENDIX_NOTES:  # incl. the exclusions boilerplate
         assert note in text
 
@@ -279,13 +281,13 @@ async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
 async def test_spend_appendix_on_fallback_report(tmp_path):
     ctx = make_ctx()
     writer, tracker = make_writer(tmp_path)
-    spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
+    spend(tracker, "batch_plan", "subscription_equivalent", 0.5, tokens=800)
     ctx.dispatch.queue("report_writer", *[infra("provider_error")] * 5)
     await writer(ctx, "timeout")
     text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
     assert FALLBACK_INTRO in text
     assert SPEND_APPENDIX_HEADING in text
-    assert "| batch_plan | $0.50 | — | $0.50 |" in text
+    assert "| batch_plan | — | 800 |" in text
 
 
 async def test_spend_appendix_excludes_report_session(tmp_path):
@@ -293,21 +295,20 @@ async def test_spend_appendix_excludes_report_session(tmp_path):
     # own spend never reaches its own books (the boilerplate says so).
     ctx = make_ctx()
     writer, tracker = make_writer(tmp_path)
-    spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
+    spend(tracker, "batch_plan", "subscription_equivalent", 0.5, tokens=800)
     ctx.dispatch.queue(
         "report_writer", ok(ReportMarkdown(markdown="# R\n"), cost_usd=3.0)
     )
     await writer(ctx, "wrap_up")
     text = (tmp_path / "reports" / f"kiln-harness-tuner-{RUN_ID}.md").read_text()
     assert "report_writer" not in text
-    assert "| **total** | $0.50 | $0.00 | $0.50 |" in text
+    assert "| **total** | $0.00 | 800 |" in text
     # …but the spend event itself still fired, lane-tagged, for the wave log.
     (fields,) = [f for k, f in ctx.log.events if k == "spend"]
     assert fields == {
         "source": "report_writer",
         "lane": "subscription_equivalent",
-        "cost_usd": 3.0,
-        "unmeasured_tokens": 0,
+        "tokens": 0,
     }
 
 
@@ -317,26 +318,27 @@ def test_render_spend_appendix_gives_unexpected_lane_its_own_column():
     spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
     tracker.event("spend", source="mystery", cost_usd=0.1)  # lane-less
     text = render_spend_appendix(tracker.snapshot())
-    assert "| source | Claude Code | API keys | unknown | total |" in text
-    assert "| mystery | — | — | $0.10 | $0.10 |" in text
-    assert "| **total** | $0.50 | $0.00 | $0.10 | $0.60 |" in text
+    assert "| source | API keys | unknown | Claude Code tokens |" in text
+    assert "| mystery | — | $0.10 | — |" in text
+    assert "| **total** | $0.00 | $0.10 | 0 |" in text
 
 
 def test_render_spend_appendix_sub_cent_rows_stay_visible():
     # Money that would round to $0.00 renders as $<0.01 so cells
     # visibly reconcile with the totals they sum into.
     tracker = make_tracker()
-    spend(tracker, "preflight", "subscription_equivalent", 0.002)
+    spend(tracker, "model_preflight", "provider", 0.002)
     spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
     text = render_spend_appendix(tracker.snapshot())
-    assert "| preflight | $<0.01 | — | $<0.01 |" in text
-    assert "| **total** | $0.50 | $0.00 | $0.50 |" in text  # true zero stays $0.00
+    assert "| model_preflight | $<0.01 | — |" in text
+    assert "| batch_plan | — | — |" in text  # no tokens reported
+    assert "| **total** | $<0.01 | 0 |" in text
 
 
 def test_render_spend_appendix_empty_run_renders_zero_totals():
     text = render_spend_appendix(make_tracker().snapshot())
     assert SPEND_APPENDIX_HEADING in text
-    assert "| **total** | $0.00 | $0.00 | $0.00 |" in text
+    assert "| **total** | $0.00 | 0 |" in text
 
 
 # ---- appendix header: budget · elapsed · exit ----
@@ -367,6 +369,19 @@ def test_spend_appendix_header_states_budget_elapsed_and_exit():
     # heading would float free of the section it describes.
     assert render_spend_appendix(status).startswith(
         f"{SPEND_APPENDIX_HEADING}\n\n{header}\n\n|"
+    )
+
+
+def test_spend_appendix_header_says_how_the_time_limit_ended_the_run():
+    tracker = timed_tracker(24 * 60, deadline=1200.0, timeout_mins=20)
+    tracker.event(
+        "exit",
+        reason="timeout",
+        detail="finished wave 1, then the wrap-up",
+    )
+    assert render_spend_header(tracker.snapshot()) == (
+        "budget 20 min · elapsed 24 min · exit timeout (finished wave 1, then"
+        " the wrap-up)"
     )
 
 
@@ -492,29 +507,6 @@ async def test_write_fallback_ships_a_report_with_no_dispatch(tmp_path):
     assert [k for k, _ in ctx.log.events] == ["report_written"]
     (event,) = [f for k, f in ctx.log.events if k == "report_written"]
     assert event["fallback"] is True
-
-
-async def test_report_agent_gets_one_attempt_past_the_deadline(tmp_path):
-    """The report agent gets one attempt past the deadline, not the five-rung
-    loop ladder — which could run ~85 minutes past a deadline that is meant to
-    be hard."""
-    ctx = make_ctx()
-    ctx.deadline = -1.0  # already past (the fake clock reads 0)
-    writer, tracker = make_writer(tmp_path)
-    start_wave(tracker)
-    ctx.dispatch.queue(
-        "report_writer", infra("provider_error"), infra("provider_error")
-    )
-
-    path = await writer(ctx, "timeout")
-
-    assert len(ctx.dispatch.calls_to("report_writer")) == 1
-    assert ctx.sleeps == []
-    from pathlib import Path
-
-    (written,) = [f for k, f in ctx.log.events if k == "report_written"]
-    assert written["fallback"] is True
-    assert Path(path).read_text().startswith("# ")
 
 
 # ---- issues with no eval ----
@@ -721,3 +713,9 @@ async def test_only_the_fallback_path_reads_the_issues_without_retries(tmp_path)
     await writer.write_fallback(ctx, "fatal:KilnTransportError")
 
     assert asked == [None, False]
+
+
+def test_the_spend_appendix_names_the_agent_lane_for_the_agent_cli():
+    notes = spend_appendix_notes("codex")
+    assert notes[1].startswith("- **Codex** tokens (`subscription_equivalent`)")
+    assert notes[0] == SPEND_APPENDIX_NOTES[0]

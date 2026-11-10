@@ -198,7 +198,7 @@ def test_at_the_gate_the_status_adds_the_val_progress():
 def test_a_cut_off_item_stops_its_clock():
     run = wave_one(fix("w1-1"))
     run.at(13).state("w1-1", "building_rc")
-    run.at(17).emit("deadline_cancel", item_ids=["w1-1"])
+    run.at(17).emit("fatal_cancel", item_ids=["w1-1"], error="boom")
     run.at(30)
     view = panel(run, "w1-1")
     assert view.status == (Span("✗ Cut off: tuning ended", "error"),)

@@ -168,6 +168,30 @@ def test_an_invalid_budget_exits_2(given, capsys):
     )
 
 
+@pytest.mark.parametrize("given", ["9", "5", "0", "-30"])
+def test_a_timeout_under_10_minutes_exits_2(given, capsys):
+    with pytest.raises(SystemExit) as exited:
+        build_parser().parse_args(["--timeout-mins", given])
+    assert exited.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        f"harness-tuner: error: argument --timeout-mins: {given!r}:"
+        " Enter at least 10 minutes: setup alone takes a few"
+    )
+
+
+def test_a_timeout_of_10_minutes_is_accepted():
+    assert build_parser().parse_args(["--timeout-mins", "10"]).timeout_mins == 10
+
+
+def test_a_timeout_that_is_not_whole_minutes_exits_2(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--timeout-mins", "1h"])
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "harness-tuner: error: argument --timeout-mins: '1h':"
+        " enter whole minutes, like 90"
+    )
+
+
 def test_an_invalid_min_effect_names_the_valid_values(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--min-effect", "2"])
@@ -510,8 +534,9 @@ def test_main_after_the_run_folder_names_spend_folder_and_report(
     seen = {}
 
     async def fake_orchestrate(ctx, guidance, timeout_mins):
-        ctx.log.event("spend", source="preflight", cost_usd=1.25)
-        ctx.log.event("spend", source="describe_eval", cost_usd=1.95)
+        ctx.log.event("spend", source="preflight", cost_usd=1.25, tokens=40_000)
+        ctx.log.event("spend", source="describe_eval", cost_usd=1.95, tokens=2_000)
+        ctx.log.event("spend", source="eval_jobs", cost_usd=0.4)
         seen["run_dir"] = ctx.run_dir
         if report:
             seen["report"] = await ctx.write_fallback(ctx, "fatal")
@@ -523,8 +548,9 @@ def test_main_after_the_run_folder_names_spend_folder_and_report(
     assert capsys.readouterr().err == (
         "harness-tuner: error: Kiln returned an error\n"
         + JINJA_BODY
-        + "  The run stopped. Spent $3.20 so far"
-        " (agents and the task's model calls).\n"
+        + "  The run stopped. Spent $0.40 so far on the task's model calls.\n"
+        "  The agents used about 42,000 tokens, which the budget does not"
+        " count.\n"
         f"  Run folder: {seen['run_dir']}\n" + report_line + CLOSING
     )
 
@@ -1516,7 +1542,7 @@ def test_a_handled_error_names_the_run_folder_and_the_report(
     assert capsys.readouterr().err.splitlines() == [
         "harness-tuner: error: The run stopped",
         "  Kiln answered 500 on the baseline run config",
-        "  The run stopped. Spent $0.00 so far (agents and the task's model calls).",
+        "  The run stopped. Spent $0.00 so far on the task's model calls.",
         f"  Run folder: {run_dir}",
         f"  Report: {report}",
         "harness-tuner stopped with an error (exit 1)",

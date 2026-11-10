@@ -39,12 +39,17 @@ from kiln_harness_tuner.cli import ConfigRenderError, build_parser, load_model_p
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.model_policy import ModelPolicy, Rule
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE, IMPORT_PATH
-from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.errors import (
+    GoBack,
+    OnboardingError,
+    OnboardingStopped,
+)
 from kiln_harness_tuner.onboarding.flow import (
     CHANGE_QUESTION,
     StartReport,
     prepare_start,
 )
+from kiln_harness_tuner.onboarding.questions import TIME_HINT
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING
 
 SUPPORT = project("118230554411", "Support Triage", "/kiln-projects/Support Triage")
@@ -78,7 +83,7 @@ DEFAULT_SUMMARY = (
     "  Improve      Quality\n"
     "  Guidance     none\n"
     "  Agents       Claude Code (claude -p) · opus\n"
-    "  Limits       $50.00 · 12 hours\n"
+    "  Limits       $50.00 on the task's model calls · about 12 hours\n"
     "  Advanced     defaults"
 )
 
@@ -173,6 +178,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
             "Keep the output format.",
             "codex",
             "gpt-6.1-sol",
+            "high",
             "$20",
             "90m",
             "enter",
@@ -216,7 +222,8 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         'step Guidance: "Keep the output format."',
         "busy Looking for agent CLIs…",
         "pick Which agent CLI should run the tuner's agents?",
-        "text Model for the agents",
+        "pick Model for the agents",
+        "pick Thinking level for the agents",
         "step Agents: Codex (codex exec) · gpt-6.1-sol",
         "text Budget for this run",
         "step Budget: $20.00",
@@ -238,7 +245,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "  Improve      Speed\n"
         '  Guidance     "Keep the output format."\n'
         "  Agents       Codex (codex exec) · gpt-6.1-sol\n"
-        "  Limits       $20.00 · 90 minutes\n"
+        "  Limits       $20.00 on the task's model calls · about 90 minutes\n"
         "  Advanced     defaults",
         f"\n{RERUN_HEADING}\n"
         "  kiln-harness-tuner \\\n"
@@ -255,7 +262,18 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
 
 def test_a_rerun_with_the_printed_command_asks_nothing_and_gets_the_same_flags():
     terminal = ScriptedTerminal(
-        [PROJECT_ID, TASK_ID, "cost", "", "claude", "sonnet", "none", "2h", "enter"]
+        [
+            PROJECT_ID,
+            TASK_ID,
+            "cost",
+            "",
+            "claude",
+            "sonnet",
+            "high",
+            "none",
+            "2h",
+            "enter",
+        ]
         + ["s"]
     )
     first = start(two_projects(), terminal, ["--kiln-host", HOST])
@@ -293,7 +311,9 @@ def test_every_flag_given_and_not_guided_prints_the_steps_and_the_summary():
     )
     assert args.budget_usd is None
     assert terminal.step_lines() == PASSED
-    assert terminal.out == [DEFAULT_SUMMARY.replace("$50.00", "no cap")]
+    assert terminal.out == [
+        DEFAULT_SUMMARY.replace("$50.00 on the task's model calls", "no cap")
+    ]
     assert terminal.asked == []
 
 
@@ -334,7 +354,7 @@ def test_exit_at_the_start_prompt_stops_with_1():
 
 def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "50", "12h", "enter"]
+        ["", "claude", "opus", "high", "50", "12h", "enter"]
         + ["e", "budget", "$5", "e", "time", "3h", "s"]
     )
     args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
@@ -359,15 +379,146 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     assert terminal.asked_about("Time limit (1h, 24h, 45m)").default == "12h"
     limits = [s.splitlines()[-2] for s in summaries(terminal)]
     assert limits == [
-        "  Limits       $50.00 · 12 hours",
-        "  Limits       $5.00 · 12 hours",
-        "  Limits       $5.00 · 3 hours",
+        "  Limits       $50.00 on the task's model calls · about 12 hours",
+        "  Limits       $5.00 on the task's model calls · about 12 hours",
+        "  Limits       $5.00 on the task's model calls · about 3 hours",
     ]
     assert rerun_commands(terminal)[-1].endswith(
         "--budget-usd 5 --timeout-mins 180 --no-interaction"
     )
     # The key check ran once: no answer touched the policy.
     assert terminal.busy_texts.count("Checking API keys…") == 1
+
+
+# ---- the time limit is approximate ----
+
+
+def test_the_time_question_says_the_limit_is_approximate_with_no_warning():
+    # Every core flag but the time limit: the time is the one question.
+    no_time = [a for a in CORE_ANSWERED if a not in ("--timeout-mins", "720")]
+    terminal = ScriptedTerminal(["45m", *KEEP_AND_START])
+    start(two_projects(), terminal, [*EVERY_FLAG, *no_time])
+    assert terminal.asked_about("Time limit (1h, 24h, 45m)").hint == TIME_HINT
+    assert "approximate" in TIME_HINT
+    # No warning line follows the answer: nothing went wrong.
+    time_step = terminal.transcript.index("step Time: 45 minutes")
+    assert not terminal.transcript[time_step + 1].startswith("warn ")
+    assert terminal.err == []
+    assert summaries(terminal)[-1].splitlines()[-2] == (
+        "  Limits       $50.00 on the task's model calls · about 45 minutes"
+    )
+    # The rerun command stays exact.
+    assert "--timeout-mins 45" in rerun_commands(terminal)[-1]
+
+
+def test_a_start_that_is_not_guided_has_no_time_warning():
+    terminal = ScriptedTerminal(interactive=False)
+    start(two_projects(), terminal, [*EVERY_FLAG, "--timeout-mins", "45"])
+    assert terminal.err == []
+    (summary,) = summaries(terminal)
+    assert "· about 45 minutes" in summary
+
+
+# ---- Esc at the start prompt and while changing an answer ----
+
+ESC = GoBack()  # an answer: Esc at a prompt that offers it
+TIME_QUESTION = "Time limit (1h, 24h, 45m)"
+
+
+def test_esc_at_start_asks_the_last_question_again():
+    terminal = ScriptedTerminal(["enter", ESC, "c", "", "", "4", "4", "2", "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *CORE_ANSWERED])
+    assert terminal.questions[:3] == [ADVANCED_PROMPT, START_PROMPT, ADVANCED_PROMPT]
+    assert terminal.asked[1].back is True
+    assert args.noise_check == 2
+    assert len(summaries(terminal)) == 2
+    # The first Advanced line went with the Esc.
+    assert [line for line in terminal.step_lines() if line.startswith("Adv")] == [
+        "Advanced: noise check on 2 items per eval"
+    ]
+
+
+def test_esc_at_start_after_the_last_advanced_question_asks_it_again():
+    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0", ESC, "5", "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *CORE_ANSWERED])
+    noise = "Noise check: items per eval re-run before wave 1"
+    assert terminal.questions[-3:] == [START_PROMPT, noise, START_PROMPT]
+    assert terminal.asked_about(noise).default == "0"
+    assert args.noise_check == 5
+
+
+def test_esc_at_start_walks_back_on_from_the_last_question():
+    terminal = ScriptedTerminal(
+        ["", "claude", "opus", "high", "50", "12h", "enter", ESC, ESC, "3h"]
+        + ["enter", "s"]
+    )
+    argv = [*EVERY_FLAG, "--objective", "speed"]
+    args = start(two_projects(), terminal, argv)
+    assert terminal.questions[-5:] == [
+        START_PROMPT,
+        ADVANCED_PROMPT,
+        TIME_QUESTION,
+        ADVANCED_PROMPT,
+        START_PROMPT,
+    ]
+    assert terminal.asked[-3].default == "12h"
+    assert args.timeout_mins == 180
+    assert [line for line in terminal.step_lines() if line.startswith("Time")] == [
+        "Time: 3 hours"
+    ]
+
+
+def test_with_nothing_asked_esc_is_not_offered_at_start():
+    terminal = ScriptedTerminal(["s"])
+    argv = [*EVERY_FLAG, *ANSWERED, "--model-policy", "p.json", "--min-effect", "0.1"]
+    start(two_projects(), terminal, [*argv, "--noise-check", "3"], lambda _p: None)
+    assert terminal.asked_about(START_PROMPT).back is False
+
+
+def test_esc_at_the_change_picker_shows_the_summary_again():
+    terminal = ScriptedTerminal(["enter", "e", ESC, "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *ANSWERED])
+    assert terminal.questions == [
+        ADVANCED_PROMPT,
+        START_PROMPT,
+        CHANGE_QUESTION,
+        START_PROMPT,
+    ]
+    assert terminal.asked_about(CHANGE_QUESTION).back is True
+    assert len(summaries(terminal)) == 2
+    assert args.noise_check == 0
+
+
+def test_esc_at_the_changed_question_leaves_the_answer_as_it_was():
+    terminal = ScriptedTerminal(["enter", "e", "min_effect", ESC, "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *ANSWERED])
+    assert terminal.questions[-2:] == [
+        "Smallest improvement worth acting on",
+        START_PROMPT,
+    ]
+    assert terminal.asked_about("Smallest improvement worth acting on").back is True
+    assert args.min_effect is None
+    assert summaries(terminal)[0] == summaries(terminal)[1]
+
+
+def test_esc_while_changing_the_agents_steps_back_then_cancels():
+    terminal = ScriptedTerminal(
+        ["", "claude", "opus", "high", "50", "12h", "enter"]
+        + ["e", "agents", "codex", "", ESC, ESC, ESC, "s"]
+    )
+    args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
+    assert terminal.questions[-6:] == [
+        "Which agent CLI should run the tuner's agents?",
+        "Model for the agents",
+        "Thinking level for the agents",
+        "Model for the agents",
+        "Which agent CLI should run the tuner's agents?",
+        START_PROMPT,
+    ]
+    assert args.agent_cli == "claude -p"
+    assert [line for line in terminal.step_lines() if line.startswith("Agents")] == [
+        "Agents: Claude Code (claude -p) · opus"
+    ]
 
 
 # ---- the key check again, for a policy the questions set ----
@@ -834,7 +985,7 @@ def test_an_error_is_shown_as_a_block_only_in_a_guided_start(interactive):
 def test_the_start_report_names_the_choice_and_repeats_the_last_texts():
     reports: list[StartReport] = []
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "50", "12h", "enter", "e", "budget", "$5", "s"]
+        ["", "claude", "opus", "high", "50", "12h", "enter", "e", "budget", "$5", "s"]
     )
     argv = [*EVERY_FLAG, "--objective", "speed"]
     start(two_projects(), terminal, argv, report=reports.append)

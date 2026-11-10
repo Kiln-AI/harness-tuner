@@ -15,7 +15,7 @@ import argparse
 import asyncio
 import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol, TypeVar
 
@@ -26,7 +26,11 @@ from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.onboarding.choose import Selection, select
 from kiln_harness_tuner.onboarding.console import PlainTerminal
 from kiln_harness_tuner.onboarding.demo import make_demo
-from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.errors import (
+    GoBack,
+    OnboardingError,
+    OnboardingStopped,
+)
 from kiln_harness_tuner.onboarding.keys import (
     Baseline,
     Need,
@@ -42,7 +46,7 @@ from kiln_harness_tuner.onboarding.kiln_check import (
 from kiln_harness_tuner.onboarding.questions import (
     Answers,
     QuestionContext,
-    ask_all,
+    QuestionWalk,
     ask_one,
     changeable,
 )
@@ -237,25 +241,41 @@ def _ask_until_started(
     rerun command, each as of the answers so far, until the user starts the
     run. Change an answer asks one question again; an answer that sets or
     changes the model policy runs the key check again, so its providers are
-    covered."""
+    covered.
+
+    Esc at "Start tuning?" asks the last question again, and the walk goes
+    on from there (`QuestionWalk`). Esc while an answer is changed leaves it
+    as it was and shows the summary again."""
     terminal = context.terminal
-    ask_all(answers, context, given=given)
+    walk = QuestionWalk(answers, context, given=given)
+    walk.run()
     keys.check_if_changed(answers.model_policy)
     questions = changeable(given)
     menu = (START, *((CHANGE,) if questions else ()), EXIT_ACTION)
     while True:
+        shown = terminal.mark()
         terminal.say(summary())
         terminal.say(rerun())
-        action = terminal.act(START_QUESTION, menu)
+        try:
+            action = terminal.act(START_QUESTION, menu, back=walk.steps > 0)
+        except GoBack:
+            walk.back_into_last()
+            keys.check_if_changed(answers.model_policy)
+            continue
         if action.kind is ActionKind.START:
             return
         if action.kind is ActionKind.EXIT:
             raise OnboardingStopped(1)
-        name = terminal.pick(
-            CHANGE_QUESTION,
-            [Option(q.name, q.title, (q.show(answers),)) for q in questions],
-        )
-        ask_one(name, answers, context)
+        try:
+            name = terminal.pick(
+                CHANGE_QUESTION,
+                [Option(q.name, q.title, (q.show(answers),)) for q in questions],
+                back=True,
+            )
+            ask_one(name, answers, replace(context, back=True))
+        except GoBack:
+            terminal.rewind(shown)
+            continue
         keys.check_if_changed(answers.model_policy)
 
 

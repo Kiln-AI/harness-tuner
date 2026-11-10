@@ -36,8 +36,10 @@ from kiln_harness_tuner.analysis import AnalysisError, Analyzer
 from kiln_harness_tuner.contract import ContractPreflightError
 from kiln_harness_tuner.detectability import UnderpoweredEvalsError
 from kiln_harness_tuner.dispatch.agent_cli import (
+    CLAUDE_EFFORTS,
     DEFAULT_AGENT_CLI,
     AgentCli,
+    claude_effort_problem,
     parse_agent_cli,
 )
 from kiln_harness_tuner.dispatch.claude_cli import (
@@ -95,6 +97,8 @@ from kiln_harness_tuner.onboarding.error_screen import (
     show_error,
 )
 from kiln_harness_tuner.onboarding.questions import (
+    MIN_TIME_LIMIT_MINS,
+    check_time_limit,
     number_text,
     parse_budget,
     parse_fraction,
@@ -302,10 +306,12 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--timeout-mins",
-        type=int,
+        type=_timeout_mins,
         default=DEFAULT_TIMEOUT_MINS,
-        help="time budget in minutes, wave-boundary checked (default"
-        f" {DEFAULT_TIMEOUT_MINS}, 12 hours)",
+        help="time limit in minutes, at least"
+        f" {MIN_TIME_LIMIT_MINS}: no new wave starts after it; the wave in"
+        " flight finishes, then one wrap-up wave, so the run can end later"
+        f" (default {DEFAULT_TIMEOUT_MINS}, 12 hours)",
     )
     parser.add_argument(
         "--no-progress",
@@ -317,7 +323,8 @@ def build_parser() -> _Parser:
         type=_budget,
         default=DEFAULT_BUDGET_USD,
         metavar="USD",
-        help="cost ceiling for the run (both lanes); at the ceiling the run"
+        help="cost ceiling for the task's model calls (the agent sessions are"
+        " not counted); at the ceiling the run"
         " exits, one projected wave short of it the next wave is the wrap-up"
         f" (default {number_text(DEFAULT_BUDGET_USD)}; none = no ceiling)",
     )
@@ -503,6 +510,21 @@ def _budget(text: str) -> float | None:
         raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
 
+def _timeout_mins(text: str) -> int:
+    """`--timeout-mins`: whole minutes, at least `MIN_TIME_LIMIT_MINS`. The
+    start's time question uses the same check."""
+    try:
+        minutes = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: enter whole minutes, like 90"
+        ) from None
+    try:
+        return check_time_limit(minutes)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
 def _fraction(text: str) -> float:
     """`--min-effect`: a share of items, above 0 and at most 1. The start's
     question takes the same values."""
@@ -543,6 +565,23 @@ def parse_role_overrides(pairs: Sequence[str], flag: str) -> dict[str, str]:
             )
         overrides[role] = value
     return overrides
+
+
+def check_role_efforts(agent_cli: AgentCli, efforts: dict[str, str]) -> None:
+    """Refuse a `--agent-effort` level that Claude Code does not have: it
+    would ignore it and use its own default. Codex refuses an unknown level
+    itself, in the start-up check; OpenCode ignores a variant the model does
+    not have."""
+    if agent_cli.kind != "claude":
+        return
+    for role, effort in efforts.items():
+        problem = claude_effort_problem(effort)
+        if problem is not None:
+            raise ConfigRenderError(
+                f"--agent-effort {role}: {problem}.\n"
+                f"fix: pass one of {', '.join(CLAUDE_EFFORTS)}, e.g."
+                f" --agent-effort {role}=high."
+            )
 
 
 def load_model_policy(path: str | None) -> ModelPolicy | None:
@@ -1234,6 +1273,7 @@ async def _run(
     target = target_from_args(args)
     models = parse_role_overrides(args.agent_model, "--agent-model")
     efforts = parse_role_overrides(args.agent_effort, "--agent-effort")
+    check_role_efforts(agent_cli, efforts)
     # Before the run lock and the run directory: a CLI that cannot answer
     # leaves nothing behind.
     await check_agent_cli(agent_cli, target, agents_dir, models, efforts)
@@ -1274,14 +1314,6 @@ async def _run(
         if not adapter.HAS_MAX_TURNS and args.max_turns is not None:
             logger.warning(
                 "--max-turns has no %s equivalent and is ignored", adapter.CLI_NAME
-            )
-        if not adapter.REPORTS_COST and args.budget_usd is not None:
-            # The CLI reports tokens, not cost: agent sessions book $0 and
-            # their tokens as unmeasured, so the cap sees the Kiln side only.
-            logger.warning(
-                "--budget-usd with %s caps Kiln-side spend only: its sessions"
-                " report tokens, not cost",
-                adapter.CLI_NAME,
             )
         policy_copy: Path | None = None
         if policy is not None:

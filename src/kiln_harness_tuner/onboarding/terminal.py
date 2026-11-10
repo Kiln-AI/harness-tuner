@@ -119,15 +119,18 @@ class Terminal(Protocol):
         *,
         hint: str | None = None,
         default: T | None = None,
+        back: bool = False,
     ) -> T:
         """One option's value. The rows are `aligned_rows`, and `hint`
         replaces `PICK_HINT`. The cursor starts on `default`'s option, else
         on the first one that can be picked. Ctrl-C raises
         `OnboardingStopped(130)`, and Ctrl-D `OnboardingStopped(1)`, as at
-        every prompt."""
+        every prompt. With `back`, Esc raises `GoBack`, at every prompt."""
         ...
 
-    def act(self, question: str, actions: Sequence[Action]) -> Action: ...
+    def act(
+        self, question: str, actions: Sequence[Action], *, back: bool = False
+    ) -> Action: ...
 
     def text(
         self,
@@ -136,11 +139,21 @@ class Terminal(Protocol):
         default: str = "",
         hint: str | None = None,
         validate: Callable[[str], str | None] | None = None,
+        back: bool = False,
     ) -> str:
         """A typed answer, asked again while `validate` returns an error."""
         ...
 
     def open_url(self, url: str) -> None: ...
+
+    def mark(self) -> object:
+        """A place in what the start has shown so far, for `rewind`."""
+        ...
+
+    def rewind(self, mark: object) -> None:
+        """Take away what the start showed after `mark`: a question that the
+        user went back over takes its step line with it."""
+        ...
 
 
 def _retry(label: str) -> Action:

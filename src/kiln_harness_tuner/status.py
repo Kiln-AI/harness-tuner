@@ -183,21 +183,31 @@ def _copy(scores: Sequence[str] | None) -> list[str] | None:
     return list(scores) if scores is not None else None
 
 
-def spend_split(by_lane: Mapping[str, float]) -> tuple[float, float, float]:
-    """`(claude_code, kiln, other)` from a per-lane fold — the run's own
-    `spend_by_lane` or one item's.
+def exit_detail(reason: object, detail: object) -> str | None:
+    """The `exit` event's `detail` as the run screen, the plain log and the
+    report show it: only on a `timeout`, where it says how the run ended
+    after its time limit (`orchestrator.time_limit_detail`). Other details
+    stay in the wave log: a provider error has its own line, and a crash its
+    traceback."""
+    if reason != "timeout" or not isinstance(detail, str) or not detail:
+        return None
+    return detail
+
+
+def spend_split(by_lane: Mapping[str, float]) -> tuple[float, float]:
+    """`(kiln, other)` from a per-lane fold — the run's own `spend_by_lane`
+    or one item's. The agent lane holds no money (`_on_spend`).
 
     `other` is money on a lane this vocabulary does not know. It is returned
-    rather than folded into either side so a renderer can show it: the fold
+    rather than folded into the Kiln side so a renderer can show it: the fold
     never drops money, and neither should the display."""
-    claude_code = by_lane.get(SUBSCRIPTION_LANE, 0.0)
     kiln = by_lane.get(PROVIDER_LANE, 0.0)
     other = sum(
         amount
         for lane, amount in by_lane.items()
         if lane not in (SUBSCRIPTION_LANE, PROVIDER_LANE)
     )
-    return claude_code, kiln, other
+    return kiln, other
 
 
 def plan_headline(items: Sequence[BatchItem]) -> str:
@@ -659,28 +669,36 @@ class RunStatusTracker:
         source: str = "",
         lane: str = "",
         evidence_cost_usd: float | None = None,
-        unmeasured_tokens: int = 0,
+        tokens: int = 0,
         **_: object,
     ) -> None:
-        self._status.spend_total_usd += cost_usd
-        # Evidence cost defaults to the spend itself (agent-lane events carry
-        # no separate evidence number); eval-lane events say what they read.
-        self._status.evidence_spend_usd += (
-            cost_usd if evidence_cost_usd is None else float(evidence_cost_usd)
-        )
-        self._status.unmeasured_tokens += int(unmeasured_tokens or 0)
         # The fold keeps its dimensions — a missing
         # source/lane lands under "unknown", never dropped.
         source_key = str(source) if source else "unknown"
         # The event's own lane always wins. Only when it carries none — every
         # `spend` event written before the lane field existed — is the lane
         # derived from the source (`lane_for_source`), which is
-        # what makes the Claude-Code/Kiln split recoverable on historical wave
+        # what makes the agent/Kiln split recoverable on historical wave
         # logs instead of "unknown".
         lane_key = str(lane) if lane else (lane_for_source(source_key) or "unknown")
+        source_fold = self._status.spend_by_source.setdefault(source_key, {})
+        if lane_key == SUBSCRIPTION_LANE:
+            # The agent sessions run on the agent CLI's own account: tokens
+            # only. Any dollar figure on the event (an older wave log) is not
+            # money the run spent, and no total, row or item carries it.
+            if tokens:
+                self._status.agent_tokens += int(tokens)
+                by_source = self._status.agent_tokens_by_source
+                by_source[source_key] = by_source.get(source_key, 0) + int(tokens)
+            return
+        self._status.spend_total_usd += cost_usd
+        # Evidence cost defaults to the spend itself; eval-lane events say
+        # what they read.
+        self._status.evidence_spend_usd += (
+            cost_usd if evidence_cost_usd is None else float(evidence_cost_usd)
+        )
         by_lane = self._status.spend_by_lane
         by_lane[lane_key] = by_lane.get(lane_key, 0.0) + cost_usd
-        source_fold = self._status.spend_by_source.setdefault(source_key, {})
         source_fold[lane_key] = source_fold.get(lane_key, 0.0) + cost_usd
         item = self._find_item(item_id) if item_id is not None else None
         if item is not None:
@@ -731,5 +749,6 @@ class RunStatusTracker:
         ):
             self._status.baseline_history.append(decision.winner_rc_id)
 
-    def _on_exit(self, reason: str, **_: object) -> None:
+    def _on_exit(self, reason: str, detail: object = None, **_: object) -> None:
         self._status.exit_reason = reason
+        self._status.exit_detail = exit_detail(reason, detail)

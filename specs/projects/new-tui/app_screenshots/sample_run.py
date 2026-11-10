@@ -99,15 +99,22 @@ def val_table(rc: str, parent: str) -> CandidateValTable:
     )
 
 
+# The agent tokens for each unit of `agents`. An agent session books tokens,
+# not dollars.
+AGENT_TOKENS = 500_000
+
+
 def _spend(run: Run, kiln: float, agents: float, item: str | None = None) -> None:
     fields = {"item_id": item} if item else {}
     run.emit("spend", source="eval", lane="provider", cost_usd=kiln, **fields)
     lane = "subscription_equivalent"
-    run.emit("spend", source="agent", lane=lane, cost_usd=agents, **fields)
+    tokens = round(agents * AGENT_TOKENS)
+    run.emit("spend", source="agent", lane=lane, tokens=tokens, **fields)
 
 
 def _spend_each(run: Run, spends: dict[str, tuple[float, float]]) -> None:
-    """Each item's own spend, (Kiln, agents): its card shows the total."""
+    """Each item's own spend, (API keys USD, agents in `AGENT_TOKENS`): its
+    card shows the API keys money."""
     for item, (kiln, agents) in spends.items():
         _spend(run, kiln, agents, item)
 
@@ -619,7 +626,9 @@ def done() -> Run:
     land(run, "w7-2", row("e2", 0.70, 0.76, parent=parent), parent=parent)
     run.at(156)
     gate(run, 7, parent, RC["w7-2"], winner=RC["w7-2"])
-    run.at(161).emit("exit", reason="timeout")
+    run.at(161).emit(
+        "exit", reason="timeout", detail="finished wave 6, then the wrap-up"
+    )
     run.emit("phase_start", name="reporting")
     _spend(run, 0.4, 1.6)
     run.at(176).emit("phase_end", name="reporting", elapsed_secs=900)

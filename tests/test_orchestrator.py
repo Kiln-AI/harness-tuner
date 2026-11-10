@@ -28,7 +28,7 @@ from kiln_harness_tuner.orchestrator import (
     _eval_train_sizes,
     _run_wave,
     orchestrate,
-    should_wrap,
+    time_limit_detail,
 )
 from kiln_harness_tuner.schemas import (
     BaselineRef,
@@ -985,7 +985,7 @@ async def test_planner_input_carries_capacity_and_measured_lever_costs():
     assert first.lever_costs == {}
     assert set(second.lever_costs) == {"prompt"}  # fix_item's technique
     assert second.lever_costs["prompt"].n == 1
-    assert second.lever_costs["prompt"].mean_build_usd >= 0
+    assert second.lever_costs["prompt"].mean_build_tokens >= 0
 
 
 async def test_rejection_write_failure_never_fails_the_gate():
@@ -1149,12 +1149,26 @@ async def test_double_tripwire_exits_after_promotion_runs():
 # ---- budget / wrap-up ----
 
 
-async def test_wrap_up_wave_is_planned_and_is_the_last():
-    # clock: deadline calc, the two pre-flight phases (preflight + setup)
-    # start/end, w1 boundary, w1 should_wrap, w1 planning phase start/end, w2
-    # boundary, w2 should_wrap (1200s left: under the 30-min window, over
-    # the 15-min floor → wrap-up).
-    ctx = make_ctx(clock=FakeClock(0, 0, 0, 0, 0, 0, 0, 9600, 9600), eval_building=True)
+class _SetClock:
+    """A clock the test moves: a dispatch response sets `t` to make the time
+    limit pass at a known point of the run."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+LIMIT_SECS = 180 * 60  # `timeout_mins=180`
+
+
+async def test_waves_keep_starting_until_the_limit():
+    # Old rules stopped here at wave 1: 800s left is under the 15-minute
+    # start floor and inside the 30-minute wrap-up window. Now every wave
+    # before the limit is a normal wave, however little time is left.
+    clock = _SetClock()
+    ctx = make_ctx(clock=clock, eval_building=True)  # type: ignore[arg-type]
     seed_baseline(ctx.kiln)
     seed_issue(ctx.kiln)
     d = ctx.dispatch
@@ -1162,43 +1176,139 @@ async def test_wrap_up_wave_is_planned_and_is_the_last():
         "batch_plan",
         ok(make_plan(eval_only_item("w1-1"))),
         ok(make_plan(eval_only_item("w2-1"))),
+        ok(make_plan(eval_only_item("w3-1"))),
+        ok(make_plan(loop_exit="nothing pooled to merge")),
     )
-    d.queue("eval_build", ok(eval_report()), ok(eval_report()))
+
+    def build_at(t: float):
+        def respond(req):
+            clock.t = t
+            return ok(eval_report())
+
+        return respond
+
+    # Wave 1 ends with 800s left, wave 2 with 10s left, wave 3 at the limit.
+    d.queue(
+        "eval_build",
+        build_at(LIMIT_SECS - 800),
+        build_at(LIMIT_SECS - 10),
+        build_at(LIMIT_SECS),
+    )
 
     result = await orchestrate(ctx, "", timeout_mins=180)
-    assert result == "wrap_up"
+
+    assert result == "timeout"
     plan_inputs = d.calls_to("batch_plan")
-    assert len(plan_inputs) == 2  # never a second wrap-up wave
-    assert [p.should_wrap_up for p in plan_inputs] == [False, True]
+    assert [p.should_wrap_up for p in plan_inputs] == [False, False, False, True]
+    (exit_event,) = [f for k, f in ctx.log.events if k == "exit"]
+    assert exit_event["detail"] == "finished wave 3; no wrap-up: nothing to merge"
+    assert exit_event["loop_exit"] == "nothing pooled to merge"
 
 
-async def test_under_the_floor_no_wave_is_planned():
-    # 800s left is inside the wrap-up window
-    # but under the 15-min floor — a planner session then costs $2 for a
-    # plan whose arms are cancelled on arrival. Exit to the report instead.
-    ctx = make_ctx(
-        clock=FakeClock(0, 0, 0, 0, 0, 0, 0, 10000, 10000), eval_building=True
-    )
-    seed_baseline(ctx.kiln)
-    seed_issue(ctx.kiln)
+async def test_the_wave_in_flight_at_the_limit_completes_then_one_wrap_up():
+    # The limit passes while wave 1's item is measuring. Nothing is
+    # cancelled: the item gets its analysis, the promotion gate measures it
+    # on val and promotes it, and then exactly one wrap-up wave runs.
+    clock = _SetClock()
+    ctx = make_ctx(gate_agent="auto", clock=clock, eval_building=True)  # type: ignore[arg-type]
+    _auto_scenario(ctx)
     d = ctx.dispatch
-    d.queue("batch_plan", ok(make_plan(eval_only_item("w1-1"))))
+    d.queues["batch_plan"] = [
+        ok(make_plan(fix_item("w1-1"))),
+        ok(make_plan(eval_only_item("w2-1"))),  # the wrap-up's work
+    ]
+
+    def build_then_jump(req):
+        clock.t = LIMIT_SECS + 60  # the limit passes during the measurement
+        return rc_ok("rc_cand")
+
+    d.queues["create_experiment_rc"] = [build_then_jump]
     d.queue("eval_build", ok(eval_report()))
 
     result = await orchestrate(ctx, "", timeout_mins=180)
 
     assert result == "timeout"
-    assert len(d.calls_to("batch_plan")) == 1  # no wrap-up planner session
+    kinds = [k for k, _ in ctx.log.events]
+    assert "deadline_cancel" not in kinds and "deadline_grace" not in kinds
+    assert "promotion_skipped" not in kinds
+    assert len(d.calls_to("analyze_experiment_results")) == 1
+    assert [j for j in ctx.kiln.job_invocations if j[2] == "val"]
+    assert ctx.kiln.memories["mem_baseline"]["tags"] == ["baseline", "rc_rc_cand"]
+    plan_inputs = d.calls_to("batch_plan")
+    assert [p.should_wrap_up for p in plan_inputs] == [False, True]  # one wrap-up
+    assert len(d.calls_to("eval_build")) == 1  # the wrap-up wave ran its item
     (exit_event,) = [f for k, f in ctx.log.events if k == "exit"]
-    assert "floor" in exit_event["detail"]
+    assert exit_event["reason"] == "timeout"
+    assert exit_event["detail"] == "finished wave 1, then the wrap-up"
 
 
-async def test_hard_deadline_no_wave_starts_past_it():
-    ctx = make_ctx(clock=FakeClock(0, 10800))
+async def test_no_tripwire_backoff_after_the_limit():
+    # Wave 1 trips once and ends past the limit: the wrap-up wave follows at
+    # once, with no 5-minute backoff before it.
+    clock = _SetClock()
+    ctx = make_ctx(clock=clock)  # type: ignore[arg-type]
     seed_baseline(ctx.kiln)
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(fix_item("w1-1"), fix_item("w1-2"))),
+        ok(make_plan(loop_exit="nothing pooled")),
+    )
+
+    def fail_past_the_limit(req):
+        clock.t = LIMIT_SECS + 60
+        return infra("parse_failure")
+
+    d.queue("create_experiment_rc", fail_past_the_limit, fail_past_the_limit)
+
     result = await orchestrate(ctx, "", timeout_mins=180)
+
     assert result == "timeout"
-    assert ctx.dispatch.calls == []  # not even a planner call
+    assert [k for k, _ in ctx.log.events].count("tripwire") == 1
+    assert 300.0 not in ctx.sleeps
+    assert [p.should_wrap_up for p in d.calls_to("batch_plan")] == [False, True]
+
+
+async def test_a_limit_passed_during_setup_gets_only_the_wrap_up():
+    # deadline calc, then the clock reads past the limit: no normal wave.
+    ctx = make_ctx(clock=FakeClock(0, LIMIT_SECS))
+    seed_baseline(ctx.kiln)
+    ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="nothing to merge")))
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "timeout"
+    (plan_input,) = ctx.dispatch.calls_to("batch_plan")
+    assert plan_input.should_wrap_up is True
+    (exit_event,) = [f for k, f in ctx.log.events if k == "exit"]
+    assert exit_event["detail"] == "finished setup; no wrap-up: nothing to merge"
+
+
+async def test_the_budget_still_stops_a_run_past_its_time_limit():
+    # Both limits are passed at the boundary: the budget is the hard
+    # ceiling, so no wrap-up wave starts.
+    ctx = make_ctx(clock=FakeClock(0, LIMIT_SECS))
+    seed_baseline(ctx.kiln)
+    ctx.spend = SpendMeter()
+    ctx.spend.total = 12.0
+    ctx.budget_usd = 10.0
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "budget_exhausted"
+    assert ctx.dispatch.calls_to("batch_plan") == []
+
+
+@pytest.mark.parametrize(
+    ("waves_done", "wrapped", "detail"),
+    [
+        (0, True, "finished setup, then the wrap-up"),
+        (3, True, "finished wave 3, then the wrap-up"),
+        (2, False, "finished wave 2; no wrap-up: nothing to merge"),
+    ],
+)
+def test_the_time_limit_detail_reads_as_words(waves_done, wrapped, detail):
+    assert time_limit_detail(waves_done, wrapped) == detail
 
 
 # ---- startup ----
@@ -1740,11 +1850,11 @@ async def test_eval_building_off_the_wave_runner_drops_what_any_path_brings():
     # did not come through the planning call is dropped there too.
     ctx = make_ctx()
 
-    outcomes, deadline_hit = await _run_wave(
+    outcomes = await _run_wave(
         ctx, [eval_only_item("w1-1")], BaselineRef(rc_id="rc_base"), [], 1
     )
 
-    assert (outcomes, deadline_hit) == ([], False)
+    assert outcomes == []
     assert ctx.dispatch.calls == []
     assert [f["item_id"] for f in dropped_events(ctx)] == ["w1-1"]
 
@@ -1856,7 +1966,7 @@ async def test_run_start_and_enriched_wave_start_events():
     )
     ctx.dispatch.queue(
         "batch_plan",
-        ok(wave_plan, cost_usd=0.4),
+        ok(wave_plan, cost_usd=0.4, tokens=4000),
         ok(make_plan(loop_exit="done")),
     )
     ctx.dispatch.queue("create_experiment_rc", rc_ok("rc_cand"))
@@ -1890,17 +2000,21 @@ async def test_run_start_and_enriched_wave_start_events():
     # Each entry also carries the item's details (`status.item_details`).
     assert wave_start["items"] == [item_summary(i) for i in wave_plan.items]
     # Dispatch spend rides the wave log/UI via `spend` events.
-    spends = [(f["source"], f["cost_usd"]) for k, f in ctx.log.events if k == "spend"]
-    assert ("batch_plan", 0.4) in spends
+    # Agent sessions book tokens: the CLI's $0.40 is not booked.
+    spends = [
+        (f["source"], f.get("cost_usd"), f.get("tokens"))
+        for k, f in ctx.log.events
+        if k == "spend"
+    ]
+    assert ("batch_plan", None, 4000) in spends
 
 
 async def test_planning_phase_brackets_every_batch_plan_dispatch():
     # Every batch_plan gets a phase_start with a display label and a matching
-    # phase_end with elapsed; the wrap-up wave says so. Four leading zeros:
-    # the preflight and setup phases each read the clock twice before wave 1.
-    ctx = make_ctx(
-        clock=FakeClock(0, 0, 0, 0, 0, 0, 0, 0, 0, 9600, 9600), eval_building=True
-    )
+    # phase_end with elapsed; the wrap-up wave says so. Wave 1's build ends
+    # past the time limit, so wave 2 is the wrap-up.
+    clock = _SetClock()
+    ctx = make_ctx(clock=clock, eval_building=True)  # type: ignore[arg-type]
     seed_baseline(ctx.kiln)
     seed_issue(ctx.kiln)
     d = ctx.dispatch
@@ -1909,7 +2023,12 @@ async def test_planning_phase_brackets_every_batch_plan_dispatch():
         ok(make_plan(eval_only_item("w1-1"))),
         ok(make_plan(eval_only_item("w2-1"))),
     )
-    d.queue("eval_build", ok(eval_report()), ok(eval_report()))
+
+    def build_past_the_limit(req):
+        clock.t = LIMIT_SECS
+        return ok(eval_report())
+
+    d.queue("eval_build", build_past_the_limit, ok(eval_report()))
     await orchestrate(ctx, "", timeout_mins=180)
 
     starts = [f for k, f in ctx.log.events if k == "phase_start"]
@@ -2078,7 +2197,7 @@ async def test_val_pass_spend_reaches_accounting():
     ]
     ctx.dispatch.queue("promote_best", decision("rc_cand"))
     await orchestrate(ctx, "", timeout_mins=180)
-    spends = {f["source"]: f["cost_usd"] for k, f in ctx.log.events if k == "spend"}
+    spends = {f["source"]: f.get("cost_usd") for k, f in ctx.log.events if k == "spend"}
     assert spends["val_pass"] == pytest.approx(0.6)  # candidate 0.4 + fill 0.2
     # Cost split: val jobs are provider money; the
     # promote_best dispatch is subscription-equivalent quota burn.
@@ -2116,11 +2235,9 @@ async def test_preflight_runs_first_before_setup_and_any_planning():
     # symmetric with baseline_found/janitor).
     (preflight_fields,) = [f for k, f in ctx.log.events if k == "preflight"]
     assert preflight_fields["kiln_host"] == "http://h"
-    # The preflight's cost reaches the spend accounting, lane-tagged.
-    assert ("preflight", "subscription_equivalent", 0.0) in [
-        (f["source"], f["lane"], f["cost_usd"])
-        for k, f in ctx.log.events
-        if k == "spend"
+    # The preflight's tokens reach the spend accounting, lane-tagged.
+    assert ("preflight", "subscription_equivalent", 0) in [
+        (f["source"], f["lane"], f["tokens"]) for k, f in ctx.log.events if k == "spend"
     ]
 
 
@@ -2251,14 +2368,6 @@ async def test_a_measure_item_runs_in_a_wave_and_never_reaches_promotion():
 # ---- gate floor, budget, always-a-report ----
 
 
-def test_should_wrap_uses_the_projected_wave_time():
-    clock = lambda: 0.0  # noqa: E731
-    assert not should_wrap(3600.0, clock)  # 60 min left, static 30-min window
-    assert should_wrap(3600.0, clock, projected_wave_secs=4000.0)
-    assert should_wrap(1000.0, clock)  # inside the static window
-    assert not should_wrap(0.0, clock, projected_wave_secs=4000.0)  # past T-0
-
-
 async def test_candidate_fill_failure_puts_the_hole_on_the_wire():
     ctx = make_ctx()
     kiln = ctx.kiln
@@ -2345,13 +2454,25 @@ async def test_budget_exhausted_exits_before_a_wave():
     assert exit_event["spent_usd"] == pytest.approx(12.0)
 
 
+class _BuildAsKilnSpend:
+    """Books $6 of Kiln spend with each eval build: the budget counts the
+    Kiln lane only, and this is the cheapest wave with Kiln spend."""
+
+    def __init__(self, meter: SpendMeter) -> None:
+        self.meter = meter
+
+    def event(self, kind: str, **fields: object) -> None:
+        if kind == "spend" and fields.get("source") == "eval_build":
+            self.meter.event("spend", source="eval_jobs", lane="provider", cost_usd=6.0)
+
+
 async def test_budget_within_one_projected_wave_forces_wrap_up():
     ctx = make_ctx(eval_building=True)
     seed_baseline(ctx.kiln)
     seed_issue(ctx.kiln)
     recording = ctx.log
     meter = SpendMeter()
-    ctx.log = FanoutLog(recording, meter)
+    ctx.log = FanoutLog(recording, meter, _BuildAsKilnSpend(meter))
     ctx.analyzer.log = ctx.log
     ctx.spend = meter
     ctx.budget_usd = 10.0
@@ -2439,104 +2560,8 @@ async def test_quota_circuit_break_exits_cleanly_with_the_fallback_report():
     assert "requires more credits" in exit_event["detail"]
 
 
-async def test_run_wave_grants_an_analyzing_item_its_grace_at_the_deadline():
-    # An item ANALYZING at the deadline has paid for its build
-    # and drives; the analysis is the one session between that spend and a
-    # stored verdict. It keeps running (bounded); a MEASURING sibling is
-    # cancelled at once.
-    import asyncio
-
-    from kiln_harness_tuner.orchestrator import _run_wave
-    from kiln_harness_tuner.schemas import BaselineRef, ItemOutcome, RemeasureItem
-
-    ctx = make_ctx()
-    ctx.kiln.evals["eval_1"] = make_eval("eval_1", "ec_1")
-    ctx.kiln.job_behaviors[("eval_1", "rc_old", "train")] = ["hang"]
-    measuring = RemeasureItem(
-        id="w1-1", type="remeasure", rc_id="rc_old", eval_ids=["eval_1"], reason="r"
-    )
-
-    finished = asyncio.Event()
-
-    async def analyzing_item(ctx_, item, baseline, lineage, wave):
-        ctx_.item_states[item.id] = "analyzing"
-        await asyncio.sleep(0.2)  # past the deadline, inside the grace
-        finished.set()
-        return ItemOutcome(
-            item=item,
-            status="completed",
-            rc_id="rc_x",
-            experiment_memory_id=None,
-            result=None,
-            infra_error=None,
-        )
-
-    import kiln_harness_tuner.orchestrator as orch
-
-    real = orch.execute_plan_item
-
-    async def routed(ctx_, item, baseline, lineage, wave):
-        if item.id == "w1-2":
-            return await analyzing_item(ctx_, item, baseline, lineage, wave)
-        return await real(ctx_, item, baseline, lineage, wave)
-
-    orch.execute_plan_item = routed
-    try:
-        analyzing = RemeasureItem(
-            id="w1-2", type="remeasure", rc_id="rc_y", eval_ids=["eval_1"], reason="r"
-        )
-        outcomes, deadline_hit = await _run_wave(
-            ctx,
-            [measuring, analyzing],
-            BaselineRef(rc_id="rc_base"),
-            [],
-            1,
-            deadline=0.05,
-        )
-    finally:
-        orch.execute_plan_item = real
-
-    assert deadline_hit is True
-    assert finished.is_set()
-    by_id = {o.item.id: o for o in outcomes}
-    assert by_id["w1-1"].status == "failed_infra"  # cancelled at the deadline
-    assert by_id["w1-2"].status == "completed"  # graced through its analysis
-    kinds = [k for k, _ in ctx.log.events]
-    assert "deadline_grace" in kinds
-    (cancel,) = [f for k, f in ctx.log.events if k == "deadline_cancel"]
-    assert cancel["item_ids"] == ["w1-1"]
-
-
-async def test_run_wave_cancels_in_flight_items_at_the_deadline():
-    from kiln_harness_tuner.orchestrator import _run_wave
-    from kiln_harness_tuner.schemas import BaselineRef, RemeasureItem
-
-    ctx = make_ctx()
-    ctx.kiln.evals["eval_1"] = make_eval("eval_1", "ec_1")
-    ctx.kiln.job_behaviors[("eval_1", "rc_old", "train")] = ["hang"]
-    item = RemeasureItem(
-        id="w1-1",
-        type="remeasure",
-        rc_id="rc_old",
-        eval_ids=["eval_1"],
-        reason="top up",
-    )
-
-    outcomes, deadline_hit = await _run_wave(
-        ctx, [item], BaselineRef(rc_id="rc_base"), [], 1, deadline=0.05
-    )
-
-    assert deadline_hit is True
-    [outcome] = outcomes
-    assert outcome.status == "failed_infra"
-    assert outcome.infra_error.error_class == "timeout"
-    assert "deadline" in outcome.infra_error.detail
-    (cancel_event,) = [f for k, f in ctx.log.events if k == "deadline_cancel"]
-    assert cancel_event["item_ids"] == ["w1-1"]
-
-
 # ---- the code-rule gate (gate_agent="auto"), gate isolation,
-# ---- the hard deadline at the gate, the contract preflight, sibling cancel
+# ---- the contract preflight, sibling cancel
 
 
 def _seed_val_win(kiln, cand: str = "rc_cand") -> None:
@@ -2682,27 +2707,6 @@ async def test_gate_skips_an_uncomparable_eval_instead_of_crashing():
     # No val job was even started for the eval nobody can compare.
     assert not [j for j in kiln.job_invocations if j[0] == "eval_c"]
     assert kiln.memories["mem_baseline"]["tags"] == ["baseline", "rc_rc_cand"]
-
-
-async def test_gate_is_skipped_past_the_deadline_and_wins_stay_pooled():
-    state = {"t": 0.0}
-    ctx = make_ctx(gate_agent="auto", clock=lambda: state["t"])  # type: ignore[arg-type]
-    _auto_scenario(ctx)
-
-    def analysis_then_jump(req):
-        state["t"] = 10**9  # the deadline passes while the item was measuring
-        return ok(make_result())
-
-    ctx.dispatch.queues["analyze_experiment_results"] = [analysis_then_jump]
-
-    result = await orchestrate(ctx, "", timeout_mins=180)
-
-    assert result == "timeout"
-    (skipped,) = [f for k, f in ctx.log.events if k == "promotion_skipped"]
-    assert skipped["reason"].startswith("deadline reached")
-    assert skipped["candidate_rc_ids"] == ["rc_cand"]
-    assert not [j for j in ctx.kiln.job_invocations if j[2] == "val"]
-    assert ctx.kiln.memories["mem_baseline"]["tags"] == ["baseline", "rc_rc_base"]
 
 
 async def test_contract_preflight_fails_fast_on_a_moved_statistics_shape():
@@ -2860,7 +2864,7 @@ async def test_agent_lane_breaker_books_the_spend_that_hit_the_wall():
     def wall(req):
         raise ProviderQuotaError(
             ErrorInfo(error_class="quota_exhausted", detail="usage limit reached"),
-            usage=Usage(cost_usd=1.25, tokens=10, unmeasured_tokens=7),
+            usage=Usage(cost_usd=1.25, tokens=10),
         )
 
     ctx.dispatch.queue("batch_plan", wall)
@@ -2878,7 +2882,9 @@ async def test_agent_lane_breaker_books_the_spend_that_hit_the_wall():
         for k, f in ctx.log.events
         if k == "spend" and f["source"] == "circuit_breaker"
     ]
-    assert spend["cost_usd"] == 1.25 and spend["unmeasured_tokens"] == 7
+    # Tokens, never the CLI's dollars.
+    assert "cost_usd" not in spend
+    assert spend["tokens"] == 10
 
 
 async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):
@@ -2908,3 +2914,49 @@ async def test_snapshot_memory_writes_the_store_and_logs_it(tmp_path):
     events = [f for k, f in ctx.log.events if k == "memory_snapshot"]
     assert [e["label"] for e in events] == ["w1-plan-before", "w1-plan-after"]
     assert events[1]["records"] == 3 and events[1]["file"] == files[1]
+
+
+def test_the_spend_meter_never_counts_the_agent_lane():
+    # The agents run on the agent CLI's own account: the meter sums their
+    # tokens for information, and the budget reads the Kiln lane alone.
+    meter = SpendMeter()
+    meter.event(
+        "spend",
+        source="batch_plan",
+        lane="subscription_equivalent",
+        cost_usd=4.0,
+        tokens=900,
+    )
+    meter.event("spend", source="preflight", cost_usd=1.0, tokens=100)
+    meter.event("spend", source="eval_jobs", lane="provider", cost_usd=0.5)
+    assert meter.total == pytest.approx(0.5)
+    assert meter.provider_total == pytest.approx(0.5)
+    assert meter.agent_tokens == 1000
+
+
+async def test_agent_sessions_leave_the_budget_alone():
+    # The wrap-up test's run with the $6 on the agent side: a build session
+    # is not budget spend, so wave 2 is not the wrap-up.
+    ctx = make_ctx(eval_building=True)
+    seed_baseline(ctx.kiln)
+    seed_issue(ctx.kiln)
+    recording = ctx.log
+    meter = SpendMeter()
+    ctx.log = FanoutLog(recording, meter)
+    ctx.analyzer.log = ctx.log
+    ctx.spend = meter
+    ctx.budget_usd = 10.0
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(eval_only_item("w1-1"))),
+        ok(make_plan(loop_exit="stop")),
+    )
+    d.queue("eval_build", ok(eval_report(), cost_usd=6.0))
+
+    result = await orchestrate(ctx, "", timeout_mins=180)
+
+    assert result == "stop"
+    plan_inputs = d.calls_to("batch_plan")
+    assert [p.should_wrap_up for p in plan_inputs] == [False, False]
+    assert meter.total == pytest.approx(0.0)

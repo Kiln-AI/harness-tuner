@@ -346,7 +346,12 @@ promotion pass together with the planner's `promotion_candidate` intent.
   rubric), **environment** (a tool server, the provider or the task's
   world failed or answered wrongly), or **noise** (the same config passes
   it on another run). Compare with `get_train_expected` before you call
-  one eval data. A finding that lumps the classes together sends a planner
+  one eval data. An expected output that applies a rule the task's
+  instructions do not state is not eval data: the expected outputs are the
+  owner's policy, so a config that misses that rule is a config failure.
+  Call it eval data only when the expected output contradicts the
+  instructions, or contradicts the expected outputs of the same kind of
+  input. A finding that lumps the classes together sends a planner
   to fix the config for an eval's fault.
   **A judge may read the config.** A judge that scores the full trace sees
   the tool results, and a skill the model loaded is one of them. When the

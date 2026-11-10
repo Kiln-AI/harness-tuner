@@ -22,9 +22,9 @@ from kiln_harness_tuner.onboarding.questions import (
     advanced_changes,
     agents_text,
     budget_default,
-    budget_text,
-    duration_text,
     guidance_text,
+    limits_budget_text,
+    limits_time_text,
     number_text,
     objective_text,
 )
@@ -144,9 +144,8 @@ def summary_lines(
     ]
     if baseline is not None:
         lines.append(("Starts from", _baseline_text(baseline)))
-    limits = (
-        f"{budget_text(answers.budget_usd)} · {duration_text(answers.timeout_mins)}"
-    )
+    budget = limits_budget_text(answers.budget_usd)
+    limits = f"{budget} · {limits_time_text(answers.timeout_mins)}"
     return [
         *lines,
         ("Improve", objective_text(answers.objective)),

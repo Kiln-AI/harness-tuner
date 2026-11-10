@@ -17,12 +17,23 @@ import re
 import shlex
 import shutil
 from collections.abc import Callable, Collection
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from typing import TypeVar
 
-from kiln_harness_tuner.dispatch.agent_cli import AgentCli, parse_agent_cli
+from kiln_harness_tuner.dispatch.agent_cli import (
+    CLAUDE_EFFORTS,
+    CODEX_EFFORT_KEY,
+    AgentCli,
+    parse_agent_cli,
+)
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.onboarding.agent_models import (
+    AGENT_MODELS,
+    CODEX_MODELS_URL,
+    AgentModel,
+)
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
+from kiln_harness_tuner.onboarding.errors import GoBack
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
     Action,
@@ -41,6 +52,13 @@ T = TypeVar("T")
 NO_CAP = "none"
 BUDGET_ERROR = "Enter an amount in USD, like 50, or none"
 DURATION_ERROR = "Enter a time like 90m or 12h"
+# The shortest time limit, for the question and for `--timeout-mins`. Setup
+# runs before the first wave and takes a few minutes. A shorter limit passes
+# during setup, and the run gets only the wrap-up wave.
+MIN_TIME_LIMIT_MINS = 10
+TIME_LIMIT_ERROR = (
+    f"Enter at least {MIN_TIME_LIMIT_MINS} minutes: setup alone takes a few"
+)
 FRACTION_ERROR = "Enter a fraction above 0 and at most 1, like 0.1 for 10%"
 COUNT_ERROR = "Enter a whole number, 0 or more"
 MODEL_ERROR = "Enter one model name, with no spaces"
@@ -74,7 +92,7 @@ def parse_budget(text: str) -> float | None:
 def parse_duration(text: str) -> int:
     """Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), as
     whole minutes, rounded to the nearest: the flag takes whole minutes. At
-    least 1 minute."""
+    least `MIN_TIME_LIMIT_MINS`."""
     match = _DURATION.fullmatch(text.strip().lower())
     if match is None:
         raise ValueError(DURATION_ERROR)
@@ -82,7 +100,15 @@ def parse_duration(text: str) -> int:
     minutes = float(number) * (60 if unit == "h" else 1)
     if not math.isfinite(minutes) or minutes < 1:
         raise ValueError(DURATION_ERROR)
-    return math.floor(minutes + 0.5)
+    return check_time_limit(math.floor(minutes + 0.5))
+
+
+def check_time_limit(minutes: int) -> int:
+    """`minutes`, if it is at least `MIN_TIME_LIMIT_MINS`. The time question
+    and `--timeout-mins` both use this check."""
+    if minutes < MIN_TIME_LIMIT_MINS:
+        raise ValueError(TIME_LIMIT_ERROR)
+    return minutes
 
 
 def parse_fraction(text: str) -> float:
@@ -140,6 +166,12 @@ def duration_text(minutes: int) -> str:
     if minutes % 60 == 0:
         return plural(minutes // 60, "hour")
     return plural(minutes, "minute")
+
+
+def limits_time_text(minutes: int) -> str:
+    """The time limit on the summary's Limits line: `about 12 hours`. The
+    limit is approximate (`TIME_HINT`)."""
+    return f"about {duration_text(minutes)}"
 
 
 def duration_default(minutes: int) -> str:
@@ -207,7 +239,10 @@ class AgentKind:
     model_option: str
     default_model: str  # "" = the CLI's own default
     model_hint: str
-    reports_cost: bool
+    # The thinking levels the picker lists. Empty: the level is typed.
+    efforts: tuple[str, ...] = ()
+    other_effort: bool = False  # Other… types a level the list doesn't have
+    default_effort: str = "high"  # the dispatcher's `DEFAULT_EFFORT`
 
     @property
     def command(self) -> str:
@@ -217,15 +252,36 @@ class AgentKind:
 # In the order the picker lists them. Only cli.py may name the dispatchers
 # (tests/test_dispatch_boundary.py), so their facts are restated here, and a
 # test holds the two equal: Claude Code's default model is the dispatcher's
-# `AGENT_MODEL`, and `reports_cost` its `REPORTS_COST` (a CLI that reports
-# tokens and no cost can't count toward the budget).
-#
-# The hints say what a blank answer does only where it is the CLI's own
-# default. A blank Claude Code model is the dispatcher's pinned `AGENT_MODEL`,
-# not Claude Code's own default, so its hint says nothing about a blank.
+# `AGENT_MODEL`, and `default_effort` its `DEFAULT_EFFORT`.
+# The thinking levels every listed Codex model takes. Codex also takes
+# `none`, `minimal` and, on some models, `ultra`, which Other can type.
+_CODEX_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+# The first model question a CLI asks says what the model is for: the
+# picker's hint (`_model_hint`), or the typed name's hint for a CLI with no
+# list. A hint says what a blank answer does only where it is the CLI's own
+# default, and never names the value in the field. A blank Claude Code model
+# is the dispatcher's pinned `AGENT_MODEL`, not Claude Code's own default,
+# so its hint says nothing about a blank.
 _MODEL_QUESTION = (
     "Which model will be used to plan and implement tuning experiments."
     " We suggest frontier quality"
+)
+_MODEL_INTROS = {
+    "claude": f"{_MODEL_QUESTION} (Opus, Fable, etc).",
+    "codex": f"{_MODEL_QUESTION} (Astra, Terra, etc).",
+}
+_CLAUDE_MODEL_HINT = (
+    "An alias, such as sonnet, or a full model name, such as claude-opus-5-5."
+)
+_CODEX_MODEL_HINT = (
+    "Blank uses Codex's default model. For example gpt-6.1-sol. The models:"
+    f" {CODEX_MODELS_URL}"
+)
+_OPENCODE_MODEL_HINT = (
+    f"{_MODEL_QUESTION} (Fable, Opus, Astra, etc). Models are PROVIDER/MODEL, for"
+    " example zai-coding-plan/glm-5.3-flash. `opencode models` lists them."
+    " Blank uses OpenCode's default model."
 )
 AGENT_KINDS = (
     AgentKind(
@@ -234,8 +290,8 @@ AGENT_KINDS = (
         "-p",
         "--model",
         "opus",
-        f"{_MODEL_QUESTION} (Opus, Fable, etc).",
-        reports_cost=True,
+        _CLAUDE_MODEL_HINT,
+        efforts=CLAUDE_EFFORTS,
     ),
     AgentKind(
         "codex",
@@ -243,19 +299,11 @@ AGENT_KINDS = (
         "exec",
         "-m",
         "",
-        f"{_MODEL_QUESTION} (Astra, Terra, etc). Blank uses Codex's default model.",
-        reports_cost=False,
+        _CODEX_MODEL_HINT,
+        efforts=_CODEX_LEVELS,
+        other_effort=True,
     ),
-    AgentKind(
-        "opencode",
-        "OpenCode",
-        "run",
-        "-m",
-        "",
-        f"{_MODEL_QUESTION} (Fable, Opus, Astra, etc). Models are PROVIDER/MODEL."
-        " Blank uses OpenCode's default model.",
-        reports_cost=True,
-    ),
+    AgentKind("opencode", "OpenCode", "run", "-m", "", _OPENCODE_MODEL_HINT),
 )
 _KINDS = {agent.kind: agent for agent in AGENT_KINDS}
 
@@ -267,15 +315,24 @@ def installed_agent_clis(
     return tuple(agent.kind for agent in AGENT_KINDS if which(agent.kind) is not None)
 
 
-def agent_command(kind: str, model: str) -> str:
-    """The `--agent-cli` command for `kind` with `model`. The model is left
-    out when it is the CLI's default, so the command reads as it would be
-    typed."""
+def agent_command(kind: str, model: str, effort: str = "") -> str:
+    """The `--agent-cli` command for `kind` with `model` and `effort`. Each
+    is left out when it is the CLI's default, so the command reads as it
+    would be typed. Codex takes its effort as a config key."""
     agent = _KINDS[kind]
     tokens = [agent.kind, agent.mode]
     if model and model != agent.default_model:
         tokens += [agent.model_option, model]
+    if effort and effort != agent.default_effort:
+        if kind == "codex":
+            tokens += ["-c", f"{CODEX_EFFORT_KEY}={effort}"]
+        else:
+            tokens += [EFFORT_OPTIONS[kind], effort]
     return shlex.join(tokens)
+
+
+# The `--agent-cli` option that names the effort, for the CLIs that have one.
+EFFORT_OPTIONS = {"claude": "--effort", "opencode": "--variant"}
 
 
 def _parsed(command: str) -> AgentCli | None:
@@ -296,6 +353,13 @@ def agents_text(command: str) -> str:
     model = parsed.model or agent.default_model or "default model"
     effort = f" · effort {parsed.effort}" if parsed.effort else ""
     return f"{agent.name} ({base}) · {model}{effort}"
+
+
+def limits_budget_text(budget: float | None) -> str:
+    """The budget on the summary's Limits line: `$50.00 on the task's model
+    calls`. The agents are never in the budget."""
+    text = budget_text(budget)
+    return text if budget is None else f"{text} on the task's model calls"
 
 
 def _model_refusal(text: str) -> str | None:
@@ -330,6 +394,8 @@ class QuestionContext:
     policy_loader: Callable[[str | None], ModelPolicy | None]
     demo: bool = False
     which: Callable[[str], str | None] = shutil.which
+    # Esc goes back: there is a question before this one.
+    back: bool = False
 
 
 @dataclass(frozen=True)
@@ -355,6 +421,7 @@ def _ask_objective(answers: Answers, ctx: QuestionContext) -> None:
         hint="One objective per run. Speed and cost only promote a change that"
         " keeps quality equal or better.",
         default=answers.objective,
+        back=ctx.back,
     )
     ctx.terminal.step("ok", "Improve", objective_text(answers.objective))
 
@@ -380,35 +447,193 @@ def _ask_guidance(answers: Answers, ctx: QuestionContext) -> None:
         "Guidance for the tuner's planner (optional)",
         default=answers.guidance,
         hint=GUIDANCE_HINT,
+        back=ctx.back,
     )
     answers.guidance = answer.strip()
     ctx.terminal.step("ok", "Guidance", guidance_text(answers.guidance))
 
 
 def _ask_agents(answers: Answers, ctx: QuestionContext) -> None:
-    """The agent CLI, then its model: together they make `--agent-cli`."""
+    """The agent CLI, then its model, then its thinking level: together they
+    make `--agent-cli`. Esc at the model goes back to the CLI, and Esc at the
+    level goes back to the model, each pre-filled with its answer."""
     current = _parsed(answers.agent_cli)
-    kind, note = _choose_agent_cli(ctx, current.kind if current else None)
-    agent = _KINDS[kind]
-    model = agent.default_model
-    if current is not None and current.kind == kind and current.model:
-        model = current.model  # asked again: the model it has
-    answer = ctx.terminal.text(
-        "Model for the agents",
-        default=model,
-        hint=agent.model_hint,
-        validate=_model_refusal,
-    )
-    answers.agent_cli = agent_command(kind, answer.strip())
+    kind = current.kind if current else None
+    model = effort = ""
+    # A CLI chosen again after Esc keeps the model and level picked for it.
+    # "" can't tell this apart: it is a model, Codex's own default.
+    chosen_once = False
+    stage = "cli"
+    while True:
+        if stage == "cli":
+            chosen, note, asked = _choose_agent_cli(ctx, kind)
+            agent = _KINDS[chosen]
+            if chosen != kind or not chosen_once:
+                model, effort = agent.default_model, agent.default_effort
+                if current is not None and current.kind == chosen:
+                    # Asked again: the model and the level it has.
+                    model = current.model or model
+                    effort = current.effort or effort
+            kind, chosen_once = chosen, True
+            stage = "model"
+        elif stage == "model":
+            try:
+                model = _ask_model(agent, model, replace(ctx, back=asked or ctx.back))
+            except GoBack:
+                if not asked:
+                    raise  # no CLI question: back to the question before
+                stage = "cli"
+                continue
+            stage = "effort"
+        else:
+            try:
+                effort = _ask_effort(agent, effort, replace(ctx, back=True))
+            except GoBack:
+                stage = "model"
+                continue
+            break
+    answers.agent_cli = agent_command(agent.kind, model, effort)
     # One Agents line, after the model: the spec's only-one note (FS §8)
     # follows the model, which FS §10.1 adds to the same line.
     text = agents_text(answers.agent_cli)
     ctx.terminal.step("ok", "Agents", f"{text} · {note}" if note else text)
 
 
-def _choose_agent_cli(ctx: QuestionContext, current: str | None) -> tuple[str, str]:
-    """The agent CLI, and a note for its step line. One installed CLI is
-    used without a question; none is a problem to fix by installing one."""
+MODEL_QUESTION = "Model for the agents"
+MODEL_NAME_QUESTION = "Model name for the agents"
+# The value of the picker's last row, which asks for a typed name. A model
+# name has no spaces (`_model_refusal`), so no model has this value.
+_OTHER_MODEL = " other"
+
+
+def _model_hint(agent: AgentKind) -> str:
+    """The picker's hint: what the model is for, Other, and where to read
+    about the models."""
+    intro = _MODEL_INTROS[agent.kind]
+    if agent.kind == "codex":
+        return (
+            f"{intro} Other to type a model name. All of Codex's models:"
+            f" {CODEX_MODELS_URL}"
+        )
+    return f"{intro} Other to type a model name: an alias or a full name."
+
+
+def _model_options(
+    agent: AgentKind, models: tuple[AgentModel, ...]
+) -> list[Option[str]]:
+    """The Default row of a CLI with no default of the tuner's own, each
+    listed model, and Other."""
+    options: list[Option[str]] = []
+    if not agent.default_model:
+        own = f"{agent.name}'s own default model. Its config.toml is not read."
+        options.append(Option("", "Default", description=own))
+    options += [Option(m.name, m.name, description=m.description) for m in models]
+    options.append(Option(_OTHER_MODEL, "Other…", description="Type a model name."))
+    return options
+
+
+def _ask_model(agent: AgentKind, model: str, ctx: QuestionContext) -> str:
+    """The model for the agents: picked from the CLI's list, or typed when
+    the CLI has no list (OpenCode) or Other is picked. Esc at the typed name
+    after Other goes back to the list."""
+    models = AGENT_MODELS.get(agent.kind, ())
+    while True:
+        if models:
+            options = _model_options(agent, models)
+            values = {option.value for option in options}
+            picked = ctx.terminal.pick(
+                MODEL_QUESTION,
+                options,
+                hint=_model_hint(agent),
+                default=model if model in values else _OTHER_MODEL,
+                back=ctx.back,
+            )
+            if picked != _OTHER_MODEL:
+                return picked
+        try:
+            answer = ctx.terminal.text(
+                MODEL_NAME_QUESTION if models else MODEL_QUESTION,
+                default=model,
+                hint=agent.model_hint,
+                validate=_model_refusal,
+                back=bool(models) or ctx.back,
+            )
+        except GoBack:
+            if models:
+                continue
+            raise
+        return answer.strip()
+
+
+EFFORT_QUESTION = "Thinking level for the agents"
+EFFORT_NAME_QUESTION = "Thinking level name for the agents"
+EFFORT_ERROR = "Enter one level name, with no spaces"
+_LEVEL_TEXT = {
+    "low": "The least reasoning: the fastest and cheapest.",
+    "medium": "Less reasoning than the tuner's default.",
+    "high": "The tuner's default.",
+    "xhigh": "More reasoning: slower, and more tokens.",
+    "max": "The most reasoning: the slowest, and the most tokens.",
+}
+
+
+def _effort_refusal(text: str) -> str | None:
+    words = text.split()
+    return None if len(words) == 1 else EFFORT_ERROR
+
+
+def _ask_effort(agent: AgentKind, effort: str, ctx: QuestionContext) -> str:
+    """How much the agents reason: picked from the CLI's levels, or typed
+    for OpenCode, whose variants depend on the model, or after Other. Esc at
+    the typed level after Other goes back to the levels."""
+    while True:
+        if agent.efforts:
+            options = [
+                Option(level, level, description=_LEVEL_TEXT.get(level))
+                for level in agent.efforts
+            ]
+            hint = "How much each agent reasons before it answers."
+            if agent.other_effort:
+                options.append(
+                    Option(_OTHER_MODEL, "Other…", description="Type a level name.")
+                )
+                hint += " Some models also take ultra: Other to type it."
+            picked = ctx.terminal.pick(
+                EFFORT_QUESTION,
+                options,
+                hint=hint,
+                default=effort
+                if effort in agent.efforts
+                else (_OTHER_MODEL if agent.other_effort else None),
+                back=ctx.back,
+            )
+            if picked != _OTHER_MODEL:
+                return picked
+        try:
+            answer = ctx.terminal.text(
+                EFFORT_NAME_QUESTION if agent.efforts else EFFORT_QUESTION,
+                default=effort,
+                hint=f"Enter keeps {agent.default_effort}. {agent.name}'s level is"
+                " its --variant, whose names depend on the model, such as high or"
+                " max. A model ignores a variant it doesn't have."
+                if agent.kind == "opencode"
+                else f"Enter keeps {effort}. A level name the model takes.",
+                validate=_effort_refusal,
+                back=bool(agent.efforts) or ctx.back,
+            )
+        except GoBack:
+            if agent.efforts:
+                continue
+            raise
+        return answer.strip()
+
+
+def _choose_agent_cli(
+    ctx: QuestionContext, current: str | None
+) -> tuple[str, str, bool]:
+    """The agent CLI, a note for its step line, and whether it was asked.
+    One installed CLI is used without a question; none is a problem to fix
+    by installing one."""
     installed: tuple[str, ...] = ()
 
     def check() -> Problem | None:
@@ -418,7 +643,7 @@ def _choose_agent_cli(ctx: QuestionContext, current: str | None) -> tuple[str, s
 
     resolve_problem(check, ctx.terminal, busy="Looking for agent CLIs…")
     if len(installed) == 1:
-        return installed[0], "the only agent CLI installed"
+        return installed[0], "the only agent CLI installed", False
     options = [
         Option(
             agent.kind,
@@ -433,42 +658,47 @@ def _choose_agent_cli(ctx: QuestionContext, current: str | None) -> tuple[str, s
         hint="The tuner's own agents (planner, builders, reviewers) run through"
         " this CLI and are billed to its account, not to your Kiln provider keys.",
         default=current if current in installed else None,
+        back=ctx.back,
     )
-    return kind, ""
+    return kind, "", True
+
+
+# The agents run on the agent CLI's own account, so the budget never counts
+# them, whichever CLI it is (`orchestrator.SpendMeter`).
+BUDGET_HINT = (
+    "The most this run may spend on the task's model calls, in USD. The"
+    " tuner's agents run on your agent CLI's account and are not counted."
+    " No wave starts past it. Type none for no cap."
+)
 
 
 def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
-    hint = (
-        "The most this run may spend, in USD: the tuner's agents and the task's"
-        " model calls together. No wave starts past it. Type none for no cap."
-    )
-    parsed = _parsed(answers.agent_cli)
-    agent = _KINDS[parsed.kind] if parsed is not None else None
-    # The note follows each dispatcher's `REPORTS_COST`, as the run's own
-    # budget warning does: Codex reports no cost, OpenCode reports each
-    # session's.
-    if agent is not None and not agent.reports_cost:
-        hint += (
-            f" {agent.name} doesn't report its cost, so this caps the task's model"
-            " calls only."
-        )
     answer = ctx.terminal.text(
         "Budget for this run",
         default=budget_default(answers.budget_usd),
-        hint=hint,
+        hint=BUDGET_HINT,
         validate=_refusal(parse_budget),
+        back=ctx.back,
     )
     answers.budget_usd = parse_budget(answer)
     ctx.terminal.step("ok", "Budget", budget_text(answers.budget_usd))
+
+
+# The limit is approximate: no new wave starts after it, the wave in flight
+# finishes, then a wrap-up wave runs (`orchestrator._run_loop`).
+TIME_HINT = (
+    f"At least {MIN_TIME_LIMIT_MINS}m. The limit is approximate: as the run"
+    " nears it, the tuner starts to wrap up, so the run can end a little later."
+)
 
 
 def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Time limit (1h, 24h, 45m)",
         default=duration_default(answers.timeout_mins),
-        hint="No wave starts after this, and work still running at the limit is"
-        " cancelled, so leave room for a whole wave.",
+        hint=TIME_HINT,
         validate=_refusal(parse_duration),
+        back=ctx.back,
     )
     answers.timeout_mins = parse_duration(answer)
     ctx.terminal.step("ok", "Time", duration_text(answers.timeout_mins))
@@ -500,6 +730,7 @@ def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:
         hint="Which models the tuner may move the task to."
         " examples/model-policy.json shows the format.",
         validate=refusal,
+        back=ctx.back,
     )
     answers.model_policy = answer.strip() or None
 
@@ -511,6 +742,7 @@ def _ask_min_effect(answers: Answers, ctx: QuestionContext) -> None:
         default="" if answers.min_effect is None else number_text(answers.min_effect),
         hint=MIN_EFFECT_HINT,
         validate=_refusal(parse),
+        back=ctx.back,
     )
     answers.min_effect = parse(answer)
 
@@ -527,6 +759,7 @@ def _ask_count(
             default=str(getattr(answers, dest)),
             hint=hint,
             validate=_refusal(parse_count),
+            back=ctx.back,
         )
         setattr(answers, dest, parse_count(answer))
 
@@ -698,27 +931,89 @@ def changeable(given: Collection[str]) -> tuple[Question, ...]:
     return tuple(q for q in QUESTIONS if not q.dests & set(given))
 
 
+class QuestionWalk:
+    """The questions a guided start asks, as steps that Esc steps back
+    through: every core question no flag answered, then the Advanced menu,
+    then, when it is Customize, each advanced question. A step that is asked
+    again is pre-filled with its answer. Going back takes away what the
+    screen showed since that step began (`Terminal.rewind`)."""
+
+    def __init__(
+        self, answers: Answers, ctx: QuestionContext, *, given: Collection[str]
+    ):
+        self.answers = answers
+        self.ctx = ctx
+        unanswered = changeable(given)
+        if ctx.demo and _BY_NAME["guidance"] in unanswered:
+            answers.guidance = DEMO_GUIDANCE
+        self.core = [q for q in unanswered if not q.advanced]
+        self.advanced = [q for q in unanswered if q.advanced]
+        self.marks: list[object] = []  # where the screen was before each step
+        self.last = -1  # the step that ended the walk
+
+    @property
+    def steps(self) -> int:
+        """The core questions and, with advanced questions, the menu and
+        each of them."""
+        return len(self.core) + (1 + len(self.advanced) if self.advanced else 0)
+
+    def run(self, start: int = 0) -> None:
+        """Ask from step `start` to the end. Esc at a step asks the step
+        before it again. A step 0 has no step before it, so Esc there is
+        not offered, and a GoBack from it asks it again."""
+        step = start
+        while step < self.steps:
+            del self.marks[step:]
+            self.marks.append(self.ctx.terminal.mark())
+            try:
+                done = self._ask(step, replace(self.ctx, back=step > 0))
+            except GoBack:
+                step = max(step - 1, 0)
+                self.ctx.terminal.rewind(self.marks[step])
+                continue
+            if done:
+                break
+            step += 1
+        else:
+            step -= 1  # the walk ran to its end: the last step ended it
+        self.last = step
+
+    def back_into_last(self) -> None:
+        """Esc after the walk ended: ask its last step again, and walk on."""
+        self.ctx.terminal.rewind(self.marks[self.last])
+        self.run(self.last)
+
+    def _ask(self, step: int, ctx: QuestionContext) -> bool:
+        """Ask one step. True when the walk ends there: Keep these at the
+        Advanced menu."""
+        answers = self.answers
+        if step < len(self.core):
+            self.core[step].ask(answers, ctx)
+            return False
+        if step == len(self.core):
+            action = ctx.terminal.act(
+                f"Advanced options: {advanced_values(answers)}",
+                ADVANCED_MENU,
+                back=ctx.back,
+            )
+            if action.kind is ActionKind.CUSTOMIZE:
+                return False
+            _advanced_step(answers, ctx)
+            return True
+        index = step - len(self.core) - 1
+        self.advanced[index].ask(answers, ctx)
+        if index == len(self.advanced) - 1:
+            _advanced_step(answers, ctx)
+        return False
+
+
 def ask_all(
     answers: Answers, ctx: QuestionContext, *, given: Collection[str]
 ) -> Answers:
     """Ask every question whose flag isn't among the `given` dests, in
     order, then the Advanced menu, setting `answers` as they come. The demo
-    pre-fills its own guidance."""
-    unanswered = changeable(given)
-    if ctx.demo and _BY_NAME["guidance"] in unanswered:
-        answers.guidance = DEMO_GUIDANCE
-    for question in unanswered:
-        if not question.advanced:
-            question.ask(answers, ctx)
-    advanced = [question for question in unanswered if question.advanced]
-    if advanced:
-        action = ctx.terminal.act(
-            f"Advanced options: {advanced_values(answers)}", ADVANCED_MENU
-        )
-        if action.kind is ActionKind.CUSTOMIZE:
-            for question in advanced:
-                question.ask(answers, ctx)
-        _advanced_step(answers, ctx)
+    pre-fills its own guidance. Esc steps back (`QuestionWalk`)."""
+    QuestionWalk(answers, ctx, given=given).run()
     return answers
 
 
