@@ -493,8 +493,9 @@ tips. Example: the side skill that teaches an agent a company's SQL or
 GraphQL.
 
 - It needs a section on timestamps. They are always difficult.
-- Three sample queries for the most common cases, high in the skill, do more
-  than a full generated schema description.
+- Sample queries are better than schemas alone. Sample queries at each
+  level of the skill let the agent quickly get a sense of how to use the
+  API. The schema is there as leaf nodes, for when a complex query needs it.
 
 An agent might think of these. The purpose is that the tuner has them
 written down: "if you write a side skill for a complex query tool, read
