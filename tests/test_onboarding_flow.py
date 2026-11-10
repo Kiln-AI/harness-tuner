@@ -39,7 +39,11 @@ from kiln_harness_tuner.cli import ConfigRenderError, build_parser, load_model_p
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.model_policy import ModelPolicy, Rule
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE, IMPORT_PATH
-from kiln_harness_tuner.onboarding.errors import OnboardingError, OnboardingStopped
+from kiln_harness_tuner.onboarding.errors import (
+    GoBack,
+    OnboardingError,
+    OnboardingStopped,
+)
 from kiln_harness_tuner.onboarding.flow import (
     CHANGE_QUESTION,
     StartReport,
@@ -383,6 +387,108 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     )
     # The key check ran once: no answer touched the policy.
     assert terminal.busy_texts.count("Checking API keys…") == 1
+
+
+# ---- Esc at the start prompt and while changing an answer ----
+
+ESC = GoBack()  # an answer: Esc at a prompt that offers it
+TIME_QUESTION = "Time limit (1h, 24h, 45m)"
+
+
+def test_esc_at_start_asks_the_last_question_again():
+    terminal = ScriptedTerminal(["enter", ESC, "c", "", "", "4", "4", "2", "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *CORE_ANSWERED])
+    assert terminal.questions[:3] == [ADVANCED_PROMPT, START_PROMPT, ADVANCED_PROMPT]
+    assert terminal.asked[1].back is True
+    assert args.noise_check == 2
+    assert len(summaries(terminal)) == 2
+    # The first Advanced line went with the Esc.
+    assert [line for line in terminal.step_lines() if line.startswith("Adv")] == [
+        "Advanced: noise check on 2 items per eval"
+    ]
+
+
+def test_esc_at_start_after_the_last_advanced_question_asks_it_again():
+    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0", ESC, "5", "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *CORE_ANSWERED])
+    noise = "Noise check: items per eval re-run before wave 1"
+    assert terminal.questions[-3:] == [START_PROMPT, noise, START_PROMPT]
+    assert terminal.asked_about(noise).default == "0"
+    assert args.noise_check == 5
+
+
+def test_esc_at_start_walks_back_on_from_the_last_question():
+    terminal = ScriptedTerminal(
+        ["", "claude", "opus", "high", "50", "12h", "enter", ESC, ESC, "3h"]
+        + ["enter", "s"]
+    )
+    argv = [*EVERY_FLAG, "--objective", "speed"]
+    args = start(two_projects(), terminal, argv)
+    assert terminal.questions[-5:] == [
+        START_PROMPT,
+        ADVANCED_PROMPT,
+        TIME_QUESTION,
+        ADVANCED_PROMPT,
+        START_PROMPT,
+    ]
+    assert terminal.asked[-3].default == "12h"
+    assert args.timeout_mins == 180
+    assert [line for line in terminal.step_lines() if line.startswith("Time")] == [
+        "Time: 3 hours"
+    ]
+
+
+def test_with_nothing_asked_esc_is_not_offered_at_start():
+    terminal = ScriptedTerminal(["s"])
+    argv = [*EVERY_FLAG, *ANSWERED, "--model-policy", "p.json", "--min-effect", "0.1"]
+    start(two_projects(), terminal, [*argv, "--noise-check", "3"], lambda _p: None)
+    assert terminal.asked_about(START_PROMPT).back is False
+
+
+def test_esc_at_the_change_picker_shows_the_summary_again():
+    terminal = ScriptedTerminal(["enter", "e", ESC, "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *ANSWERED])
+    assert terminal.questions == [
+        ADVANCED_PROMPT,
+        START_PROMPT,
+        CHANGE_QUESTION,
+        START_PROMPT,
+    ]
+    assert terminal.asked_about(CHANGE_QUESTION).back is True
+    assert len(summaries(terminal)) == 2
+    assert args.noise_check == 0
+
+
+def test_esc_at_the_changed_question_leaves_the_answer_as_it_was():
+    terminal = ScriptedTerminal(["enter", "e", "min_effect", ESC, "s"])
+    args = start(two_projects(), terminal, [*EVERY_FLAG, *ANSWERED])
+    assert terminal.questions[-2:] == [
+        "Smallest improvement worth acting on",
+        START_PROMPT,
+    ]
+    assert terminal.asked_about("Smallest improvement worth acting on").back is True
+    assert args.min_effect is None
+    assert summaries(terminal)[0] == summaries(terminal)[1]
+
+
+def test_esc_while_changing_the_agents_steps_back_then_cancels():
+    terminal = ScriptedTerminal(
+        ["", "claude", "opus", "high", "50", "12h", "enter"]
+        + ["e", "agents", "codex", "", ESC, ESC, ESC, "s"]
+    )
+    args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
+    assert terminal.questions[-6:] == [
+        "Which agent CLI should run the tuner's agents?",
+        "Model for the agents",
+        "Thinking level for the agents",
+        "Model for the agents",
+        "Which agent CLI should run the tuner's agents?",
+        START_PROMPT,
+    ]
+    assert args.agent_cli == "claude -p"
+    assert [line for line in terminal.step_lines() if line.startswith("Agents")] == [
+        "Agents: Claude Code (claude -p) · opus"
+    ]
 
 
 # ---- the key check again, for a policy the questions set ----

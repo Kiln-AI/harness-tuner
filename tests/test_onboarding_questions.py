@@ -14,7 +14,7 @@ from kiln_harness_tuner.dispatch.agent_cli import parse_agent_cli
 from kiln_harness_tuner.dispatch.claude_cli import AGENT_MODEL
 from kiln_harness_tuner.onboarding.agent_models import CLAUDE_MODELS, CODEX_MODELS
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
-from kiln_harness_tuner.onboarding.errors import OnboardingStopped
+from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.questions import (
     AGENT_KINDS,
     BUDGET_ERROR,
@@ -781,3 +781,228 @@ def test_changeable_lists_the_questions_no_flag_answered_in_order():
         "max_concurrent_evals",
         "max_concurrent_agents",
     ]
+
+
+# ---- Esc goes back ----
+
+ESC = GoBack()  # an answer: Esc at a prompt that offers it
+CORE_ONLY = ADVANCED_DESTS  # every advanced question answered by a flag
+
+
+def test_esc_asks_the_question_before_again_pre_filled_and_takes_its_line():
+    terminal = ScriptedTerminal(
+        ["speed", "Keep it short.", ESC, "Shorter.", "claude", "opus", "high"]
+        + ["50", "12h"]
+    )
+    got = ask_all(answers(), context(terminal), given=CORE_ONLY)
+    assert terminal.questions[:4] == [
+        CORE_QUESTIONS[0],
+        CORE_QUESTIONS[1],
+        CORE_QUESTIONS[2],
+        CORE_QUESTIONS[1],
+    ]
+    assert terminal.asked[3].default == "Keep it short."
+    assert got.guidance == "Shorter."
+    # The first Guidance line went with the Esc.
+    assert terminal.step_lines()[:2] == ["Improve: Speed", 'Guidance: "Shorter."']
+    assert len(terminal.step_lines()) == 5
+
+
+def test_the_first_question_does_not_offer_esc():
+    terminal = ScriptedTerminal(["speed", ESC, "cost", "", "claude", "opus", "high"])
+    terminal.answers += ["50", "12h"]
+    got = ask_all(answers(), context(terminal), given=CORE_ONLY)
+    assert [asked.back for asked in terminal.asked[:4]] == [False, True, False, True]
+    # Asked again at the first question, pre-filled with its answer.
+    assert terminal.asked[2].default == "speed"
+    assert got.objective == "cost"
+    assert terminal.step_lines()[0] == "Improve: Cost"
+    assert [line.split(":")[0] for line in terminal.step_lines()].count("Improve") == 1
+
+
+def test_every_question_after_the_first_offers_esc():
+    terminal = ScriptedTerminal(
+        ["speed", "", "claude", "opus", "high", "50", "12h", "c", "", "", "4", "4", "0"]
+    )
+    ask_all(answers(), context(terminal), given=frozenset())
+    assert [asked.back for asked in terminal.asked] == [False] + [True] * 12
+
+
+def test_esc_at_the_advanced_menu_asks_the_last_core_question_again():
+    terminal = ScriptedTerminal(["3h", ESC, "4h", "enter"])
+    given = CORE_DESTS - {"timeout_mins"}
+    got = ask_all(answers(), context(terminal), given=given)
+    assert terminal.questions == [
+        "Time limit (1h, 24h, 45m)",
+        ADVANCED_PROMPT,
+        "Time limit (1h, 24h, 45m)",
+        ADVANCED_PROMPT,
+    ]
+    assert terminal.asked[2].default == "3h"
+    assert got.timeout_mins == 240
+    assert terminal.step_lines() == ["Time: 4 hours", "Advanced: defaults"]
+
+
+def test_the_advanced_menu_alone_does_not_offer_esc():
+    terminal = ScriptedTerminal(["enter"])
+    ask_all(answers(), context(terminal), given=CORE_DESTS)
+    assert terminal.asked[0].back is False
+
+
+def test_esc_at_the_first_advanced_question_asks_the_menu_again():
+    terminal = ScriptedTerminal(["c", ESC, "enter"])
+    got = ask_all(answers(), context(terminal), given=CORE_DESTS)
+    assert terminal.questions == [
+        ADVANCED_PROMPT,
+        ADVANCED_QUESTIONS[0],
+        ADVANCED_PROMPT,
+    ]
+    assert got == answers()
+    assert terminal.step_lines() == ["Advanced: defaults"]
+
+
+def test_esc_at_an_advanced_question_asks_the_one_before_it_again():
+    terminal = ScriptedTerminal(["c", "", "0.25", ESC, "0.5", "4", "4", "0"])
+    got = ask_all(answers(), context(terminal), given=CORE_DESTS)
+    assert terminal.questions == [
+        ADVANCED_PROMPT,
+        *ADVANCED_QUESTIONS[:3],
+        *ADVANCED_QUESTIONS[1:],
+    ]
+    assert terminal.asked_about(ADVANCED_QUESTIONS[1]).default == "0.25"
+    assert got.min_effect == 0.5
+    assert terminal.step_lines() == ["Advanced: minimum effect 50%"]
+
+
+def test_esc_at_the_first_core_question_after_customize_steps_back_over_all():
+    # Esc from the last advanced question back to the time limit, one step
+    # at a time: no Advanced line is left from the first pass.
+    terminal = ScriptedTerminal(
+        ["3h", "c", "", "", "4", "4", ESC, ESC, ESC, ESC, ESC, ESC, "5h", "enter"]
+    )
+    got = ask_all(answers(), context(terminal), given=CORE_DESTS - {"timeout_mins"})
+    assert terminal.questions[-2:] == ["Time limit (1h, 24h, 45m)", ADVANCED_PROMPT]
+    assert got.timeout_mins == 300
+    assert terminal.step_lines() == ["Time: 5 hours", "Advanced: defaults"]
+
+
+# ---- Esc inside the agents question ----
+
+
+def test_esc_at_the_level_asks_the_model_and_then_the_cli_again():
+    terminal = ScriptedTerminal(
+        ["codex", "gpt-6.1-sol", ESC, ESC, "claude", "sonnet", "max"]
+    )
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert terminal.questions == [
+        "Which agent CLI should run the tuner's agents?",
+        "Model for the agents",
+        "Thinking level for the agents",
+        "Model for the agents",
+        "Which agent CLI should run the tuner's agents?",
+        "Model for the agents",
+        "Thinking level for the agents",
+    ]
+    # The agents question is the only one: its CLI has no step before it.
+    assert [asked.back for asked in terminal.asked] == [
+        *(False, True, True, True),
+        *(False, True, True),
+    ]
+    assert terminal.asked[3].default == "gpt-6.1-sol"
+    assert terminal.asked[4].default == "codex"
+    # Another CLI starts on its own default model.
+    assert terminal.asked[5].default == "opus"
+    assert got.agent_cli == "claude -p --model sonnet --effort max"
+    assert terminal.step_lines() == [
+        "Agents: Claude Code (claude -p) · sonnet · effort max"
+    ]
+
+
+def test_the_same_cli_picked_again_keeps_its_model_and_level():
+    current = answers(agent_cli="codex exec -c model_reasoning_effort=max")
+    terminal = ScriptedTerminal(
+        ["codex", "gpt-6.1-sol", ESC, ESC, "codex", "gpt-6.1-sol", "max"]
+    )
+    got = ask_all(current, context(terminal), given=AGENTS_ONLY)
+    assert terminal.asked[5].default == "gpt-6.1-sol"
+    assert terminal.asked[6].default == "max"
+    assert got.agent_cli == "codex exec -m gpt-6.1-sol -c model_reasoning_effort=max"
+
+
+def test_with_one_cli_esc_at_the_model_asks_the_question_before_again():
+    terminal = ScriptedTerminal(["Keep it short.", ESC, "Shorter.", "opus", "high"])
+    given = EVERY_DEST - {"agent_cli", "guidance"}
+    got = ask_all(answers(), context(terminal, which=installed("claude")), given=given)
+    assert terminal.questions == [
+        CORE_QUESTIONS[1],
+        "Model for the agents",
+        CORE_QUESTIONS[1],
+        "Model for the agents",
+        "Thinking level for the agents",
+    ]
+    assert terminal.asked[1].back is True
+    assert got.guidance == "Shorter."
+    assert terminal.step_lines() == [
+        'Guidance: "Shorter."',
+        "Agents: Claude Code (claude -p) · opus · the only agent CLI installed",
+    ]
+
+
+def test_with_one_cli_and_no_question_before_the_model_does_not_offer_esc():
+    terminal = ScriptedTerminal(["opus", ESC, "sonnet", "high"])
+    got = ask_all(
+        answers(), context(terminal, which=installed("claude")), given=AGENTS_ONLY
+    )
+    assert [asked.back for asked in terminal.asked] == [False, True, False, True]
+    assert got.agent_cli == "claude -p --model sonnet"
+
+
+def test_esc_at_a_typed_name_after_other_goes_back_to_the_list():
+    terminal = ScriptedTerminal(["codex", " other", ESC, "gpt-6.1-sol", "high"])
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert terminal.questions[1:4] == [
+        "Model for the agents",
+        "Model name for the agents",
+        "Model for the agents",
+    ]
+    assert terminal.asked_about("Model name for the agents").back is True
+    assert got.agent_cli == "codex exec -m gpt-6.1-sol"
+
+
+def test_esc_at_a_typed_level_after_other_goes_back_to_the_levels():
+    terminal = ScriptedTerminal(["codex", "", " other", ESC, "max"])
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert terminal.questions[2:] == [
+        "Thinking level for the agents",
+        "Thinking level name for the agents",
+        "Thinking level for the agents",
+    ]
+    assert got.agent_cli == "codex exec -c model_reasoning_effort=max"
+
+
+def test_opencode_esc_at_the_typed_level_and_model_asks_each_again():
+    terminal = ScriptedTerminal(
+        ["opencode", "zai/glm", ESC, "zai/glm-5", ESC, ESC, "opencode", "", "max"]
+    )
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert [(a.kind, a.question) for a in terminal.asked[1:4]] == [
+        ("text", "Model for the agents"),
+        ("text", "Thinking level for the agents"),
+        ("text", "Model for the agents"),
+    ]
+    assert terminal.asked[3].default == "zai/glm"
+    assert terminal.asked[4].default == "high"
+    assert terminal.asked[5].default == "zai/glm-5"
+    assert terminal.asked[6].default == "opencode"
+    # The model typed before Esc is kept for the same CLI.
+    assert terminal.asked[7].default == "zai/glm-5"
+    assert got.agent_cli == "opencode run --variant max"
+
+
+def test_ask_one_with_esc_leaves_the_answer_as_it_was():
+    current = answers(budget_usd=12.5)
+    terminal = ScriptedTerminal([ESC])
+    with pytest.raises(GoBack):
+        ask_one("budget", current, dataclasses.replace(context(terminal), back=True))
+    assert current.budget_usd == 12.5
+    assert terminal.step_lines() == []

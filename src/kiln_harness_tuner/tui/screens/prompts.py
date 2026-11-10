@@ -171,6 +171,9 @@ class Picker(PromptPart[Pick]):
     BINDINGS = [
         Binding("up", "move(-1)", show=False),
         Binding("down", "move(1)", show=False),
+        # One Esc key, two actions: `check_action` enables one at a time, so
+        # the footer names what Esc does now.
+        Binding("escape", "clear_filter", "Clear filter"),
         Binding("escape", "back", "Back"),
     ]
 
@@ -243,15 +246,14 @@ class Picker(PromptPart[Pick]):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         # Esc clears the filter first, also where it can't go back.
+        if action == "clear_filter":
+            return bool(self.filter_text)
         if action == "back":
-            return bool(self.filter_text) or self.request.back
+            return not self.filter_text and self.request.back
         return True
 
-    def action_back(self) -> None:
-        if self.filter_text:
-            self.query_one(Input).value = ""
-        else:
-            super().action_back()
+    def action_clear_filter(self) -> None:
+        self.query_one(Input).value = ""
 
     def action_move(self, step: int) -> None:
         menu = self.query_one(OptionList)

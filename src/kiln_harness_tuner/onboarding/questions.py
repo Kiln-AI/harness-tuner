@@ -406,18 +406,21 @@ def _ask_agents(answers: Answers, ctx: QuestionContext) -> None:
     current = _parsed(answers.agent_cli)
     kind = current.kind if current else None
     model = effort = ""
+    # A CLI chosen again after Esc keeps the model and level picked for it.
+    # "" can't tell this apart: it is a model, Codex's own default.
+    chosen_once = False
     stage = "cli"
     while True:
         if stage == "cli":
             chosen, note, asked = _choose_agent_cli(ctx, kind)
             agent = _KINDS[chosen]
-            if chosen != kind or not model:
+            if chosen != kind or not chosen_once:
                 model, effort = agent.default_model, agent.default_effort
                 if current is not None and current.kind == chosen:
                     # Asked again: the model and the level it has.
                     model = current.model or model
                     effort = current.effort or effort
-            kind = chosen
+            kind, chosen_once = chosen, True
             stage = "model"
         elif stage == "model":
             try:
@@ -896,6 +899,8 @@ class QuestionWalk:
             if done:
                 break
             step += 1
+        else:
+            step -= 1  # the walk ran to its end: the last step ended it
         self.last = step
 
     def back_into_last(self) -> None:
