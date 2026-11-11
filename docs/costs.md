@@ -109,9 +109,10 @@ model and your corpus. So make the first run the measurement:
   defaults, `--budget-usd 50` and `--timeout-mins 720` (12 hours), which a
   guided start pre-fills as its answers, and `--budget-usd none` runs with no
   cap. For the smoke run, answer or pass the bounds you want it to stay under.
-  The two do not end a run the same way. `--budget-usd` is a pure
-  wave-boundary check: the wave in flight when the ceiling is crossed runs to
-  completion, and you pay for it.
+  The two do not end a run the same way. `--budget-usd` stops the run at a
+  wave boundary. Inside a wave, the engine caps an arm or a screening
+  candidate whose next chunk would pass the budget, but agent sessions and
+  work outside the engine run to the end, and you pay for them.
   `--timeout-mins` stops new work, not work in flight: no new wave starts
   after it, the wave in flight finishes, and then **one wrap-up wave** runs.
   So the run ends later than the limit, and that last stretch costs money
@@ -120,8 +121,9 @@ model and your corpus. So make the first run the measurement:
   `--max-concurrent-agents` default to 4 each; the loop's own parallelism is
   what manufactures the provider rate limit that then stalls it.
 - Keep the model preflight on — that is, do **not** pass
-  `--skip-model-preflight`. It makes one short test call per model the run
-  may use, before the baseline measurement. A model that has no deployment,
+  `--skip-model-preflight`. It makes one short test call to the baseline's
+  model and to up to 12 other models the run may use, before the baseline
+  measurement. A model that has no deployment,
   or a window smaller than your prompt, is then flagged at start-up, and
   never fails a screening round's eval jobs one by one.
 - Keep the reconnaissance battery on a first run — that is, do **not** pass
@@ -146,7 +148,8 @@ keeping with its conditions written beside it.
 
 Every arm, under every objective, goes through one measurement engine
 (`kiln_harness_tuner.measure`). It judges the arm's targeted train split in chunks,
-the parent's failures and a few passes first, and stops the arm when a
+the parent's failures and a few passes first (under speed and cost, the
+parent's passes first), and stops the arm when a
 stop rule fires. A stopped arm pays only for the chunks it reached; an arm
 that completes pays for every train item, driven and judged, which is by
 far the largest part. Under `--objective speed` or `--objective cost`, the
@@ -157,7 +160,8 @@ clearly slower (costlier) arm stops after its first 15 pairs and is never
 judged. Under those two objectives, at every gate, on val, the baseline
 and every candidate are timed on the sample. All timing drives are subject-model cost only. Under
 `--objective quality`, an arm is not timed and pays none of these drives,
-unless it changes the model, the provider or a sampling parameter: then
+unless it changes the model, the provider, the thinking level,
+`temperature`, `top_p` or the structured output mode: then
 its lever is checked on the timing drives. Its latency and its cost per
 request are read off its stored eval runs at no extra cost. The baseline
 is also timed once per baseline on that sample. Stored val results stay in

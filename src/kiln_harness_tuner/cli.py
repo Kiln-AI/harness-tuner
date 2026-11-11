@@ -412,7 +412,7 @@ def build_parser() -> _Parser:
         "--no-recon",
         action="store_true",
         help="skip the setup reconnaissance battery (the code probes on the"
-        " baseline — tool call, skill read, alternate output mode, thinking,"
+        " baseline — tool call, skill read, alternate output mode,"
         " json validity, output on the longest inputs — run before"
         " the first plan)",
     )
@@ -420,9 +420,11 @@ def build_parser() -> _Parser:
         "--gate-agent",
         choices=("auto", "always"),
         default="auto",
-        help="who decides a one-candidate promotion gate: auto = the code rule"
-        " (the promote agent is dispatched only to rank two or more"
-        " candidates), always = dispatch the agent for every gate",
+        help="who decides a promotion gate: auto = a code rule where one"
+        " applies (under quality, one candidate; under speed and cost, any"
+        " number), and the promote agent for the rest: two or more quality"
+        " candidates, an undecided rule, or a winner with integrity flags;"
+        " always = dispatch the agent for every gate",
     )
     parser.add_argument(
         "--max-turns",
@@ -440,8 +442,10 @@ def build_parser() -> _Parser:
         default="quality",
         help="what the loop optimises: quality = the eval scores (default);"
         " speed = per-request wall-clock latency, promoted only when clearly"
-        " faster on val (paired, median and p90) with no eval regressed"
-        " significantly; cost = per-request provider cost, by the same rule."
+        " faster on val (paired, median and p90) with quality equal or better"
+        " (no eval down significantly, net items over all evals at zero or"
+        " above, no eval down past its loss cap); cost = per-request provider"
+        " cost, by the same rule."
         " The objective also sets the default of --models",
     )
     parser.add_argument(
@@ -451,8 +455,9 @@ def build_parser() -> _Parser:
         metavar="FRACTION",
         help="the smallest improvement you would act on, as a share of an"
         " eval's items (0.1 = 10%%). The pre-run check then says per eval"
-        " whether the best case can show it, and refuses the run when no"
-        " eval that can drive a promotion can show it on val",
+        " whether the best case can show it, and, under --objective quality,"
+        " refuses the run when no eval that can drive a promotion can show"
+        " it on val",
     )
     parser.add_argument(
         "--allow-underpowered",
@@ -463,12 +468,12 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--noise-check",
-        type=_positive_int,
+        type=_count,
         default=0,
         metavar="N",
         help="before wave 1, re-drive and re-judge the baseline on N train"
         " items per eval and report how often the same config scores"
-        " differently (paid, estimated before it spends; default off)",
+        " differently (paid, estimated before it spends; default 0, off)",
     )
     parser.add_argument(
         "--models",
@@ -602,8 +607,9 @@ def _coverage_floor(text: str) -> float:
 
 
 def _count(text: str) -> int:
-    """`--max-concurrent-evals` and `--max-concurrent-agents`: 0 or more, as
-    the start's questions take them. 0 is no limit."""
+    """`--max-concurrent-evals`, `--max-concurrent-agents` and
+    `--noise-check`: 0 or more, as the start's questions take them. 0 is no
+    limit for the first two, and off for the noise check."""
     try:
         return parse_count(text)
     except ValueError as exc:
@@ -611,7 +617,7 @@ def _count(text: str) -> int:
 
 
 def _positive_int(text: str) -> int:
-    """`--noise-check` and `--max-turns`: at least 1."""
+    """`--max-turns`: at least 1."""
     try:
         value = int(text)
     except ValueError:

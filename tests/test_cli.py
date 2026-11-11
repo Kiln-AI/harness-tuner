@@ -350,7 +350,12 @@ def test_detectability_and_noise_flags(tmp_path):
         True,
         12,
     )
-    for bad in (["--min-effect", "0"], ["--min-effect", "1.5"], ["--noise-check", "0"]):
+    assert build_parser().parse_args(ARGS + ["--noise-check", "0"]).noise_check == 0
+    for bad in (
+        ["--min-effect", "0"],
+        ["--min-effect", "1.5"],
+        ["--noise-check", "-1"],
+    ):
         with pytest.raises(SystemExit):
             build_parser().parse_args(ARGS + bad)
     state = _state(tmp_path)

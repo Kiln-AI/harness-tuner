@@ -32,9 +32,10 @@ starts its MCP servers with that interpreter. A cache clean (`uv cache clean`)
 during the run removes them, and the run's later sessions then fail. A
 `uv tool install` has no such window.
 
-**The time limit is not a hard stop.** The budget and the clock are checked
-at wave boundaries only, and a wave already running is never killed for
-either. At the time limit no new normal wave starts, but the wave in flight
+**The time limit is not a hard stop.** The clock is checked at wave
+boundaries only, and a wave already running is never killed for it. The
+budget stops the run at a wave boundary too; inside a wave, the engine caps
+an arm or a screening candidate whose next chunk would pass the budget. At the time limit no new normal wave starts, but the wave in flight
 finishes (build, measurement, analysis and its promotion gate), and then one
 wrap-up wave runs. A run therefore ends later than `--timeout-mins`, by the
 wave in flight plus the wrap-up. A long wave makes this stretch long. The
@@ -171,14 +172,14 @@ items gives p of about 0.09: not significantly worse. The loss rule does
 not apply at the val gate. Under speed and cost, read a promotion as "no
 clear loss", never as "no loss".
 
-**A small speed gain cannot be shown on 30 pairs.** The sign test needs 20
-or more of 30 pairs faster (one-sided p < 0.05). When the per-pair latency
+**A small speed gain cannot be shown on 30 pairs.** The sign test needs 21
+or more of 30 pairs faster (exact two-sided sign test, p < 0.05). When the per-pair latency
 noise is large next to the gain, a real small speed-up often does not get
 there. Then the `not_better` rule stops it, and the val gate, on 30 val
 pairs, refuses it too. For example, if the log of each pair's latency ratio
 has a standard deviation of 0.3 (an invented figure), a true 10% speed-up
-makes about 64% of the pairs faster and reaches 20 of 30 only about 45% of
-the time; a true 20% speed-up reaches it about 94% of the time. The engine
+makes about 64% of the pairs faster and reaches 21 of 30 only about 31% of
+the time; a true 20% speed-up reaches it about 87% of the time. The engine
 gives no verdict of any kind on fewer than 6 pairs.
 
 **The quality test stops a clearly worse candidate, not a slightly worse

@@ -782,7 +782,8 @@ def _ask_time(answers: Answers, ctx: QuestionContext) -> None:
 # With no minimum, the pre-run check never refuses for it
 # (`detectability.assess`).
 MIN_EFFECT_HINT = (
-    "The run stops before spending when no eval can show this change on val."
+    "Under Quality, the run stops before the waves when no eval can show this"
+    " change on val."
     " Optional. Blank means no minimum, and the run does not stop for it."
 )
 

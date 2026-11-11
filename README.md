@@ -55,9 +55,9 @@ It tries different methods, not just different words: one big prompt or skills, 
 
 ## Optimize the demo project
 
-Downloads a small moderation task into a new folder, adds it to Kiln, and tunes it: 624 labelled forum posts, and an eval. The baseline prompt doesn't know the forum's house rules, so there's plenty to find and fix.
+Copies a small moderation task, which ships with the tuner, into a new folder, adds it to Kiln, and tunes it: 624 labelled forum posts, and an eval. The baseline prompt doesn't know the forum's house rules, so there's plenty to find and fix.
 
-> Requires adding an OpenRouter API key to Kiln. The harness-tuner run will costs about $2.
+> Requires adding an OpenRouter API key to Kiln. The harness-tuner run will cost about $2.
 
 ```
 uv tool install harness-tuner

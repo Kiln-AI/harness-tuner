@@ -52,7 +52,7 @@ The eval inputs of the task have three split tags.
 | Split | Who reads it | What it is for |
 |---|---|---|
 | `train` | Agents, through the loop gateway, and the measurement code | All design, screening and experiment measurement. |
-| `val` | Code at the promotion gate only | The confirmation of a winner before it becomes the baseline. |
+| `val` | The promotion gate (code and the promotion agent), and the report writer at the end | The confirmation of a winner before it becomes the baseline. |
 | `test` | Nothing in the loop | Your own final check, after the run. |
 
 The gateway refuses every agent request for an item that is not in train. So an
@@ -72,7 +72,7 @@ parts.
 ```mermaid
 flowchart TD
     A[Preflight: agent lane works] --> B[Setup: one issue per eval]
-    B --> C[Baseline: stored train scores; timing on 30 items under speed or cost]
+    B --> C[Baseline: train scores, stored or measured; timing on 30 items under speed or cost]
     C --> D[Detectability check, optional noise check]
     D --> E[Recon probes]
     E --> F{"Objective is speed or cost?"}
@@ -101,7 +101,8 @@ flowchart TD
    gateway.
 2. **Setup.** Code makes one *issue* memory record for each eval. An issue is
    one thing that the task gets wrong. It is the target of quality work.
-3. **The baseline.** Code reuses the baseline's stored train scores. Under
+3. **The baseline.** Code reuses the baseline's stored train scores, and
+   measures the train items that have none. Under
    `speed` and `cost` it also drives the baseline on 30 train items to get its
    latency and cost.
 4. **The baseline audit.** Code searches the baseline's own prompt, skills and
@@ -112,7 +113,9 @@ flowchart TD
    evals can show a significant win at all. A significant win needs at least 6
    items fixed in one direction. When the baseline fails only 2 items of an
    eval, that eval cannot show a quality win. Under `quality`, the check stops
-   the run when no eval can show a win.
+   the run when no eval's val split is large enough to show a significant win
+   (or, with `--min-effect`, that change). Few baseline failures give a
+   warning, not a stop.
 6. **The noise check** (`--noise-check N`, optional and paid). Code drives the
    baseline again on N train items for each eval and counts how often the same
    config gets a different result.
@@ -130,7 +133,7 @@ flowchart TD
 2. **Screen** (optional, at most 4 rounds in a wave). A screen is a cheap test
    of variants that need no build: a model, a provider, a thinking level,
    sampling settings or an output mode. Code puts all the candidates of the
-   round through the same small train sample, in up to 3 chunks, and checks
+   round through the same small train sample, in 3 chunks by default, and checks
    the stop rules after each chunk. The planner then gets a table of the
    survivors and plans again.
 3. **The wave items**, in parallel. The main kind of item is the
@@ -217,8 +220,10 @@ The run stops when:
 - two waves in a row fail (the tripwire);
 - an agent provider reports a quota or authentication error.
 
-Then a report agent writes the round report from the run's records, and code
-saves it to `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md`
+Then a report agent writes the round report from the run's records. After a
+quota or auth error, or a crash after the first wave, code writes a shorter
+fallback report with no agent; an interrupt writes none. Code saves the
+report to `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md`
 by default. The run prints the path when it ends. The state folder holds all
 of a run's files
 ([install.md](install.md#where-the-tuner-keeps-its-files)).

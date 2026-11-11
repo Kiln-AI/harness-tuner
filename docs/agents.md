@@ -18,7 +18,7 @@ role's hard rules, and injects the input as JSON.
 
 | Agent | Skill | Wall-clock cap | A failure costs |
 |---|---|---|---|
-| `describe_eval` | none, by design | 10 min | the run — a description that fails twice is fatal |
+| `describe_eval` | none, by design | 10 min | the run — a failed description is fatal (an infrastructure failure is retried once first) |
 | `eval_build` (experimental, off by default) | none, by design | 30 min | one item |
 | `batch_plan` | `kiln-harness-tuner-batch-selection` | 15 min | the run |
 | `probe` | `kiln-harness-tuner-probe` | 15 min | one item |
@@ -229,11 +229,13 @@ measurement.
 structural rather than a rule.
 
 It is dispatched a second time for the same item in one case only: the
-generality review found a leak, or the judge-copy check found
-eval text in the build's prompt, skills or code tools. Then `RcBuildInput`
-also carries `rejected_rc_id` and `generality_findings` and/or
-`judge_copy_findings`, and the agent builds the item again without the
-flagged text, with each rule in its own words.
+generality review found a leak, the judge-copy check found
+eval text in the build's prompt, skills or code tools, or, with
+`--reference-check refuse`, the reference check found a skill or a tool that
+the build names but does not attach. Then `RcBuildInput`
+also carries `rejected_rc_id` and `generality_findings`,
+`judge_copy_findings` and/or `reference_findings`, and the agent builds the
+item again without the flagged text, with each rule in its own words.
 
 **Skill:** `kiln-harness-tuner-experiment-build`, plus `references/merging.md` for a
 merge item, `references/skill-authoring.md` for a skill lever, and
@@ -288,9 +290,15 @@ direction, and both are visible in the experiment record.
 
 ## `promote_best`
 
-**Dispatched** at the promotion gate when there are two or more candidates, or
-on every gate with `--gate-agent always`. One candidate is decided by a code
-rule.
+**Dispatched** at the promotion gate, on every gate with `--gate-agent always`.
+With `auto`:
+
+- Under `quality`: when two or more candidates must be ranked. One candidate
+  is decided by a code rule. When that rule cannot decide, or its winner
+  carries integrity flags, the agent decides.
+- Under `speed` and `cost`: a code rule decides, whatever the number of
+  candidates. The agent decides only when the rule's winner carries
+  integrity flags.
 
 **Given** `PromotionInput` — one `CandidateValTable` per candidate (rows are
 candidate against the *current* baseline on `split=val`, computed by code),
@@ -321,7 +329,9 @@ answered — the guidance is in the input precisely so that cannot happen.
 
 ## `report_writer`
 
-**Dispatched** once, at exit, on every path including the failure paths.
+**Dispatched** once, at a normal exit. A quota or auth stop, and a fatal
+error after the first wave started, get a code-rendered fallback report with
+no agent session. An interrupt (Ctrl-C) writes no report.
 
 **Given** `ReportInput`, which embeds the full `RunStatus`: every wave, every
 item, every promotion, the spend and the exit reason.
@@ -364,7 +374,9 @@ never a block. A session that fails is itself a flag.
 
 It runs with **no tools at all**: no MCP server (`--strict-mcp-config` and
 no config) and every built-in tool disallowed, under the read-only settings,
-with no scratch directory. Its API allowlist is empty by construction.
+with no scratch directory. Its API allowlist is empty by construction. Under
+`codex exec` it has no MCP server either, but it keeps Codex's sandboxed
+shell: a read-only workspace and no network.
 
 **Skill:** none; the template is the whole procedure.
 
@@ -434,7 +446,8 @@ evals' criteria or judge prompts, so it catches train-set memorisation;
 paraphrased criteria and judge gaming stay the job of `integrity_review` at
 the val gate.
 
-It runs on **`sonnet`** by default, not `opus` like the other roles.
+Under `claude -p` it runs on **`sonnet`** by default, not `opus` like the
+other roles.
 `--agent-model generality_review=MODEL` overrides it.
 
 **Skill:** none; the template is the whole procedure.
@@ -448,14 +461,14 @@ again — the arm. On a reused run config it costs the arm at once.
 
 ## What every agent is forbidden
 
-The same short list appears in five templates (`batch_plan`, `eval_build`,
-`probe`, `create_experiment_rc`, `analyze_experiment_results`), and it is
-one rule with five enforcement points.
+Parts of this list appear in five templates (`batch_plan`, `eval_build`,
+`probe`, `create_experiment_rc`, `analyze_experiment_results`). Not every
+template carries every line.
 
 - **Never pass `split=val` or `split=test`** to any eval API. Val belongs to
-  the promotion gate; test belongs to nobody in the loop. Enforced: the split
-  fence refuses every split but train, and every route that returns val or
-  test data; the project files are not readable.
+  the promotion gate; test belongs to nobody in the loop. Enforced: no gateway
+  read and no gateway eval job takes a split, so every answer holds train
+  records only; the project files are not readable.
 - **Never read the `val`-tagged memory record**, and, except at the promotion
   gate and the report, never read the `baseline`-tagged one either — the
   baseline run-config id arrives in the input.
@@ -471,7 +484,8 @@ one rule with five enforcement points.
   and `run_task` write each train trace to a file in the run's
   `scratch/traces/` and answer with its path and a one-line summary. The
   planner, the builder, the probe, the analyst and the eval builder `Grep`
-  those files for the failure and `Read` a line range; a cost question
+  those files for the failure and `Read` a line range (under OpenCode,
+  `Read` only); a cost question
   starts from the run config's `_stats.md`. No answer is over 40,000
   characters: lists come in pages, and any other large answer in pieces
   (`get_answer_part`).

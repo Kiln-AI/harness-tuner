@@ -303,7 +303,7 @@ can, the title reads `This Kiln is too old for the tuner`.
 **When it passes**, one step line says so, and the start goes on:
 
 ```
-✓ Kiln      1.2.0 at http://localhost:8757
+✓ Kiln      1.3.0 at http://localhost:8757
 ```
 
 Without a version to show, it reads `running at http://localhost:8757`. When
@@ -340,11 +340,13 @@ only job is to call the gateway's `ping` operation. A failure there is fatal,
 and its message names the rendered MCP config file, the host it is using, and
 this document.
 
-**If the server is older than v1.3**, the check above passes, because `/ping`
-exists. A run passes its start-up checks too: the agent CLI check and the
-gateway `ping` pre-flight each run one short agent session, and you pay for
-them. Then the first memory read of setup gets HTTP 404, and the run stops
-with exit status 1:
+**If the server is older than v1.3**, `curl …/ping` passes, because `/ping`
+exists. The start-up check of Kiln's API list then stops the start with the
+`too old for the tuner` card above. The start goes past an old server only
+when that API list can't be read: the check warns and goes on. Then the agent
+CLI check and the gateway `ping` pre-flight each run one short agent session,
+and you pay for them. The first memory read of setup gets HTTP 404, and the
+run stops with exit status 1:
 
 ```
 harness-tuner: GET /api/projects/<project-id>/memories -> HTTP 404: …
@@ -787,7 +789,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ prompt, model, tools, skills and settings around it.             │
 ╰───────────────────────────────────────────────────────── v0.1.0 ─╯
 
-✓ Kiln      1.2.0 at http://localhost:8757
+✓ Kiln      1.3.0 at http://localhost:8757
 ✓ Demo      ~/Kiln Projects/Forum Moderation, imported as project 731954460212
 ✓ Project   Forum Moderation (731954460212)
 ✓ Task      Forum Moderation (424242783061)

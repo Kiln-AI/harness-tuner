@@ -80,9 +80,11 @@ rendered into a loop session.
 
 ## 3. The wave loop
 
-`orchestrate()` in [`orchestrator.py`](../src/kiln_harness_tuner/orchestrator.py). It
-always exits through a report: a clean exit gets the agent-written one, and
-every failure path gets a code-rendered fallback built from `RunStatus`.
+`orchestrate()` in [`orchestrator.py`](../src/kiln_harness_tuner/orchestrator.py). A
+clean exit gets the agent-written report. A quota or auth stop, and a fatal
+error after the first wave started, get a code-rendered fallback built from
+`RunStatus`. An interrupt (Ctrl-C), or a fatal error before wave 1, writes no
+report.
 
 ### 3.1 Pre-flight
 
@@ -198,7 +200,8 @@ Then:
 13. **The noise check**, only with `--noise-check N`
     (`run_noise_check`). Paid, estimated before it spends. Section 5.2.
 14. **The reconnaissance battery.** Wave 0. Skipped with `--no-recon`.
-    Shaped by the baseline and the objective (`probes.recon_items`). Its
+    Shaped by the baseline's tools, skills and output mode
+    (`probes.recon_items`). Its
     drives take the same route as the timing drives: one-item train eval
     jobs on a task that needs them.
 15. **The opening screen**, under `speed` and `cost` only
@@ -262,7 +265,7 @@ Per wave, in order:
 Exit reasons, each as the code names it: `timeout`, `budget_exhausted`,
 `planner_failed`, `empty_plan`, the planner's own `loop_exit`, `tripwire`,
 `wrap_up`, `quota_exhausted` (a classified quota or auth error from an agent
-session), `interrupted` (Ctrl-C) and `fatal:<ExceptionClass>`.
+session, an eval job or a drive), `interrupted` (Ctrl-C) and `fatal:<ExceptionClass>`.
 
 ### 3.3 The clock
 
@@ -581,7 +584,7 @@ it.
 | Actor | `baseline` record | `val` record |
 |---|---|---|
 | `select_baseline` (code) | read — passes the run-config id onward, never metrics | — |
-| the planner, the builder, the analyst, the eval builder, the prober | **none** | **none** |
+| the planner, the builder, the analyst, the eval builder, the prober | **none** (by instruction: the gateway does not hide this record) | **none** (the gateway hides it) |
 | the promotion gate (agent + code apply) | read and write | read and write |
 | the report writer | read | read, and its numbers are labelled val-grade |
 
@@ -755,7 +758,8 @@ it would be refused. Four rules keep the state readable:
 
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
-only. Lifecycle writes are code's alone.
+only. Lifecycle writes are code's alone by contract: the gateway enforces
+the two scopes and refuses the `val` tag, and does not check the record kind.
 
 ## 9. The promotion gate
 
@@ -815,9 +819,13 @@ successful on train.
    output-shape flags, the (c) write-action flags, the `integrity_review`
    findings and every val number are computed from val traces. They go to
    the wave log, the val summary and the promotion agent, and never to `BatchPlanInput.gate_blocks` or to the record.
-3. **The decision.** With one candidate, a code rule decides. With two or more,
-   one `promote_best` dispatch ranks them. `--gate-agent always` dispatches the
-   agent either way.
+3. **The decision.** Under quality, with one candidate, a code rule
+   (`decide_single_candidate`) decides. When it cannot decide, or its winner
+   carries integrity flags, one `promote_best` session decides. With two or
+   more candidates, one `promote_best` dispatch ranks them. Under speed and
+   cost, `decide_speed_gate` decides in code whatever the number of
+   candidates (section 16), and a winner with integrity flags goes to
+   `promote_best`. `--gate-agent always` dispatches the agent every time.
 4. **The apply — code, strict order.** The `baseline` record first, then the
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
@@ -1066,7 +1074,8 @@ directory.
      fields only; Kiln's raw responses are never forwarded, and a field
      Kiln adds cannot pass.
    - **Typed, validated writes.** Run configs are checked against
-     `--model-policy`; a drive (`run_task`) runs a saved config on ONE train
+     the run's model policy (`--model-policy`, or the `--models keep` pin;
+     section 17); a drive (`run_task`) runs a saved config on ONE train
      item and takes the input from the item, never from the agent — on a
      multi-turn or world task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
@@ -1177,7 +1186,7 @@ src/kiln_harness_tuner/
   reconcile.py      the spend ledger checked against this run's records
   objective.py      the quality, speed and cost objectives
   levers.py         the check that a declared lever took effect
-  integrity.py      the integrity review at the promotion gate
+  integrity.py      the reward-hacking code checks at the promotion gate
   orchestrator.py   the wave loop, the promotion gate, the tripwire, the
                     janitor, the budget
   items.py          one plan item from planned to measured
@@ -1227,8 +1236,8 @@ src/kiln_harness_tuner/
   skill_installer/  the MCP server that installs a skill bundle atomically
   tui/              the terminal app (Textual): the entry (entry.py), the
                     app and its threads, the screens (screens/: start-up,
-                    run, the details panel and its picker, the stop dialog,
-                    the modal base), the widgets and the stylesheet
+                    the start-up prompts, run, the details panel and its
+                    picker, the stop dialog, the modal base), the widgets and the stylesheet
                     (tuner.tcss, package data), and the run model (model/,
                     pure Python, details.py for the panel)
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
@@ -1236,7 +1245,7 @@ tests/              the offline suite
   tui/              the app's tests: the model, pilot tests of each screen,
                     the entry, and pseudo-terminal tests (marked slow)
   packaging/        the CI smoke test of the installed wheel, and the
-                    fake claude it runs with
+                    fake claude and fake Kiln it runs with
 ```
 
 ## 14. Portability guardrails
@@ -1283,10 +1292,13 @@ stylesheet included. It installs the wheel as a uv tool with a temporary
 `HOME`, and runs the commands from an empty folder. It imports the terminal
 app on the tool's interpreter and checks that the app's stylesheet is a file
 of the installed package. Then it makes a run with a fake `claude` on `PATH`
-(`tests/packaging/fake_claude.py`) and no Kiln server. The run installs the
-agent files, passes the agent CLI check, takes the lock, renders the configs
-and checks the splits. The fake starts the gateway from the rendered config
-and calls `ping`, and the run stops at the pre-flight. The script then checks
+(`tests/packaging/fake_claude.py`) and a fake Kiln
+(`tests/packaging/fake_kiln_server.py`) that answers the start-up reads from
+the run's copy of the demo project. The run installs the agent files, passes
+the agent CLI check, takes the lock, renders the configs and checks the
+splits. The fake claude starts the gateway from the rendered config and calls
+`ping`, which reaches the fake Kiln. The run stops with exit code 1 at its
+first write to Kiln, which the fake refuses. The script then checks
 that the state is in the state folder, that the sessions ran in the agents
 folder, that the gateway runs on the tool's interpreter, and that nothing was
 written to the current folder, `HOME` or the checkout. It makes the run with

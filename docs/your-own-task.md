@@ -426,7 +426,7 @@ project and task reads:
 │ prompt, model, tools, skills and settings around it.             │
 ╰───────────────────────────────────────────────────────── v0.1.0 ─╯
 
-✓ Kiln      1.2.0 at http://localhost:8757
+✓ Kiln      1.3.0 at http://localhost:8757
 ✓ Project   Forum Moderation (424242975950)
 ✓ Task      Forum Moderation (424242783061)
 ✓ Ready     1 run config · 1 eval the tuner can measure
@@ -565,7 +565,7 @@ The footer shows `esc Back` only where Esc goes back.
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, Codex's own default, for Codex; blank, OpenCode's own default, for OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: no new wave starts after it, but the wave in flight and one wrap-up wave finish, so the run can end later. |
+| Time limit (1h, 24h, 45m) | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: no new wave starts after it, but the wave in flight and one wrap-up wave finish, so the run can end later. |
 | Advanced options | the four flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
 - **The agent CLI, its model and its thinking level** make one `--agent-cli`
@@ -634,8 +634,8 @@ check again, for the providers it names.
 **Never asked**, and set only by their flags ([cli.md](cli.md)):
 `--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,
 `--max-turns`, `--gate-agent`, `--reference-check`, `--no-recon`,
-`--no-baseline-audit`, `--allow-underpowered`, `--skip-model-preflight` and
-`--no-progress`.
+`--no-baseline-audit`, `--allow-underpowered`, `--skip-model-preflight`,
+`--experimental-eval-building` and `--no-progress`.
 
 ### 5.3 The summary and the start
 
@@ -899,7 +899,7 @@ from.
 |---|---|
 | `reports/kiln-harness-tuner-<run_id>.md` | the round report: what was planned, what was measured, what was promoted, and code-computed appendices: the spend, why each arm stopped and how many of its items were judged, and the trade-offs of the screened candidates (quality lost against cost and latency saved) |
 | `runs/<run_id>/` | the run log (`kiln-harness-tuner.log`), the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
-| `runs/.quarantine/<project>-<task>/archived_run_configs/` | the loop's own `PROBE …` run configs, archived out of the project after a run |
+| `runs/.quarantine/<project>-<task>/` | the loop's own `PROBE …` run configs (`archived_run_configs/`), archived out of the project after a run, and with `--noise-check` the copies of the judge configs (`archived_eval_configs/`) |
 | `traces/<project>/<task>/<run_id>/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |
 | Kiln memory | the durable result: the baseline record and its promotion chain, every issue's state, every experiment's verdict |
 

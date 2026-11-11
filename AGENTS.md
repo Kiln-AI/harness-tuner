@@ -8,7 +8,7 @@ stays a true measure.
 
 In the code, the agent is a Kiln task and its harness is the task's run
 config. Every agent in the loop is an agent-CLI session (`claude -p` by
-default), and every measurement is a Kiln eval job on the train or val split.
+default), and every quality measurement is a Kiln eval job on the train or val split.
 
 This file is the contributor guide. `CLAUDE.md` loads it for Claude Code.
 Loop agents do not read it: they read
@@ -28,13 +28,18 @@ src/kiln_harness_tuner/
   dispatch/         the dispatcher seam, and the claude -p, codex exec and
                     opencode run implementations
   gateway/          the loop gateway: the only way loop agents reach Kiln
+  onboarding/       the start before a run: the Kiln and task checks, the API
+                    keys, the guided questions, the summary and the rerun
+                    command
   skill_installer/  the MCP server that installs a skill bundle atomically
   tui/              the terminal app (Textual) of an interactive run: the
                     start-up and run screens, and the run model
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 docs/               the reference documentation
+specs/              the feature specs
 examples/           the moderation example and a model policy
 tests/              the offline suite — no live server, no model spend
+  tui/              the terminal app's tests
   packaging/        the CI smoke test of the installed wheel
 ```
 

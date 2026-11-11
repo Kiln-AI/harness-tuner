@@ -50,7 +50,8 @@ under that cap:
   `get_task_run` and `run_task` write each train trace to a file under the
   run's trace folder (`runs/<run_id>/scratch/traces/`) and give you its
   path (`trace_path`) and a one-line `trace_summary`. Read the file with
-  `Grep` and `Read` (with `offset` and `limit` for a line range). Your role
+  `Grep` and `Read` (with `offset` and `limit` for a line range; under
+  OpenCode, `Read` only). Your role
   has an explicit read grant on that folder. You cannot write it; only the
   gateway does.
 - **A list comes in pages.** `get_train_results` and `get_train_expected`
@@ -114,6 +115,11 @@ whether it does (`per_turn`) or only the run total is known
 | `get_run_config` | `id` | one run config |
 | `list_prompts` | — | the task's saved prompts, with their text |
 | `get_prompt_text` | `id` | the prompt text a prompt id renders (e.g. `simple_prompt_builder`, `id::…`) |
+
+### Reading the models
+
+| Operation | Fields | Answer |
+|---|---|---|
 | `list_available_models` | — | the models the run's model policy allows, with each one's thinking levels and default `structured_output_mode` |
 
 ### Reading the evals
@@ -157,8 +163,8 @@ names a held-out split (`val`, `test`, `val_…`, `test_…`, `holdout…`, `hel
 | `memory_update` | `id`, `overview?`, `content?`, `tags?` | the updated record |
 
 `scope` is `project` or `task::<this task id>` — nothing else. The loop's
-`val` record is not listed, fetched or writable, except for the promotion
-agent and the report writer. The `memory` skill says what to write.
+`val` record is not listed or fetched, except by the promotion agent and
+the report writer. No agent can write a record with the `val` tag. The `memory` skill says what to write.
 
 ### Building a candidate
 
@@ -211,23 +217,24 @@ shows the train items only. Read results with `get_train_results` after
 |---|---|
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
-| batch_plan | reading the task, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads, memory |
-| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_skill` |
-| probe | reading the task, models, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, `list_skills`, memory (no update) |
+| batch_plan | reading the task, reading the models, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads, memory |
+| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
+| probe | reading the task, reading the models, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, `list_code_tools`, `list_skills`, memory (no update) |
 | analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, `get_code_tool`, `get_skill`, `get_skill_content`, memory |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |
-| eval_build | reading the task and the evals, `get_train_results`, memory, the eval-build operations, the code-tool writes |
+| eval_build | `get_task`, `list_run_configs`, reading the evals, `get_train_results`, memory, the eval-build operations, the code-tool writes |
 | integrity_review | none: no MCP server and no tool; its input is all it reads |
 | generality_review | none: no MCP server and no tool; its input is all it reads |
 
 Every role that has operations, except the preflight, also has
 `get_answer_part`. The roles that read trace files — batch_plan,
 create_experiment_rc, probe, analyze_experiment_results and eval_build —
-may `Read`, `Grep` and `Glob` the trace folder.
+may `Read`, `Grep` and `Glob` the trace folder (under OpenCode, `Read`
+only).
 
-The exact lists are `kiln_harness_tuner/gateway/ops.py` (`ROLE_OPS`); a test keeps
-this table and that code in step.
+The exact lists are `kiln_harness_tuner/gateway/ops.py` (`ROLE_OPS`). A test checks that
+this skill names every operation. No test checks this table.
 
 ## Related
 
