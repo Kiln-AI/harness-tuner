@@ -508,8 +508,10 @@ ANSWERED = [
     "4",
 ]
 ADVANCED_PROMPT = (
-    "Advanced options: any model · 4 evals and 4 agents at once"
+    "Advanced options: same model · 4 evals and 4 agents at once"
     " · no minimum effect · no noise check"
 )
+# Under speed and cost, a run with no model policy may use any model.
+SWAP_ADVANCED_PROMPT = ADVANCED_PROMPT.replace("same model", "any model")
 KEEP_AND_START = ["enter", "s"]
 START_PROMPT = "Start tuning?"

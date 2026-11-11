@@ -1816,6 +1816,17 @@ order: an **exception** (one exact pair, no wildcards) allows it; a **deny**
 match refuses it; an **allow** match allows it; anything else is refused. No
 policy means every model is allowed.
 
+**The policy limits swaps; it does not enable them.** Under
+`--objective quality` the task keeps the baseline's model and provider
+(`model_name`, `model_provider_name`). The planner may change everything
+else, the provider parameters (thinking level, temperature, `top_p`)
+included. A model or provider swap is a lever only under `speed` and `cost`,
+or when the guidance allows other models explicitly ("you may try other
+models"). With or without a policy, this rule is the same. The planner skill
+(`kiln-harness-tuner-batch-selection`) holds the rule, and the build skill
+refuses a swap the item does not justify. No code refuses a model swap
+under quality.
+
 It is enforced at every place a run config comes into being or is used:
 
 - **the gateway**, on `create_run_config` and `run_task`: the config's

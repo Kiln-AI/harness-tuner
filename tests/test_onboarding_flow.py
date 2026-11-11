@@ -18,6 +18,7 @@ from onboarding_fakes import (
     PROG,
     PROJECT_ID,
     START_PROMPT,
+    SWAP_ADVANCED_PROMPT,
     TASK_ID,
     RouteKiln,
     ScriptedTerminal,
@@ -229,7 +230,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "step Budget: $20.00",
         "text Time limit (1h, 24h, 45m)",
         "step Time: 90 minutes",
-        f"act {ADVANCED_PROMPT}",
+        f"act {SWAP_ADVANCED_PROMPT}",
         "step Advanced: defaults",
         "say Ready to start",
         f"say {RERUN_HEADING}",
@@ -456,9 +457,9 @@ def test_esc_at_start_walks_back_on_from_the_last_question():
     args = start(two_projects(), terminal, argv)
     assert terminal.questions[-5:] == [
         START_PROMPT,
-        ADVANCED_PROMPT,
+        SWAP_ADVANCED_PROMPT,
         TIME_QUESTION,
-        ADVANCED_PROMPT,
+        SWAP_ADVANCED_PROMPT,
         START_PROMPT,
     ]
     assert terminal.asked[-3].default == "12h"

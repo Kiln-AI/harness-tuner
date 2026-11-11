@@ -65,9 +65,9 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--objective` | `quality` | What the run optimizes: `quality`, `speed` or `cost`. One objective per run. [objectives.md](objectives.md#what-to-optimize---objective) has what each one holds fixed, and when a candidate is promoted. |
+| `--objective` | `quality` | What the run optimizes: `quality`, `speed` or `cost`. One objective per run. Under `quality` the task keeps its model and provider, unless `--guidance` allows other models. Under `speed` and `cost` a model or provider swap is a lever. [objectives.md](objectives.md#what-to-optimize---objective) has what each one holds fixed, and when a candidate is promoted. |
 | `--guidance` | empty | Free text for the planner: what to work on, and what not to touch. It goes verbatim to every planner, every wave, and to the promotion gate. [your-own-task.md](your-own-task.md) section 4. |
-| `--model-policy` | not set: every model is allowed | A JSON file of allowed and denied (provider, model) pairs for the task's run configs. [objectives.md](objectives.md#which-models-a-run-may-use---model-policy) has the file format, the rules and an example. |
+| `--model-policy` | not set: a run that may swap models may use every model | A JSON file of allowed and denied (provider, model) pairs for the task's run configs. It limits model swaps. It does not enable them: under `quality` the task keeps its model, with or without a policy. [objectives.md](objectives.md#which-models-a-run-may-use---model-policy) has the file format, the rules and an example. |
 
 ### Limits
 

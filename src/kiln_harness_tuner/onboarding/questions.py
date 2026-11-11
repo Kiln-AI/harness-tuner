@@ -226,6 +226,24 @@ def objective_text(objective: str) -> str:
     return OBJECTIVES.get(objective, (objective, ""))[0]
 
 
+def swaps_models(objective: str) -> bool:
+    """True when the objective makes a model or provider swap a lever. Under
+    quality the task keeps its model, unless the guidance allows other
+    models: the planner skill holds that rule, and a model policy only
+    limits the swaps that are allowed."""
+    return objective in ("speed", "cost")
+
+
+def model_policy_text(answers: Answers, *, short: bool = False) -> str:
+    """The model policy answer as it reads. With no policy file, it says
+    which models the run uses, and that depends on the objective."""
+    if answers.model_policy:
+        return answers.model_policy
+    if swaps_models(answers.objective):
+        return "any model" if short else "any model Kiln offers"
+    return "same model" if short else "the task keeps its model"
+
+
 # ---- the agent CLIs ----
 
 
@@ -715,6 +733,20 @@ MIN_EFFECT_HINT = (
 )
 
 
+def _model_policy_hint(objective: str) -> str:
+    if swaps_models(objective):
+        limit = "Blank means any model Kiln offers."
+    else:
+        limit = (
+            "Under Quality the task keeps its model, unless your guidance"
+            " allows other models. Blank means no limit."
+        )
+    return (
+        f"Limits the models the tuner may move the task to. {limit}"
+        " examples/model-policy.json shows the format."
+    )
+
+
 def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:
     def refusal(text: str) -> str | None:
         path = text.strip()
@@ -729,8 +761,7 @@ def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Model policy file",
         default=answers.model_policy or "",
-        hint="Which models the tuner may move the task to."
-        " examples/model-policy.json shows the format.",
+        hint=_model_policy_hint(answers.objective),
         validate=refusal,
         back=ctx.back,
     )
@@ -823,7 +854,7 @@ QUESTIONS: tuple[Question, ...] = (
         frozenset({"model_policy"}),
         True,
         _ask_model_policy,
-        lambda a: a.model_policy or "any model Kiln offers",
+        model_policy_text,
     ),
     Question(
         "min_effect",
@@ -883,7 +914,9 @@ def _advanced_parts(answers: Answers) -> dict[str, str]:
     effect = answers.min_effect
     noise = answers.noise_check
     return {
-        "model_policy": f"model policy {policy}" if policy else "any model",
+        "model_policy": f"model policy {policy}"
+        if policy
+        else model_policy_text(answers, short=True),
         "max_concurrent_evals": _at_once(answers.max_concurrent_evals, "eval"),
         "max_concurrent_agents": _at_once(answers.max_concurrent_agents, "agent"),
         "min_effect": (
@@ -899,8 +932,8 @@ def _advanced_parts(answers: Answers) -> dict[str, str]:
 
 def advanced_values(answers: Answers) -> str:
     """Every advanced value, for the Advanced menu's question:
-    `any model · 4 evals and 4 agents at once · no minimum effect · no noise
-    check`."""
+    `same model · 4 evals and 4 agents at once · no minimum effect · no noise
+    check` (`any model` first under speed or cost)."""
     parts = _advanced_parts(answers)
     concurrency = (
         f"{parts['max_concurrent_evals']} and {parts['max_concurrent_agents']} at once"

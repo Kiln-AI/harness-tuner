@@ -33,7 +33,7 @@ Most optimizers tune the prompt. Harness Tuner tunes everything around the model
 
 - **Tools.** The biggest win we see. Your tools probably wrap APIs written for code, not for agents. It rewrites them for the agent: smaller responses, better descriptions, no repeated calls. When a script should do the job, it writes a new code tool.
 - **Prompts and skills.** It cuts contradictions, adds the requirements nobody wrote down, and moves long instructions into skills that load only when needed.
-- **Model and settings.** It searches models and providers, then tunes thinking level, temperature and the rest for the one it picks.
+- **Model and settings.** It tunes thinking level, temperature and the rest. When you optimize for speed or cost, or allow other models in the guidance, it also searches models and providers.
 - **RAG, fine-tunes and sub-agents.** It attaches, swaps or drops the ones in your project.
 
 It tries different methods, not just different words: one big prompt or skills, RAG or a skill, many small tools or one general one.
@@ -166,7 +166,7 @@ The tuner's agents only ever see the train split. Val is used only to decide whi
 <details>
 <summary><b>What about new model releases?</b></summary>
 
-Run the tuner again with the new model available. It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
+Run the tuner again with the new model available, and allow it in the guidance ("try the new model"). It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
 
 </details>
 

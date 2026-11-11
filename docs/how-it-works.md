@@ -31,13 +31,15 @@ alone.
 | Input | Flag | What it is |
 |---|---|---|
 | The task | `--project-id`, `--task-id`, `--project-path` | The Kiln task. Its default run config is the first baseline. |
-| The objective | `--objective quality\|speed\|cost` | What the loop improves. One objective per run. The default is `quality`. |
-| The model policy | `--model-policy PATH` | A JSON **file** of allowed and denied (provider, model) pairs, with `*` wildcards. Code applies it to every run config that an agent makes or drives. [examples/model-policy.json](../examples/model-policy.json) shows the shape. |
+| The objective | `--objective quality\|speed\|cost` | What the loop improves. One objective per run. The default is `quality`. Under `quality` the task keeps its model and provider, unless the guidance allows other models. |
+| The model policy | `--model-policy PATH` | A JSON **file** of allowed and denied (provider, model) pairs, with `*` wildcards. Code applies it to every run config that an agent makes or drives. It limits model swaps; it does not enable them. [examples/model-policy.json](../examples/model-policy.json) shows the shape. |
 | The guidance | `--guidance TEXT` | Free text for the planner: what to try first, what not to try. |
 | The limits | `--budget-usd`, `--timeout-mins` | The money and the time for the run. Code checks them at each wave boundary. |
 | Parallelism | `--max-concurrent-evals`, `--max-concurrent-agents` | How many eval jobs and agent sessions run at the same time. |
 
-The model policy keeps expensive models out. Every experiment reports its
+A model or provider swap is a lever only under `speed` and `cost`, or when
+the guidance allows other models explicitly ("You may try other models").
+The model policy then keeps expensive models out. Every experiment reports its
 latency and cost per request against its parent, read from the stored runs, at
 no extra cost. Use `--objective speed` or `--objective cost` when latency or
 cost is the goal.
@@ -132,8 +134,9 @@ flowchart TD
    survivors and plans again.
 3. **The wave items**, in parallel. The main kind of item is the
    **experiment**:
-   1. A build agent makes one new run config, for example a model swap, a
-      prompt edit or a tool or skill change. It stamps the provenance and
+   1. A build agent makes one new run config, for example a prompt edit, a
+      tool or skill change, a thinking level, or a model swap where one is
+      allowed. It stamps the provenance and
       smoke-tests the config. It stops before any result exists.
    2. Two text checks run before any money is spent on measurement:
       - The **generality check** looks for text that copies train items, first
@@ -232,6 +235,11 @@ The goal is higher eval scores.
   (experimental, off by default), an eval-build item makes the eval first.
   The eval is frozen before the fix is built, so the fix cannot shape its
   own test.
+- **What the planner may change.** Everything in the run config except the
+  model and the provider (`model_name`, `model_provider_name`). The provider
+  parameters (thinking level, temperature, `top_p`) are levers. A model or
+  provider swap is a lever only when the guidance allows other models
+  explicitly. A model policy does not change this.
 - **Which train items are judged first.** The items that the baseline fails
   on the target evals (up to 8), then a few that it passes (up to 4) as
   guards, then the rest of the split. A fix must show on the failures first.
