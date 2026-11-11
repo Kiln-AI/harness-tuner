@@ -690,7 +690,9 @@ command line with every flag the start fills in replaced by its answer
 (`--no-progress`, `--agent-model`, …), and `--no-interaction` added, so it asks
 nothing. Each value is quoted for a POSIX shell and the lines end in `\`, so
 it pastes as is. Empty guidance is `--guidance ''`, and no cap is
-`--budget-usd none`. The advanced flags appear only when they differ from
+`--budget-usd none`. A value that starts with `-` is joined to its flag with
+`=`, as in `--guidance=-terse`, because the parser reads `--guidance -terse`
+as two options. The advanced flags appear only when they differ from
 their defaults.
 
 **Not guided**, the start prints the `Ready to start` block to stdout, with no
