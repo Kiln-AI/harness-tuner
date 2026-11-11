@@ -179,6 +179,93 @@ def test_a_timeout_under_10_minutes_exits_2(given, capsys):
     )
 
 
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (
+            ["--max-concurrent-evals", "-1"],
+            "argument --max-concurrent-evals: '-1': Enter a whole number, 0 or more",
+        ),
+        (
+            ["--max-concurrent-agents", "two"],
+            "argument --max-concurrent-agents: 'two': Enter a whole number, 0 or more",
+        ),
+        (["--max-turns", "0"], "argument --max-turns: '0' is below 1"),
+        (
+            ["--coverage-floor", "1.5"],
+            "argument --coverage-floor: '1.5': enter a share from 0 to 1, like 0.95",
+        ),
+        (
+            ["--coverage-floor", "nan"],
+            "argument --coverage-floor: 'nan': enter a share from 0 to 1, like 0.95",
+        ),
+        (
+            ["--kiln-host", "localhost:8757"],
+            "argument --kiln-host: 'localhost:8757': give the whole URL,"
+            " like http://localhost:8757",
+        ),
+    ],
+)
+def test_a_value_out_of_range_exits_2(argv, message, capsys):
+    """A negative concurrency made `asyncio.Semaphore` raise after the run
+    folder was made, and a host without its scheme read as Kiln not
+    running: each is now a usage error before the start."""
+    with pytest.raises(SystemExit) as exited:
+        build_parser().parse_args(argv)
+    assert exited.value.code == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        f"harness-tuner: error: {message}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "dest", "value"),
+    [
+        (["--max-concurrent-evals", "0"], "max_concurrent_evals", 0),
+        (["--max-turns", "1"], "max_turns", 1),
+        (["--coverage-floor", "0"], "coverage_floor", 0.0),
+        (["--coverage-floor", "1"], "coverage_floor", 1.0),
+        (["--kiln-host", "https://kiln.example:8757/"], "kiln_host", None),
+    ],
+)
+def test_a_value_at_the_edge_of_its_range_is_accepted(argv, dest, value):
+    parsed = getattr(build_parser().parse_args(argv), dest)
+    assert parsed == (argv[1] if value is None else value)
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (
+            ["--agent-cli", "gemini -p"],
+            "--agent-cli: 'gemini' is not a supported agent CLI.",
+        ),
+        (
+            ["--agent-cli", "claude -p --effort huge"],
+            "--agent-cli: 'huge' is not a Claude Code effort level.",
+        ),
+        (["--agent-model", "planner=opus"], "--agent-model: unknown role 'planner'."),
+        (["--agent-effort", "probe"], "--agent-effort expects ROLE=VALUE"),
+    ],
+)
+def test_a_bad_agent_option_exits_2_before_the_start(
+    monkeypatch, capsys, argv, message
+):
+    """Before, these stopped only after every question and every Kiln
+    check, with exit 1."""
+    started: list = []
+    monkeypatch.setattr(
+        kiln_harness_tuner.cli,
+        "prepare_start",
+        lambda args, _argv, **_kwargs: started.append(args),
+    )
+    with pytest.raises(SystemExit) as exited:
+        main(argv)
+    assert exited.value.code == 2
+    assert message in capsys.readouterr().err
+    assert started == []
+
+
 def test_a_timeout_of_10_minutes_is_accepted():
     assert build_parser().parse_args(["--timeout-mins", "10"]).timeout_mins == 10
 

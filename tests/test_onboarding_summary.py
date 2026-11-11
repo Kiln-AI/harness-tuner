@@ -226,6 +226,20 @@ def test_the_rerun_command_parses_back_to_the_same_answers():
     )
 
 
+@pytest.mark.parametrize("guidance", ["-terse", "--no-recon", "- keep it short"])
+def test_a_value_that_starts_with_a_dash_parses_back(guidance):
+    """argparse reads `--guidance -terse` as two options and refuses it, so
+    the value is joined to its flag with `=`."""
+    changed = answers(guidance=guidance)
+    command = rerun_command(
+        PROG, [], option_dests=OPTIONS, selection=SELECTION, answers=changed
+    )
+    assert shlex.quote(f"--guidance={guidance}") in command
+    parsed = build_parser().parse_args(tokens(command)[1:])
+    assert parsed.guidance == guidance
+    assert parsed.no_recon is False
+
+
 @pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
 @pytest.mark.parametrize("indent", ["", "  "])
 def test_a_posix_shell_reads_the_command_as_its_tokens(indent):

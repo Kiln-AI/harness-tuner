@@ -164,6 +164,13 @@ def summary_text(lines: Sequence[tuple[str, str]]) -> str:
     return "\n".join([SUMMARY_HEADING, *rows])
 
 
+def _option(flag: str, value: str) -> list[str]:
+    """`flag` and its `value` as rerun tokens. A value that starts with `-`
+    is joined to its flag with `=`: argparse reads `--guidance -terse` as
+    two options, and refuses it."""
+    return [f"{flag}={value}"] if value.startswith("-") else [flag, value]
+
+
 def rerun_command(
     prog: str,
     argv: Sequence[str],
@@ -184,7 +191,7 @@ def rerun_command(
     for dest, flag, written in ADVANCED_FLAGS:
         value = getattr(answers, dest)
         if value is not None and value != getattr(defaults, dest):
-            advanced += [flag, written(value)]
+            advanced += _option(flag, written(value))
     kept = [
         token
         for group, info in _read(argv, option_dests)
@@ -192,21 +199,22 @@ def rerun_command(
         for token in group
     ]
     lines = [
-        ["--project-id", selection.project.id, "--task-id", selection.task.id],
-        ["--project-path", str(selection.project_path)],
-        ["--objective", answers.objective],
-        (
-            ["--model-policy", answers.model_policy]
-            if answers.model_policy
-            else ["--models", resolve_models(answers.models, answers.objective)]
-        ),
-        ["--guidance", answers.guidance],
-        ["--agent-cli", answers.agent_cli],
         [
-            "--budget-usd",
-            budget_default(answers.budget_usd),
-            "--timeout-mins",
-            str(answers.timeout_mins),
+            *_option("--project-id", selection.project.id),
+            *_option("--task-id", selection.task.id),
+        ],
+        _option("--project-path", str(selection.project_path)),
+        _option("--objective", answers.objective),
+        (
+            _option("--model-policy", answers.model_policy)
+            if answers.model_policy
+            else _option("--models", resolve_models(answers.models, answers.objective))
+        ),
+        _option("--guidance", answers.guidance),
+        _option("--agent-cli", answers.agent_cli),
+        [
+            *_option("--budget-usd", budget_default(answers.budget_usd)),
+            *_option("--timeout-mins", str(answers.timeout_mins)),
         ],
         advanced,
         kept,
