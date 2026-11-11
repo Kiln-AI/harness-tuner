@@ -900,8 +900,8 @@ way.
     SIGTERM, SIGHUP and SIGINT itself and passes them on. The app looks up the
     run config names in Kiln on its own loop, at most once every 10 seconds.
     When it closes, it prints a plain closing block: the start's summary and
-    rerun command, the exit line, Best Confirmed, the report and the run
-    folder, built by the same code as the plain lines.
+    rerun command, the exit line, Best Confirmed, the report, the run
+    folder and the next steps, built by the same code as the plain lines.
   - **`PlainUi`** (`ui.py`): plain timestamped lines, for `--no-progress`, a
     CI log, and every run with no terminal. The plain path never imports
     Textual.
@@ -1209,6 +1209,11 @@ src/kiln_harness_tuner/
   contract.py       the no-cost live response-shape pre-flight
   model_preflight.py  one test call per model before the first spend
   concurrency.py, provider_errors.py, snapshots.py
+  onboarding/       the start before a run: the Kiln and task checks, the
+                    API-key check, the guided questions (the agents' model
+                    list in agent_models.py, the Models question and its
+                    picked policy in models.py), the summary and the rerun
+                    command
   agents/           one prompt template per agent role
   agent_files/      the agents' skills and instructions (package data),
                     installed per agent CLI into the state folder
@@ -1221,9 +1226,11 @@ src/kiln_harness_tuner/
                     and the trace files it writes (trace_files.py)
   skill_installer/  the MCP server that installs a skill bundle atomically
   tui/              the terminal app (Textual): the entry (entry.py), the
-                    app and its threads, the start-up and run screens, the
-                    widgets and the stylesheet (tuner.tcss, package data),
-                    and the run model (model/, pure Python)
+                    app and its threads, the screens (screens/: start-up,
+                    run, the details panel and its picker, the stop dialog,
+                    the modal base), the widgets and the stylesheet
+                    (tuner.tcss, package data), and the run model (model/,
+                    pure Python, details.py for the panel)
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 tests/              the offline suite
   tui/              the app's tests: the model, pilot tests of each screen,

@@ -65,7 +65,9 @@ statement of what that eval catches.
 > in the response body`.
 
 **Lever.** A **class of change** to a run config: the prompt, a skill, a tool,
-a tool wrapper, a model property. Not a specific edit — "rewrite the tool
+a tool wrapper, a model property, or the model itself when the run allows
+other models ([objectives.md](objectives.md#which-models-a-run-may-use)).
+Not a specific edit — "rewrite the tool
 description" is a lever, and the particular rewrite is one attempt at it. A
 tool's description does not change in place: the rewrite is a code-tool clone
 or a wrapper. The

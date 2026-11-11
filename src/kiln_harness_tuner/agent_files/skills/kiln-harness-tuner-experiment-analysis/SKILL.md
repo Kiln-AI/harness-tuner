@@ -109,8 +109,9 @@ feeding this comparison — **both arms** (candidate + baseline), subject
 `task_run_usage.cost` + judge `eval_usage.cost` — over the item's measured
 evals. What it does not tell you — say the clause when it bites:
 
-- It excludes agent session cost (your analysis session, the build session) —
-  those are subscription-lane spend the orchestrator books, not yours.
+- It excludes the agent sessions (your analysis session, the build session):
+  they run on the agent CLI's account and are booked as tokens, never
+  dollars.
 - It **under-reports by the holes**: a pair with no rows contributes $0 even
   though the job that failed to measure it cost real money.
 - It is the cost of the rows this comparison *reads*, not new money this item

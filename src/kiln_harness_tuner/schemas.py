@@ -2045,7 +2045,7 @@ class RunStatus(BaseModel):
     spend_total_usd: float  # the task's model calls: no agent dollars
     time_remaining_secs: float
     exit_reason: str | None
-    # Why a `timeout` exit came early, in words (`status.exit_detail`).
+    # How a `timeout` exit ended, in words (`status.exit_detail`).
     exit_detail: str | None = None
     # The live totals row (and the report-appendix header) need the
     # run's clock as well as its deadline:

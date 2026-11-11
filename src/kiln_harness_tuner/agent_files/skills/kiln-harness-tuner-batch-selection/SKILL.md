@@ -660,9 +660,10 @@ more headroom can be impossible by construction on a near-ceiling baseline.
   holds across tasks even though the prices do not: attaching an existing
   skill is the cheapest build and the fastest; copying and editing a skill
   costs several times that; a new wrapper code tool is the most expensive
-  build of the three. Every arm then pays a small fixed amount for its drives
-  and a larger one for its analysis session — so the analysis, not the build,
-  is the floor under a cheap arm. A cheap second arm costs a fraction of an
+  build of the three. Every arm then pays a small fixed amount of budget
+  dollars for its drives, and its analysis session takes the most agent
+  tokens and time — so the analysis, not the build, is the floor under a
+  cheap arm. A cheap second arm costs a fraction of an
   expensive one and none of the wall clock. For actual prices, measure on THIS
   task (`experiment-costing`): a figure from another task is not an estimate
   for this one.

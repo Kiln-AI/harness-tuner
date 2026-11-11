@@ -760,8 +760,9 @@ def _ask_budget(answers: Answers, ctx: QuestionContext) -> None:
 # The limit is approximate: no new wave starts after it, the wave in flight
 # finishes, then a wrap-up wave runs (`orchestrator._run_loop`).
 TIME_HINT = (
-    f"At least {MIN_TIME_LIMIT_MINS}m. The limit is approximate: as the run"
-    " nears it, the tuner starts to wrap up, so the run can end a little later."
+    f"At least {MIN_TIME_LIMIT_MINS}m. The limit is approximate: no new wave"
+    " starts after it, but the wave in flight and one wrap-up wave finish, so"
+    " the run can end later."
 )
 
 
