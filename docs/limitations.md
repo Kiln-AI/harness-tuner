@@ -167,10 +167,14 @@ baseline failure often passes when the same config runs it again.
 **A split of about 150 paired items cannot rule out a drop of a few
 points.** That holds for a full train measurement and for the val gate. For
 example, on 150 paired items, a candidate that fixes 7 items and breaks 14
-is about 4.7 points worse, but a one-sided sign test on those 21 changed
-items gives p of about 0.09: not significantly worse. The loss rule does
-not apply at the val gate. Under speed and cost, read a promotion as "no
-clear loss", never as "no loss".
+is about 4.7 points worse. But the exact two-sided McNemar test on those 21
+changed items gives p of about 0.19: not significantly worse. Under
+`quality`, the train rule and the val gate refuse only a drop beyond doubt.
+So such a candidate can be promoted when an eval it targets goes up beyond
+doubt. Read a quality promotion as "no clear loss", never as "no loss".
+Under `speed` and `cost`, quality must be equal or better: the net items
+over all evals, weighted by eval priority, must be zero or more. So this
+drop of 7 items is refused, unless other evals gain at least as much.
 
 **A small speed gain cannot be shown on 30 pairs.** The sign test needs 21
 or more of 30 pairs faster (exact two-sided sign test, p < 0.05). When the per-pair latency
@@ -185,8 +189,10 @@ gives no verdict of any kind on fewer than 6 pairs.
 **The quality test stops a clearly worse candidate, not a slightly worse
 one.** At alpha 0.05 split over the geometric looks, a candidate with a
 large true loss is usually stopped part way through the split. A candidate
-with a small true loss is usually not stopped. It completes and meets the
-train rule and the val gate, which is where a small loss is refused.
+with a small true loss is usually not stopped, and it completes. Under
+`speed` and `cost`, the train rule and the val gate then refuse it when
+quality is not equal or better. Under `quality`, they refuse only a loss
+beyond doubt, so a small loss on a guard eval can pass both.
 
 **"Lever not applied" reads the evidence a run records.** Thinking is judged
 on two signals — reasoning shown, and output tokens against the parent on
