@@ -20,7 +20,7 @@ from test_quarantine import TASK, Project
 
 from kiln_harness_tuner.gateway import hook
 from kiln_harness_tuner.gateway import ops as gw
-from kiln_harness_tuner.gateway.server import create_server
+from kiln_harness_tuner.gateway.server import POLICY_FILE, create_server, load_policy
 from kiln_harness_tuner.gateway.trainset import TrainSet, TrainSetError, compute
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.quarantine import QuarantineError
@@ -333,6 +333,53 @@ class TestReads:
         gateway, _ = _gateway(tmp_path, routes, policy=policy)
         out = _run(gateway, "list_available_models")
         assert [(r["provider"], r["model"]) for r in out] == [("openai", "gpt")]
+
+
+class TestThePolicyCopy:
+    """The gateway reads `runs/<run_id>/model_policy.json`. An unreadable copy
+    refuses every model and names the file. It does not stop the gateway."""
+
+    @pytest.mark.parametrize(
+        "text",
+        ["{bad", '{"allow": []}', '{"allow": [{"provider": "*"}]}', "[]"],
+    )
+    def test_an_unreadable_copy_refuses_every_model(self, tmp_path, text):
+        path = tmp_path / POLICY_FILE
+        path.write_text(text)
+        policy = load_policy(tmp_path)
+        assert policy is not None
+        for provider, model in [("openai", "gpt"), ("groq", "kimi"), ("x", "y")]:
+            reason = policy.refusal(provider, model)
+            assert reason is not None
+            assert str(path) in reason
+        assert policy.refusal(None, None) is not None
+        assert str(path) in policy.summary()["description"]
+
+    def test_the_gateway_refuses_a_run_config_under_an_unreadable_copy(self, tmp_path):
+        (tmp_path / POLICY_FILE).write_text("{bad")
+        gateway, kiln = _gateway(tmp_path, {}, policy=load_policy(tmp_path))
+        props = {
+            "type": "kiln_agent",
+            "model_provider_name": "openai",
+            "model_name": "gpt",
+        }
+        with pytest.raises(gw.GatewayError, match="unreadable"):
+            _run(gateway, "create_run_config", name="n", run_config_properties=props)
+        assert kiln.calls == []
+
+    def test_no_copy_or_an_empty_copy_is_no_policy(self, tmp_path):
+        assert load_policy(tmp_path) is None
+        (tmp_path / POLICY_FILE).write_text("  \n")
+        assert load_policy(tmp_path) is None
+
+    def test_a_readable_copy_is_the_policy(self, tmp_path):
+        (tmp_path / POLICY_FILE).write_text(
+            json.dumps({"allow": [{"provider": "openai", "model": "*"}]})
+        )
+        policy = load_policy(tmp_path)
+        assert policy is not None
+        assert policy.refusal("openai", "gpt") is None
+        assert policy.refusal("groq", "kimi") is not None
 
 
 class TestEvalListShapes:

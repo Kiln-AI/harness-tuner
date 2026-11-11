@@ -129,6 +129,16 @@ class ModelPolicy:
         }
 
     @staticmethod
+    def refuse_all(reason: str) -> ModelPolicy:
+        """A policy that refuses every pair and gives `reason` in each
+        refusal. It is not a user policy, so `from_json` does not check it."""
+        return ModelPolicy(
+            allow=(),
+            deny=(Rule("*", "*", reason),),
+            description=f"every model refused: {reason}",
+        )
+
+    @staticmethod
     def from_json(data: Any, source: str = "the policy") -> ModelPolicy:
         if not isinstance(data, dict):
             raise ModelPolicyError(f"{source} must be a JSON object")

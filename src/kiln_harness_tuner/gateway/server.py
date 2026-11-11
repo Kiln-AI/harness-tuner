@@ -40,7 +40,7 @@ def load_policy(run_dir: Path) -> ModelPolicy | None:
     try:
         return ModelPolicy.load(path)
     except ModelPolicyError as exc:  # fail closed: every model refused
-        return ModelPolicy.from_json({"allow": []}, source=f"unreadable policy ({exc})")
+        return ModelPolicy.refuse_all(f"the policy copy is unreadable ({exc})")
 
 
 def load_state(args: argparse.Namespace) -> gw.State:
