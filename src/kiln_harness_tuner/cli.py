@@ -82,7 +82,12 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError
-from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
+from kiln_harness_tuner.model_policy import (
+    MODEL_CHOICES,
+    ModelPolicy,
+    ModelPolicyError,
+    resolve_models,
+)
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import (
     OnboardingError,
@@ -430,9 +435,7 @@ def build_parser() -> _Parser:
         " speed = per-request wall-clock latency, promoted only when clearly"
         " faster on val (paired, median and p90) with no eval regressed"
         " significantly; cost = per-request provider cost, by the same rule."
-        " Under quality the task keeps its model and provider unless"
-        " --guidance allows other models and --model-policy lists them;"
-        " speed and cost may change them",
+        " The objective also sets the default of --models",
     )
     parser.add_argument(
         "--min-effect",
@@ -461,15 +464,24 @@ def build_parser() -> _Parser:
         " differently (paid, estimated before it spends; default off)",
     )
     parser.add_argument(
+        "--models",
+        choices=MODEL_CHOICES,
+        default=None,
+        help="which models the task may use: keep = the baseline's model and"
+        " provider only (thinking level, temperature and top_p may still"
+        " change); any = every model Kiln offers on the providers that have a"
+        " key, which may pick more expensive models and raise the spend."
+        " Default: keep under --objective quality, any under speed and cost."
+        " Enforced in code. Not with --model-policy",
+    )
+    parser.add_argument(
         "--model-policy",
         default=None,
         metavar="PATH",
         help="JSON file of allowed/denied (provider, model) pairs for the task's"
         " run configs, enforced on every run config an agent creates and"
-        " before any rc is measured or promoted. It limits model swaps; under"
-        " quality a swap also needs --guidance that allows it (see"
-        " --objective). Default: no policy, so speed and cost may use any"
-        " model Kiln offers and quality keeps the task's model."
+        " before any rc is measured or promoted: the task may move to the"
+        " models it allows, under every objective. In place of --models."
         " See examples/model-policy.json",
     )
     parser.add_argument(
@@ -499,6 +511,11 @@ OBJECTIVES = ("quality", "speed", "cost")
 def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The rules between flags that argparse can't state. Each failure is an
     argparse error: usage, the message, exit 2."""
+    if args.models is not None and args.model_policy is not None:
+        parser.error(
+            "--models and --model-policy both say which models the task may"
+            " use: give one of them"
+        )
     project_flags = (args.project_id, args.task_id, args.project_path)
     if args.demo_project and any(flag is not None for flag in project_flags):
         parser.error(
@@ -1042,6 +1059,7 @@ def build_ctx(
     reference_check: str = "warn",
     objective: str = "quality",
     model_policy: ModelPolicy | None = None,
+    keep_model: bool = False,
     agent_cli: AgentCli | None = None,
     min_effect: float | None = None,
     allow_underpowered: bool = False,
@@ -1094,6 +1112,7 @@ def build_ctx(
         opening_screen=True,
         objective=objective,
         model_policy=model_policy,
+        keep_model=keep_model,
         # A tree the read fence denies: `runs/` is denied except this run's
         # scratch, so `runs/.quarantine/` is unreadable to every agent.
         quarantine_root=state.quarantine(target.project_id, target.task_id),
@@ -1366,6 +1385,8 @@ async def _run(
                 reference_check=args.reference_check,
                 objective=args.objective,
                 model_policy=policy,
+                keep_model=policy is None
+                and resolve_models(args.models, args.objective) == "keep",
                 agent_cli=agent_cli,
                 min_effect=args.min_effect,
                 allow_underpowered=args.allow_underpowered,

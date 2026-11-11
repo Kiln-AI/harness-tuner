@@ -65,9 +65,10 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--objective` | `quality` | What the run optimizes: `quality`, `speed` or `cost`. One objective per run. Under `quality` the task keeps its model and provider, unless `--guidance` allows other models and `--model-policy` lists them. Under `speed` and `cost` a model or provider swap is a lever. [objectives.md](objectives.md#what-to-optimize---objective) has what each one holds fixed, and when a candidate is promoted. |
+| `--objective` | `quality` | What the run optimizes: `quality`, `speed` or `cost`. One objective per run. It also sets the default of `--models`. [objectives.md](objectives.md#what-to-optimize---objective) has what each one holds fixed, and when a candidate is promoted. |
 | `--guidance` | empty | Free text for the planner: what to work on, and what not to touch. It goes verbatim to every planner, every wave, and to the promotion gate. [your-own-task.md](your-own-task.md) section 4. |
-| `--model-policy` | not set: `speed` and `cost` may use every model, `quality` keeps the task's model | A JSON file of allowed and denied (provider, model) pairs for the task's run configs. It limits model swaps. Under `quality` a swap needs this policy and `--guidance` that allows other models; the policy alone is not enough. [objectives.md](objectives.md#which-models-a-run-may-use---model-policy) has the file format, the rules and an example. |
+| `--models` | not set: `keep` under `quality`, `any` under `speed` and `cost` | Which models the task may use. `keep`: the baseline's model and provider only; the thinking level, the temperature and `top_p` can still change. `any`: every model on the providers that have a key in Kiln, which can move the task to a more expensive model and raise the spend. Enforced in code. Not with `--model-policy`. [objectives.md](objectives.md#which-models-a-run-may-use) |
+| `--model-policy` | not set | A JSON file of allowed and denied (provider, model) pairs for the task's run configs: the task may use the models it allows, under every objective. In place of `--models`. The guided start writes one when you pick models. [objectives.md](objectives.md#a-model-policy-file---model-policy) has the file format, the rules and an example. |
 
 ### Limits
 

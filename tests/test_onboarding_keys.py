@@ -183,12 +183,14 @@ async def test_the_baseline_is_named_with_its_model_and_provider():
         on("", {"id": TASK_ID, "default_run_config_id": "rc_1"}),
         on("/run_configs", TWO_RUN_CONFIGS),
     )
-    assert await baseline_of(kiln) == Baseline("Default", LLAMA, "OpenAI", "rc_1")
+    assert await baseline_of(kiln) == Baseline(
+        "Default", LLAMA, "OpenAI", "rc_1", "openai"
+    )
 
 
 async def test_the_baseline_the_tuner_recorded_is_the_one_named():
     kiln = kiln_with(on("/run_configs", TWO_RUN_CONFIGS), baseline_memory("rc_rc_2"))
-    assert await baseline_of(kiln) == Baseline("Tuned", LLAMA, "Groq", "rc_2")
+    assert await baseline_of(kiln) == Baseline("Tuned", LLAMA, "Groq", "rc_2", "groq")
 
 
 async def test_a_baseline_with_no_model_is_named_alone():
@@ -198,7 +200,9 @@ async def test_a_baseline_with_no_model_is_named_alone():
 
 async def test_a_provider_with_no_display_name_is_named_by_its_id():
     kiln = kiln_with(on("/run_configs", [run_config(provider="new_cloud")]))
-    assert await baseline_of(kiln) == Baseline("Baseline", LLAMA, "new_cloud", "rc_1")
+    assert await baseline_of(kiln) == Baseline(
+        "Baseline", LLAMA, "new_cloud", "rc_1", "new_cloud"
+    )
 
 
 @pytest.mark.parametrize(

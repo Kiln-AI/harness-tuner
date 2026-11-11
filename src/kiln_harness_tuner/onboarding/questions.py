@@ -18,7 +18,8 @@ import shlex
 import shutil
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, fields, replace
-from typing import TypeVar
+from pathlib import Path
+from typing import Any, TypeVar
 
 from kiln_harness_tuner.dispatch.agent_cli import (
     CLAUDE_EFFORTS,
@@ -26,8 +27,7 @@ from kiln_harness_tuner.dispatch.agent_cli import (
     AgentCli,
     parse_agent_cli,
 )
-from kiln_harness_tuner.model_policy import ModelPolicy
-from kiln_harness_tuner.objective import is_efficiency
+from kiln_harness_tuner.model_policy import ModelPolicy, resolve_models
 from kiln_harness_tuner.onboarding.agent_models import (
     AGENT_MODELS,
     CODEX_MODELS_URL,
@@ -35,6 +35,19 @@ from kiln_harness_tuner.onboarding.agent_models import (
 )
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.errors import GoBack
+from kiln_harness_tuner.onboarding.models import (
+    ANY,
+    ANY_COST_WARNING,
+    FILE,
+    KEEP,
+    PICK,
+    PICK_LIMIT,
+    Pair,
+    offered_models,
+    pick_options,
+    picked_pairs,
+    write_picked_policy,
+)
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
     Action,
@@ -45,6 +58,7 @@ from kiln_harness_tuner.onboarding.terminal import (
     plural,
     resolve_problem,
 )
+from kiln_harness_tuner.paths import StatePaths, state_home
 
 T = TypeVar("T")
 
@@ -201,6 +215,7 @@ class Answers:
     budget_usd: float | None
     timeout_mins: int
     model_policy: str | None
+    models: str | None  # `--models`; None = the objective's default
     min_effect: float | None
     max_concurrent_evals: int
     max_concurrent_agents: int
@@ -227,16 +242,22 @@ def objective_text(objective: str) -> str:
     return OBJECTIVES.get(objective, (objective, ""))[0]
 
 
-def model_policy_text(answers: Answers, *, short: bool = False) -> str:
-    """The model policy answer as it reads. With no policy file, it says
-    which models the run uses: speed and cost may use any model, and
-    quality keeps the task's model (the planner sees no other one). Under
-    quality a swap needs a policy and guidance that allows other models."""
-    if answers.model_policy:
-        return answers.model_policy
-    if is_efficiency(answers.objective):
-        return "any model" if short else "any model Kiln offers"
-    return "same model" if short else "the task keeps its model"
+def models_text(answers: Answers, baseline_model: str | None = None) -> str:
+    """Which models the task may use, as the step line and the summary
+    read it. `baseline_model` names the baseline's model for `keep`."""
+    path = answers.model_policy
+    if path:
+        picked = picked_pairs(path)
+        if picked is not None:
+            return f"{plural(len(picked), 'model')} picked: " + ", ".join(
+                model for _provider, model in picked
+            )
+        return f"policy {path}"
+    if resolve_models(answers.models, answers.objective) == ANY:
+        return "any model Kiln offers"
+    if baseline_model:
+        return f"keep the task's model ({baseline_model})"
+    return "keep the task's model"
 
 
 # ---- the agent CLIs ----
@@ -406,6 +427,13 @@ class QuestionContext:
     # is wrong with the file (cli's ConfigRenderError, a RuntimeError).
     policy_loader: Callable[[str | None], ModelPolicy | None]
     demo: bool = False
+    # The Models question's facts: the baseline's model as the user reads it
+    # and as its (provider, model) pair, the `GET /api/available_models`
+    # payload (read when the user picks models), and where a pick is saved.
+    baseline_model: str | None = None
+    baseline_pair: Pair | None = None
+    offered: Callable[[], Any] | None = None
+    policy_dir: Path | None = None
     which: Callable[[str], str | None] = shutil.which
     # Esc goes back: there is a question before this one.
     back: bool = False
@@ -728,40 +756,137 @@ MIN_EFFECT_HINT = (
 )
 
 
-def _model_policy_hint(objective: str) -> str:
-    if is_efficiency(objective):
-        limit = "Blank means any model Kiln offers."
-    else:
-        limit = (
-            "Under Quality the task keeps its model. To let it try others,"
-            " allow them in your guidance and list them here."
-            " Blank means the task keeps its model."
-        )
-    return (
-        f"Limits the models the tuner may move the task to. {limit}"
-        " examples/model-policy.json shows the format."
+MODELS_QUESTION = "Which models may the tuner use?"
+PICK_QUESTION = "Pick the models the tuner may use"
+POLICY_QUESTION = "Model policy file"
+PICK_MODELS_HINT = "\n".join(
+    (
+        "↑↓ move · type to filter · Tab next provider · Space mark · Enter done",
+        "The task's own model starts marked. Each marked model gets one short"
+        " test call at start-up.",
     )
+)
 
 
-def _ask_model_policy(answers: Answers, ctx: QuestionContext) -> None:
+_DEFAULT_TEXT = {KEEP: "to keep the task's model", ANY: "any model Kiln offers"}
+
+
+def _models_choice(answers: Answers) -> str:
+    if answers.model_policy:
+        return PICK if picked_pairs(answers.model_policy) is not None else FILE
+    return resolve_models(answers.models, answers.objective)
+
+
+def _models_choices(ctx: QuestionContext) -> list[Option[str]]:
+    return [
+        Option(
+            KEEP,
+            "Keep the task's model",
+            (ctx.baseline_model or "",),
+            description="The tuner may still change its thinking level,"
+            " temperature and top_p. Code refuses every other model.",
+        ),
+        Option(
+            ANY,
+            "Any model Kiln offers",
+            ("on the providers that have a key",),
+            description=ANY_COST_WARNING,
+        ),
+        Option(
+            PICK,
+            "Pick models…",
+            (f"up to {PICK_LIMIT}",),
+            description="Mark the models it may use, from the providers that"
+            " have a key. Code refuses every other model.",
+        ),
+        Option(
+            FILE,
+            "Use a policy file…",
+            ("examples/model-policy.json",),
+            description="A JSON file of allowed and denied (provider, model) pairs.",
+        ),
+    ]
+
+
+def _ask_models(answers: Answers, ctx: QuestionContext) -> None:
+    """Keep, any, picked models or a policy file. Esc in the picker or at
+    the file asks this question again."""
+    default = resolve_models(None, answers.objective)
+    while True:
+        choice = ctx.terminal.pick(
+            MODELS_QUESTION,
+            _models_choices(ctx),
+            hint=f"The default for {objective_text(answers.objective)} is"
+            f" {_DEFAULT_TEXT[default]}.",
+            default=_models_choice(answers),
+            back=ctx.back,
+        )
+        try:
+            if choice == PICK:
+                _ask_picked(answers, ctx)
+            elif choice == FILE:
+                _ask_policy_file(answers, ctx)
+            else:
+                answers.models, answers.model_policy = choice, None
+        except GoBack:
+            continue
+        break
+    ctx.terminal.step("ok", "Models", models_text(answers, ctx.baseline_model))
+
+
+def _ask_picked(answers: Answers, ctx: QuestionContext) -> None:
+    with ctx.terminal.busy("Reading the models Kiln offers…"):
+        offered = offered_models(ctx.offered() if ctx.offered is not None else [])
+    if not offered:
+        ctx.terminal.warn(
+            "Kiln offers no models: add a provider key in Kiln's settings."
+        )
+        raise GoBack()
+    default = picked_pairs(answers.model_policy)
+    if default is None:
+        default = [ctx.baseline_pair] if ctx.baseline_pair is not None else []
+    pairs = ctx.terminal.pick_many(
+        PICK_QUESTION,
+        pick_options(offered),
+        hint=PICK_MODELS_HINT,
+        default=default,
+        limit=PICK_LIMIT,
+        back=True,
+    )
+    folder = ctx.policy_dir if ctx.policy_dir is not None else policies_folder()
+    answers.model_policy = str(write_picked_policy(folder, pairs))
+    answers.models = None
+
+
+def _ask_policy_file(answers: Answers, ctx: QuestionContext) -> None:
     def refusal(text: str) -> str | None:
         path = text.strip()
         if not path:
-            return None
+            return "Give the file's path, or press Esc to choose again."
         try:
             ctx.policy_loader(path)
         except (RuntimeError, ValueError) as exc:
             return str(exc)
         return None
 
+    current = answers.model_policy
     answer = ctx.terminal.text(
-        "Model policy file",
-        default=answers.model_policy or "",
-        hint=_model_policy_hint(answers.objective),
+        POLICY_QUESTION,
+        default=current if current and picked_pairs(current) is None else "",
+        hint="A JSON file of allowed and denied (provider, model) pairs. The"
+        " task may use the models it allows. examples/model-policy.json shows"
+        " the format.",
         validate=refusal,
-        back=ctx.back,
+        back=True,
     )
-    answers.model_policy = answer.strip() or None
+    answers.model_policy = answer.strip()
+    answers.models = None
+
+
+def policies_folder() -> Path:
+    """Where the picker saves its policy files: the state folder's
+    `policies/`."""
+    return StatePaths(state_home()).policies
 
 
 def _ask_min_effect(answers: Answers, ctx: QuestionContext) -> None:
@@ -813,6 +938,14 @@ QUESTIONS: tuple[Question, ...] = (
         lambda a: objective_text(a.objective),
     ),
     Question(
+        "models",
+        "Models",
+        frozenset({"models", "model_policy"}),
+        False,
+        _ask_models,
+        models_text,
+    ),
+    Question(
         "guidance",
         "Guidance",
         frozenset({"guidance"}),
@@ -843,14 +976,6 @@ QUESTIONS: tuple[Question, ...] = (
         False,
         _ask_time,
         lambda a: duration_text(a.timeout_mins),
-    ),
-    Question(
-        "model_policy",
-        "Model policy",
-        frozenset({"model_policy"}),
-        True,
-        _ask_model_policy,
-        model_policy_text,
     ),
     Question(
         "min_effect",
@@ -906,13 +1031,9 @@ def _at_once(count: int, noun: str) -> str:
 def _advanced_parts(answers: Answers) -> dict[str, str]:
     """Each advanced answer as the Advanced lines read it, by dest, in their
     order."""
-    policy = answers.model_policy
     effect = answers.min_effect
     noise = answers.noise_check
     return {
-        "model_policy": f"model policy {policy}"
-        if policy
-        else model_policy_text(answers, short=True),
         "max_concurrent_evals": _at_once(answers.max_concurrent_evals, "eval"),
         "max_concurrent_agents": _at_once(answers.max_concurrent_agents, "agent"),
         "min_effect": (
@@ -928,20 +1049,17 @@ def _advanced_parts(answers: Answers) -> dict[str, str]:
 
 def advanced_values(answers: Answers) -> str:
     """Every advanced value, for the Advanced menu's question:
-    `same model · 4 evals and 4 agents at once · no minimum effect · no noise
-    check` (`model_policy_text` says what the first value reads)."""
+    `4 evals and 4 agents at once · no minimum effect · no noise check`."""
     parts = _advanced_parts(answers)
     concurrency = (
         f"{parts['max_concurrent_evals']} and {parts['max_concurrent_agents']} at once"
     )
-    return " · ".join(
-        [parts["model_policy"], concurrency, parts["min_effect"], parts["noise_check"]]
-    )
+    return " · ".join([concurrency, parts["min_effect"], parts["noise_check"]])
 
 
 def advanced_changes(answers: Answers, defaults: Answers) -> str:
     """The advanced values that differ from the defaults, for the Advanced
-    step and summary line: `model policy ./policy.json · 2 evals at once`,
+    step and summary line: `2 evals at once · minimum effect 10%`,
     or `defaults`."""
     concurrency = {"max_concurrent_evals", "max_concurrent_agents"}
     changes = [

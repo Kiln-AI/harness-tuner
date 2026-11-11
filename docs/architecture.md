@@ -1816,18 +1816,24 @@ order: an **exception** (one exact pair, no wildcards) allows it; a **deny**
 match refuses it; an **allow** match allows it; anything else is refused. No
 policy means every model is allowed.
 
-**Swaps under each objective.** Under `--objective quality` the task keeps
-the baseline's model and provider (`model_name`, `model_provider_name`).
-The planner may change everything else, the provider parameters (thinking
-level, temperature, `top_p`) included. A model or provider swap is a lever
-under `speed` and `cost`. Under `quality` it is a lever only when the
-guidance allows other models explicitly ("you may try other models") AND a
-policy is set: without a policy, `_allowed_models` gives the planner the
-baseline's model alone, and the planner plans only on listed models. A
-policy without that guidance is not enough. The planner skill
-(`kiln-harness-tuner-batch-selection`) holds the guidance half of the rule,
-and the build skill refuses a swap the item does not justify. No code
-refuses a model swap under quality when a policy allows the pair.
+**`--models` and the policy.** Without `--model-policy`, `--models` says
+which models the task may use (`model_policy.resolve_models`): `keep`, the
+default under `--objective quality`, or `any`, the default under `speed`
+and `cost`. `any` is no policy. `keep` becomes a policy at start-up:
+`orchestrator.pin_baseline_model` reads the baseline's (provider, model),
+once the baseline record is known and before the model preflight, and
+sets `Ctx.model_policy` to one exception for that pair
+(`model_policy.keep_policy`). It writes the same policy to
+`runs/<run_id>/model_policy.json`, so the gateway enforces it like a policy
+file. A baseline whose pair cannot be read pins nothing; the planner still
+gets the baseline's model alone (`_allowed_models`). The guided start's
+picker writes a policy of exceptions to the state folder's `policies/`
+(`onboarding.models`) and passes it as `--model-policy`.
+
+So a model or provider swap is a lever exactly when the policy allows a
+model other than the baseline's. The planner skill says so, and the
+thinking level, the temperature and `top_p` stay levers under every
+choice.
 
 It is enforced at every place a run config comes into being or is used:
 

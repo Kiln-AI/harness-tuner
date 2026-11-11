@@ -142,6 +142,29 @@ class ScriptedTerminal:
         assert value in pickable, f"{value!r} isn't a pickable option of {offered}"
         return value
 
+    def pick_many(
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: Sequence[T] = (),
+        limit: int | None = None,
+        back: bool = False,
+    ) -> list[T]:
+        """Answered with the list of values to mark, in any order; the
+        result keeps the options' order, as the real picker does."""
+        offered = tuple(o.value for o in options)
+        self.options.append(tuple(options))
+        asked = Asked("pick_many", question, offered, tuple(default), hint, back)
+        answer = self._answer(asked)
+        values: Any = answer() if callable(answer) else answer
+        assert values, "a multi-picker takes at least one value"
+        assert limit is None or len(values) <= limit, f"more than {limit} marked"
+        for value in values:
+            assert value in offered, f"{value!r} isn't an option of {offered}"
+        return [o.value for o in options if o.value in values]
+
     def act(
         self, question: str, actions: Sequence[Action], *, back: bool = False
     ) -> Action:
@@ -488,6 +511,8 @@ def flags(
 CORE_ANSWERED = [
     "--objective",
     "quality",
+    "--models",
+    "keep",
     "--guidance",
     "",
     "--agent-cli",
@@ -508,10 +533,8 @@ ANSWERED = [
     "4",
 ]
 ADVANCED_PROMPT = (
-    "Advanced options: same model · 4 evals and 4 agents at once"
+    "Advanced options: 4 evals and 4 agents at once"
     " · no minimum effect · no noise check"
 )
-# Under speed and cost, a run with no model policy may use any model.
-SWAP_ADVANCED_PROMPT = ADVANCED_PROMPT.replace("same model", "any model")
 KEEP_AND_START = ["enter", "s"]
 START_PROMPT = "Start tuning?"

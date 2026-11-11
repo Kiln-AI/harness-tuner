@@ -95,6 +95,21 @@ class Baseline:
     model: str | None
     provider: str | None  # Kiln's display name
     rc_id: str
+    provider_id: str | None = None  # Kiln's provider id
+
+    @property
+    def pair(self) -> tuple[str, str] | None:
+        """(provider id, model id), when the run config names both."""
+        if self.provider_id and self.model:
+            return (self.provider_id, self.model)
+        return None
+
+    @property
+    def model_text(self) -> str | None:
+        """The model as the start names it: `model on Provider`."""
+        if not self.model:
+            return None
+        return f"{self.model} on {self.provider}" if self.provider else self.model
 
 
 def _text(value: Any) -> str | None:
@@ -185,6 +200,7 @@ def _baseline(row: dict[str, Any] | None) -> Baseline | None:
         model or None,
         provider_name(provider) if provider else None,
         _run_config_id(row),
+        provider or None,
     )
 
 

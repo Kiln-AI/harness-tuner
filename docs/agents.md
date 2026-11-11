@@ -128,8 +128,10 @@ every probe answered so far this run, newest last; `prior_rejected_summary`,
 the one thing carried in context across waves; `phase` (`plan`, `replan` or
 `rescreen`); `objective` (`quality`, `speed` or `cost`),
 `baseline_latency` (the baseline's median, p90 and spread on its stored train
-drives), `model_policy` (the rules, or null), `allowed_models` (what the
-server offers, filtered by the policy) and, under `speed`, `speed_rule` — the
+drives), `model_policy` (the rules, or null; under `--models keep` the
+baseline's one pair), `allowed_models` (what the server offers, filtered by
+the policy; a model or provider swap is a lever exactly when it lists a
+model other than the baseline's) and, under `speed`, `speed_rule` — the
 exact promotion rule in words, composed by code from the constants it
 applies. The analyst receives the same `speed_rule` in `AnalysisInput`.
 The screening fields — `screening_results` (this round's table),
@@ -478,7 +480,7 @@ one rule with five enforcement points.
   any train spend.
 
 The memory scopes, train-only reads, validated writes and (with
-`--model-policy`) the models an arm may use are enforced by the gateway in
+`--model-policy` or `--models keep`) the models an arm may use are enforced by the gateway in
 code ([architecture.md](architecture.md) section 12). The promotion agent
 and the report writer have read operations only. The others hold on the
 skills alone.

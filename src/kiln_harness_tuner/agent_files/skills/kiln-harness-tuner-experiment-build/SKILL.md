@@ -60,10 +60,11 @@ going looking.
    config identical to the parent except the named provider parameter(s),
    no new prompt, skill or tool. Its `change` block lists the one parameter
    and its old and new values, and everything else under `unchanged`. The
-   model and provider stay as the parent has them unless the item's
-   hypothesis says the run's objective is speed or cost, or that the
-   guidance allows other models. If it says neither, return
-   `failed_expected` naming the rule rather than swapping it.
+   model and provider stay as the parent has them unless the item names a
+   new model. The gateway refuses a model the run does not allow
+   (`create_run_config` answers "… is outside the model policy"): then
+   return `failed_expected` naming the refusal, and do not try another
+   model.
 
    **Skills WITH resource files** are authored as a complete bundle under
    your `scratch_dir` and installed atomically with the

@@ -1,8 +1,8 @@
-# Objectives and model policy
+# Objectives and models
 
-Two flags set what a run improves and which models it may use:
-`--objective` and `--model-policy`. [cli.md](cli.md) lists every flag, with
-its default.
+Three flags set what a run improves and which models it may use:
+`--objective`, and `--models` or `--model-policy`. [cli.md](cli.md) lists
+every flag, with its default.
 
 ## What to optimize: `--objective`
 
@@ -22,8 +22,8 @@ single eval down by more than max(1, round(0.10 × its items)) items.
 - **`quality`** works on issues: one failure class of one eval. The planner
   builds a fix for an issue, such as a prompt change, a skill, a tool or a
   provider parameter, and the fix must show on the items the baseline fails.
-  The task keeps its model, unless you allow other models
-  ([below](#which-objectives-may-change-the-model)). When no eval can
+  By default the task keeps its model
+  ([below](#which-models-a-run-may-use)). When no eval can
   measure an issue, the report names it, so that you can create the
   eval in the Kiln app. The loop builds that eval itself only with
   `--experimental-eval-building`, which is experimental and off by default.
@@ -41,37 +41,61 @@ single eval down by more than max(1, round(0.10 × its items)) items.
 Under every objective, each experiment also reports its latency and cost
 against its parent, read from the stored runs at no extra cost. So when
 latency is the goal, use `--objective speed`, and when cost is the goal, use
-`--objective cost`. To keep costly models out, use `--model-policy`.
+`--objective cost`. To choose the models the task may use, see
+[below](#which-models-a-run-may-use).
 [how-it-works.md](how-it-works.md#the-objectives) has the stop rules and the
 promotion rules in full, and [architecture.md](architecture.md) section 16
 has the method.
 
-### Which objectives may change the model
+## Which models a run may use
 
-Under `quality` the task keeps the baseline's model and provider
-(`model_name` and `model_provider_name`). The planner may change all the
-other parts of the run config. That includes the provider parameters: the
-thinking level, the temperature and `top_p`.
+You choose the models the task may use at start-up. The choice is enforced
+in code: the planner sees only the allowed models, and the code refuses a
+run config on any other model before it is built, measured or promoted.
 
-A model or provider swap is a lever only when one of these is true:
+| Choice | Flag | What the task may use |
+|---|---|---|
+| Keep the task's model | `--models keep` | The baseline's model and provider only (`model_name` and `model_provider_name`). The default under `quality`. |
+| Any model Kiln offers | `--models any` | Every model on the providers that have a key in Kiln. The default under `speed` and `cost`. |
+| Pick models | `--model-policy <file>` | The models you picked. The guided start writes the policy file for you. |
+| A policy file | `--model-policy <file>` | The models the file allows. |
 
-- The objective is `speed` or `cost`.
-- The objective is `quality`, the guidance allows other models explicitly
-  (for example "You may try other models."), and a `--model-policy` lists
-  them. Under `quality` the planner sees other models only when a policy is
-  set. Without a policy it sees only the baseline's model.
+`--models` and `--model-policy` are alternatives: give one of them. With
+neither, the objective sets the default.
 
-A policy alone does not enable a swap under `quality`: the guidance must
-allow it too. Under `speed` and `cost` the policy only limits the
-(provider, model) pairs that a swap may use.
+Under every choice the planner may change all the other parts of the run
+config. That includes the provider parameters: the thinking level, the
+temperature and `top_p`. Guidance can still forbid a swap ("Do not change
+the model"), but guidance cannot allow a model that the choice does not
+allow.
 
-## Which models a run may use: `--model-policy`
+**`--models any` can cost more.** The tuner may move the task to a more
+expensive model. The cost per request can go up, and so can the run's
+spend. To keep costly models out, pick the models, or use a policy file.
 
-A model policy limits the models that a model swap may use
-([above](#which-objectives-may-change-the-model)). Without a policy, a
-`speed` or `cost` run may use any model Kiln offers, and a `quality` run
-keeps the baseline's model. Under `quality` a policy is necessary for a swap
-but not enough: the guidance must also allow other models.
+### Keep the task's model: `--models keep`
+
+At start-up, once the baseline is known, the run makes a policy of the
+baseline's one (provider, model) pair. It writes the policy to the run
+folder, where the code that checks run configs reads it. So "keep the
+model" is enforced by the same checks as a policy file. The model preflight
+then tests the baseline's model only.
+
+### Pick models, in the guided start
+
+The guided start's Models question offers the four choices. **Pick
+models** shows the models of the providers that have a key in Kiln:
+
+- Type to filter the list. Tab and Shift+Tab show one provider at a time.
+- Space marks or unmarks a model. The task's own model starts marked.
+- Enter accepts. You can mark at most 12 models: the model preflight tests
+  12 models.
+
+The start writes the policy to the state folder's `policies/` folder, as
+`picked-<date>-<time>.json`, with one exception for each model. The rerun
+command passes it with `--model-policy`.
+
+## A model policy file: `--model-policy`
 
 The policy is a JSON file of `allow`, `deny` and `exceptions` rules over
 Kiln's (provider, model) ids, with `*` wildcards.
@@ -163,7 +187,7 @@ that no rule names, such as `ollama`, is refused, because nothing allows it.
   baseline's model and to each allowed model the planner may pick (at most
   12). A model that fails is left out of the run. `--skip-model-preflight`
   skips this.
-- **A guided start can set it too**, in its advanced options. The file is
+- **A guided start can set it too**, at its Models question. The file is
   loaded at once, so a bad file shows the loader's message under the field.
   A policy set there gets the API-key check again, for the providers it
   names.

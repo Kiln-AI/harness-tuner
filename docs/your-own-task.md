@@ -353,24 +353,22 @@ question of size, not of shape: **no eval can show a significant val win**
 and the promotion gate. It is the one place a person steers the run without
 touching the task.
 
-Four things it is good for:
+Three things it is good for:
 
 - **Scope.** "Only work on the two issues about writes; leave the answer
   wording alone." The planner reads this as a hard constraint on candidate
   generation.
 - **Prohibition.** "Do not raise the reasoning level — this has to run at
   the current cost." A lever the guidance forbids is not tried.
-- **Permission.** "You may try other models." Under `--objective quality`
-  the task keeps its model and provider. A model or provider swap is a
-  lever only when the guidance allows other models explicitly AND
-  `--model-policy` lists them: without a policy, the planner sees only the
-  baseline's model. A policy without this sentence is not enough. Under
-  `speed` and `cost` a swap is a lever without this sentence.
 - **Answering an open question.** The planner records questions it cannot
   resolve as constraint records with a re-ask condition. The promotion gate
   escalates on an *open* constraint instead of judging the numbers — but a
   constraint your guidance answers is answered, and the gate is told so
   explicitly.
+
+Guidance cannot allow a model: the Models question (section 5.2), or
+`--models` and `--model-policy`, say which models the task may use. Guidance
+can forbid a model swap that they allow ("Do not change the model").
 
 > *An illustration, on an invented task.* A freight depot operations desk
 > assistant has two problems: it reports actions as done when the API refused
@@ -550,13 +548,14 @@ The footer shows `esc Back` only where Esc goes back.
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
 | What should the tuner improve? | `--objective` | Quality | Quality (higher eval scores), Speed (lower latency per request) or Cost (lower cost per request). Speed and cost only promote a change that keeps quality equal or better. |
+| Which models may the tuner use? | `--models` or `--model-policy` | Keep the task's model under Quality; Any model Kiln offers under Speed and Cost | Keep the task's model (`--models keep`); Any model Kiln offers (`--models any`), which can move the task to a more expensive model and raise the spend; Pick models, at most 12, from the providers that have a key, saved as a policy file (`--model-policy`); or Use a policy file, loaded at once, so a bad file shows the loader's message under the field. [objectives.md](objectives.md#which-models-a-run-may-use) has each choice. |
 | Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. |
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
 | Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: as the run nears it, the tuner starts to wrap up, so the run can end a little later. |
-| Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
+| Advanced options | the four flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
 - **The agent CLI and its model** make one `--agent-cli` command: the model
   becomes `claude -p --model sonnet`, `codex exec -m <model>` or
@@ -588,36 +587,35 @@ the task: the size of the evals, the number of experiments and the speed of
 the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
 at once.
 
-The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
+The step lines read, for example, `✓ Improve   Quality`,
+`✓ Models    keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)`,
+`✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or
 `no cap`) and `✓ Time      12 hours`.
 
 **Advanced options** are one menu, with their current values on its line:
 
 ```
-Advanced options: same model · 4 evals and 4 agents at once · no minimum effect · no noise check
+Advanced options: 4 evals and 4 agents at once · no minimum effect · no noise check
  Enter) Keep these
  c) Customize
 ```
-
-The first value says which models the run may use. Under Quality with no
-policy it is `same model`. Under Speed and Cost with no policy it is
-`any model`.
 
 `c` asks each of these in turn, pre-filled with its current value. One given by
 a flag is skipped.
 
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
-| Model policy file | `--model-policy` | empty: the task keeps its model (Quality), or any model Kiln offers (Speed, Cost) | A path to a policy file, loaded at once, so a bad file shows the loader's message under the field; or nothing. A policy limits the models a swap may use. Under Quality a swap also needs guidance that allows other models. |
 | Smallest improvement worth acting on | `--min-effect` | empty: not set | A fraction above 0 and at most 1 (`0.1` is 10%), or nothing. |
 | Eval jobs at once | `--max-concurrent-evals` | `4` | A whole number, 0 or more (0 is no limit). |
 | Agent sessions at once | `--max-concurrent-agents` | `4` | A whole number, 0 or more (0 is no limit). |
 | Noise check: items per eval re-run before wave 1 | `--noise-check` | `0`, off | A whole number, 0 or more. |
 
 The `Advanced` step line reads `defaults`, or lists what changed, such as
-`model policy ./policy.json · 2 evals at once`. A model policy set here gets
-the API-key check again, for the providers it names.
+`minimum effect 10% · 2 evals at once`.
+
+A model policy set at the Models question, picked or typed, gets the API-key
+check again, for the providers it names.
 
 **Never asked**, and set only by their flags ([cli.md](cli.md)):
 `--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,
@@ -635,6 +633,7 @@ again, and one last question:
 │ Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950) │
 │ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
 │ Improve      Quality                                                                    │
+│ Models       keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)              │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
 │ Limits       $50.00 on the task's model calls · about 12 hours                          │
@@ -645,6 +644,7 @@ again, and one last question:
 │   --project-id 424242975950 --task-id 424242783061 \                                    │
 │   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
 │   --objective quality \                                                                 │
+│   --models keep \                                                                       │
 │   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
 │   --agent-cli 'claude -p' \                                                             │
 │   --budget-usd 50 --timeout-mins 720 \                                                  │

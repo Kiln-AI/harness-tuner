@@ -133,6 +133,15 @@ class Pick(Prompt[Any]):
 
 
 @dataclass(frozen=True, eq=False)
+class PickMany(Prompt[list[Any]]):
+    question: str
+    options: tuple[Option[Any], ...]
+    hint: str | None
+    default: tuple[Any, ...]
+    limit: int | None
+
+
+@dataclass(frozen=True, eq=False)
 class Act(Prompt[Action]):
     question: str
     actions: tuple[Action, ...]
@@ -270,6 +279,23 @@ class AppTerminal:
         self._guided()
         value: T = self._ask(Pick(question, tuple(options), hint, default, back=back))
         return value
+
+    def pick_many(
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: Sequence[T] = (),
+        limit: int | None = None,
+        back: bool = False,
+    ) -> list[T]:
+        self._guided()
+        request = PickMany(
+            question, tuple(options), hint, tuple(default), limit, back=back
+        )
+        values: list[T] = self._ask(request)
+        return values
 
     def act(
         self, question: str, actions: Sequence[Action], *, back: bool = False

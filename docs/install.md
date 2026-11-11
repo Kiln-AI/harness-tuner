@@ -520,7 +520,8 @@ will call:
   inputs on disk. Nothing else in those files is read.
 - **Each provider the model policy names exactly**, in an allow rule or an
   exception: the policy of `--model-policy`, or the one a guided start's
-  advanced options set. A rule whose provider is `*` names none.
+  Models question sets (a picked list or a file). A rule whose provider is
+  `*` names none.
 
 Providers that take no key are not checked: `ollama`, `docker_model_runner`,
 `openai_compatible`, `kiln_custom_registry` and `kiln_fine_tune`. The model
@@ -885,6 +886,8 @@ already there.
   reports/kiln-harness-tuner-<run_id>.md   the run reports
   agents/<cli>/<version>/              the skills and instructions this
                                        agent CLI's sessions read
+  policies/picked-<date>-<time>.json   the model policies the guided
+                                       start's Pick models writes
 ```
 
 A run prints where its files are. With plain log lines, it prints this line

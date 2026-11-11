@@ -40,7 +40,8 @@ tests/              the offline suite — no live server, no model spend
 
 A run writes nothing here. Its state goes in the state folder,
 `~/.kiln_ai/harness_tuner/` (or `$KILN_HARNESS_TUNER_HOME`): `runs/`,
-`traces/`, `reports/`, and `agents/`, the agent files a run's sessions read.
+`traces/`, `reports/`, `agents/`, the agent files a run's sessions read, and
+`policies/`, the model policies the guided start writes when you pick models.
 
 `docs/architecture.md` section 13 is the same layout in full.
 

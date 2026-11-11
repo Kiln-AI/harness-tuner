@@ -103,8 +103,10 @@ from kiln_harness_tuner.memory import (
 from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError, canonical_question
 from kiln_harness_tuner.model_policy import (
+    KEEP_SOURCE,
     ModelPolicy,
     allowed_models,
+    keep_policy,
     run_config_pair,
 )
 from kiln_harness_tuner.model_preflight import flagged_reason, run_model_preflight
@@ -308,6 +310,9 @@ class Ctx:
     recon: bool = False
     # `objective`: `--objective` ("quality" | "speed").
     #   `model_policy`: `--model-policy`, loaded; None = every model allowed.
+    #   `keep_model`: `--models keep` (the quality default) with no policy
+    #   file. At start-up `pin_baseline_model` turns it into a policy of the
+    #   baseline's one pair, here and in the run directory for the gateway.
     #   `quarantine_root`: where the start-up quarantine moves stored val/test
     #   results — a tree the read fence denies. cli.py always sets it; None
     #   skips the pass (other unit tests).
@@ -318,6 +323,7 @@ class Ctx:
     #   checked. Kept current each wave.
     objective: str = "quality"
     model_policy: ModelPolicy | None = None
+    keep_model: bool = False
     quarantine_root: Path | None = None
     train_set_path: Path | None = None
     # The evals on disk at start-up; an eval that appears later
@@ -621,6 +627,7 @@ async def _run_loop(
             *ctx.memory.baseline_lineage(startup_record),
         ]
     )
+    await pin_baseline_model(ctx, ctx.memory.baseline_rc_id(startup_record))
     await _note_baseline_policy(ctx, ctx.memory.baseline_rc_id(startup_record))
     # $0 API-contract check: the evals envelope, both statistics
     # operations and one stored-results read, against the LIVE server, so a
@@ -2909,20 +2916,20 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
 async def _allowed_models(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]:
     """`BatchPlanInput.allowed_models`: what the server offers, filtered by
     the model policy. Advisory — a failed read is logged, never a lost wave.
-    The full list is sent only when it can change a plan — a policy is in
-    force, or the objective is speed or cost (where a model switch is the
-    first lever). Otherwise the model is the environment and the list is
-    prompt weight, so it holds the baseline's own model alone. It is never
-    empty there: the planner plans arms only on listed models, and an empty
-    list reads as "no arm at all"."""
-    if ctx.model_policy is None and not is_efficiency(ctx.objective):
+    Under `--models keep` the policy is the baseline's one pair, so the list
+    holds the baseline's own model alone. It is never empty there: the
+    planner plans arms only on listed models, and an empty list reads as "no
+    arm at all"."""
+    if ctx.keep_model and ctx.model_policy is None:
+        # The baseline's pair could not be read at start-up, so nothing is
+        # pinned; the planner still gets the baseline's model alone.
         return await _baseline_model_row(ctx, baseline_rc_id)
     try:
         available = await ctx.kiln.call("GET", "/api/available_models")
     except KilnError:
         ctx.log.event("available_models_unavailable")
         return []
-    return [
+    rows = [
         row
         for row in allowed_models(
             ctx.model_policy, available if isinstance(available, list) else []
@@ -2930,6 +2937,9 @@ async def _allowed_models(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]
         # A model the preflight flagged is not offered to plans.
         if (row["provider"], row["model"]) not in ctx.flagged_models
     ]
+    if not rows and ctx.keep_model:
+        return await _baseline_model_row(ctx, baseline_rc_id)
+    return rows
 
 
 async def _baseline_model_row(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]:
@@ -3051,6 +3061,37 @@ async def require_policy(ctx: Ctx, rc_id: str) -> None:
     if refusal is not None:
         ctx.log.event("model_policy_refused", rc_id=rc_id, reason=refusal)
         raise ModelPolicyRefused(refusal)
+
+
+async def pin_baseline_model(ctx: Ctx, rc_id: str) -> None:
+    """`--models keep`: the policy of the baseline's one (provider, model),
+    set on `ctx` and written to the run directory, where each gateway
+    process reads it (`gateway.server.POLICY_FILE`). From here on the code
+    refuses every other model, as for a policy file. A baseline whose pair
+    cannot be read pins nothing: the run says so, and the planner still
+    gets the baseline's model alone (`_allowed_models`)."""
+    if not ctx.keep_model or ctx.model_policy is not None:
+        return
+    try:
+        provider, model = await _rc_pair(ctx, rc_id)
+    except KilnError:
+        provider = model = None
+    if not provider or not model:
+        ctx.log.event("keep_model_unpinned", rc_id=rc_id)
+        logger.warning(
+            "%s: the baseline %s names no provider and model, so its model is"
+            " not pinned in code",
+            KEEP_SOURCE,
+            rc_id,
+        )
+        return
+    data = keep_policy(provider, model)
+    ctx.model_policy = ModelPolicy.from_json(data, source=KEEP_SOURCE)
+    if ctx.run_dir is not None:
+        (ctx.run_dir / "model_policy.json").write_text(
+            json.dumps(data, indent=1) + "\n", encoding="utf-8"
+        )
+    ctx.log.event("keep_model_pinned", rc_id=rc_id, provider=provider, model=model)
 
 
 async def _note_baseline_policy(ctx: Ctx, rc_id: str) -> None:

@@ -60,6 +60,18 @@ class PlainTerminal:
     ) -> T:
         raise RuntimeError("not a guided start")
 
+    def pick_many(
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: Sequence[T] = (),
+        limit: int | None = None,
+        back: bool = False,
+    ) -> list[T]:
+        raise RuntimeError("not a guided start")
+
     def act(
         self, question: str, actions: Sequence[Action], *, back: bool = False
     ) -> Action:
