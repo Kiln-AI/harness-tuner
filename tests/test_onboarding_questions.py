@@ -838,12 +838,11 @@ def test_without_a_policy_the_model_text_follows_the_objective():
         swapping = answers(objective=objective)
         assert show(swapping) == "any model Kiln offers"
         assert advanced_values(swapping).startswith("any model · ")
-    # Quality guidance may allow other models, so the text says so.
+    # Without a policy the quality planner sees no other model, whatever
+    # the guidance says.
     guided = answers(guidance="Try the newest DeepSeek release.")
-    assert show(guided) == (
-        "the task keeps its model, unless the guidance allows other models"
-    )
-    assert advanced_values(guided).startswith("same model unless guidance allows · ")
+    assert show(guided) == "the task keeps its model"
+    assert advanced_values(guided).startswith("same model · ")
     policy = answers(objective="quality", model_policy="./policy.json")
     assert show(policy) == "./policy.json"
     assert advanced_values(policy).startswith("model policy ./policy.json · ")
@@ -854,8 +853,9 @@ def test_the_policy_hint_follows_the_objective():
     ask_all(answers(), context(terminal), given=CORE_DESTS)
     assert terminal.asked[1].hint == (
         "Limits the models the tuner may move the task to. Under Quality the"
-        " task keeps its model, unless your guidance allows other models."
-        " Blank means no limit. examples/model-policy.json shows the format."
+        " task keeps its model. To let it try others, allow them in your"
+        " guidance and list them here. Blank means the task keeps its model."
+        " examples/model-policy.json shows the format."
     )
     terminal = ScriptedTerminal(["c", "", "", "4", "4", "0"])
     ask_all(answers(objective="cost"), context(terminal), given=CORE_DESTS)

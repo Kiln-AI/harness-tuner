@@ -22,7 +22,7 @@ single eval down by more than max(1, round(0.10 × its items)) items.
 - **`quality`** works on issues: one failure class of one eval. The planner
   builds a fix for an issue, such as a prompt change, a skill, a tool or a
   provider parameter, and the fix must show on the items the baseline fails.
-  The task keeps its model, unless the guidance allows other models
+  The task keeps its model, unless you allow other models
   ([below](#which-objectives-may-change-the-model)). When no eval can
   measure an issue, the report names it, so that you can create the
   eval in the Kiln app. The loop builds that eval itself only with
@@ -56,19 +56,22 @@ thinking level, the temperature and `top_p`.
 A model or provider swap is a lever only when one of these is true:
 
 - The objective is `speed` or `cost`.
-- The guidance allows other models explicitly, for example "You may try
-  other models."
+- The objective is `quality`, the guidance allows other models explicitly
+  (for example "You may try other models."), and a `--model-policy` lists
+  them. Under `quality` the planner sees other models only when a policy is
+  set. Without a policy it sees only the baseline's model.
 
-`--model-policy` does not enable a swap. It only limits the (provider, model)
-pairs that a swap may use.
+A policy alone does not enable a swap under `quality`: the guidance must
+allow it too. Under `speed` and `cost` the policy only limits the
+(provider, model) pairs that a swap may use.
 
 ## Which models a run may use: `--model-policy`
 
-A model policy limits the models that a model swap may use. Without a
-policy, a run that may swap models
-([above](#which-objectives-may-change-the-model)) may use any model Kiln
-offers. A policy does not enable a swap: under `quality` the task keeps its
-model, with or without a policy, unless the guidance allows other models.
+A model policy limits the models that a model swap may use
+([above](#which-objectives-may-change-the-model)). Without a policy, a
+`speed` or `cost` run may use any model Kiln offers, and a `quality` run
+keeps the baseline's model. Under `quality` a policy is necessary for a swap
+but not enough: the guidance must also allow other models.
 
 The policy is a JSON file of `allow`, `deny` and `exceptions` rules over
 Kiln's (provider, model) ids, with `*` wildcards.

@@ -361,10 +361,11 @@ Four things it is good for:
 - **Prohibition.** "Do not raise the reasoning level — this has to run at
   the current cost." A lever the guidance forbids is not tried.
 - **Permission.** "You may try other models." Under `--objective quality`
-  the task keeps its model and provider. Only guidance that allows other
-  models explicitly makes a model or provider swap a lever. `--model-policy`
-  does not: it only limits the models that a swap may use. Under `speed`
-  and `cost` a swap is a lever without this sentence.
+  the task keeps its model and provider. A model or provider swap is a
+  lever only when the guidance allows other models explicitly AND
+  `--model-policy` lists them: without a policy, the planner sees only the
+  baseline's model. A policy without this sentence is not enough. Under
+  `speed` and `cost` a swap is a lever without this sentence.
 - **Answering an open question.** The planner records questions it cannot
   resolve as constraint records with a re-ask condition. The promotion gate
   escalates on an *open* constraint instead of judging the numbers — but a
@@ -600,15 +601,15 @@ Advanced options: same model · 4 evals and 4 agents at once · no minimum effec
 ```
 
 The first value says which models the run may use. Under Quality with no
-policy it is `same model`, or `same model unless guidance allows` when you
-gave guidance. Under Speed and Cost with no policy it is `any model`.
+policy it is `same model`. Under Speed and Cost with no policy it is
+`any model`.
 
 `c` asks each of these in turn, pre-filled with its current value. One given by
 a flag is skipped.
 
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
-| Model policy file | `--model-policy` | empty: the task keeps its model (Quality), or any model Kiln offers (Speed, Cost) | A path to a policy file, loaded at once, so a bad file shows the loader's message under the field; or nothing. A policy limits the models a swap may use. It does not make a swap a lever under Quality. |
+| Model policy file | `--model-policy` | empty: the task keeps its model (Quality), or any model Kiln offers (Speed, Cost) | A path to a policy file, loaded at once, so a bad file shows the loader's message under the field; or nothing. A policy limits the models a swap may use. Under Quality a swap also needs guidance that allows other models. |
 | Smallest improvement worth acting on | `--min-effect` | empty: not set | A fraction above 0 and at most 1 (`0.1` is 10%), or nothing. |
 | Eval jobs at once | `--max-concurrent-evals` | `4` | A whole number, 0 or more (0 is no limit). |
 | Agent sessions at once | `--max-concurrent-agents` | `4` | A whole number, 0 or more (0 is no limit). |

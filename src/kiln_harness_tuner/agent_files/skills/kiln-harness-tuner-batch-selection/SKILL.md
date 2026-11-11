@@ -64,7 +64,10 @@ going looking.
   `model_name` and `model_provider_name`. Only guidance that explicitly
   allows other models, or `objective: "speed"` or `"cost"` (below), makes a
   model or provider swap a lever. A `model_policy` never makes it one: the
-  policy only limits which pairs a swap may use. Provider
+  policy only limits which pairs a swap may use. Under quality with no
+  `model_policy`, `allowed_models` holds the baseline's model alone, so a
+  swap the guidance allows has no model to go to: say so in
+  `rejected_summary` (the owner adds a `--model-policy`). Provider
   parameters (thinking level, temperature, top_p) are in scope
   unless the guidance names them.
 - **Only models in `allowed_models`**. When `model_policy` is

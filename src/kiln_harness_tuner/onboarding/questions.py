@@ -229,17 +229,13 @@ def objective_text(objective: str) -> str:
 
 def model_policy_text(answers: Answers, *, short: bool = False) -> str:
     """The model policy answer as it reads. With no policy file, it says
-    which models the run uses. Speed and cost may swap the model. Quality
-    keeps it, unless the guidance allows other models: the planner skill
-    holds that rule, and a policy only limits the swaps that are allowed."""
+    which models the run uses: speed and cost may use any model, and
+    quality keeps the task's model (the planner sees no other one). Under
+    quality a swap needs a policy and guidance that allows other models."""
     if answers.model_policy:
         return answers.model_policy
     if is_efficiency(answers.objective):
         return "any model" if short else "any model Kiln offers"
-    if answers.guidance.strip():
-        if short:
-            return "same model unless guidance allows"
-        return "the task keeps its model, unless the guidance allows other models"
     return "same model" if short else "the task keeps its model"
 
 
@@ -737,8 +733,9 @@ def _model_policy_hint(objective: str) -> str:
         limit = "Blank means any model Kiln offers."
     else:
         limit = (
-            "Under Quality the task keeps its model, unless your guidance"
-            " allows other models. Blank means no limit."
+            "Under Quality the task keeps its model. To let it try others,"
+            " allow them in your guidance and list them here."
+            " Blank means the task keeps its model."
         )
     return (
         f"Limits the models the tuner may move the task to. {limit}"
