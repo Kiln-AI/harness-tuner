@@ -482,8 +482,8 @@ def guidance_hint(other_models: bool) -> str:
     keeps the hint's lines)."""
     if other_models:
         models = (
-            ' · Models: "Fix it on the current model first. Move to a bigger'
-            ' model only if it stays stuck, at no more than twice the cost."'
+            ' · Models: "Try DeepSeek first. Move on to the more expensive models'
+            ' only if it gets stuck."'
         )
     else:
         models = ' · The model: "Raise the thinking level only for the hard cases."'
@@ -499,7 +499,8 @@ def guidance_hint(other_models: bool) -> str:
             models,
             ' · What not to touch: "Don\'t change the temperature."',
             ' · Directives: "Keep every answer under 100 words."',
-            "Optional. Blank means no guidance.",
+            "Mix any of these, or write your own: the list is not complete."
+            " Optional. Blank means no guidance.",
         )
     )
 

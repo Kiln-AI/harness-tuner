@@ -394,7 +394,8 @@ def test_the_objective_rows_and_the_hints():
         ' · The model: "Raise the thinking level only for the hard cases."\n'
         ' · What not to touch: "Don\'t change the temperature."\n'
         ' · Directives: "Keep every answer under 100 words."\n'
-        "Optional. Blank means no guidance.",
+        "Mix any of these, or write your own: the list is not complete. Optional."
+        " Blank means no guidance.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",
         "Which model will be used to plan and implement tuning experiments. We"
@@ -864,8 +865,8 @@ def test_the_guidance_hint_follows_the_models_answer(tmp_path):
     given = EVERY_DEST - {"models", "model_policy", "guidance"}
     keep = '"Raise the thinking level only for the hard cases."'
     others = (
-        '"Fix it on the current model first. Move to a bigger model only if it'
-        ' stays stuck, at no more than twice the cost."'
+        '"Try DeepSeek first. Move on to the more expensive models only if it'
+        ' gets stuck."'
     )
     for typed, example in (
         (["keep"], keep),
