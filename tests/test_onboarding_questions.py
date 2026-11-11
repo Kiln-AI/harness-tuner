@@ -392,7 +392,10 @@ def test_the_objective_rows_and_the_hints():
     assert hints == [
         "One objective per run. Speed and cost only promote a change that keeps"
         " quality equal or better.",
-        "The default for Quality is to keep the task's model.",
+        "Recommended for Quality: keep the task's model, and the tuner spends the"
+        " run on the harness around it. Which other model it tries is its own"
+        " judgment, so to try others, pick a few strong ones and say in the"
+        " guidance how to try them.",
         "These instructions guide the tuner when it plans new experiments. Some"
         " examples:\n"
         " · Where to focus: \"Start with the Correctness eval. It's our biggest"
@@ -861,8 +864,21 @@ def test_the_models_default_follows_the_objective(tmp_path):
     assert (got.models, got.model_policy) == ("any", None)
     keep, cost = terminal.asked
     assert (keep.default, cost.default) == ("keep", "any")
-    assert keep.hint == "The default for Quality is to keep the task's model."
-    assert cost.hint == "The default for Cost is any model Kiln offers."
+    assert keep.hint.startswith("Recommended for Quality: keep the task's model,")
+    assert cost.hint == (
+        "Recommended for Cost: any model Kiln offers. Another model is the first"
+        " lever for cost, and a change wins only if quality holds."
+    )
+    # The objective's default row says it is recommended; no other row does.
+    quality_rows, cost_rows = (
+        [o.label for o in options] for options in terminal.options
+    )
+    assert [r for r in quality_rows if r.endswith(" (recommended)")] == [
+        "Keep the task's model (recommended)"
+    ]
+    assert [r for r in cost_rows if r.endswith(" (recommended)")] == [
+        "Any model Kiln offers (recommended)"
+    ]
     assert terminal.step_lines() == [
         "Models: keep the task's model (glm_5 on Fireworks AI)",
         "Models: any model Kiln offers",

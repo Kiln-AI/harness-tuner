@@ -61,7 +61,13 @@ run config on any other model before it is built, measured or promoted.
 | A policy file | `--model-policy <file>` | The models the file allows. |
 
 `--models` and `--model-policy` are alternatives: give one of them. With
-neither, the objective sets the default.
+neither, the objective sets the default. The guided start marks that default
+as recommended.
+
+Under `quality`, keep is recommended. Which other model the planner tries is
+its own judgment, so a run on many models can spend its time on a weak one.
+To try other models, pick a few strong ones, and say in the guidance how to
+try them.
 
 Under every choice the planner may change all the other parts of the run
 config. That includes the provider parameters: the thinking level, the
