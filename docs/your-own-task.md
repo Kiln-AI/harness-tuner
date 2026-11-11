@@ -600,8 +600,8 @@ Advanced options: same model · 4 evals and 4 agents at once · no minimum effec
 ```
 
 The first value says which models the run may use. Under Quality with no
-policy it is `same model`. Under Speed and Cost with no policy it is
-`any model`.
+policy it is `same model`, or `same model unless guidance allows` when you
+gave guidance. Under Speed and Cost with no policy it is `any model`.
 
 `c` asks each of these in turn, pre-filled with its current value. One given by
 a flag is skipped.

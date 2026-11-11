@@ -27,6 +27,7 @@ from kiln_harness_tuner.dispatch.agent_cli import (
     parse_agent_cli,
 )
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.objective import is_efficiency
 from kiln_harness_tuner.onboarding.agent_models import (
     AGENT_MODELS,
     CODEX_MODELS_URL,
@@ -226,21 +227,19 @@ def objective_text(objective: str) -> str:
     return OBJECTIVES.get(objective, (objective, ""))[0]
 
 
-def swaps_models(objective: str) -> bool:
-    """True when the objective makes a model or provider swap a lever. Under
-    quality the task keeps its model, unless the guidance allows other
-    models: the planner skill holds that rule, and a model policy only
-    limits the swaps that are allowed."""
-    return objective in ("speed", "cost")
-
-
 def model_policy_text(answers: Answers, *, short: bool = False) -> str:
     """The model policy answer as it reads. With no policy file, it says
-    which models the run uses, and that depends on the objective."""
+    which models the run uses. Speed and cost may swap the model. Quality
+    keeps it, unless the guidance allows other models: the planner skill
+    holds that rule, and a policy only limits the swaps that are allowed."""
     if answers.model_policy:
         return answers.model_policy
-    if swaps_models(answers.objective):
+    if is_efficiency(answers.objective):
         return "any model" if short else "any model Kiln offers"
+    if answers.guidance.strip():
+        if short:
+            return "same model unless guidance allows"
+        return "the task keeps its model, unless the guidance allows other models"
     return "same model" if short else "the task keeps its model"
 
 
@@ -734,7 +733,7 @@ MIN_EFFECT_HINT = (
 
 
 def _model_policy_hint(objective: str) -> str:
-    if swaps_models(objective):
+    if is_efficiency(objective):
         limit = "Blank means any model Kiln offers."
     else:
         limit = (
@@ -933,7 +932,7 @@ def _advanced_parts(answers: Answers) -> dict[str, str]:
 def advanced_values(answers: Answers) -> str:
     """Every advanced value, for the Advanced menu's question:
     `same model · 4 evals and 4 agents at once · no minimum effect · no noise
-    check` (`any model` first under speed or cost)."""
+    check` (`model_policy_text` says what the first value reads)."""
     parts = _advanced_parts(answers)
     concurrency = (
         f"{parts['max_concurrent_evals']} and {parts['max_concurrent_agents']} at once"
