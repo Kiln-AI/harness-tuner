@@ -968,6 +968,11 @@ def test_the_val_readers_get_the_code_assembled_tables(tmp_path):
 
     gateway, _ = _gateway(tmp_path, {}, role="promote_best")
     assert _run(gateway, "get_val_summary")["candidates"] == []
+    # The run folder is prepared with an empty file: still no gate, no error.
+    (tmp_path / "run" / gw.VAL_SUMMARY_FILE).write_text("")
+    empty = _run(gateway, "get_val_summary")
+    assert empty["candidates"] == []
+    assert empty["note"] == "no promotion gate has run yet"
     table = CandidateValTable(rc_id="rc1", experiment_memory_id="m1", per_eval=[])
     (tmp_path / "run" / gw.VAL_SUMMARY_FILE).write_text(
         json.dumps({"candidates": [table.model_dump(mode="json")], "note": "n"})

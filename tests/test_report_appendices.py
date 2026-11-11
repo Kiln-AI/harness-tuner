@@ -388,8 +388,11 @@ def test_tradeoff_cells_for_unjudged_capped_and_error_candidates():
         _screen("s1-6", None, None, items=0, verdict="error", rc_id=None),
         _screen("s1-7", 0.8, 0.8, verdict="capped"),
         _screen("s1-8", None, None, items=0, verdict="dead_end", reason="refused"),
+        # Asked on 8 items, no row stored: an error, not 8 lost passes.
+        _screen("s1-9", None, None, items=8, verdict="error", rc_id="rc9"),
     ]
     text = render_tradeoff_appendix(_screened("cost", results))
+    assert "| no rows stored (error) | — | — | not screened (error) |" in text
     assert "| not judged | — | — | not screened (error) | — |" in text
     assert "| capped (inconclusive) |" in text
     assert "| dead end: refused |" in text

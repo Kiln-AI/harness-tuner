@@ -601,3 +601,48 @@ def test_the_agent_lane_is_named_for_the_agent_cli_and_shows_its_tokens():
     assert totals_text(opencode).startswith(
         "$0.10 (API keys $0.10 · OpenCode ~2k tokens)"
     )
+
+
+def test_plain_ui_prints_each_gate_fill_as_it_lands():
+    """The gate's own lines come once every val fill is in, and one fill can
+    take many minutes: each finished fill prints, so a long gate is not
+    silent."""
+    console, out = capture_console()
+    with PlainUi(make_tracker(), console=console) as ui:
+        ui.event(
+            "gate_fill",
+            rc_id="rc_207",
+            eval_id="e1",
+            role="candidate",
+            stored=210,
+            expected=217,
+            missing=7,
+            clean=False,
+            done=2,
+            total=3,
+        )
+        ui.event("val_fill_failed", rc_id="rc_208", eval_id="e1", detail="HTTP 500")
+    text = out.getvalue()
+    assert (
+        "gate: val fill 2/3 done · candidate rc_207 · 210/217 item(s) stored"
+        " · 7 missing"
+    ) in text
+    assert "gate: val fill failed · rc_208 · HTTP 500" in text
+
+
+def test_plain_ui_prints_a_probe_answer_once():
+    """A probe's answer prints as its item detail; its outcome row would
+    print the same answer again, clipped."""
+    from kiln_harness_tuner.schemas import ProbeResult
+
+    probe = outcome().model_copy(
+        update={"probe": ProbeResult(answer="yes", evidence="3/3 drives parse")}
+    )
+    console, out = capture_console()
+    with PlainUi(make_tracker(), console=console) as ui:
+        ui.event("item_detail", item_id="r0-6", detail="probe → YES: 3/3 drives parse")
+        ui.event("item_outcome", item_id="r0-6", outcome=probe)
+        ui.event("item_outcome", item_id="w1-1", outcome=outcome(status="dead_end"))
+    lines = out.getvalue().splitlines()
+    assert sum("probe →" in line for line in lines) == 1
+    assert any("w1-1: dead end" in line for line in lines)

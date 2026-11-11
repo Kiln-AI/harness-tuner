@@ -219,6 +219,20 @@ class TestThePermissions:
         for tool in ("bash", "webfetch", "websearch", "grep", "glob", "task"):
             assert tool not in permission  # left to "*": deny
 
+    def test_a_truncated_tool_output_file_is_readable(self, tmp_path, monkeypatch):
+        """OpenCode moves the tail of a long tool answer (a skill, often) to
+        `<XDG data>/opencode/tool-output/tool_<id>` and names that file. The
+        agent may read such a file, but not list the folder or edit it."""
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        dispatcher, _ = make(tmp_path, [])
+        permission = config_of(dispatcher._argv("batch_plan", label="b"))["permission"]
+        folder = (tmp_path / "data" / "opencode" / "tool-output").resolve()
+        rule = f"{folder.as_posix()}/tool_*"
+        assert permission["read"][rule] == "allow"
+        assert permission["external_directory"][rule] == "allow"
+        assert rule not in permission["edit"]
+        assert f"{folder.as_posix()}/**" not in permission["read"]
+
     @pytest.mark.parametrize("git_root", [False, True])
     @pytest.mark.parametrize(
         "role", ["create_experiment_rc", "probe", "batch_plan", "eval_build"]
@@ -387,8 +401,13 @@ class TestTranscripts:
             body = {
                 "info": {"id": SESSION},
                 "token": "sk-abcdefghijklmnopqrstuvwxyz0123",
+                # Longer than a pipe buffer: a piped export is cut off at 64 KiB.
+                "padding": "x" * 100_000,
             }
-            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+            # The export writes to a file, never to a pipe.
+            assert "capture_output" not in kwargs
+            kwargs["stdout"].write(json.dumps(body))
+            return subprocess.CompletedProcess(argv, 0, None, "")
 
         monkeypatch.setattr(
             "kiln_harness_tuner.dispatch.opencode_cli.subprocess.run", fake_run
@@ -403,3 +422,6 @@ class TestTranscripts:
         assert calls == [["opencode", "export", SESSION]]
         (copied,) = (tmp_path / "traces").rglob(f"*{SESSION}.jsonl")
         assert "sk-abcdefghijklmnopqrstuvwxyz0123" not in copied.read_text()
+        (export,) = (tmp_path).rglob(f"export-{SESSION}.json")
+        assert len(json.loads(export.read_text())["padding"]) == 100_000
+        assert not list(tmp_path.rglob("*.part"))

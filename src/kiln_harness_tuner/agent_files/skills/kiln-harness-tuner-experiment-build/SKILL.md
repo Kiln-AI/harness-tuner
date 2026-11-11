@@ -79,6 +79,13 @@ going looking.
    issue/trace ids as prose), `derived_from_ids` = `[parent rc]` (merges:
    `[baseline rc + ingredient rcs]`), `origin` = `"agent"`. Provenance is
    written once and immutable — the audit trail the whole loop relies on.
+   `derived_from_ids` names parents of the same kind. That list is for the
+   run config. A new prompt (`create_prompt`) takes the parent rc's
+   **prompt** id: the number in its `prompt_id`, without the `id::` prefix
+   (`id::424242182407` → `424242182407`). Kiln refuses a run-config id
+   there ("unknown sibling"). If the parent rc's prompt is not a saved
+   prompt (no `id::`), leave the prompt's `derived_from_ids` empty and name
+   the parent rc in its `notes`.
 4. **Check the declared text against the mechanism.** An arm can be
    built, measured and refuted on a mismatch a build-time read would catch:
    a code carve-out in a wrapper that the wrapper's own parameter
