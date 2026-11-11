@@ -420,9 +420,11 @@ def build_parser() -> _Parser:
         "--gate-agent",
         choices=("auto", "always"),
         default="auto",
-        help="who decides a one-candidate promotion gate: auto = the code rule"
-        " (the promote agent is dispatched only to rank two or more"
-        " candidates), always = dispatch the agent for every gate",
+        help="who decides a promotion gate: auto = a code rule where one"
+        " applies (under quality, one candidate; under speed and cost, any"
+        " number), and the promote agent for the rest: two or more quality"
+        " candidates, an undecided rule, or a winner with integrity flags;"
+        " always = dispatch the agent for every gate",
     )
     parser.add_argument(
         "--max-turns",
@@ -453,8 +455,9 @@ def build_parser() -> _Parser:
         metavar="FRACTION",
         help="the smallest improvement you would act on, as a share of an"
         " eval's items (0.1 = 10%%). The pre-run check then says per eval"
-        " whether the best case can show it, and refuses the run when no"
-        " eval that can drive a promotion can show it on val",
+        " whether the best case can show it, and, under --objective quality,"
+        " refuses the run when no eval that can drive a promotion can show"
+        " it on val",
     )
     parser.add_argument(
         "--allow-underpowered",
