@@ -723,7 +723,9 @@ def render_tradeoff_appendix(status: RunStatus) -> str:
     ]
     for r in sorted(results, key=screen_sort_key(status.objective)):
         quality = (
-            f"lost {r.broke} of {r.baseline_passed}, fixed {r.fixed}"
+            "no rows stored (error)"
+            if r.verdict == "error" and r.items
+            else f"lost {r.broke} of {r.baseline_passed}, fixed {r.fixed}"
             if r.items
             else "not judged"
         )

@@ -343,6 +343,13 @@ class Evidence:
     def judged_n(self) -> int:
         return len(self.judged)
 
+    @property
+    def no_rows(self) -> bool:
+        """Items were asked for, and not one candidate row was stored: an
+        error, not a quality verdict. The lines say so instead of counting
+        every missing row as a loss."""
+        return bool(self.judged) and all(r.cand_pass is None for r in self.judged)
+
     def fixed_broke(self, eval_id: str | None = None) -> tuple[int, int]:
         rows = [r for r in self.judged if eval_id is None or r.eval_id == eval_id]
         fixed = sum(1 for r in rows if r.d == 1)

@@ -331,6 +331,19 @@ def own_line(kind: str, fields: dict) -> str:
     return str(fields.get("line") or "")
 
 
+def gate_fill_line(fields: Mapping[str, object]) -> str:
+    """One val fill of the promotion gate finished. The gate's own lines come
+    only when every fill is in, and a fill can take many minutes, so each
+    fill prints as it lands."""
+    missing = fields.get("missing") or 0
+    return (
+        f"  gate: val fill {fields.get('done')}/{fields.get('total')} done ·"
+        f" {fields.get('role')} {fields.get('rc_id')} ·"
+        f" {fields.get('stored')}/{fields.get('expected')} item(s) stored"
+        + (f" · {missing} missing" if missing else "")
+    )
+
+
 def janitor_line(count: int) -> str:
     """The sweep result — or the 'pre-flight checks passed' line that beats
     silence when there was no debris."""
@@ -486,8 +499,22 @@ class PlainUi:
         elif kind == "item_state":
             state = ITEM_STATE_TEXT.get(str(fields.get("state")), fields.get("state"))
             self._print(f"  {fields.get('item_id')}: {state}")
+        elif kind == "gate_fill":
+            self._print(gate_fill_line(fields))
+        elif kind == "val_fill_failed":
+            self._print(
+                f"  gate: val fill failed · {fields.get('rc_id')} ·"
+                f" {fields.get('detail')}"
+            )
         elif kind == "item_outcome":
             outcome = fields.get("outcome")
+            if (
+                isinstance(outcome, ItemOutcome)
+                and outcome.status == "completed"
+                and outcome.probe is not None
+            ):
+                # Its answer printed already, as the item's detail line.
+                return
             cell = outcome_cell(outcome) if isinstance(outcome, ItemOutcome) else "?"
             self._print(f"  {fields.get('item_id')}: {cell}")
         elif kind == "promotion":

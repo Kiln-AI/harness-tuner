@@ -466,9 +466,9 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 | Rule | Effect |
 |---|---|
 | `"*": "deny"` | Every tool is denied, so the shell, web fetch, web search, grep, glob, sub-agents and the rest are not in the session at all. |
-| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces; denied everywhere else. |
+| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces. Also allowed for the `tool_*` files in OpenCode's own `tool-output` folder (`<XDG data>/opencode/tool-output`): when OpenCode cuts a long tool answer, it puts the rest there and names the file. The agent cannot list that folder. Denied everywhere else. |
 | `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers and the two reviewers). |
-| `external_directory` | Denied, except the workspace, the skills and, for the roles that read traces, the trace folder. |
+| `external_directory` | Denied, except the workspace, the skills, the `tool_*` files in OpenCode's `tool-output` folder and, for the roles that read traces, the trace folder. |
 | `skill` | Allowed, so the skills load as they do under Claude Code. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |
 | `skill_installer_<tool>` | Allowed by name, for the two roles that hold the installer. |
@@ -510,6 +510,8 @@ What else differs:
 - **Errors.** A failed session exits non-zero and prints an `error` event;
   that event is classified, as for Codex.
 - **Transcripts** are copied, redacted, from `opencode export <session id>`.
+  The export writes to a file, not to a pipe. Through a pipe, OpenCode exits
+  before the pipe drains, and an export longer than 64 KiB is cut off.
 - **Instructions and skills.** OpenCode finds `.agents/skills` and
   `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
   the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy

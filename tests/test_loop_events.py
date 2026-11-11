@@ -559,4 +559,11 @@ async def test_the_plain_path_prints_the_same_with_and_without_the_new_data(
     assert NEW_KINDS <= set(kinds(ctx))  # every new kind is in the replay
     text, status = _plain(ctx.log.events)
     assert "w1-1: chunk 1/" in text
-    assert (text, status) == _plain(_without_new_data(ctx.log.events))
+    # The one new kind the plain path prints: each val fill of the gate, so
+    # a long gate is not silent. Every other line is the same.
+    fills = [line for line in text.splitlines() if "gate: val fill" in line]
+    assert len(fills) == len(events(ctx, "gate_fill"))
+    rest = "".join(
+        line + "\n" for line in text.splitlines() if "gate: val fill" not in line
+    )
+    assert (rest, status) == _plain(_without_new_data(ctx.log.events))

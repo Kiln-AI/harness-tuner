@@ -732,7 +732,9 @@ def progress_line(
     and the fixes apart: "… · lost 1/20 passes, fixed 0/4 · …"."""
     fixed, broke = ev.fixed_broke()
     parts = [f"{label}: chunk {chunk}/{planned}", f"{ev.judged_n} judged"]
-    if ev.efficiency:
+    if ev.no_rows:
+        parts[1] = f"no row stored for {ev.judged_n} item(s)"
+    elif ev.efficiency:
         lost, n, fixes, n_fails = ev.guard_losses()
         parts.append(f"lost {lost}/{n} passes, fixed {fixes}/{n_fails}")
     else:
@@ -1442,7 +1444,9 @@ def measured_line(m: Measured) -> str:
 def measured_body(m: Measured) -> str:
     ev = m.evidence
     fixed, broke = ev.fixed_broke()
-    if ev.efficiency:
+    if ev.no_rows:
+        parts = [f"{m.label}: no row stored for {ev.judged_n} item(s)"]
+    elif ev.efficiency:
         # The losses on the baseline's passes with their bound,
         # the fixes apart, and no net: the net folds fixes against losses.
         parts = [f"{m.label}: {ev.judged_n} judged, {ev.loss_text()}"]
