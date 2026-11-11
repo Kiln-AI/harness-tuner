@@ -34,7 +34,6 @@ import argparse
 import contextlib
 import errno
 import filecmp
-import importlib.metadata
 import importlib.resources
 import json
 import os
@@ -48,7 +47,6 @@ from pathlib import Path
 
 from kiln_harness_tuner import __version__
 
-DIST_NAME = "harness-tuner"
 SOURCE_INSTRUCTIONS = "AGENTS.md"
 # Names that are never agent files, wherever they sit. Byte code: the suite
 # imports the wrapper templates under `agent_files/skills/` from the source
@@ -97,11 +95,8 @@ def source_dir() -> Path:
 
 def package_version() -> str:
     """The installed distribution's version, which names a run's agents
-    folder. `__version__` when no distribution metadata is found."""
-    try:
-        return importlib.metadata.version(DIST_NAME)
-    except importlib.metadata.PackageNotFoundError:
-        return __version__
+    folder. `__version__` reads it from the distribution metadata."""
+    return __version__
 
 
 def _files_under(folder: Path) -> Iterator[Path]:

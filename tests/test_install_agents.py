@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import importlib.resources
 import json
@@ -117,12 +118,18 @@ def test_the_version_is_the_installed_distributions():
     assert package_version() == importlib.metadata.version("harness-tuner")
 
 
-def test_the_version_falls_back_to_the_packages_own(monkeypatch):
+def test_the_version_has_a_fallback_with_no_distribution(monkeypatch):
     def missing(name):
         raise importlib.metadata.PackageNotFoundError(name)
 
     monkeypatch.setattr(importlib.metadata, "version", missing)
-    assert package_version() == kiln_harness_tuner.__version__
+    try:
+        importlib.reload(kiln_harness_tuner)
+        assert kiln_harness_tuner.__version__ == "0+unknown"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(kiln_harness_tuner)
+    assert kiln_harness_tuner.__version__ == importlib.metadata.version("harness-tuner")
 
 
 # ---- a run's agents folder ----
