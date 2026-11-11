@@ -417,8 +417,9 @@ def test_the_objective_rows_and_the_hints():
         "The most this run may spend on the task's model calls, in USD. The"
         " tuner's agents run on your agent CLI's account and are not counted."
         " No wave starts past it. Type none for no cap.",
-        "At least 10m. The limit is approximate: as the run nears it, the"
-        " tuner starts to wrap up, so the run can end a little later.",
+        "At least 10m. The limit is approximate: no new wave starts after it, but"
+        " the wave in flight and one wrap-up wave finish, so the run can end"
+        " later.",
     ]
     assert [option.label for option in terminal.options[2]] == [
         "Claude Code: claude -p",
@@ -747,8 +748,9 @@ def test_a_time_limit_under_10_minutes_is_refused():
     assert typed.refusals == [TIME_LIMIT_ERROR]
     assert got.timeout_mins == 10
     assert terminal.asked[0].hint == (
-        "At least 10m. The limit is approximate: as the run nears it, the"
-        " tuner starts to wrap up, so the run can end a little later."
+        "At least 10m. The limit is approximate: no new wave starts after it, but"
+        " the wave in flight and one wrap-up wave finish, so the run can end"
+        " later."
     )
 
 

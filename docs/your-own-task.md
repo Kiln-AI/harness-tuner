@@ -565,17 +565,20 @@ The footer shows `esc Back` only where Esc goes back.
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, Codex's own default, for Codex; blank, OpenCode's own default, for OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: as the run nears it, the tuner starts to wrap up, so the run can end a little later. |
+| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: no new wave starts after it, but the wave in flight and one wrap-up wave finish, so the run can end later. |
 | Advanced options | the four flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
-- **The agent CLI and its model** make one `--agent-cli` command: the model
-  becomes `claude -p --model sonnet`, `codex exec -m <model>` or
-  `opencode run -m <model>`, and is left out when it is the default. The
+- **The agent CLI, its model and its thinking level** make one `--agent-cli`
+  command: the model becomes `claude -p --model sonnet`, `codex exec -m
+  <model>` or `opencode run -m <model>`, and is left out when it is the
+  default. The level becomes `--effort <level>` (Claude Code),
+  `-c model_reasoning_effort=<level>` (Codex) or `--variant <level>`
+  (OpenCode), and is left out when it is `high`. The
   tuner's agents (planner, builders, reviewers) run through that CLI and are
   billed to its account, not to your Kiln provider keys. With only one CLI
   installed there is no CLI question, and with none the start stops until you
-  install one ([install.md](install.md) section 4). The model is asked unless
-  `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
+  install one ([install.md](install.md) section 4). The model and the level
+  are asked unless `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
   cheaper, with weaker plans.
 - **The budget** is the most this run may spend on the task's model calls,
   and no wave starts past it. It never counts the tuner's agents: they run on
@@ -804,7 +807,7 @@ it, closes it.
 
 | Key | What it does |
 |---|---|
-| `e` | Opens the list of the tuning's items, newest wave first. ↑↓ and Enter open an item's details panel; Esc goes back. A click on a card opens its panel too. |
+| `e` | Once the run has items: opens the list of the tuning's items, newest wave first. ↑↓ and Enter open an item's details panel; Esc goes back. A click on a card opens its panel too. |
 | `c` | Opens Compare in Kiln: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
 | `g` | Opens the Experiment Graph in Kiln: the run configs of the task and where each came from. |
 | `r` | Opens the report. The key shows once the report is written. |
@@ -859,7 +862,7 @@ To run this again with the same answers and no questions:
     …
     --no-interaction
 
-exit: timeout — total $27.20 (API keys $27.20 · Claude Code ~8.4M tokens) · 2h41m elapsed · 19m left
+exit: timeout (finished wave 3, then the wrap-up) — total $27.20 (API keys $27.20 · Claude Code ~8.4M tokens) · 3h18m elapsed · 0s left
 Best Confirmed: refusal rule in prompt · w2-1 (424242002001)
 report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261109-1412

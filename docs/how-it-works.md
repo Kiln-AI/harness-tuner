@@ -74,7 +74,7 @@ flowchart TD
     A[Preflight: agent lane works] --> B[Setup: one issue per eval]
     B --> C[Baseline: stored train scores; timing on 30 items under speed or cost]
     C --> D[Detectability check, optional noise check]
-    D --> E[Wave 0: probes]
+    D --> E[Recon probes]
     E --> F{"Objective is speed or cost?"}
     F -- yes --> G[Opening screen: lower thinking levels]
     F -- no --> H
@@ -116,7 +116,7 @@ flowchart TD
 6. **The noise check** (`--noise-check N`, optional and paid). Code drives the
    baseline again on N train items for each eval and counts how often the same
    config gets a different result.
-7. **Wave 0: probes.** Short yes/no questions about the baseline. For example:
+7. **Recon probes** (wave 0 in the wave log). Short yes/no questions about the baseline. For example:
    "Does the model call an attached tool under this output mode?" A probe drives
    about 3 items and reads the traces. It writes no experiment record.
 8. **The opening screen** (`speed` and `cost` only). One screening round of the

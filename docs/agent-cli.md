@@ -253,13 +253,14 @@ worth, so the decision is informed.
   subprocess or the MCP servers it spawns, because agents hold a shell and
   transcripts are files. One of them also changes billing: with an API key
   present, the CLI bills the API instead of the operator's login, and the
-  reported cost silently turns from a shadow price into real money.
+  agents' use becomes real API money, which the tuner neither shows in
+  dollars nor counts.
   `--budget-usd` never counts the agents, for any agent CLI: the loop shows
   their tokens for information ([costs.md](costs.md)).
 - **Per-role model and effort.** Pinned in code so that runs do not differ
-  across machines, overridable per role from the CLI. Worth: the agent side is
-  where a run's spend concentrates, and the mechanical roles do not need the
-  same model as the planner.
+  across machines, overridable per role from the CLI. Worth: the agents use most of a
+  run's tokens, and the mechanical roles do not need the same model as the
+  planner.
 - **A per-dispatch scratch directory.** Under the run folder's `scratch/`,
   and the only place the session may write files.
 - **A provider-quota circuit breaker.** A classified quota or authentication
@@ -290,7 +291,9 @@ The short version:
 4. Pass the agent's own `failed_expected` through. Do not convert a measured
    negative into an infrastructure failure.
 5. Report `usage` across every attempt, and `attempts` honestly.
-6. Read section 6 and decide, per row, what you are giving up.
+6. Start each session in its workspace, with `PWD` set to it: a CLI can read
+   `PWD` rather than the process's working folder, and then finds no skills.
+7. Read section 6 and decide, per row, what you are giving up.
 
 Construct it in `cli.py` and nowhere else, or
 `tests/test_dispatch_boundary.py` will say so. `cli.DISPATCHERS` maps the

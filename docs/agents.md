@@ -414,7 +414,10 @@ a train item's entity, id or expected answer, a case-by-case rule that fits
 only the observed items, wording aimed at a grader — and short `notes`.
 The `notes` go on the wave log's `generality` event, not on the record.
 The rules are the same for the prompt and for skill text. Naming a tool, a
-skill or a field the prompt needs is not a leak.
+skill or a field the prompt needs is not a leak. Neither is a rule that many
+expected outputs follow, written as a kind of input and the decision for it:
+the expected outputs are the owner's policy, so the planner treats such a
+rule as an ordinary arm, not an open question.
 
 On a leak, code sends the findings to `create_experiment_rc` for **one**
 rebuild and checks the rebuild. A rebuild that still leaks ends the item

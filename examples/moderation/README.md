@@ -151,6 +151,8 @@ and says where to add it when it doesn't.
    the report's path. The report is in `~/.kiln_ai/harness_tuner/reports/` by
    default, not in the clone.
 
-2. Check the result on test yourself. The loop never reads test. In Kiln, run
-   the `Decision correct` eval on the test split for the baseline and for the
-   run config the loop promoted, and compare the two.
+2. Check the result on test yourself. The loop never reads test. The Done
+   card's next steps link to a Kiln page that compares the best run config
+   with the starting point ("Compare … to the starting point in Kiln"). There,
+   run the `Decision correct` eval on the test split for both, and compare
+   the two.

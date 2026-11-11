@@ -75,7 +75,7 @@ harness-tuner
 
 It walks you through the rest: starting [Kiln](https://github.com/Kiln-AI/Kiln) (or getting it from [kiln.tech](https://kiln.tech)), then picking the project and task to tune. Your agent needs to be a task in Kiln, with evals. Kiln can walk you through creating both.
 
-It works in waves until the budget or the clock runs out, then writes a report and prints where it is. Details: [docs/your-own-task.md](docs/your-own-task.md).
+It works in waves until the budget or the clock runs out, wraps up, then writes a report and prints where it is. Details: [docs/your-own-task.md](docs/your-own-task.md).
 
 ## What you need
 
@@ -185,7 +185,7 @@ Harness Tuner runs on [Kiln](https://github.com/Kiln-AI/Kiln), our free app. Kil
 <details>
 <summary><b>What does a run cost, and how long does it take?</b></summary>
 
-It depends on the scope of the project. A small agent with a small eval can cost a few dollars. A large agent with hundreds of tools can cost several hundred. You set a budget and a time limit, and it stops starting new work when either runs out.
+It depends on the scope of the project. A small agent with a small eval can cost a few dollars. A large agent with hundreds of tools can cost several hundred. You set a budget for the model calls through Kiln (your agent CLI's own usage is not counted) and a time limit, and it stops starting new work when either runs out.
 
 Harness Tuner does several things to keep costs down:
 

@@ -424,7 +424,8 @@ skill behind it. It covers the six spend lanes and the formulas, and its first r
 matters most here — never scale a cost across models by a list-price ratio.
 
 Two shapes of the bill are worth knowing in advance anyway, without numbers.
-The agent side and the provider side are metered separately and reported as
-separate lanes, and they are not the same order of magnitude. And a reasoning
+The agent side and the provider side are reported in different units: the
+agents in tokens, outside the budget, and the provider calls in dollars,
+which is the budget. And a reasoning
 model bills its reasoning as output, which is why a model that looks cheap per
 list price can be the most expensive lane in a comparison.
