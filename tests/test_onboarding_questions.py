@@ -884,6 +884,8 @@ def test_picked_models_become_a_policy_file(tmp_path):
         "Fireworks AI",
         "OpenAI",
     ]
+    # The provider is a column too: the All facet mixes them.
+    assert terminal.options[1][2].columns == ("OpenAI", "gpt_6")
     assert got.models is None
     policy = load_model_policy(got.model_policy)
     assert policy is not None

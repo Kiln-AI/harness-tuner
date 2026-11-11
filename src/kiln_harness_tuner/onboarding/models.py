@@ -80,12 +80,14 @@ def offered_models(available: Any) -> list[OfferedModel]:
 
 
 def pick_options(models: Sequence[OfferedModel]) -> list[Option[Pair]]:
-    """One picker row per model: its name and id, grouped by provider."""
+    """One picker row per model: its name, its provider and its id, grouped
+    by provider. The provider is a column too: one model is often offered
+    by several providers, and the All facet shows them together."""
     return [
         Option(
             model.pair,
             model.name,
-            (model.model,),
+            (model.provider_label, model.model),
             group=model.provider_label,
         )
         for model in models
