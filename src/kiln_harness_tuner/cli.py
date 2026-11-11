@@ -19,6 +19,7 @@ import contextlib
 import fcntl
 import json
 import logging
+import math
 import os
 import shutil
 import signal
@@ -29,6 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, Protocol, TextIO
+from urllib.parse import urlsplit
 
 from rich.console import Console
 
@@ -106,6 +108,7 @@ from kiln_harness_tuner.onboarding.questions import (
     check_time_limit,
     number_text,
     parse_budget,
+    parse_count,
     parse_fraction,
 )
 from kiln_harness_tuner.onboarding.summary import OptionInfo
@@ -273,9 +276,9 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--project-path",
-        help="on-disk Kiln project dir (for agents exploring .kiln files);"
-        " default: the folder Kiln has for the project. When given, it must be"
-        " that folder",
+        help="the on-disk Kiln project folder (default: the folder Kiln has"
+        " for the project). When given, it must be that folder. Only the"
+        " tuner's own code reads it: the agents' read fence denies it",
     )
     parser.add_argument(
         "--project-id",
@@ -301,6 +304,7 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--kiln-host",
+        type=_kiln_host,
         default=DEFAULT_KILN_HOST,
         help=f"running Kiln app (default {DEFAULT_KILN_HOST})",
     )
@@ -335,14 +339,14 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--coverage-floor",
-        type=float,
+        type=_coverage_floor,
         default=DEFAULT_COVERAGE_FLOOR,
         help="promotion-gate val coverage floor: a candidate whose fills sit"
         f" below this is ineligible this wave (default {DEFAULT_COVERAGE_FLOOR})",
     )
     parser.add_argument(
         "--max-concurrent-evals",
-        type=int,
+        type=_count,
         default=DEFAULT_MAX_CONCURRENT_EVALS,
         help="max eval jobs in flight at once, run-wide — the rate-limit"
         f" knob (default {DEFAULT_MAX_CONCURRENT_EVALS}; 0 = unlimited)",
@@ -361,7 +365,7 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--max-concurrent-agents",
-        type=int,
+        type=_count,
         default=DEFAULT_MAX_CONCURRENT_AGENTS,
         help="max agent sessions in flight at once"
         f" (default {DEFAULT_MAX_CONCURRENT_AGENTS}; 0 = unlimited)",
@@ -372,11 +376,11 @@ def build_parser() -> _Parser:
         default=[],
         metavar="ROLE=MODEL",
         help="per-role model override, e.g. --agent-model describe_eval=haiku"
-        f" (repeatable; default {AGENT_MODEL}"
+        " (repeatable; default: the model in --agent-cli, else under claude -p"
+        f" {AGENT_MODEL}"
         + "".join(f", {r} {m}" for r, m in sorted(AGENT_MODEL_DEFAULTS.items()))
-        + "; roles: "
-        + ", ".join(sorted(AGENT_TIMEOUTS_SECS))
-        + ")",
+        + ", and the CLI's own default under codex exec and opencode run;"
+        " roles: " + ", ".join(sorted(AGENT_TIMEOUTS_SECS)) + ")",
     )
     parser.add_argument(
         "--agent-effort",
@@ -384,7 +388,8 @@ def build_parser() -> _Parser:
         default=[],
         metavar="ROLE=EFFORT",
         help="per-role reasoning-effort override, e.g."
-        " --agent-effort report_writer=medium (repeatable)",
+        " --agent-effort report_writer=medium (repeatable; default: the effort"
+        " in --agent-cli, else high; the roles are those of --agent-model)",
     )
     parser.add_argument(
         "--no-baseline-audit",
@@ -421,11 +426,13 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--max-turns",
-        type=int,
+        type=_positive_int,
         default=None,
-        help="opt-in hard turn cap per agent session (default: uncapped —"
-        " the per-role wall-clock timeouts bound runaways; long sessions in"
-        " the trace corpus were productive, not loops)",
+        metavar="N",
+        help="a hard turn cap for each agent session, at least 1 (default: no"
+        " cap; the per-role time limits stop a session that does not end)."
+        " No effect under codex exec; under opencode run it is the build"
+        " agent's steps cap",
     )
     parser.add_argument(
         "--objective",
@@ -522,6 +529,18 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
             "--demo-project makes its own project:"
             " drop --project-id, --task-id and --project-path"
         )
+    # Before the start: a bad agent command or role is a typing error, so it
+    # stops at once, not after every question and every Kiln check. `_run`
+    # checks the same again, on the answers that the start gives.
+    try:
+        parse_agent_cli(args.agent_cli)
+    except ValueError as exc:
+        parser.error(f"--agent-cli: {exc}")
+    try:
+        parse_role_overrides(args.agent_model, "--agent-model")
+        parse_role_overrides(args.agent_effort, "--agent-effort")
+    except ConfigRenderError as exc:
+        parser.error(str(exc))
 
 
 def _budget(text: str) -> float | None:
@@ -557,8 +576,42 @@ def _fraction(text: str) -> float:
         raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
 
+def _kiln_host(text: str) -> str:
+    """`--kiln-host`: a whole http or https URL. Without the scheme, the Kiln
+    check says that Kiln is not running, and that is not the problem."""
+    host = text.strip()
+    url = urlsplit(host)
+    if url.scheme not in ("http", "https") or not url.netloc:
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: give the whole URL, like {DEFAULT_KILN_HOST}"
+        )
+    return host
+
+
+def _coverage_floor(text: str) -> float:
+    """`--coverage-floor`: a share of the val items, from 0 to 1."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = math.nan
+    if not 0.0 <= value <= 1.0:  # false for nan too
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: enter a share from 0 to 1, like 0.95"
+        )
+    return value
+
+
+def _count(text: str) -> int:
+    """`--max-concurrent-evals` and `--max-concurrent-agents`: 0 or more, as
+    the start's questions take them. 0 is no limit."""
+    try:
+        return parse_count(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
 def _positive_int(text: str) -> int:
-    """`--noise-check`: at least one item."""
+    """`--noise-check` and `--max-turns`: at least 1."""
     try:
         value = int(text)
     except ValueError:
