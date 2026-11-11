@@ -469,8 +469,8 @@ When `--agent-cli` isn't given, a guided start asks which agent CLI runs the
 tuner's agents ([your-own-task.md](your-own-task.md) section 5). It lists
 Claude Code (`claude`), Codex (`codex`) and OpenCode (`opencode`), and shows a
 CLI it can't find on `PATH` dimmed, as `not installed`, which can't be picked.
-With only one installed, that one is used without the question (its model is
-still asked), and the step line says so:
+With only one installed, that one is used without the question (its model and
+thinking level are still asked), and the step line says so:
 
 ```
 ✓ Agents    Claude Code (claude -p) · opus · the only agent CLI installed

@@ -550,7 +550,9 @@ line of that answer. Then the questions go on from there. The steps are:
 The agents question is three steps. Esc at the thinking level asks the model
 again, and Esc at the model asks the agent CLI again. With only one CLI
 installed, Esc at the model asks the question before the agents question.
-After Other, Esc at the typed name or level shows the list again. In a picker
+After Other, Esc at the typed name or level shows the list again. Esc in
+the Pick models list, or at the policy file's path, asks the Models question
+again, and Esc at the Models question asks the objective again. In a picker
 with filter text, the first Esc clears the filter, and the second goes back.
 The footer shows `esc Back` only where Esc goes back.
 
@@ -560,7 +562,7 @@ The footer shows `esc Back` only where Esc goes back.
 | Which models may the tuner use? | `--models` or `--model-policy` | Keep the task's model under Quality; Any model Kiln offers under Speed and Cost | Keep the task's model (`--models keep`); Any model Kiln offers (`--models any`), which can move the task to a more expensive model and raise the spend; Pick models, at most 12, from the providers that have a key, saved as a policy file (`--model-policy`); or Use a policy file, loaded at once, so a bad file shows the loader's message under the field. [objectives.md](objectives.md#which-models-a-run-may-use) has each choice. |
 | Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. It comes after the Models question, and its hint's model example follows that answer: how to try other models when they are allowed, else what to do with the task's own model. |
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
-| Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
+| Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, Codex's own default, for Codex; blank, OpenCode's own default, for OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
 | Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: as the run nears it, the tuner starts to wrap up, so the run can end a little later. |
@@ -621,7 +623,7 @@ a flag is skipped.
 | Noise check: items per eval re-run before wave 1 | `--noise-check` | `0`, off | A whole number, 0 or more. |
 
 The `Advanced` step line reads `defaults`, or lists what changed, such as
-`minimum effect 10% · 2 evals at once`.
+`2 evals at once · minimum effect 10%`.
 
 A model policy set at the Models question, picked or typed, gets the API-key
 check again, for the providers it names.

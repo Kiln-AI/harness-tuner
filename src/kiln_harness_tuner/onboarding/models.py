@@ -79,6 +79,17 @@ def offered_models(available: Any) -> list[OfferedModel]:
     return models
 
 
+# The picker's row fits the start-up column (128 cells) with a model id of
+# up to 48 characters: a longer name or provider is cut with "…". The id is
+# never cut: it is what the policy file records.
+NAME_WIDTH = 36
+PROVIDER_WIDTH = 22
+
+
+def clip(text: str, width: int) -> str:
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
 def pick_options(models: Sequence[OfferedModel]) -> list[Option[Pair]]:
     """One picker row per model: its name, its provider and its id, grouped
     by provider. The provider is a column too: one model is often offered
@@ -86,8 +97,8 @@ def pick_options(models: Sequence[OfferedModel]) -> list[Option[Pair]]:
     return [
         Option(
             model.pair,
-            model.name,
-            (model.provider_label, model.model),
+            clip(model.name, NAME_WIDTH),
+            (clip(model.provider_label, PROVIDER_WIDTH), model.model),
             group=model.provider_label,
         )
         for model in models

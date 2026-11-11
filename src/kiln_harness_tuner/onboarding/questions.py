@@ -467,10 +467,14 @@ def _ask_objective(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Improve", objective_text(answers.objective))
 
 
-def other_models(answers: Answers) -> bool:
+def other_models(answers: Answers, baseline_pair: Pair | None = None) -> bool:
     """Whether the Models answer lets the tuner move the task to another
-    model: any model, picked models or a policy file."""
+    model: any model, a policy file, or a pick with a model other than the
+    baseline's (`baseline_pair`)."""
     if answers.model_policy:
+        picked = picked_pairs(answers.model_policy)
+        if picked is not None and baseline_pair is not None:
+            return any(pair != baseline_pair for pair in picked)
         return True
     return resolve_models(answers.models, answers.objective) == ANY
 
@@ -512,7 +516,7 @@ def _ask_guidance(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Guidance for the tuner's planner (optional)",
         default=answers.guidance,
-        hint=guidance_hint(other_models(answers)),
+        hint=guidance_hint(other_models(answers, ctx.baseline_pair)),
         back=ctx.back,
     )
     answers.guidance = answer.strip()

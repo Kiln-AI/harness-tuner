@@ -363,7 +363,7 @@ def build_parser() -> _Parser:
         "--max-concurrent-agents",
         type=int,
         default=DEFAULT_MAX_CONCURRENT_AGENTS,
-        help="max `claude -p` sessions in flight at once"
+        help="max agent sessions in flight at once"
         f" (default {DEFAULT_MAX_CONCURRENT_AGENTS}; 0 = unlimited)",
     )
     parser.add_argument(

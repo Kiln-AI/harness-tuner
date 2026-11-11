@@ -239,8 +239,9 @@ The goal is higher eval scores.
 - **What the planner may change.** Everything in the run config. The
   provider parameters (thinking level, temperature, `top_p`) are levers.
   The model and the provider (`model_name`, `model_provider_name`) stay as
-  they are under the default, `--models keep`. With `--models any` or a
-  model policy, a model or provider swap is a lever too.
+  they are under the default, `--models keep`. With `--models any`, or a
+  model policy that allows another model, a model or provider swap is a
+  lever too.
 - **Which train items are judged first.** The items that the baseline fails
   on the target evals (up to 8), then a few that it passes (up to 4) as
   guards, then the rest of the split. A fix must show on the failures first.

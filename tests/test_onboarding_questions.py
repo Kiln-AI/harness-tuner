@@ -15,6 +15,11 @@ from kiln_harness_tuner.dispatch.claude_cli import AGENT_MODEL
 from kiln_harness_tuner.onboarding.agent_models import CLAUDE_MODELS, CODEX_MODELS
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
+from kiln_harness_tuner.onboarding.models import (
+    NAME_WIDTH,
+    offered_models,
+    pick_options,
+)
 from kiln_harness_tuner.onboarding.questions import (
     AGENT_KINDS,
     BUDGET_ERROR,
@@ -872,6 +877,8 @@ def test_the_guidance_hint_follows_the_models_answer(tmp_path):
         (["keep"], keep),
         (["any"], others),
         (["pick", [BASELINE_PAIR, ("openai", "gpt_6")]], others),
+        # A pick of the task's own model alone keeps it: no other model.
+        (["pick", [BASELINE_PAIR]], keep),
     ):
         terminal = ScriptedTerminal([*typed, ""])
         ask_all(answers(), models_context(terminal, tmp_path), given=given)
@@ -908,6 +915,7 @@ def test_picked_models_become_a_policy_file(tmp_path):
     ]
     # The provider is a column too: the All facet mixes them.
     assert terminal.options[1][2].columns == ("OpenAI", "gpt_6")
+
     assert got.models is None
     policy = load_model_policy(got.model_policy)
     assert policy is not None
@@ -922,6 +930,23 @@ def test_picked_models_become_a_policy_file(tmp_path):
     assert terminal.asked[0].default == "pick"
     assert terminal.asked[1].default == tuple(picked)
     assert again.model_policy != first
+
+
+def test_a_long_picker_row_is_cut_but_never_its_id():
+    long_name = "Qwen 3 VL Instruct 235B / 22B Active (Vision-Language)"
+    offered = offered_models(
+        [
+            {
+                "provider_id": "vertex",
+                "provider_name": "Gemini Enterprise Agent Platform",
+                "models": [{"id": "qwen_3_vl_instruct_235b_a22b", "name": long_name}],
+            }
+        ]
+    )
+    (row,) = pick_options(offered)
+    assert row.label == long_name[: NAME_WIDTH - 1] + "…"
+    assert row.columns == ("Gemini Enterprise Age…", "qwen_3_vl_instruct_235b_a22b")
+    assert row.group == "Gemini Enterprise Agent Platform"
 
 
 def test_esc_in_the_picker_asks_which_models_again(tmp_path):
