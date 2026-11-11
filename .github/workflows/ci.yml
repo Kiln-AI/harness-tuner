@@ -11,8 +11,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.11 is the floor in `pyproject.toml` and 3.13 is what we develop on.
-        python-version: ["3.11", "3.13"]
+        # 3.11 is the floor in `pyproject.toml`, 3.13 is what we develop on,
+        # and 3.14 is the newest Python that `uv tool install` can pick.
+        python-version: ["3.11", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
@@ -39,15 +40,15 @@ jobs:
 
   # The suite above runs from the checkout, so it cannot catch a package that
   # works only from one. This job builds the package, installs the wheel as a
-  # uv tool with a temporary HOME, and makes a run from an empty folder that
-  # stops at the pre-flight (a fake `claude`, no Kiln server). See
+  # uv tool with a temporary HOME, and makes a run from an empty folder with a
+  # fake `claude` and a fake Kiln. The run stops at its first write to Kiln. See
   # `tests/packaging/smoke_installed_wheel.py`.
   package:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.13"]
+        python-version: ["3.11", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
