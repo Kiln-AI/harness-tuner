@@ -12,8 +12,8 @@ and the model policy file.
 | [`harness-tuner-gateway-mcp`](#internal-commands) | Internal: the loop gateway. |
 | [`harness-tuner-skill-installer-mcp`](#internal-commands) | Internal: the skill installer. |
 
-The install ([install.md](install.md) section 2) puts all five on your
-`PATH`. The first two are the public commands.
+`uv tool install harness-tuner` installs all five
+([install.md](install.md) section 2). The first two are the public commands.
 You do not need to run the other three. Each command also takes `-h` or
 `--help`, which prints its usage.
 

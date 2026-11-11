@@ -60,7 +60,7 @@ Copies a small moderation task, which ships with the tuner, into a new folder, a
 > Requires adding an OpenRouter API key to Kiln. The harness-tuner run will cost about $2.
 
 ```
-uv tool install --python 3.13 "git+https://github.com/Kiln-AI/harness-tuner@main"
+uv tool install harness-tuner
 harness-tuner --demo-project \
     --guidance "Improve the moderation decisions. Keep the output format." \
     --timeout-mins 120 --budget-usd 20
@@ -69,11 +69,9 @@ harness-tuner --demo-project \
 ## Quickstart
 
 ```
-uv tool install --python 3.13 "git+https://github.com/Kiln-AI/harness-tuner@main"
+uv tool install harness-tuner
 harness-tuner
 ```
-
-The package is not on PyPI yet, so this installs it from GitHub ([docs/install.md](docs/install.md) section 2).
 
 It walks you through the rest: starting [Kiln](https://github.com/Kiln-AI/Kiln) (or getting it from [kiln.tech](https://kiln.tech)), then picking the project and task to tune. Your agent needs to be a task in Kiln, with evals. Kiln can walk you through creating both.
 

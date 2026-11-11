@@ -79,24 +79,13 @@ Under `never` this command refuses too (`Python downloads are not allowed`). The
 You do not have to make it your system Python. `uv` picks it for the package
 on its own.
 
-The install command in section 2 asks for Python 3.13 (`--python 3.13`). With
-automatic downloads off, `uv` needs a Python 3.13 that it can find. Install
-one as above (`uv python install 3.13`), or write the version you have, 3.11
-or newer, in place of `3.13`.
-
 ## 2. The package
 
 **Install.** From any folder:
 
 ```
-uv tool install --python 3.13 "git+https://github.com/Kiln-AI/harness-tuner@main"
+uv tool install harness-tuner
 ```
-
-The package is not on PyPI yet. The name `harness-tuner` on PyPI holds a
-placeholder release (0.0.1) that installs no commands. So install from the
-GitHub repository's `main` branch, as above. `--python 3.13` picks a Python
-version that CI tests (3.11 and 3.13). When the package is on PyPI,
-`uv tool install harness-tuner` installs it.
 
 ```
 Installed 5 executables: harness-tuner, harness-tuner-gateway-mcp, harness-tuner-install-agents, harness-tuner-skill-installer-mcp, kiln_api_mcp
@@ -123,10 +112,10 @@ prints the directory that has to be on `PATH`.
 **With no install**, `uvx` runs the tuner from `uv`'s cache:
 
 ```
-uvx --python 3.13 --from "git+https://github.com/Kiln-AI/harness-tuner@main" harness-tuner --help
+uvx harness-tuner --help
 ```
 
-Each `uvx … harness-tuner …` works like `harness-tuner …`. The interpreter it
+Each `uvx harness-tuner …` works like `harness-tuner …`. The interpreter it
 runs on is in `uv`'s cache, and every agent session of the run starts its MCP
 servers with that interpreter. So do not clean the cache (`uv cache clean`)
 while a run is live: its later sessions then fail
@@ -190,7 +179,7 @@ dependency, declares in its distribution metadata, and you can read them back
 off your own install:
 
 ```
-uvx --python 3.13 --from "git+https://github.com/Kiln-AI/harness-tuner@main" python -c "from importlib.metadata import metadata; \
+uvx --from harness-tuner python -c "from importlib.metadata import metadata; \
 print('\n'.join(metadata('kiln-ai').get_all('Project-URL')))"
 ```
 
@@ -963,7 +952,7 @@ move them out of the clone.
 ## Verify the whole install
 
 ```
-uv tool install --python 3.13 "git+https://github.com/Kiln-AI/harness-tuner@main"
+uv tool install harness-tuner
 harness-tuner --help
 kiln_api_mcp --help
 curl -sS http://localhost:8757/ping
