@@ -794,6 +794,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 ✓ Ready     1 run config · 1 eval the tuner can measure
 ✓ API keys  OpenRouter
 ✓ Improve   Quality
+✓ Models    keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)
 ✓ Guidance  "Improve the moderation decisions. Keep the output format."
 ✓ Agents    Claude Code (claude -p) · opus
 ✓ Budget    $50.00
@@ -804,6 +805,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212) │
 │ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
 │ Improve      Quality                                                                    │
+│ Models       keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)              │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
 │ Limits       $50.00 on the task's model calls · about 12 hours                          │
@@ -814,6 +816,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │   --project-id 731954460212 --task-id 424242783061 \                                    │
 │   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
 │   --objective quality \                                                                 │
+│   --models keep \                                                                       │
 │   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
 │   --agent-cli 'claude -p' \                                                             │
 │   --budget-usd 50 --timeout-mins 720 \                                                  │

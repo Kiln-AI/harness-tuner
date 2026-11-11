@@ -118,6 +118,7 @@ and says where to add it when it doesn't.
    | Question | Pre-filled |
    |---|---|
    | What should the tuner improve? | Quality |
+   | Which models may the tuner use? | Keep the task's model |
    | Guidance for the tuner's planner (optional) | `Improve the moderation decisions. Keep the output format.` |
    | Which agent CLI should run the tuner's agents? | Claude Code; not asked when only one is installed |
    | Model for the agents | `opus` for Claude Code |

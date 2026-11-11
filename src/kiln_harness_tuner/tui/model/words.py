@@ -495,7 +495,7 @@ def baseline_failed(failed: int, total: int) -> str:
 def models_text(checked: int, flagged: int, untested: int) -> str:
     if flagged:
         return f"{plural(checked, 'model')} checked · {flagged} flagged"
-    text = f"{plural(checked, 'model')} the policy allows answered"
+    text = f"{plural(checked, 'model')} the run may use answered"
     return text + (f" · {untested} untested" if untested else "")
 
 

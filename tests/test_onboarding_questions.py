@@ -390,9 +390,9 @@ def test_the_objective_rows_and_the_hints():
         ' quality gap."\n'
         ' · Trade-offs: "Between options of equal quality, prefer the cheaper'
         ' one."\n'
-        ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."\n'
+        ' · Ideas to try: "Try a skill with worked examples for the edge cases."\n'
         ' · What not to touch: "Don\'t change the model or temperature."\n'
-        ' · Directives: "Only use models from OpenAI."\n'
+        ' · Directives: "Keep every answer under 100 words."\n'
         "Optional. Blank means no guidance.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",

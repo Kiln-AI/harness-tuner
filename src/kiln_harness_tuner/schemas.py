@@ -1783,10 +1783,13 @@ class BatchPlanInput(BaseModel):
     #   `baseline_latency`: the baseline's own per-item latency on the stored
     #   train eval runs (median/p90 over its items; the `candidate_*` fields
     #   are unset) — so a speed plan knows where the baseline stands.
-    #   `model_policy`: the `--model-policy` rules, or None when no policy is
-    #   in force. `allowed_models`: the models the server offers that the
-    #   policy allows (every offered model without a policy) — an arm on any
-    #   other model is refused by code before it is built or measured.
+    #   `model_policy`: the policy in force, or None under `--models any`:
+    #   the `--model-policy` rules, or under `--models keep` the baseline's
+    #   one pair (`orchestrator.pin_baseline_model`). `allowed_models`: the
+    #   models the server offers that the policy allows (every offered model
+    #   without a policy) — an arm on any other model is refused by code
+    #   before it is built or measured. A model or provider swap is a lever
+    #   exactly when it lists a model other than the baseline's.
     objective: Objective = "quality"
     baseline_cost: LatencyComparison | None = None  # speed/cost: the
     #   baseline's per-request cost on the fixed speed sample (metric cost_usd)

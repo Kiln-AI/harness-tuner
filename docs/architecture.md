@@ -1814,7 +1814,7 @@ over (Kiln provider id, Kiln model id), as `fnmatch` globs;
 [`model_policy.py`](../src/kiln_harness_tuner/model_policy.py) decides a pair in this
 order: an **exception** (one exact pair, no wildcards) allows it; a **deny**
 match refuses it; an **allow** match allows it; anything else is refused. No
-policy means every model is allowed.
+policy (`--models any`) means every model is allowed.
 
 **`--models` and the policy.** Without `--model-policy`, `--models` says
 which models the task may use (`model_policy.resolve_models`): `keep`, the

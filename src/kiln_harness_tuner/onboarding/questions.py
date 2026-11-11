@@ -475,9 +475,9 @@ GUIDANCE_HINT = "\n".join(
         " · Where to focus: \"Start with the Correctness eval. It's our biggest"
         ' quality gap."',
         ' · Trade-offs: "Between options of equal quality, prefer the cheaper one."',
-        ' · Ideas to try: "Try the newest DeepSeek release on OpenRouter."',
+        ' · Ideas to try: "Try a skill with worked examples for the edge cases."',
         ' · What not to touch: "Don\'t change the model or temperature."',
-        ' · Directives: "Only use models from OpenAI."',
+        ' · Directives: "Keep every answer under 100 words."',
         "Optional. Blank means no guidance.",
     )
 )
