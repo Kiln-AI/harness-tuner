@@ -465,12 +465,12 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--noise-check",
-        type=_positive_int,
+        type=_count,
         default=0,
         metavar="N",
         help="before wave 1, re-drive and re-judge the baseline on N train"
         " items per eval and report how often the same config scores"
-        " differently (paid, estimated before it spends; default off)",
+        " differently (paid, estimated before it spends; default 0, off)",
     )
     parser.add_argument(
         "--models",
@@ -604,8 +604,9 @@ def _coverage_floor(text: str) -> float:
 
 
 def _count(text: str) -> int:
-    """`--max-concurrent-evals` and `--max-concurrent-agents`: 0 or more, as
-    the start's questions take them. 0 is no limit."""
+    """`--max-concurrent-evals`, `--max-concurrent-agents` and
+    `--noise-check`: 0 or more, as the start's questions take them. 0 is no
+    limit for the first two, and off for the noise check."""
     try:
         return parse_count(text)
     except ValueError as exc:
@@ -613,7 +614,7 @@ def _count(text: str) -> int:
 
 
 def _positive_int(text: str) -> int:
-    """`--noise-check` and `--max-turns`: at least 1."""
+    """`--max-turns`: at least 1."""
     try:
         value = int(text)
     except ValueError:
