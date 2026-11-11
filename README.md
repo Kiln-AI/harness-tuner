@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/ocmgJF-4xRE"><img width="420" alt="Kiln Harness Tuner: watch the demo" src="https://github.com/user-attachments/assets/1edd32c9-dd09-421e-bb23-b3dec18d3d92" /></a>
+  <a href="https://youtu.be/UJfpzHJc0PQ"><img width="420" alt="Kiln Harness Tuner: watch the demo" src="https://github.com/user-attachments/assets/1edd32c9-dd09-421e-bb23-b3dec18d3d92" /></a>
 </p>
 
 **A real production agent, after tuning:** 2.5x fewer failures, 6x cheaper, 2x lower latency. Measured on held-out data, on a smaller model. It's a multi-turn agent with over 200 tools.
