@@ -815,7 +815,25 @@ def pick_models_hint(objective: str) -> str:
     )
 
 
-_DEFAULT_TEXT = {KEEP: "to keep the task's model", ANY: "any model Kiln offers"}
+RECOMMENDED = " (recommended)"
+
+
+def models_hint(objective: str) -> str:
+    """The Models question's hint: the objective's default, which its row
+    marks as recommended, and why."""
+    name = objective_text(objective)
+    if resolve_models(None, objective) == KEEP:
+        return (
+            f"Recommended for {name}: keep the task's model, and the tuner spends"
+            " the run on the harness around it. Which other model it tries is its"
+            " own judgment, so to try others, pick a few strong ones and say in"
+            " the guidance how to try them."
+        )
+    return (
+        f"Recommended for {name}: any model Kiln offers. Another model is the"
+        f" first lever for {name.lower()}, and a change wins only if quality"
+        " holds."
+    )
 
 
 def _models_choice(answers: Answers) -> str:
@@ -825,17 +843,23 @@ def _models_choice(answers: Answers) -> str:
 
 
 def _models_choices(answers: Answers, ctx: QuestionContext) -> list[Option[str]]:
+    """The four answers. The objective's default is marked recommended."""
+    default = resolve_models(None, answers.objective)
+
+    def label(value: str, text: str) -> str:
+        return text + RECOMMENDED if value == default else text
+
     return [
         Option(
             KEEP,
-            "Keep the task's model",
+            label(KEEP, "Keep the task's model"),
             (ctx.baseline_model or "",),
             description="The tuner may still change its thinking level,"
             " temperature and top_p. Code refuses every other model.",
         ),
         Option(
             ANY,
-            "Any model Kiln offers",
+            label(ANY, "Any model Kiln offers"),
             ("on the providers that have a key",),
             description=f"{ANY_COST_WARNING} {swap_note(answers.objective)}",
         ),
@@ -858,13 +882,11 @@ def _models_choices(answers: Answers, ctx: QuestionContext) -> list[Option[str]]
 def _ask_models(answers: Answers, ctx: QuestionContext) -> None:
     """Keep, any, picked models or a policy file. Esc in the picker or at
     the file asks this question again."""
-    default = resolve_models(None, answers.objective)
     while True:
         choice = ctx.terminal.pick(
             MODELS_QUESTION,
             _models_choices(answers, ctx),
-            hint=f"The default for {objective_text(answers.objective)} is"
-            f" {_DEFAULT_TEXT[default]}.",
+            hint=models_hint(answers.objective),
             default=_models_choice(answers),
             back=ctx.back,
         )
