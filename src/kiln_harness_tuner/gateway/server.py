@@ -28,19 +28,23 @@ from mcp.server.fastmcp import FastMCP
 
 from kiln_harness_tuner.gateway import ops as gw
 from kiln_harness_tuner.gateway.trainset import FILE_NAME, TrainSet
-from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
+from kiln_harness_tuner.model_policy import ModelPolicy
 
 POLICY_FILE = "model_policy.json"
 
 
 def load_policy(run_dir: Path) -> ModelPolicy | None:
+    """The run's copy of `--model-policy`. No file or an empty file is no
+    policy. A file that is not a valid policy, or that cannot be read, gives
+    a policy that refuses every model and names the file. It never raises."""
     path = run_dir / POLICY_FILE
-    if not path.exists() or not path.read_text().strip():
-        return None
     try:
+        if not path.exists() or not path.read_text(encoding="utf-8").strip():
+            return None
         return ModelPolicy.load(path)
-    except ModelPolicyError as exc:  # fail closed: every model refused
-        return ModelPolicy.refuse_all(f"the policy copy is unreadable ({exc})")
+    except (OSError, ValueError) as exc:  # ModelPolicyError is a ValueError
+        detail = str(exc) if str(path) in str(exc) else f"{path}: {exc}"
+        return ModelPolicy.refuse_all(f"the policy copy is unreadable ({detail})")
 
 
 def load_state(args: argparse.Namespace) -> gw.State:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -343,10 +344,37 @@ class TestThePolicyCopy:
         "text",
         ["{bad", '{"allow": []}', '{"allow": [{"provider": "*"}]}', "[]"],
     )
-    def test_an_unreadable_copy_refuses_every_model(self, tmp_path, text):
+    def test_an_invalid_copy_refuses_every_model(self, tmp_path, text):
         path = tmp_path / POLICY_FILE
         path.write_text(text)
-        policy = load_policy(tmp_path)
+        self._refuses_every_model(load_policy(tmp_path), path)
+
+    def test_a_copy_that_is_not_utf8_refuses_every_model(self, tmp_path):
+        path = tmp_path / POLICY_FILE
+        path.write_bytes(b"\xff\xfe{")
+        self._refuses_every_model(load_policy(tmp_path), path)
+
+    def test_a_copy_that_is_a_folder_refuses_every_model(self, tmp_path):
+        path = tmp_path / POLICY_FILE
+        path.mkdir()
+        self._refuses_every_model(load_policy(tmp_path), path)
+
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root reads a file with no read permission",
+    )
+    def test_a_copy_with_no_read_permission_refuses_every_model(self, tmp_path):
+        path = tmp_path / POLICY_FILE
+        path.write_text(json.dumps({"allow": [{"provider": "*", "model": "*"}]}))
+        path.chmod(0)
+        try:
+            policy = load_policy(tmp_path)
+        finally:
+            path.chmod(0o600)
+        self._refuses_every_model(policy, path)
+
+    @staticmethod
+    def _refuses_every_model(policy: ModelPolicy | None, path: Path) -> None:
         assert policy is not None
         for provider, model in [("openai", "gpt"), ("groq", "kimi"), ("x", "y")]:
             reason = policy.refusal(provider, model)
