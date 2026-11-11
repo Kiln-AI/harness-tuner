@@ -21,8 +21,10 @@ single eval down by more than max(1, round(0.10 × its items)) items.
 
 - **`quality`** works on issues: one failure class of one eval. The planner
   builds a fix for an issue, such as a prompt change, a skill, a tool or a
-  model change, and the fix must show on the items the baseline fails. When no
-  eval can measure an issue, the report names it, so that you can create the
+  provider parameter, and the fix must show on the items the baseline fails.
+  The task keeps its model, unless you allow other models
+  ([below](#which-objectives-may-change-the-model)). When no eval can
+  measure an issue, the report names it, so that you can create the
   eval in the Kiln app. The loop builds that eval itself only with
   `--experimental-eval-building`, which is experimental and off by default.
 - **`speed`** measures the sum of the LLM call latencies of one task run. A
@@ -44,11 +46,35 @@ latency is the goal, use `--objective speed`, and when cost is the goal, use
 promotion rules in full, and [architecture.md](architecture.md) section 16
 has the method.
 
+### Which objectives may change the model
+
+Under `quality` the task keeps the baseline's model and provider
+(`model_name` and `model_provider_name`). The planner may change all the
+other parts of the run config. That includes the provider parameters: the
+thinking level, the temperature and `top_p`.
+
+A model or provider swap is a lever only when one of these is true:
+
+- The objective is `speed` or `cost`.
+- The objective is `quality`, the guidance allows other models explicitly
+  (for example "You may try other models."), and a `--model-policy` lists
+  them. Under `quality` the planner sees other models only when a policy is
+  set. Without a policy it sees only the baseline's model.
+
+A policy alone does not enable a swap under `quality`: the guidance must
+allow it too. Under `speed` and `cost` the policy only limits the
+(provider, model) pairs that a swap may use.
+
 ## Which models a run may use: `--model-policy`
 
-By default the planner may move the task to any model Kiln offers. A model
-policy limits that. It is a JSON file of `allow`, `deny` and `exceptions`
-rules over Kiln's (provider, model) ids, with `*` wildcards.
+A model policy limits the models that a model swap may use
+([above](#which-objectives-may-change-the-model)). Without a policy, a
+`speed` or `cost` run may use any model Kiln offers, and a `quality` run
+keeps the baseline's model. Under `quality` a policy is necessary for a swap
+but not enough: the guidance must also allow other models.
+
+The policy is a JSON file of `allow`, `deny` and `exceptions` rules over
+Kiln's (provider, model) ids, with `*` wildcards.
 
 ### The file format
 

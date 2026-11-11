@@ -429,7 +429,10 @@ def build_parser() -> _Parser:
         help="what the loop optimises: quality = the eval scores (default);"
         " speed = per-request wall-clock latency, promoted only when clearly"
         " faster on val (paired, median and p90) with no eval regressed"
-        " significantly",
+        " significantly; cost = per-request provider cost, by the same rule."
+        " Under quality the task keeps its model and provider unless"
+        " --guidance allows other models and --model-policy lists them;"
+        " speed and cost may change them",
     )
     parser.add_argument(
         "--min-effect",
@@ -463,8 +466,11 @@ def build_parser() -> _Parser:
         metavar="PATH",
         help="JSON file of allowed/denied (provider, model) pairs for the task's"
         " run configs, enforced on every run config an agent creates and"
-        " before any rc is measured or promoted (default: no policy — every"
-        " model allowed). See examples/model-policy.json",
+        " before any rc is measured or promoted. It limits model swaps; under"
+        " quality a swap also needs --guidance that allows it (see"
+        " --objective). Default: no policy, so speed and cost may use any"
+        " model Kiln offers and quality keeps the task's model."
+        " See examples/model-policy.json",
     )
     parser.add_argument(
         "--skip-model-preflight",
@@ -595,7 +601,7 @@ def load_model_policy(path: str | None) -> ModelPolicy | None:
         raise ConfigRenderError(
             f"--model-policy: {exc}.\n"
             "fix: correct the file (examples/model-policy.json shows the shape),"
-            " or drop --model-policy to allow every model."
+            " or drop --model-policy to run with no policy."
         ) from exc
 
 

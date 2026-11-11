@@ -64,7 +64,7 @@ CORE_QUESTIONS = [
     "Time limit (1h, 24h, 45m)",
 ]
 ADVANCED_PROMPT = (
-    "Advanced options: any model · 4 evals and 4 agents at once"
+    "Advanced options: same model · 4 evals and 4 agents at once"
     " · no minimum effect · no noise check"
 )
 ADVANCED_QUESTIONS = [
@@ -336,7 +336,9 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
         ]
     )
     got = ask_all(answers(), context(terminal), given=frozenset())
-    assert terminal.questions == [*CORE_QUESTIONS, ADVANCED_PROMPT]
+    # Speed may swap models, so with no policy the Advanced line reads so.
+    swapping = ADVANCED_PROMPT.replace("same model", "any model")
+    assert terminal.questions == [*CORE_QUESTIONS, swapping]
     assert terminal.step_lines() == [
         "Improve: Speed",
         'Guidance: "Keep it short."',
@@ -742,7 +744,7 @@ def test_keep_leaves_the_advanced_options_as_they_are():
     got = ask_all(answers(noise_check=2), context(terminal), given=CORE_DESTS)
     assert got == answers(noise_check=2)
     assert terminal.questions == [
-        "Advanced options: any model · 4 evals and 4 agents at once"
+        "Advanced options: same model · 4 evals and 4 agents at once"
         " · no minimum effect · noise check on 2 items per eval"
     ]
     assert terminal.step_lines() == ["Advanced: noise check on 2 items per eval"]
@@ -821,8 +823,45 @@ def test_the_advanced_lines():
     )
     one = answers(max_concurrent_evals=1, max_concurrent_agents=0, min_effect=0.1)
     assert advanced_values(one) == (
-        "any model · 1 eval and any number of agents at once"
+        "same model · 1 eval and any number of agents at once"
         " · minimum effect 10% · no noise check"
+    )
+
+
+def test_without_a_policy_the_model_text_follows_the_objective():
+    # Quality keeps the task's model; speed and cost may swap it. A policy
+    # limits swaps and reads as its path under every objective.
+    show = next(q for q in QUESTIONS if q.name == "model_policy").show
+    assert show(answers()) == "the task keeps its model"
+    assert advanced_values(answers()).startswith("same model · ")
+    for objective in ("speed", "cost"):
+        swapping = answers(objective=objective)
+        assert show(swapping) == "any model Kiln offers"
+        assert advanced_values(swapping).startswith("any model · ")
+    # Without a policy the quality planner sees no other model, whatever
+    # the guidance says.
+    guided = answers(guidance="Try the newest DeepSeek release.")
+    assert show(guided) == "the task keeps its model"
+    assert advanced_values(guided).startswith("same model · ")
+    policy = answers(objective="quality", model_policy="./policy.json")
+    assert show(policy) == "./policy.json"
+    assert advanced_values(policy).startswith("model policy ./policy.json · ")
+
+
+def test_the_policy_hint_follows_the_objective():
+    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0"])
+    ask_all(answers(), context(terminal), given=CORE_DESTS)
+    assert terminal.asked[1].hint == (
+        "Limits the models the tuner may move the task to. Under Quality the"
+        " task keeps its model. To let it try others, allow them in your"
+        " guidance and list them here. Blank means the task keeps its model."
+        " examples/model-policy.json shows the format."
+    )
+    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0"])
+    ask_all(answers(objective="cost"), context(terminal), given=CORE_DESTS)
+    assert terminal.asked[1].hint == (
+        "Limits the models the tuner may move the task to. Blank means any"
+        " model Kiln offers. examples/model-policy.json shows the format."
     )
 
 

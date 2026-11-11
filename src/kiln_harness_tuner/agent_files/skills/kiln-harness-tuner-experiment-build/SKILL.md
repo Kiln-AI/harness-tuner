@@ -60,8 +60,9 @@ going looking.
    config identical to the parent except the named provider parameter(s),
    no new prompt, skill or tool. Its `change` block lists the one parameter
    and its old and new values, and everything else under `unchanged`. The
-   model stays as the parent has it unless the item's hypothesis says the
-   guidance allows a model change — if it does not, return
+   model and provider stay as the parent has them unless the item's
+   hypothesis says the run's objective is speed or cost, or that the
+   guidance allows other models. If it says neither, return
    `failed_expected` naming the rule rather than swapping it.
 
    **Skills WITH resource files** are authored as a complete bundle under

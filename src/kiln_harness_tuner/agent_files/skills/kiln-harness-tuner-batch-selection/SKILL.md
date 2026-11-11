@@ -60,8 +60,14 @@ going looking.
   agent-initiated training is out of scope. Only an explicit
   kickoff-guidance directive ("try fine-tuning for tone") makes one a normal
   candidate. **A model swap is excluded by default** — the subject model is
-  the environment; only guidance that explicitly allows other models, or
-  `objective: "speed"` (below), makes it a lever. Provider
+  the environment. Under `objective: "quality"` keep the baseline's
+  `model_name` and `model_provider_name`. Only guidance that explicitly
+  allows other models, or `objective: "speed"` or `"cost"` (below), makes a
+  model or provider swap a lever. A `model_policy` never makes it one: the
+  policy only limits which pairs a swap may use. Under quality with no
+  `model_policy`, `allowed_models` holds the baseline's model alone, so a
+  swap the guidance allows has no model to go to: say so in
+  `rejected_summary` (the owner adds a `--model-policy`). Provider
   parameters (thinking level, temperature, top_p) are in scope
   unless the guidance names them.
 - **Only models in `allowed_models`**. When `model_policy` is
@@ -315,9 +321,10 @@ carry items.
   round's size, so its judging costs up to about twice as much at round 1
   on 8 evals, and more on fewer evals; its default budget is priced on
   those items.
-- **Under the quality objective** screening is for model, provider,
-  thinking or sampling swaps you want to test; an arm that makes such a
-  swap without screening is timed by the engine too, so its lever is
+- **Under the quality objective** screening is for thinking or sampling
+  changes you want to test, and for model or provider swaps only when the
+  guidance allows other models (Hard rules); an arm that makes such a
+  change without screening is timed by the engine too, so its lever is
   checked on the drives before it is judged.
 
 ## Step 1 — Generate candidates
@@ -562,7 +569,8 @@ quantity is **expected value vs cost**, never a computed score.
 reasoning says an arm is the cheapest untried one and the only one reaching
 every target failure — a `params` arm, a skill attach, a resubmission —
 run it this wave unless the guidance excludes its lever class by name (or,
-for a model swap, unless the guidance fails to allow it). An
+for a model swap under the quality objective, unless the guidance fails to
+allow it). An
 `open_questions` entry is for what a human must DECIDE; it is not the place
 for what a cheap arm can MEASURE.
 
