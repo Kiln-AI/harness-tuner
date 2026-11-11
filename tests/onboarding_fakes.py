@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +70,8 @@ class ScriptedTerminal:
         self.opened: list[str] = []
         self.asked: list[Asked] = []
         self.options: list[tuple[Option[Any], ...]] = []  # each pick's options
+        # Each multi-pick's warnings for an unmarked value.
+        self.warnings: list[dict[Any, str]] = []
         # Everything above, in order, one short line each: `welcome …`,
         # `step Kiln: …`, `block <title>`, `say <first line>`, `warn …`,
         # `busy …`, `pick …`, `act …`, `text …`, `open …`.
@@ -149,13 +151,16 @@ class ScriptedTerminal:
         *,
         hint: str | None = None,
         default: Sequence[T] = (),
+        warn_unmarked: Mapping[T, str] | None = None,
         limit: int | None = None,
         back: bool = False,
     ) -> list[T]:
-        """Answered with the list of values to mark, in any order; the
-        result keeps the options' order, as the real picker does."""
+        """Answered with the list of values marked when Enter is pressed, in
+        any order; the result keeps the options' order, as the real picker
+        does."""
         offered = tuple(o.value for o in options)
         self.options.append(tuple(options))
+        self.warnings.append(dict(warn_unmarked or {}))
         asked = Asked("pick_many", question, offered, tuple(default), hint, back)
         answer = self._answer(asked)
         values: Any = answer() if callable(answer) else answer

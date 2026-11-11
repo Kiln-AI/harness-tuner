@@ -90,15 +90,27 @@ def clip(text: str, width: int) -> str:
     return text if len(text) <= width else text[: width - 1] + "…"
 
 
-def pick_options(models: Sequence[OfferedModel]) -> list[Option[Pair]]:
+BASELINE_NOTE = "the task's model"
+BASELINE_UNMARKED = (
+    "The task's model is unmarked: every experiment must move to a marked"
+    " model. The run still measures the task's model as its baseline."
+)
+
+
+def pick_options(
+    models: Sequence[OfferedModel], *, baseline: Pair | None = None
+) -> list[Option[Pair]]:
     """One picker row per model: its name, its provider and its id, grouped
     by provider. The provider is a column too: one model is often offered
-    by several providers, and the All facet shows them together."""
+    by several providers, and the All facet shows them together. The
+    `baseline` row carries `BASELINE_NOTE`, which the picker shows after
+    the row."""
     return [
         Option(
             model.pair,
             clip(model.name, NAME_WIDTH),
             (clip(model.provider_label, PROVIDER_WIDTH), model.model),
+            description=BASELINE_NOTE if model.pair == baseline else None,
             group=model.provider_label,
         )
         for model in models

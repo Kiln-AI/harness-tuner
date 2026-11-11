@@ -8,7 +8,7 @@ isn't guided: plain lines, and never a prompt.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from typing import TypeVar
 
@@ -67,6 +67,7 @@ class PlainTerminal:
         *,
         hint: str | None = None,
         default: Sequence[T] = (),
+        warn_unmarked: Mapping[T, str] | None = None,
         limit: int | None = None,
         back: bool = False,
     ) -> list[T]:

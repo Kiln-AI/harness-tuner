@@ -93,8 +93,16 @@ models** shows the models of the providers that have a key in Kiln:
 
 - Type to filter the list. Tab and Shift+Tab show one provider at a time.
 - Space marks or unmarks a model. The task's own model starts marked.
+- You can unmark the task's own model, to make every experiment move to a
+  marked model. The picker shows a warning while it is unmarked. The run
+  still measures the task's model as its baseline.
 - Enter accepts. You can mark at most 12 models: the model preflight tests
   12 models.
+
+The tuner tries a marked model when it judges that the model can help the
+objective, and keeps it only if it wins. The next question, the guidance,
+can say how to try the models (section 4 of
+[your-own-task.md](your-own-task.md#4-writing-the-guidance)).
 
 The start writes the policy to the state folder's `policies/` folder, as
 `picked-<date>-<time>.json`, with one exception for each model. The rerun

@@ -16,9 +16,12 @@ from kiln_harness_tuner.onboarding.agent_models import CLAUDE_MODELS, CODEX_MODE
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.models import (
+    BASELINE_NOTE,
+    BASELINE_UNMARKED,
     NAME_WIDTH,
     offered_models,
     pick_options,
+    picked_pairs,
 )
 from kiln_harness_tuner.onboarding.questions import (
     AGENT_KINDS,
@@ -53,6 +56,7 @@ from kiln_harness_tuner.onboarding.questions import (
     parse_count,
     parse_duration,
     parse_fraction,
+    swap_note,
 )
 from kiln_harness_tuner.onboarding.summary import parser_defaults
 
@@ -895,6 +899,7 @@ def test_any_model_warns_that_the_spend_can_go_up(tmp_path):
     assert rows["keep"].columns == ("glm_5 on Fireworks AI",)
     assert "more expensive model" in (rows["any"].description or "")
     assert "spend" in (rows["any"].description or "")
+    assert (rows["any"].description or "").endswith(swap_note("quality"))
 
 
 def test_picked_models_become_a_policy_file(tmp_path):
@@ -906,8 +911,14 @@ def test_picked_models_become_a_policy_file(tmp_path):
         "pick_many",
         "Pick the models the tuner may use",
     )
-    # The baseline's model starts marked; the providers are the facets.
+    # The baseline's model starts marked, with its note and a warning for
+    # when it is unmarked; the providers are the facets.
     assert multi.default == (BASELINE_PAIR,)
+    assert terminal.options[1][0].description == BASELINE_NOTE
+    assert terminal.warnings[-1] == {BASELINE_PAIR: BASELINE_UNMARKED}
+    # The hint says when the tuner swaps, and where to steer it.
+    assert multi.hint.endswith(swap_note("quality"))
+    assert "can help the eval scores" in swap_note("quality")
     assert [o.group for o in terminal.options[1]] == [
         "Fireworks AI",
         "Fireworks AI",
@@ -915,7 +926,6 @@ def test_picked_models_become_a_policy_file(tmp_path):
     ]
     # The provider is a column too: the All facet mixes them.
     assert terminal.options[1][2].columns == ("OpenAI", "gpt_6")
-
     assert got.models is None
     policy = load_model_policy(got.model_policy)
     assert policy is not None
@@ -930,6 +940,8 @@ def test_picked_models_become_a_policy_file(tmp_path):
     assert terminal.asked[0].default == "pick"
     assert terminal.asked[1].default == tuple(picked)
     assert again.model_policy != first
+    # The task's own model unmarked: the policy leaves it out, as asked.
+    assert picked_pairs(again.model_policy) == [("fireworks_ai", "kimi_k3")]
 
 
 def test_a_long_picker_row_is_cut_but_never_its_id():

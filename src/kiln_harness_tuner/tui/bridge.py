@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, InvalidStateError
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
@@ -138,6 +138,7 @@ class PickMany(Prompt[list[Any]]):
     options: tuple[Option[Any], ...]
     hint: str | None
     default: tuple[Any, ...]
+    warn_unmarked: Mapping[Any, str]
     limit: int | None
 
 
@@ -287,12 +288,19 @@ class AppTerminal:
         *,
         hint: str | None = None,
         default: Sequence[T] = (),
+        warn_unmarked: Mapping[T, str] | None = None,
         limit: int | None = None,
         back: bool = False,
     ) -> list[T]:
         self._guided()
         request = PickMany(
-            question, tuple(options), hint, tuple(default), limit, back=back
+            question,
+            tuple(options),
+            hint,
+            tuple(default),
+            dict(warn_unmarked or {}),
+            limit,
+            back=back,
         )
         values: list[T] = self._ask(request)
         return values

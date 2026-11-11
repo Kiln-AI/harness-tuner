@@ -11,7 +11,7 @@ path never loads Textual through them.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import Enum
@@ -140,6 +140,7 @@ class Terminal(Protocol):
         *,
         hint: str | None = None,
         default: Sequence[T] = (),
+        warn_unmarked: Mapping[T, str] | None = None,
         limit: int | None = None,
         back: bool = False,
     ) -> list[T]:
@@ -148,7 +149,8 @@ class Terminal(Protocol):
         marked first. Typing filters the rows; each option's `group` is a
         facet, and Tab and Shift+Tab step through all groups and each one.
         Space marks or unmarks the highlighted row, at most `limit` rows.
-        Enter accepts. Ctrl-C, Ctrl-D and Esc as at `pick`."""
+        While a value of `warn_unmarked` is unmarked, its warning shows under
+        the rows. Enter accepts. Ctrl-C, Ctrl-D and Esc as at `pick`."""
         ...
 
     def act(

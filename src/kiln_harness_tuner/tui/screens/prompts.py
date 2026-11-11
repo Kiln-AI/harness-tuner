@@ -322,6 +322,8 @@ class MultiPicker(PromptPart[PickMany]):
     Shift+Tab step through them, and only the current facet's rows show.
     Space marks or unmarks the highlighted row (a click does too), at most
     `limit` rows; a mark stays when the filter or the facet hides its row.
+    A row in `warn_unmarked` shows its option's `description` after it, and
+    while it is unmarked its warning shows under the rows.
     Enter answers the marked values in the options' order, and does nothing
     while no row is marked. Esc clears the filter first, then goes back."""
 
@@ -344,13 +346,19 @@ class MultiPicker(PromptPart[PickMany]):
         groups = (option.group for option in request.options if option.group)
         self.facets = [ALL_GROUPS, *dict.fromkeys(groups)]
         self.facet = 0
-        self.marked = {
+        self.warned = {
+            i: request.warn_unmarked[option.value]
+            for i, option in enumerate(request.options)
+            if option.value in request.warn_unmarked
+        }
+        chosen = sorted(
             i
             for i, option in enumerate(request.options)
             if option.value in request.default
-        }
+        )
         if request.limit is not None:
-            self.marked = set(sorted(self.marked)[: request.limit])
+            chosen = chosen[: request.limit]
+        self.marked = set(chosen)
         self.filter_text = ""
 
     def compose(self) -> ComposeResult:
@@ -370,7 +378,11 @@ class MultiPicker(PromptPart[PickMany]):
 
     def _row(self, i: int) -> Content:
         mark = MARKED if i in self.marked else UNMARKED
-        return Content(f" {mark} {self.rows[i]} ")
+        row = Content(f" {mark} {self.rows[i]} ")
+        note = self.request.options[i].description
+        if i not in self.warned or not note:
+            return row
+        return Content.assemble(row, Content.styled(f" {note} ", "$text-muted"))
 
     def _kept(self, i: int) -> bool:
         option = self.request.options[i]
@@ -408,9 +420,11 @@ class MultiPicker(PromptPart[PickMany]):
         text = f"{len(self.marked)} marked"
         if limit is not None:
             text += f" (at most {limit})"
+        warnings = [w for i, w in self.warned.items() if i not in self.marked]
         line = Content.assemble(
             Content.styled(text, "$text-muted"),
             Content.styled(f"  {problem}", "$text-error") if problem else "",
+            *(Content.styled(f"\n{warning}", "$text-warning") for warning in warnings),
         )
         self.query_one(".count", Static).update(line)
 

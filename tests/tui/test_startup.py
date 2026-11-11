@@ -925,3 +925,22 @@ async def test_a_mark_stays_when_the_filter_hides_its_row():
     async with asking(pick_many()) as (harness, pilot):
         await pilot.press(*"gp", "space")
         assert harness.app.screen.query_one(Input).value == "gp"
+
+
+async def test_an_unmarked_warned_row_shows_its_warning():
+    warned = Option(
+        D, "GLM D", ("glm_d",), description="the task's model", group="Fireworks"
+    )
+    options = [*MODELS[:3], warned]
+    ask = lambda terminal: terminal.pick_many(  # noqa: E731
+        "Which models?", options, default=[D], warn_unmarked={D: "Kept off: careful."}
+    )
+    # It can be unmarked, like any row.
+    assert await answered(ask, "shift+tab", "space", "tab", "space", "enter") == [A]
+    async with asking(ask) as (harness, pilot):
+        count = harness.app.screen.query_one(".count")
+        assert "Kept off" not in rendered(count)
+        await pilot.press("shift+tab", "space")
+        assert "Kept off: careful." in rendered(count)
+        await pilot.press("space")  # marked again: the warning goes
+        assert "Kept off" not in rendered(count)

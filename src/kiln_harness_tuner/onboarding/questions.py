@@ -38,6 +38,7 @@ from kiln_harness_tuner.onboarding.errors import GoBack
 from kiln_harness_tuner.onboarding.models import (
     ANY,
     ANY_COST_WARNING,
+    BASELINE_UNMARKED,
     FILE,
     KEEP,
     PICK,
@@ -788,13 +789,30 @@ MIN_EFFECT_HINT = (
 MODELS_QUESTION = "Which models may the tuner use?"
 PICK_QUESTION = "Pick the models the tuner may use"
 POLICY_QUESTION = "Model policy file"
-PICK_MODELS_HINT = "\n".join(
-    (
-        "↑↓ move · type to filter · Tab next provider · Space mark · Enter done",
-        "The task's own model starts marked. Each marked model gets one short"
-        " test call at start-up.",
+# What a model swap is for, by objective: the tuner's goal.
+SWAP_GOALS = {"quality": "the eval scores", "speed": "the latency", "cost": "the cost"}
+
+
+def swap_note(objective: str) -> str:
+    """When the tuner moves the task to another model, and where the user
+    steers it: the next question, the guidance."""
+    goal = SWAP_GOALS.get(objective, "the objective")
+    return (
+        f"The tuner tries another model when it judges that it can help {goal},"
+        " and keeps it only if it wins. The next question, the guidance, can say"
+        " how to try them."
     )
-)
+
+
+def pick_models_hint(objective: str) -> str:
+    return "\n".join(
+        (
+            "↑↓ move · type to filter · Tab next provider · Space mark · Enter done",
+            "The task's own model starts marked. Each marked model gets one short"
+            " test call at start-up.",
+            swap_note(objective),
+        )
+    )
 
 
 _DEFAULT_TEXT = {KEEP: "to keep the task's model", ANY: "any model Kiln offers"}
@@ -806,7 +824,7 @@ def _models_choice(answers: Answers) -> str:
     return resolve_models(answers.models, answers.objective)
 
 
-def _models_choices(ctx: QuestionContext) -> list[Option[str]]:
+def _models_choices(answers: Answers, ctx: QuestionContext) -> list[Option[str]]:
     return [
         Option(
             KEEP,
@@ -819,7 +837,7 @@ def _models_choices(ctx: QuestionContext) -> list[Option[str]]:
             ANY,
             "Any model Kiln offers",
             ("on the providers that have a key",),
-            description=ANY_COST_WARNING,
+            description=f"{ANY_COST_WARNING} {swap_note(answers.objective)}",
         ),
         Option(
             PICK,
@@ -844,7 +862,7 @@ def _ask_models(answers: Answers, ctx: QuestionContext) -> None:
     while True:
         choice = ctx.terminal.pick(
             MODELS_QUESTION,
-            _models_choices(ctx),
+            _models_choices(answers, ctx),
             hint=f"The default for {objective_text(answers.objective)} is"
             f" {_DEFAULT_TEXT[default]}.",
             default=_models_choice(answers),
@@ -871,14 +889,18 @@ def _ask_picked(answers: Answers, ctx: QuestionContext) -> None:
             "Kiln offers no models: add a provider key in Kiln's settings."
         )
         raise GoBack()
+    # The task's own model starts marked. Unmarking it is allowed (to make
+    # every experiment move to a marked model), with a warning while it is.
+    base = ctx.baseline_pair
     default = picked_pairs(answers.model_policy)
     if default is None:
-        default = [ctx.baseline_pair] if ctx.baseline_pair is not None else []
+        default = [base] if base is not None else []
     pairs = ctx.terminal.pick_many(
         PICK_QUESTION,
-        pick_options(offered),
-        hint=PICK_MODELS_HINT,
+        pick_options(offered, baseline=base),
+        hint=pick_models_hint(answers.objective),
         default=default,
+        warn_unmarked={base: BASELINE_UNMARKED} if base is not None else None,
         limit=PICK_LIMIT,
         back=True,
     )
