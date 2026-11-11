@@ -1,6 +1,6 @@
 [project]
 name = "harness-tuner"
-version = "0.1.0"
+version = "0.5.0"
 description = "Automatically tune an AI agent's harness (prompt, model, tools, skills), measured by your evals and confirmed on held-out data."
 readme = "README.md"
 license = "MIT"
