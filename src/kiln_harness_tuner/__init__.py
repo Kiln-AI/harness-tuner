@@ -1,7 +1,8 @@
 """kiln-harness-tuner — an agentic optimize loop for Kiln tasks.
 
-`cli.py` is the entry point and the composition root; `orchestrator.py` is the
-wave loop everything else hangs off.
+`launch.py` is the console script, which stops on native Windows; `cli.py` is
+the entry point and the composition root; `orchestrator.py` is the wave loop
+everything else hangs off.
 """
 
 from importlib.metadata import PackageNotFoundError, version

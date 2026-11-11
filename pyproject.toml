@@ -37,7 +37,7 @@ Homepage = "https://kiln.tech"
 Repository = "https://github.com/Kiln-AI/harness-tuner"
 
 [project.scripts]
-harness-tuner = "kiln_harness_tuner.cli:main"
+harness-tuner = "kiln_harness_tuner.launch:main"
 harness-tuner-skill-installer-mcp = "kiln_harness_tuner.skill_installer.mcp_server:main"
 harness-tuner-gateway-mcp = "kiln_harness_tuner.gateway.server:main"
 harness-tuner-install-agents = "kiln_harness_tuner.install_agents:main"
