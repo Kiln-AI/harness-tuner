@@ -31,16 +31,16 @@ alone.
 | Input | Flag | What it is |
 |---|---|---|
 | The task | `--project-id`, `--task-id`, `--project-path` | The Kiln task. Its default run config is the first baseline. |
-| The objective | `--objective quality\|speed\|cost` | What the loop improves. One objective per run. The default is `quality`. Under `quality` the task keeps its model and provider, unless the guidance allows other models and a model policy lists them. |
-| The model policy | `--model-policy PATH` | A JSON **file** of allowed and denied (provider, model) pairs, with `*` wildcards. Code applies it to every run config that an agent makes or drives. It limits model swaps; it does not enable them. [examples/model-policy.json](../examples/model-policy.json) shows the shape. |
+| The objective | `--objective quality\|speed\|cost` | What the loop improves. One objective per run. The default is `quality`. |
+| The models | `--models keep\|any` or `--model-policy PATH` | Which models the task may use. `keep` (the default under `quality`): the baseline's model only. `any` (the default under `speed` and `cost`): every model Kiln offers. A policy **file**: the (provider, model) pairs it allows, with `*` wildcards. Code applies the choice to every run config that an agent makes or drives. [objectives.md](objectives.md#which-models-a-run-may-use) |
 | The guidance | `--guidance TEXT` | Free text for the planner: what to try first, what not to try. |
 | The limits | `--budget-usd`, `--timeout-mins` | The money and the time for the run. Code checks them at each wave boundary. |
 | Parallelism | `--max-concurrent-evals`, `--max-concurrent-agents` | How many eval jobs and agent sessions run at the same time. |
 
-A model or provider swap is a lever under `speed` and `cost`. Under
-`quality` it is a lever only when the guidance allows other models
-explicitly ("You may try other models") and a model policy lists them.
-The model policy keeps expensive models out. Every experiment reports its
+A model or provider swap is a lever only when the models choice allows a
+model other than the baseline's. `--models any` may move the task to a more
+expensive model; pick the models, or use a policy file, to keep expensive
+models out. Every experiment reports its
 latency and cost per request against its parent, read from the stored runs, at
 no extra cost. Use `--objective speed` or `--objective cost` when latency or
 cost is the goal.
@@ -236,12 +236,12 @@ The goal is higher eval scores.
   (experimental, off by default), an eval-build item makes the eval first.
   The eval is frozen before the fix is built, so the fix cannot shape its
   own test.
-- **What the planner may change.** Everything in the run config except the
-  model and the provider (`model_name`, `model_provider_name`). The provider
-  parameters (thinking level, temperature, `top_p`) are levers. A model or
-  provider swap is a lever only when the guidance allows other models
-  explicitly and a model policy lists them. Without a policy the planner
-  sees only the baseline's model. A policy alone is not enough.
+- **What the planner may change.** Everything in the run config. The
+  provider parameters (thinking level, temperature, `top_p`) are levers.
+  The model and the provider (`model_name`, `model_provider_name`) stay as
+  they are under the default, `--models keep`. With `--models any`, or a
+  model policy that allows another model, a model or provider swap is a
+  lever too.
 - **Which train items are judged first.** The items that the baseline fails
   on the target evals (up to 8), then a few that it passes (up to 4) as
   guards, then the rest of the split. A fix must show on the failures first.

@@ -98,6 +98,7 @@ def test_the_rerun_command_has_every_answer_one_group_per_line():
         "  --project-id 424242975950 --task-id 424242783061 \\\n"
         "  --project-path '/Users/you/Kiln Projects/Forum Moderation' \\\n"
         "  --objective quality \\\n"
+        "  --models keep \\\n"
         "  --guidance 'Improve the moderation decisions. Keep the output format.' \\\n"
         "  --agent-cli 'claude -p' \\\n"
         "  --budget-usd 50 --timeout-mins 720 \\\n"
@@ -130,6 +131,8 @@ def test_the_flags_the_start_sets_are_replaced_by_the_answers():
         str(FOLDER),
         "--objective",
         "speed",
+        "--models",
+        "any",
         "--guidance",
         "new",
         "--agent-cli",
@@ -176,18 +179,20 @@ def test_no_cap_and_no_guidance_are_written_out():
 
 
 def test_the_advanced_flags_are_passed_only_when_they_arent_the_defaults():
-    command = rerun(
-        [],
-        model_policy="~/my policy.json",
-        min_effect=0.1,
-        max_concurrent_evals=0,
-        noise_check=3,
-    )
+    command = rerun([], min_effect=0.1, max_concurrent_evals=0, noise_check=3)
     assert command.splitlines()[-2] == (
-        "  --model-policy '~/my policy.json' --min-effect 0.1"
-        " --max-concurrent-evals 0 --noise-check 3 \\"
+        "  --min-effect 0.1 --max-concurrent-evals 0 --noise-check 3 \\"
     )
     assert "--max-concurrent-agents" not in command
+
+
+def test_a_policy_file_takes_the_place_of_models():
+    command = rerun([], model_policy="~/my policy.json", models=None)
+    assert "  --model-policy '~/my policy.json' \\" in command.splitlines()
+    assert "--models" not in command
+    # Without either, the objective's default is written out.
+    assert "--models keep" in rerun([])
+    assert "--models any" in rerun([], objective="cost")
 
 
 def test_the_rerun_command_parses_back_to_the_same_answers():
@@ -260,6 +265,8 @@ def test_the_summary_names_the_task_the_baseline_and_every_answer():
         '  Starts from  run config "Baseline": deepseek_4_1_flash_1017 on Fireworks'
         " AI\n"
         "  Improve      Quality\n"
+        "  Models       keep the task's model (deepseek_4_1_flash_1017 on Fireworks"
+        " AI)\n"
         '  Guidance     "Improve the moderation decisions. Keep the output format."\n'
         "  Agents       Claude Code (claude -p) · opus\n"
         "  Limits       $50.00 on the task's model calls · about 12 hours\n"
@@ -271,7 +278,15 @@ def test_with_no_baseline_the_starts_from_line_is_left_out():
     labels = [
         label for label, _text in summary_lines(SELECTION, DEFAULTS, None, DEFAULTS)
     ]
-    assert labels == ["Task", "Improve", "Guidance", "Agents", "Limits", "Advanced"]
+    assert labels == [
+        "Task",
+        "Improve",
+        "Models",
+        "Guidance",
+        "Agents",
+        "Limits",
+        "Advanced",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -296,7 +311,8 @@ def test_the_summary_lists_only_the_advanced_values_that_changed():
         agent_cli="codex exec",
     )
     lines = dict(summary_lines(SELECTION, changed, BASELINE, DEFAULTS))
-    assert lines["Advanced"] == "model policy ./policy.json · 2 evals at once"
+    assert lines["Advanced"] == "2 evals at once"
+    assert lines["Models"] == "policy ./policy.json"
     assert lines["Limits"] == "no cap · about 90 minutes"
     assert lines["Improve"] == "Speed"
     assert lines["Agents"] == "Codex (codex exec) · default model"

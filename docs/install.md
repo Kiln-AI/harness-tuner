@@ -469,8 +469,8 @@ When `--agent-cli` isn't given, a guided start asks which agent CLI runs the
 tuner's agents ([your-own-task.md](your-own-task.md) section 5). It lists
 Claude Code (`claude`), Codex (`codex`) and OpenCode (`opencode`), and shows a
 CLI it can't find on `PATH` dimmed, as `not installed`, which can't be picked.
-With only one installed, that one is used without the question (its model is
-still asked), and the step line says so:
+With only one installed, that one is used without the question (its model and
+thinking level are still asked), and the step line says so:
 
 ```
 ✓ Agents    Claude Code (claude -p) · opus · the only agent CLI installed
@@ -520,7 +520,8 @@ will call:
   inputs on disk. Nothing else in those files is read.
 - **Each provider the model policy names exactly**, in an allow rule or an
   exception: the policy of `--model-policy`, or the one a guided start's
-  advanced options set. A rule whose provider is `*` names none.
+  Models question sets (a picked list or a file). A rule whose provider is
+  `*` names none.
 
 Providers that take no key are not checked: `ollama`, `docker_model_runner`,
 `openai_compatible`, `kiln_custom_registry` and `kiln_fine_tune`. The model
@@ -793,6 +794,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 ✓ Ready     1 run config · 1 eval the tuner can measure
 ✓ API keys  OpenRouter
 ✓ Improve   Quality
+✓ Models    keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)
 ✓ Guidance  "Improve the moderation decisions. Keep the output format."
 ✓ Agents    Claude Code (claude -p) · opus
 ✓ Budget    $50.00
@@ -803,6 +805,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212) │
 │ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
 │ Improve      Quality                                                                    │
+│ Models       keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)              │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
 │ Limits       $50.00 on the task's model calls · about 12 hours                          │
@@ -813,6 +816,7 @@ questions. With each pre-filled answer accepted, the app shows this:
 │   --project-id 731954460212 --task-id 424242783061 \                                    │
 │   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
 │   --objective quality \                                                                 │
+│   --models keep \                                                                       │
 │   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
 │   --agent-cli 'claude -p' \                                                             │
 │   --budget-usd 50 --timeout-mins 720 \                                                  │
@@ -885,6 +889,8 @@ already there.
   reports/kiln-harness-tuner-<run_id>.md   the run reports
   agents/<cli>/<version>/              the skills and instructions this
                                        agent CLI's sessions read
+  policies/picked-<date>-<time>.json   the model policies the guided
+                                       start's Pick models writes
 ```
 
 A run prints where its files are. With plain log lines, it prints this line

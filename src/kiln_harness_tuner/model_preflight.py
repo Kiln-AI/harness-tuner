@@ -9,8 +9,8 @@ check at start-up would have saved.
 
 **The models.** The baseline's own model first. Then the models the run
 can move to: what the planner receives as `allowed_models` — the server's
-`GET /api/available_models`, filtered by `--model-policy`. Without a policy
-the planner receives no model list under the quality objective, so only the
+`GET /api/available_models`, filtered by the run's policy. Under
+`--models keep` the policy is the baseline's one pair, so only the
 baseline's model is checked. When more than `MAX_CHECKED_MODELS` models are
 allowed (a policy of wildcards over a large provider), only the pairs the
 policy names exactly — an exception, or an allow rule with no wildcard — are
@@ -72,8 +72,11 @@ from typing import TYPE_CHECKING, Any
 from kiln_harness_tuner.job_drives import error_text
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
 from kiln_harness_tuner.latency import run_cost, split_inputs
-from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
-from kiln_harness_tuner.objective import is_efficiency
+from kiln_harness_tuner.model_policy import (
+    MAX_CHECKED_MODELS,
+    ModelPolicy,
+    allowed_models,
+)
 from kiln_harness_tuner.probes import ProbeSetupError, TrainInput, rc_props
 from kiln_harness_tuner.prompt_text import CODE_TOOL_DESCRIPTION, rc_texts
 from kiln_harness_tuner.provider_errors import (
@@ -93,7 +96,6 @@ SPEND_SOURCE = "model_preflight"
 # The prompt generator Kiln builds from the task's own instruction: shorter
 # than a tuned prompt, and present on every task.
 TEST_PROMPT_ID = "simple_prompt_builder"
-MAX_CHECKED_MODELS = 12
 MAX_CONCURRENT_CHECKS = 4
 TEST_CALL_TIMEOUT_SECS = 180.0
 RETRY_SLEEP_SECS = 5.0
@@ -170,12 +172,14 @@ class ModelPreflightError(SetupError):
 def models_to_check(
     baseline: Pair,
     policy: ModelPolicy | None,
-    objective: str,
     offered: list[dict[str, Any]],
+    *,
+    keep_model: bool = False,
 ) -> tuple[list[Pair], int]:
     """(the pairs to check, baseline first; how many allowed pairs are left
-    untested). The module doc, **The models**."""
-    if policy is None and not is_efficiency(objective):
+    untested). The module doc, **The models**. `keep_model` with no policy
+    is `--models keep` on a baseline whose pair was not pinned."""
+    if policy is None and keep_model:
         return [baseline], 0
     allowed = [
         p
@@ -437,7 +441,7 @@ async def run_model_preflight(ctx: Ctx, rc_id: str) -> ModelPreflightResult:
         offered = []
     offered = offered if isinstance(offered, list) else []
     pairs, result.untested = models_to_check(
-        (provider, model), ctx.model_policy, ctx.objective, offered
+        (provider, model), ctx.model_policy, offered, keep_model=ctx.keep_model
     )
     result.estimated_prompt_tokens = await prompt_tokens(ctx, rc_id)
     inp = await shortest_train_input(ctx)

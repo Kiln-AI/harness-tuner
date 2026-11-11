@@ -33,7 +33,7 @@ Most optimizers tune the prompt. Harness Tuner tunes everything around the model
 
 - **Tools.** The biggest win we see. Your tools probably wrap APIs written for code, not for agents. It rewrites them for the agent: smaller responses, better descriptions, no repeated calls. When a script should do the job, it writes a new code tool.
 - **Prompts and skills.** It cuts contradictions, adds the requirements nobody wrote down, and moves long instructions into skills that load only when needed.
-- **Model and settings.** It tunes thinking level, temperature and the rest. When you optimize for speed or cost, or allow other models in the guidance and give a model policy, it also searches models and providers.
+- **Model and settings.** It tunes thinking level, temperature and the rest. It keeps your model by default. Allow other models at start-up, or optimize for speed or cost, and it also searches models and providers.
 - **RAG, fine-tunes and sub-agents.** It attaches, swaps or drops the ones in your project.
 
 It tries different methods, not just different words: one big prompt or skills, RAG or a skill, many small tools or one general one.
@@ -166,7 +166,7 @@ The tuner's agents only ever see the train split. Val is used only to decide whi
 <details>
 <summary><b>What about new model releases?</b></summary>
 
-Run the tuner again with a model policy that allows the new model, and allow it in the guidance ("try the new model"). It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
+Run the tuner again and pick the new model at start-up (or allow any model). It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
 
 </details>
 
@@ -204,7 +204,7 @@ Evals need direct API access and can't run on a coding agent subscription, so th
 - [Concepts](docs/concepts.md): waves, experiments, splits and the promotion gate. Read it before your first run's report.
 - [Your own task](docs/your-own-task.md): what your task needs, and how the first run starts.
 - [CLI reference](docs/cli.md): every command and flag.
-- [Objectives and model policy](docs/objectives.md): what to optimize, and which models it may use.
+- [Objectives and models](docs/objectives.md): what to optimize, and which models it may use.
 - [Costs](docs/costs.md): estimate a run before you start it.
 - [Limitations](docs/limitations.md): what it doesn't do. Read it before planning a long run.
 - [Architecture](docs/architecture.md): the wave loop, the gate, measurement, memory and the sandbox.

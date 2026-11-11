@@ -59,19 +59,18 @@ going looking.
 - Levers exclude **fine-tuning and GEPA-style prompt optimizers** —
   agent-initiated training is out of scope. Only an explicit
   kickoff-guidance directive ("try fine-tuning for tone") makes one a normal
-  candidate. **A model swap is excluded by default** — the subject model is
-  the environment. Under `objective: "quality"` keep the baseline's
-  `model_name` and `model_provider_name`. Only guidance that explicitly
-  allows other models, or `objective: "speed"` or `"cost"` (below), makes a
-  model or provider swap a lever. A `model_policy` never makes it one: the
-  policy only limits which pairs a swap may use. Under quality with no
-  `model_policy`, `allowed_models` holds the baseline's model alone, so a
-  swap the guidance allows has no model to go to: say so in
-  `rejected_summary` (the owner adds a `--model-policy`). Provider
-  parameters (thinking level, temperature, top_p) are in scope
-  unless the guidance names them.
+  candidate. **A model or provider swap is a lever exactly when
+  `allowed_models` lists a (provider, model) other than the baseline's.**
+  The owner chose that list at start-up (`--models keep`, `--models any`
+  or a `--model-policy`), and `model_policy` describes it. When the list
+  holds the baseline's model alone, keep `model_name` and
+  `model_provider_name`, do not plan a swap and do not raise it as an open
+  question — it is answered. Guidance that forbids a swap ("do not change
+  the model") still excludes it. Provider parameters (thinking level,
+  temperature, top_p) are in scope unless the guidance names them.
 - **Only models in `allowed_models`**. When `model_policy` is
-  set, a run config on any other (provider, model) pair is refused by code —
+  set (`--models keep` sets one too), a run config on any other
+  (provider, model) pair is refused by code —
   the build is blocked at the call, and an rc that exists anyway is never
   measured or promoted. Never plan an arm on a model outside the list.
   `allowed_models` is what the server offers, filtered by the policy.
@@ -322,8 +321,8 @@ carry items.
   on 8 evals, and more on fewer evals; its default budget is priced on
   those items.
 - **Under the quality objective** screening is for thinking or sampling
-  changes you want to test, and for model or provider swaps only when the
-  guidance allows other models (Hard rules); an arm that makes such a
+  changes you want to test, and for model or provider swaps when
+  `allowed_models` lists other models (Hard rules); an arm that makes such a
   change without screening is timed by the engine too, so its lever is
   checked on the drives before it is judged.
 
@@ -503,12 +502,10 @@ runs; only "did the output change in the named way" needs the agent.
   one rung DOWN and keep it if the target evals hold. Guidance that forbids
   touching thinking, or the `speed` and `cost` objectives, override this
   order (the run then opens with a round of the lower levels). **The model
-  itself is NOT a lever by default**: the subject model is the environment
-  the task is being optimized for, and swapping it (`model_name` /
-  `model_provider_name`) is allowed only when the guidance says so
-  explicitly ("you may try other models") or the objective is `speed` or
-  `cost`. Otherwise do not plan a model swap and do not
-  raise it as an open question — it is answered. An
+  itself is a lever only when `allowed_models` lists another model**
+  (Hard rules). Otherwise the subject model is the environment the task is
+  being optimized for: do not plan a model swap and do not raise it as an
+  open question — it is answered. An
   issue record's `- eval: <eval_id> (built <date>, reproduced)` content line
   means a prior wave already built its eval — set `eval_id` +
   `needs_eval: false` (required together; the schema rejects
@@ -569,8 +566,7 @@ quantity is **expected value vs cost**, never a computed score.
 reasoning says an arm is the cheapest untried one and the only one reaching
 every target failure — a `params` arm, a skill attach, a resubmission —
 run it this wave unless the guidance excludes its lever class by name (or,
-for a model swap under the quality objective, unless the guidance fails to
-allow it). An
+for a model swap, unless `allowed_models` lists no other model). An
 `open_questions` entry is for what a human must DECIDE; it is not the place
 for what a cheap arm can MEASURE.
 

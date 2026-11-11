@@ -1,5 +1,5 @@
-"""The start-up's three prompts (ui_design section 8): the action menu, the
-picker and the text answer.
+"""The start-up's prompts (ui_design section 8): the action menu, the
+picker, the multi-picker and the text answer.
 
 They keep the rules of functional spec section 5 ("Interaction behaviors to
 keep"), which the questionary prompts kept before them. Each one answers
@@ -33,10 +33,11 @@ from kiln_harness_tuner.onboarding.terminal import (
     COLUMN_GAP,
     ENTER,
     PICK_HINT,
+    PICK_MANY_HINT,
     Action,
     aligned_rows,
 )
-from kiln_harness_tuner.tui.bridge import Act, Pick, Prompt, Text
+from kiln_harness_tuner.tui.bridge import Act, Pick, PickMany, Prompt, Text
 
 P = TypeVar("P", bound=Prompt[Any])
 
@@ -289,6 +290,214 @@ class Picker(PromptPart[Pick]):
         if row is None or row.disabled:
             return
         self.answer(self.request.options[int(row.id or 0)].value)
+
+
+MARKED, UNMARKED = "[x]", "[ ]"
+ALL_GROUPS = "All"
+
+
+class MarkInput(PromptInput):
+    """The multi-picker's filter. A focused input takes a printable key
+    before any binding, so Space is caught here: it marks a row and is
+    never typed."""
+
+    class Mark(Message):
+        pass
+
+    async def _on_key(self, event: Key) -> None:
+        if event.key == "space":
+            event.stop()
+            event.prevent_default()
+            self.post_message(self.Mark())
+            return
+        await super()._on_key(event)
+
+
+class MultiPicker(PromptPart[PickMany]):
+    """The question, a filter, the facets, the rows with a mark each, a
+    count line and the hint.
+
+    Typing filters the rows on their whole text, as in `Picker`. The facets
+    are `All` and each option's `group`, in the options' order: Tab and
+    Shift+Tab step through them, and only the current facet's rows show.
+    Space marks or unmarks the highlighted row (a click does too), at most
+    `limit` rows; a mark stays when the filter or the facet hides its row.
+    A row in `warn_unmarked` shows its option's `description` after it, and
+    while it is unmarked its warning shows under the rows.
+    Enter answers the marked values in the options' order, and does nothing
+    while no row is marked. Esc clears the filter first, then goes back."""
+
+    BINDINGS = [
+        Binding("up", "move(-1)", show=False),
+        Binding("down", "move(1)", show=False),
+        # The filter has the focus, so Tab would move the focus: this takes
+        # it first. Space is the filter's own (`MarkInput`); this names it
+        # in the footer.
+        Binding("space", "toggle", "Mark"),
+        Binding("tab", "facet(1)", "Next provider", priority=True),
+        Binding("shift+tab", "facet(-1)", "Previous provider", priority=True),
+        Binding("escape", "clear_filter", "Clear filter"),
+        Binding("escape", "back", "Back"),
+    ]
+
+    def __init__(self, request: PickMany) -> None:
+        super().__init__(request)
+        self.rows = aligned_rows(request.options) if request.options else []
+        groups = (option.group for option in request.options if option.group)
+        self.facets = [ALL_GROUPS, *dict.fromkeys(groups)]
+        self.facet = 0
+        self.warned = {
+            i: request.warn_unmarked[option.value]
+            for i, option in enumerate(request.options)
+            if option.value in request.warn_unmarked
+        }
+        chosen = sorted(
+            i
+            for i, option in enumerate(request.options)
+            if option.value in request.default
+        )
+        if request.limit is not None:
+            chosen = chosen[: request.limit]
+        self.marked = set(chosen)
+        self.filter_text = ""
+
+    def compose(self) -> ComposeResult:
+        yield _question(self.request.question)
+        yield MarkInput(placeholder="type to filter", classes="filter")
+        yield Static(classes="facets")
+        menu = OptionList(classes="menu")
+        # The filter keeps the focus, so typing always filters.
+        menu.can_focus = False
+        yield menu
+        yield Static(classes="count")
+        yield _hint(self.request.hint or PICK_MANY_HINT)
+
+    def on_mount(self) -> None:
+        self._show()
+        self.query_one(Input).focus()
+
+    def _row(self, i: int) -> Content:
+        mark = MARKED if i in self.marked else UNMARKED
+        row = Content(f" {mark} {self.rows[i]} ")
+        note = self.request.options[i].description
+        if i not in self.warned or not note:
+            return row
+        return Content.assemble(row, Content.styled(f" {note} ", "$text-muted"))
+
+    def _kept(self, i: int) -> bool:
+        option = self.request.options[i]
+        facet = self.facets[self.facet]
+        in_facet = facet == ALL_GROUPS or option.group == facet
+        return in_facet and self.filter_text.casefold() in self.rows[i].casefold()
+
+    def _show(self, *, keep: int | None = None) -> None:
+        """The rows the facet and the filter keep, with the cursor on `keep`
+        when it is shown, else on the first row."""
+        menu = self.query_one(OptionList)
+        menu.clear_options()
+        for i in range(len(self.request.options)):
+            if self._kept(i):
+                menu.add_option(Row(self._row(i), id=str(i)))
+        shown = [int(row.id or 0) for row in menu.options]
+        if keep is not None and keep in shown:
+            menu.highlighted = shown.index(keep)
+        else:
+            menu.highlighted = 0 if shown else None
+        self._facets()
+        self._count("")
+
+    def _facets(self) -> None:
+        parts = [
+            Content.styled(f" {facet} ", "reverse $primary")
+            if n == self.facet
+            else Content(f" {facet} ")
+            for n, facet in enumerate(self.facets)
+        ]
+        self.query_one(".facets", Static).update(Content.assemble(*parts))
+
+    def _count(self, problem: str) -> None:
+        limit = self.request.limit
+        text = f"{len(self.marked)} marked"
+        if limit is not None:
+            text += f" (at most {limit})"
+        warnings = [w for i, w in self.warned.items() if i not in self.marked]
+        line = Content.assemble(
+            Content.styled(text, "$text-muted"),
+            Content.styled(f"  {problem}", "$text-error") if problem else "",
+            *(Content.styled(f"\n{warning}", "$text-warning") for warning in warnings),
+        )
+        self.query_one(".count", Static).update(line)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "clear_filter":
+            return bool(self.filter_text)
+        if action == "back":
+            return not self.filter_text and self.request.back
+        if action == "facet":
+            return len(self.facets) > 2
+        return True
+
+    def action_clear_filter(self) -> None:
+        self.query_one(Input).value = ""
+
+    def action_move(self, step: int) -> None:
+        menu = self.query_one(OptionList)
+        if step > 0:
+            menu.action_cursor_down()
+        else:
+            menu.action_cursor_up()
+
+    def action_facet(self, step: int) -> None:
+        self.facet = (self.facet + step) % len(self.facets)
+        self._show()
+
+    def action_toggle(self) -> None:
+        self._toggle(self.query_one(OptionList).highlighted_option)
+
+    def _toggle(self, row: Row | None) -> None:
+        if row is None:
+            return
+        i = int(row.id or 0)
+        limit = self.request.limit
+        if i in self.marked:
+            self.marked.discard(i)
+        elif limit is not None and len(self.marked) >= limit:
+            self._count(f"At most {limit}: unmark one first.")
+            return
+        else:
+            self.marked.add(i)
+        menu = self.query_one(OptionList)
+        highlighted = menu.highlighted
+        menu.replace_option_prompt(str(i), self._row(i))
+        menu.highlighted = highlighted
+        self._count("")
+
+    @on(Input.Changed)
+    def _filter(self, event: Input.Changed) -> None:
+        event.stop()
+        if event.value != self.filter_text:
+            self.filter_text = event.value
+            self._show()
+            self.refresh_bindings()
+
+    @on(MarkInput.Mark)
+    def _mark(self, event: MarkInput.Mark) -> None:
+        event.stop()
+        self.action_toggle()
+
+    @on(OptionList.OptionSelected)
+    def _clicked(self, event: OptionList.OptionSelected) -> None:
+        event.stop()
+        self._toggle(event.option)
+
+    @on(Input.Submitted)
+    def _submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        if not self.marked:
+            self._count("Mark at least one with Space.")
+            return
+        options = self.request.options
+        self.answer([options[i].value for i in sorted(self.marked)])
 
 
 class TextAnswer(PromptPart[Text]):

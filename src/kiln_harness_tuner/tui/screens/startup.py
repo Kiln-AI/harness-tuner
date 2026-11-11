@@ -28,6 +28,7 @@ from textual.widgets import Footer, Static
 from kiln_harness_tuner.tui import bridge
 from kiln_harness_tuner.tui.screens.prompts import (
     ActionMenu,
+    MultiPicker,
     Picker,
     PromptPart,
     TextAnswer,
@@ -204,6 +205,8 @@ class StartupScreen(Screen[None]):
                 self._add(StepLineView(Content.assemble(said, link(url))))
             case bridge.Pick():
                 self._add(Picker(request))
+            case bridge.PickMany():
+                self._add(MultiPicker(request))
             case bridge.Act():
                 self._add(ActionMenu(request))
             case bridge.Text():

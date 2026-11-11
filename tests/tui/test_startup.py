@@ -281,8 +281,8 @@ async def test_a_hint_of_several_lines_keeps_its_lines(width):
         ]
         # One line per example; a line too long for the width wraps.
         assert drawn[0].startswith("These instructions guide the tuner")
-        assert drawn[-1] == "Optional. Blank means no guidance."
-        assert sum(line.startswith(" · ") for line in drawn) == 5
+        assert drawn[-1].endswith("Optional. Blank means no guidance.")
+        assert sum(line.startswith(" · ") for line in drawn) == 6
         # Nothing is cut off: every word of the hint is drawn, in order.
         assert " ".join(drawn).split() == GUIDANCE_HINT.split()
         if width == 210:
@@ -870,3 +870,77 @@ async def test_a_long_description_and_a_long_refusal_wrap(width):
     async with asking(text(validate=refuse), size=(width, 40)) as (harness, pilot):
         assert await still_asking(harness, pilot, "enter")
         assert "END-REFUSAL" in screen_text(pilot.app)
+
+
+# ---- pick_many ----
+
+MODELS = [
+    Option(("openai", "gpt_a"), "GPT A", ("gpt_a",), group="OpenAI"),
+    Option(("openai", "gpt_b"), "GPT B", ("gpt_b",), group="OpenAI"),
+    Option(("anthropic", "claude_c"), "Claude C", ("claude_c",), group="Anthropic"),
+    Option(("fireworks", "glm_d"), "GLM D", ("glm_d",), group="Fireworks"),
+]
+A, B, C, D = (option.value for option in MODELS)
+
+
+def pick_many(**kwargs):
+    return lambda terminal: terminal.pick_many("Which models?", MODELS, **kwargs)
+
+
+async def test_pick_many_marks_with_space_and_answers_in_option_order():
+    keys = ["down", "down", "space", "up", "up", "space", "enter"]
+    assert await answered(pick_many(), *keys) == [A, C]
+
+
+async def test_pick_many_starts_with_its_default_marked():
+    assert await answered(pick_many(default=[D]), "enter") == [D]
+    # Space on a marked row unmarks it.
+    keys = ["up", "space", "space", "down", "space", "enter"]
+    assert await answered(pick_many(default=[D]), *keys) == [A, D]
+
+
+async def test_pick_many_needs_one_mark_before_enter():
+    async with asking(pick_many()) as (harness, pilot):
+        assert await still_asking(harness, pilot, "enter")
+        assert "Mark at least one" in rendered(harness.app.screen.query_one(".count"))
+
+
+async def test_pick_many_marks_no_more_than_its_limit():
+    keys = ["space", "down", "space", "down", "space", "enter"]
+    assert await answered(pick_many(limit=2), *keys) == [A, B]
+
+
+async def test_tab_steps_through_the_provider_facets():
+    # Tab: OpenAI's rows only; Tab again: Anthropic's.
+    assert await answered(pick_many(), "tab", "down", "space", "enter") == [B]
+    assert await answered(pick_many(), "tab", "tab", "space", "enter") == [C]
+    # Shift+Tab from All goes to the last facet.
+    assert await answered(pick_many(), "shift+tab", "space", "enter") == [D]
+
+
+async def test_a_mark_stays_when_the_filter_hides_its_row():
+    keys = ["space", *"glm", "space", "backspace", "backspace", "backspace", "enter"]
+    assert await answered(pick_many(), *keys) == [A, D]
+    # Space marks; it is not typed into the filter.
+    async with asking(pick_many()) as (harness, pilot):
+        await pilot.press(*"gp", "space")
+        assert harness.app.screen.query_one(Input).value == "gp"
+
+
+async def test_an_unmarked_warned_row_shows_its_warning():
+    warned = Option(
+        D, "GLM D", ("glm_d",), description="the task's model", group="Fireworks"
+    )
+    options = [*MODELS[:3], warned]
+    ask = lambda terminal: terminal.pick_many(  # noqa: E731
+        "Which models?", options, default=[D], warn_unmarked={D: "Kept off: careful."}
+    )
+    # It can be unmarked, like any row.
+    assert await answered(ask, "shift+tab", "space", "tab", "space", "enter") == [A]
+    async with asking(ask) as (harness, pilot):
+        count = harness.app.screen.query_one(".count")
+        assert "Kept off" not in rendered(count)
+        await pilot.press("shift+tab", "space")
+        assert "Kept off: careful." in rendered(count)
+        await pilot.press("space")  # marked again: the warning goes
+        assert "Kept off" not in rendered(count)

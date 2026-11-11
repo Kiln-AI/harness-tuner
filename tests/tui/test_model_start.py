@@ -60,7 +60,7 @@ def test_the_model_preflight_step():
     assert steps(run)[-1] == (
         "ok",
         "Models",
-        "2 models the policy allows answered · 1 untested",
+        "2 models the run may use answered · 1 untested",
     )
     checks.append(ModelCheck(provider="x", model="y", outcome="flagged"))
     result = ModelPreflightResult(baseline_rc_id=START_RC, checks=checks)

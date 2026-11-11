@@ -8,7 +8,7 @@ isn't guided: plain lines, and never a prompt.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from typing import TypeVar
 
@@ -58,6 +58,19 @@ class PlainTerminal:
         default: T | None = None,
         back: bool = False,
     ) -> T:
+        raise RuntimeError("not a guided start")
+
+    def pick_many(
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: Sequence[T] = (),
+        warn_unmarked: Mapping[T, str] | None = None,
+        limit: int | None = None,
+        back: bool = False,
+    ) -> list[T]:
         raise RuntimeError("not a guided start")
 
     def act(

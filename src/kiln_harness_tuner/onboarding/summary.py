@@ -15,6 +15,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from kiln_harness_tuner.model_policy import resolve_models
 from kiln_harness_tuner.onboarding.choose import Selection
 from kiln_harness_tuner.onboarding.keys import Baseline
 from kiln_harness_tuner.onboarding.questions import (
@@ -25,6 +26,7 @@ from kiln_harness_tuner.onboarding.questions import (
     guidance_text,
     limits_budget_text,
     limits_time_text,
+    models_text,
     number_text,
     objective_text,
 )
@@ -52,6 +54,7 @@ SET_BY_START = frozenset(
         "budget_usd",
         "timeout_mins",
         "model_policy",
+        "models",
         "min_effect",
         "max_concurrent_evals",
         "max_concurrent_agents",
@@ -67,7 +70,6 @@ SUMMARY_LABEL_WIDTH = 12
 # The advanced flags the rerun command passes when they aren't the
 # defaults, each with how its value is written.
 ADVANCED_FLAGS: tuple[tuple[str, str, Callable[[Any], str]], ...] = (
-    ("model_policy", "--model-policy", str),
     ("min_effect", "--min-effect", number_text),
     ("max_concurrent_evals", "--max-concurrent-evals", str),
     ("max_concurrent_agents", "--max-concurrent-agents", str),
@@ -149,6 +151,7 @@ def summary_lines(
     return [
         *lines,
         ("Improve", objective_text(answers.objective)),
+        ("Models", models_text(answers, baseline and baseline.model_text)),
         ("Guidance", guidance_text(answers.guidance)),
         ("Agents", agents_text(answers.agent_cli)),
         ("Limits", limits),
@@ -192,6 +195,11 @@ def rerun_command(
         ["--project-id", selection.project.id, "--task-id", selection.task.id],
         ["--project-path", str(selection.project_path)],
         ["--objective", answers.objective],
+        (
+            ["--model-policy", answers.model_policy]
+            if answers.model_policy
+            else ["--models", resolve_models(answers.models, answers.objective)]
+        ),
         ["--guidance", answers.guidance],
         ["--agent-cli", answers.agent_cli],
         [
