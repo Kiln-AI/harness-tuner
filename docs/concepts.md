@@ -45,7 +45,7 @@ result needs a label. An `informational` score never drives a verdict.
 | Split | Who reads it | What it may influence |
 |---|---|---|
 | `train` | every experiment measurement, and the analyst's judgment | everything the loop learns — experiments, issues, lessons, verdicts |
-| `val` | the promotion gate, and nothing else | which run config becomes the baseline |
+| `val` | the promotion gate (code and the promotion agent), and the report writer at the end | which run config becomes the baseline |
 | `test` | **nobody in the loop, ever** | nothing |
 
 This is an information-flow design, not bookkeeping. Memory records are the
@@ -90,8 +90,8 @@ person steers the run: what to focus on, what is forbidden, and what a
 constraint the loop asked about is actually answered as.
 
 **Wave.** One iteration of the loop: plan, run the planned items in parallel,
-then the promotion gate. Waves run until the budget, the planner or the
-tripwire ends the run.
+then the promotion gate. Waves run until the time limit, the budget, the
+planner, the tripwire or a provider quota or auth error ends the run.
 
 **Batch plan.** What the planner returns for one wave: a list of **items**, a
 one-line headline, a summary of what it considered and rejected, and any open
@@ -134,7 +134,8 @@ has seen work on this task. It answers one yes/no question — does this model
 call an attached tool under its output mode, does it read an attached skill,
 does a higher reasoning level change how much it reasons — by forking a
 throwaway run config, driving a handful of train items, and counting in the
-traces. No judge, no eval job, no measurement, no experiment record.
+traces. No judge, no measurement, no experiment record, and no eval job
+except to drive a multi-turn or `world_reset` input.
 
 A probe is **not** a small experiment. It answers "does the lever move the
 behaviour"; an arm answers "does the lever score". A yes promotes the idea to a
@@ -143,11 +144,11 @@ measured arm in the same wave; a no retires it without a build.
 **Reconnaissance battery.** The standing set of probes the loop runs on the
 baseline before the first plan, so the first planner reads facts about this
 model on this task instead of assuming them. Their item ids begin `r0-`. Skip
-it with `--no-recon`. It is shaped by the task and the objective: tool and
-skill probes run only when the baseline has a tool or a skill attached;
-thinking probes use only levels the provider offers — `high` under the
-quality objective, one step down and off under the speed objective, which
-also time every probe against the baseline.
+it with `--no-recon`. It is shaped by the baseline: tool and
+skill probes run only when the baseline has a tool or a skill attached, the
+alternate-output-mode probe only with a tool under `json_schema`, and the
+JSON probe only under a structured output mode. Thinking levels are not
+probed: under speed and cost the opening screen tries the lower levels.
 
 ## Baselines and promotion
 
@@ -164,11 +165,15 @@ that did not meet its own goals, never reaches the gate.
 **The promotion gate.** After every wave, if there are candidates: run every
 active eval on `split=val` for each candidate and for the current baseline,
 assemble the comparison in code, and pick at most one winner. This is the only
-place the loop reads `val`, and it runs *after* the analysis, so no
+place the loop reads `val` during the waves (the report writer reads the gate's
+val tables at the end), and it runs *after* the analysis, so no
 memory-writing context ever holds val data.
 
-With one candidate the decision is a code rule. With two or more, the promotion
-agent ranks them. `--gate-agent always` dispatches the agent either way.
+Under speed and cost a code rule decides, whatever the number of candidates.
+Under quality, one candidate is decided by a code rule when the numbers are
+clear; otherwise, and with two or more candidates, the promotion agent
+decides. A winner with integrity flags always goes to the promotion agent.
+`--gate-agent always` dispatches the agent every time.
 
 **Coverage floor.** A candidate whose val measurement is less complete than
 `DEFAULT_COVERAGE_FLOOR` (0.95, `--coverage-floor`) cannot win that wave, no

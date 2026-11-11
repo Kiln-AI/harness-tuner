@@ -224,8 +224,9 @@ it changes what the run's numbers mean. That is the harder failure to notice,
 which is why each row names the specific thing an agent could reach.
 
 The hook is **one** row because `cli.py` renders **one** hook per role, with
-one matcher on MCP tools: the role's gateway operations pass, every other
-MCP tool is refused. The other rules — this run's project and task, memory
+one matcher on MCP tools: the role's gateway operations pass, and so do the
+skill-installer tools of the builder and the probe; every other MCP tool is
+refused. The other rules — this run's project and task, memory
 scopes, train only, the model policy — are the gateway's own, in code
 (`kiln_harness_tuner.gateway`), so a dispatcher that serves the gateway per
 role inherits them.
@@ -282,7 +283,10 @@ worth, so the decision is informed.
 
 The short version:
 
-1. Implement the eleven methods (ten roles and `preflight`). Return `AgentResult[T]` with a validated `data`
+1. Implement the eleven methods (ten roles and `preflight`), and the
+   start-up check `check_cli`. `cli.py` also reads the class attributes
+   `CLI_NAME` and `HAS_MAX_TURNS`, and its `DISPATCHERS` table types every
+   adapter as a `ClaudeCliDispatcher`, so a new one subclasses it. Return `AgentResult[T]` with a validated `data`
    on success.
 2. Make `preflight` prove the agents' Kiln lane and raise with an actionable
    message when it cannot.
@@ -378,7 +382,7 @@ Codex home:
 |---|---|
 | `":root" = "deny"` | The whole disk is unreadable and unwritable. |
 | `":minimal" = "read"` | The platform paths common tools need. |
-| `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the val readers. |
+| `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the read-only roles (`READ_ONLY_ROLES`: the val readers and the two reviewers). |
 | the agents folder's `.agents/skills` = `"read"` | The skills, and nothing else of the state folder. |
 | the run folder's `scratch/traces` = `"read"` | The gateway's trace folder, for the roles that read traces (`TRACE_READER_ROLES`) only. |
 | `network.enabled = false` | No network for any command: no `curl` to the Kiln server. |
@@ -463,7 +467,7 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 |---|---|
 | `"*": "deny"` | Every tool is denied, so the shell, web fetch, web search, grep, glob, sub-agents and the rest are not in the session at all. |
 | `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces; denied everywhere else. |
-| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the val readers. |
+| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers and the two reviewers). |
 | `external_directory` | Denied, except the workspace, the skills and, for the roles that read traces, the trace folder. |
 | `skill` | Allowed, so the skills load as they do under Claude Code. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |

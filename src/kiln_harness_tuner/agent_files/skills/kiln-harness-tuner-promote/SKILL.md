@@ -191,7 +191,7 @@ or games how an eval scores (a reviewer that failed is flagged
 too, and then you read the candidate's changed instructions yourself), or
 — a flag starting `unread:` — code could not read the
 candidate's or the baseline's instructions, so the quote check and the
-review did not run: read them yourself (`get_prompt_text` on the prompt id)
+review did not run: read them yourself (`list_run_configs`: each run config's frozen `prompt`)
 and say in the `Integrity:` line what you found. A real fix can do each of these; a judge can
 also be gamed by each. If you pick a winner that carries flags, your
 `rationale` must answer every one in a line that starts `Integrity:` —

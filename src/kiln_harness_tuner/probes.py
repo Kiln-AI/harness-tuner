@@ -15,8 +15,8 @@ The reconnaissance battery (`recon_items`) is the standing set of
 code probes the loop runs on the baseline at setup, before wave 1, so
 the first planner reads facts about this model on this task instead of
 assuming them: does it call a tool under its output mode, read a skill,
-call a tool under the alternate mode, reason more under thinking high,
-emit valid JSON, produce output on the longest inputs.
+call a tool under the alternate mode, emit valid JSON, produce output on
+the longest inputs.
 
 Train items are read from the project ON DISK (the studio server has no
 eval-input listing route): `<project>/tasks/<task_id> - */eval_inputs/*/

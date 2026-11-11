@@ -91,7 +91,7 @@ invented.
 
 ## Run the loop on it
 
-You need the requirements in the [main README](../../README.md#requirements):
+You need the requirements in the [main README](../../README.md#what-you-need):
 the loop installed, a running Kiln studio server, and a signed-in agent CLI.
 You also need an OpenRouter key in Kiln, because the baseline calls DeepSeek
 V4.1 Flash 1017 through OpenRouter. The start checks that Kiln has the key,
@@ -124,7 +124,7 @@ and says where to add it when it doesn't.
    | Model for the agents | `opus` for Claude Code |
    | Thinking level for the agents | `high` |
    | Budget for this run | `50`, in USD |
-   | Time limit | `12h` |
+   | Time limit (1h, 24h, 45m) | `12h` |
    | Advanced options | Keep these |
 
    It does not ask for the project or the task: they are the copy's. A flag

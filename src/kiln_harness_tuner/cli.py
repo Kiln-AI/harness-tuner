@@ -412,7 +412,7 @@ def build_parser() -> _Parser:
         "--no-recon",
         action="store_true",
         help="skip the setup reconnaissance battery (the code probes on the"
-        " baseline — tool call, skill read, alternate output mode, thinking,"
+        " baseline — tool call, skill read, alternate output mode,"
         " json validity, output on the longest inputs — run before"
         " the first plan)",
     )
@@ -440,8 +440,10 @@ def build_parser() -> _Parser:
         default="quality",
         help="what the loop optimises: quality = the eval scores (default);"
         " speed = per-request wall-clock latency, promoted only when clearly"
-        " faster on val (paired, median and p90) with no eval regressed"
-        " significantly; cost = per-request provider cost, by the same rule."
+        " faster on val (paired, median and p90) with quality equal or better"
+        " (no eval down significantly, net items over all evals at zero or"
+        " above, no eval down past its loss cap); cost = per-request provider"
+        " cost, by the same rule."
         " The objective also sets the default of --models",
     )
     parser.add_argument(

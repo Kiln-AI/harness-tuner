@@ -11,7 +11,7 @@ promotion gate decides on val.
 
 | Objective | The goal | What it holds fixed | A candidate is promoted when, on val |
 |---|---|---|---|
-| `quality` (default) | Higher eval scores. | Every eval: no eval may go down beyond doubt. Latency and cost are reported, not held. | No eval goes down beyond doubt, and at least one eval it targets goes up beyond doubt. |
+| `quality` (default) | Higher eval scores. | Every eval: no eval may go down beyond doubt. Latency and cost are reported, not held. | No eval goes down beyond doubt, and at least one eval it targets goes up beyond doubt. With one candidate, code promotes on this rule. A nominal rise, two or more candidates, or integrity flags go to the promotion agent. A candidate with an eval down beyond doubt is never promoted. |
 | `speed` | Lower latency per request. | Quality: equal or better. Cost is reported, not held. | It is clearly faster (a sign test on paired requests, a median ratio below 1, no significant p90 regression), and quality is equal or better. |
 | `cost` | Lower provider cost per request. | Quality: equal or better. Latency is reported, not held. | It is clearly cheaper, by the same test, and quality is equal or better. |
 
@@ -204,8 +204,10 @@ that no rule names, such as `ollama`, is refused, because nothing allows it.
   ([install.md](install.md) section 5).
 - **Every allowed model is tested at start-up.** One short call goes to the
   baseline's model and to each allowed model the planner may pick (at most
-  12). A model that fails is left out of the run. `--skip-model-preflight`
-  skips this.
+  12), with one retry on a transient error. With more than 12 allowed, only
+  the pairs a rule names exactly are tested. A model that fails hard is left
+  out of the run; any other failure leaves it untested, with a warning.
+  `--skip-model-preflight` skips this.
 - **A guided start can set it too**, at its Models question. The file is
   loaded at once, so a bad file shows the loader's message under the field.
   A policy set there gets the API-key check again, for the providers it
