@@ -391,7 +391,8 @@ def test_the_objective_rows_and_the_hints():
         ' · Trade-offs: "Between options of equal quality, prefer the cheaper'
         ' one."\n'
         ' · Ideas to try: "Try a skill with worked examples for the edge cases."\n'
-        ' · What not to touch: "Don\'t change the model or temperature."\n'
+        ' · The model: "Raise the thinking level only for the hard cases."\n'
+        ' · What not to touch: "Don\'t change the temperature."\n'
         ' · Directives: "Keep every answer under 100 words."\n'
         "Optional. Blank means no guidance.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
@@ -856,6 +857,26 @@ def test_the_models_default_follows_the_objective(tmp_path):
         "Models: keep the task's model (glm_5 on Fireworks AI)",
         "Models: any model Kiln offers",
     ]
+
+
+def test_the_guidance_hint_follows_the_models_answer(tmp_path):
+    # Asked after Models, the guidance hint's model example fits the answer.
+    given = EVERY_DEST - {"models", "model_policy", "guidance"}
+    keep = '"Raise the thinking level only for the hard cases."'
+    others = (
+        '"Fix it on the current model first. Move to a bigger model only if it'
+        ' stays stuck, at no more than twice the cost."'
+    )
+    for typed, example in (
+        (["keep"], keep),
+        (["any"], others),
+        (["pick", [BASELINE_PAIR, ("openai", "gpt_6")]], others),
+    ):
+        terminal = ScriptedTerminal([*typed, ""])
+        ask_all(answers(), models_context(terminal, tmp_path), given=given)
+        guidance = terminal.asked_about("Guidance for the tuner's planner (optional)")
+        assert example in (guidance.hint or "")
+        assert terminal.questions[0] == "Which models may the tuner use?"
 
 
 def test_any_model_warns_that_the_spend_can_go_up(tmp_path):

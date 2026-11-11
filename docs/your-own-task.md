@@ -368,7 +368,16 @@ Three things it is good for:
 
 Guidance cannot allow a model: the Models question (section 5.2), or
 `--models` and `--model-policy`, say which models the task may use. Guidance
-can forbid a model swap that they allow ("Do not change the model").
+can forbid a model swap that they allow ("Do not change the model"), and it
+can say how to try the models they allow ("Fix it on the current model
+first. Move to a bigger model only if it stays stuck, at no more than twice
+the cost").
+
+Under `quality` the promotion gate checks the evals only: the cost and the
+latency are reported, not held. So when other models are allowed, a more
+expensive model that scores better can become the new baseline. Guidance
+like the example above, a short list of picked models, or `--objective cost`
+keeps the cost down.
 
 > *An illustration, on an invented task.* A freight depot operations desk
 > assistant has two problems: it reports actions as done when the API refused
@@ -549,7 +558,7 @@ The footer shows `esc Back` only where Esc goes back.
 |---|---|---|---|
 | What should the tuner improve? | `--objective` | Quality | Quality (higher eval scores), Speed (lower latency per request) or Cost (lower cost per request). Speed and cost only promote a change that keeps quality equal or better. |
 | Which models may the tuner use? | `--models` or `--model-policy` | Keep the task's model under Quality; Any model Kiln offers under Speed and Cost | Keep the task's model (`--models keep`); Any model Kiln offers (`--models any`), which can move the task to a more expensive model and raise the spend; Pick models, at most 12, from the providers that have a key, saved as a policy file (`--model-policy`); or Use a policy file, loaded at once, so a bad file shows the loader's message under the field. [objectives.md](objectives.md#which-models-a-run-may-use) has each choice. |
-| Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. |
+| Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. It comes after the Models question, and its hint's model example follows that answer: how to try other models when they are allowed, else what to do with the task's own model. |
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |

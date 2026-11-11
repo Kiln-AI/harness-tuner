@@ -467,27 +467,51 @@ def _ask_objective(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Improve", objective_text(answers.objective))
 
 
-# One example on each line (the start-up screen keeps the hint's lines).
-GUIDANCE_HINT = "\n".join(
-    (
-        "These instructions guide the tuner when it plans new experiments."
-        " Some examples:",
-        " · Where to focus: \"Start with the Correctness eval. It's our biggest"
-        ' quality gap."',
-        ' · Trade-offs: "Between options of equal quality, prefer the cheaper one."',
-        ' · Ideas to try: "Try a skill with worked examples for the edge cases."',
-        ' · What not to touch: "Don\'t change the model or temperature."',
-        ' · Directives: "Keep every answer under 100 words."',
-        "Optional. Blank means no guidance.",
+def other_models(answers: Answers) -> bool:
+    """Whether the Models answer lets the tuner move the task to another
+    model: any model, picked models or a policy file."""
+    if answers.model_policy:
+        return True
+    return resolve_models(answers.models, answers.objective) == ANY
+
+
+def guidance_hint(other_models: bool) -> str:
+    """The guidance question's hint. Its model example follows the Models
+    answer: how to try other models when they are allowed, else what to do
+    with the task's own model. One example on each line (the start-up screen
+    keeps the hint's lines)."""
+    if other_models:
+        models = (
+            ' · Models: "Fix it on the current model first. Move to a bigger'
+            ' model only if it stays stuck, at no more than twice the cost."'
+        )
+    else:
+        models = ' · The model: "Raise the thinking level only for the hard cases."'
+    return "\n".join(
+        (
+            "These instructions guide the tuner when it plans new experiments."
+            " Some examples:",
+            " · Where to focus: \"Start with the Correctness eval. It's our biggest"
+            ' quality gap."',
+            ' · Trade-offs: "Between options of equal quality, prefer the cheaper'
+            ' one."',
+            ' · Ideas to try: "Try a skill with worked examples for the edge cases."',
+            models,
+            ' · What not to touch: "Don\'t change the temperature."',
+            ' · Directives: "Keep every answer under 100 words."',
+            "Optional. Blank means no guidance.",
+        )
     )
-)
+
+
+GUIDANCE_HINT = guidance_hint(other_models=False)
 
 
 def _ask_guidance(answers: Answers, ctx: QuestionContext) -> None:
     answer = ctx.terminal.text(
         "Guidance for the tuner's planner (optional)",
         default=answers.guidance,
-        hint=GUIDANCE_HINT,
+        hint=guidance_hint(other_models(answers)),
         back=ctx.back,
     )
     answers.guidance = answer.strip()

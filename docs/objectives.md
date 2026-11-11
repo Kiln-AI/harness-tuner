@@ -71,7 +71,12 @@ allow.
 
 **`--models any` can cost more.** The tuner may move the task to a more
 expensive model. The cost per request can go up, and so can the run's
-spend. To keep costly models out, pick the models, or use a policy file.
+spend. Under `quality` the promotion gate checks the evals only, so a more
+expensive model that scores better can become the new baseline. To keep
+costly models out, pick the models, or use a policy file. To set the order
+or a cost limit, say it in the guidance, for example "Fix it on the current
+model first. Move to a bigger model only if it stays stuck, at no more than
+twice the cost."
 
 ### Keep the task's model: `--models keep`
 
