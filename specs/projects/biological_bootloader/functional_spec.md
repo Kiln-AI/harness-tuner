@@ -190,7 +190,7 @@ It must hold:
   technique as a whole. A reader must be able to tell an idea that one
   person proposed from a result seen many times. Confidence is text, not an
   enum.
-- The lever kinds it uses.
+- The levers it uses.
 
 A technique that is out of fashion stays. Its status and its "when to use"
 change, and so does each playbook or smell that suggests it.
@@ -444,7 +444,6 @@ The tests are part of the offline suite. They need no server and no model.
 - Each link resolves.
 - Each file is reachable from an entry file, inside the depth limit.
 - Each generated index matches the files.
-- Each technique names lever kinds that exist in the code.
 - Each playbook links to techniques that exist.
 - Each lever names gateway operations that exist.
 - Each lever that a technique names has a lever document.
