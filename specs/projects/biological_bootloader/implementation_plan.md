@@ -20,7 +20,7 @@ changes knowledge documents also ends with
 
 ## Phases
 
-- [ ] Phase 1: The knowledge package and the skill skeleton. The
+- [x] Phase 1: The knowledge package and the skill skeleton. The
   `knowledge` package (schema, load, check, index, command line). The skill
   `kiln-harness-tuner-knowledge` with `SKILL.md`, the five entry files and
   `technique-index.md`. One real document of each type, so that every check

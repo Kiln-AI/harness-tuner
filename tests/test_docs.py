@@ -23,12 +23,13 @@ commands. This check reads every document a user or a contributor meets.
 
 from __future__ import annotations
 
-import os
 import re
 import tomllib
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import pytest
+
+from kiln_harness_tuner.knowledge.load import resolve_link
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_ROOT = REPO_ROOT / "docs"
@@ -148,23 +149,8 @@ def resolves_inside_the_repository(base: Path, target: str) -> bool:
     And a target that climbs OUT of the repository resolves here and exists
     for nobody else. A `../..` link to a file next to the checkout works for
     its author and for no other reader."""
-    current = base.resolve()
-    for part in PurePosixPath(target).parts:
-        if part == ".":
-            continue
-        if part == "..":
-            current = current.parent
-            continue
-        if part.startswith("/"):
-            return False  # an absolute link cannot resolve from a document
-        try:
-            names = os.listdir(current)
-        except OSError:
-            return False
-        if part not in names:
-            return False
-        current = current / part
-    return current.is_relative_to(REPO_ROOT)
+    # The knowledge checks resolve their links with the same rule.
+    return resolve_link(base, target, REPO_ROOT) is not None
 
 
 @pytest.mark.parametrize("path", linked_files(), ids=lambda p: p.name)

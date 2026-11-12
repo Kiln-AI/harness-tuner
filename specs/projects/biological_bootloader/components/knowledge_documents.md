@@ -256,7 +256,7 @@ Block contents. Each is a Markdown table, sorted by id:
 | `playbooks` | Playbook (link), Kind, Applies to, Description |
 | `playbooks-<kind>` | Playbook (link), Applies to, Description, for the playbooks of that kind |
 | `techniques` | Technique (link), Levers, Applies to, Cost, Description. Dormant techniques are left out. |
-| `levers` | Lever (link), Kind, Description |
+| `levers` | Lever (link), Gateway operations, Description |
 
 A cell holds no `|` and no line break. The check on `description` refuses
 both.
@@ -368,6 +368,7 @@ smell id.
 | Rule id | What it checks |
 |---|---|
 | `front-matter` | Front matter is present, parses, and fits the model |
+| `encoding` | The file is UTF-8 text (load records it, and reads nothing else of the file) |
 | `id` | The file name fits the id pattern |
 | `sections` | The required sections are present, in order, and not empty |
 | `size` | The file is inside its size limit |
