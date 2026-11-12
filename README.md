@@ -61,9 +61,7 @@ Copies a small moderation task, which ships with the tuner, into a new folder, a
 
 ```
 uv tool install harness-tuner
-harness-tuner --demo-project \
-    --guidance "Improve the moderation decisions. Keep the output format." \
-    --timeout-mins 120 --budget-usd 20
+harness-tuner --demo
 ```
 
 ## Quickstart
