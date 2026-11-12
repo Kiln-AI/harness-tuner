@@ -41,6 +41,8 @@ from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
 
 Call = Callable[..., Awaitable[Any]]
+RAG_TOOL_PREFIX = "kiln_tool::rag::"
+KILN_TASK_TOOL_PREFIX = "kiln_task::"
 
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
@@ -289,6 +291,22 @@ def _output_text(run: dict[str, Any]) -> str | None:
     out = run.get("output")
     out = out.get("output") if isinstance(out, dict) else out
     return out if isinstance(out, str) else None
+
+
+def _rag_part(value: Any) -> m.RagPart | None:
+    return m.project(m.RagPart, value) if isinstance(value, dict) else None
+
+
+def _rag_view(row: dict[str, Any]) -> m.RagConfigView:
+    return m.project(
+        m.RagConfigView,
+        row,
+        extractor=_rag_part(row.get("extractor_config")),
+        chunker=_rag_part(row.get("chunker_config")),
+        embedding=_rag_part(row.get("embedding_config")),
+        vector_store=_rag_part(row.get("vector_store_config")),
+        reranker=_rag_part(row.get("reranker_config")),
+    )
 
 
 def _rc_view(row: dict[str, Any]) -> m.RunConfigView:
@@ -962,6 +980,89 @@ class Gateway:
         row = await self.call("GET", f"{self.s.base}/tools/{req.id}/definition")
         return m.ToolDefinition(definition=row if isinstance(row, dict) else {})
 
+    # ------------------------------------------------------------ RAG, documents
+
+    async def list_rag_configs(self, req: m.NoArgs) -> list[m.RagConfigView]:
+        rows = _rows(await self.call("GET", f"{self.s.project}/rag_configs"))
+        return [_rag_view(r) for r in rows]
+
+    async def get_rag_config(self, req: m.ById) -> m.RagConfigView:
+        rag_id = req.id.removeprefix(RAG_TOOL_PREFIX)
+        row = await self.call("GET", f"{self.s.project}/rag_configs/{rag_id}")
+        return _rag_view(row if isinstance(row, dict) else {})
+
+    async def rag_search(self, req: m.RagSearchRequest) -> list[m.RagSearchResult]:
+        """What the RAG config's search tool returns for a query: the same
+        retrieval a model's tool call gets. It embeds the query, so it costs
+        one embedding call."""
+        rag_id = req.id.removeprefix(RAG_TOOL_PREFIX)
+        response = await self.call(
+            "POST",
+            f"{self.s.project}/rag_configs/{rag_id}/search",
+            body={"query": req.query},
+        )
+        return [m.project(m.RagSearchResult, r) for r in _rows(response, "results")]
+
+    async def list_documents(self, req: m.NoArgs) -> list[m.DocumentView]:
+        rows = _rows(await self.call("GET", f"{self.s.project}/documents"))
+        return [
+            m.project(
+                m.DocumentView,
+                {**r, **(r.get("original_file") or {})},
+                name=r.get("name_override") or r.get("friendly_name") or r.get("name"),
+                tags=[str(t) for t in r.get("tags") or []],
+            )
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------ Kiln task tools
+
+    async def get_kiln_task_tool(self, req: m.ById) -> m.KilnTaskToolView:
+        """The Kiln task a `kiln_task::` tool calls, and the run config it
+        calls it with. Only the task's own fields and that one run config:
+        the task's runs and evals can hold items of this task's held-out
+        splits, so they are never read."""
+        server_id = req.id.removeprefix(KILN_TASK_TOOL_PREFIX)
+        server = await self.call("GET", f"{self.s.project}/tool_servers/{server_id}")
+        server = server if isinstance(server, dict) else {}
+        props = (
+            server.get("properties")
+            if isinstance(server.get("properties"), dict)
+            else {}
+        )
+        if server.get("type") != "kiln_task" or not props.get("task_id"):
+            raise GatewayError(f"{req.id} is not a Kiln task tool")
+        task_id = str(props["task_id"])
+        sub_base = f"{self.s.project}/tasks/{task_id}"
+        task = await self.call("GET", sub_base) or {}
+        reqs = [m.project(m.Requirement, r) for r in _rows(task.get("requirements"))]
+        view = m.KilnTaskToolView(
+            tool_id=f"{KILN_TASK_TOOL_PREFIX}{server_id}",
+            tool_name=props.get("name") or server.get("name"),
+            tool_description=props.get("description") or server.get("description"),
+            task=m.project(m.TaskView, task, requirements=reqs),
+        )
+        rc_id = str(props.get("run_config_id") or "")
+        row = next(
+            (
+                r
+                for r in _rows(await self.call("GET", f"{sub_base}/run_configs"))
+                if str(r.get("id")) == rc_id
+            ),
+            None,
+        )
+        if row is None:
+            view.note = f"the tool's run config {rc_id or '(none)'} was not found"
+            return view
+        view.run_config = _rc_view(row)
+        prompt_id = view.run_config.prompt_id
+        if view.run_config.prompt is None and prompt_id:
+            view.prompt = m.project(
+                m.PromptText,
+                await self.call("GET", f"{sub_base}/gen_prompt/{prompt_id}"),
+            )
+        return view
+
     # ------------------------------------------------------------ writes
 
     def _policy_check(self, props: dict[str, Any]) -> None:
@@ -1366,6 +1467,19 @@ OPS = _ops(
     ("get_skill_content", m.ById, "One skill's SKILL.md."),
     ("list_available_tools", m.NoArgs, "The tools a run config can attach."),
     ("get_tool_definition", m.ById, "One tool's definition."),
+    ("list_rag_configs", m.NoArgs, "The project's RAG configs and their stages."),
+    ("get_rag_config", m.ById, "One RAG config (id, or its kiln_tool::rag:: id)."),
+    (
+        "rag_search",
+        m.RagSearchRequest,
+        "What a RAG config's search tool returns for a query (one embedding call).",
+    ),
+    ("list_documents", m.NoArgs, "The project's documents: names, kinds, tags."),
+    (
+        "get_kiln_task_tool",
+        m.ById,
+        "The task a kiln_task:: tool calls, and its run config and prompt.",
+    ),
     (
         "create_run_config",
         m.RunConfigCreate,
@@ -1413,14 +1527,26 @@ _TASK = (
 _EVALS = ("list_evals", "get_eval", "get_eval_config", "list_specs", "get_spec")
 _MEM_READ = ("memory_list", "memory_get", "memory_summary")
 _MEM_WRITE = ("memory_create", "memory_update")
+# What every tool kind a run config attaches is and does: definitions
+# (OpenEnv ones from their servers), RAG configs and what they retrieve, the
+# document library, and the task behind a Kiln task tool. No held-out item
+# is in any of them.
+_TOOL_READS = (
+    "list_available_tools",
+    "get_tool_definition",
+    "list_rag_configs",
+    "get_rag_config",
+    "rag_search",
+    "list_documents",
+    "get_kiln_task_tool",
+)
 _ARTIFACTS = (
     "list_code_tools",
     "get_code_tool",
     "list_skills",
     "get_skill",
     "get_skill_content",
-    "list_available_tools",
-    "get_tool_definition",
+    *_TOOL_READS,
 )
 _CODE_TOOLS = ("create_code_tool", "test_code_tool", "trust_code_tools")
 
@@ -1462,8 +1588,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         "get_task_run",
         "list_train_items",
         "get_train_expected",
-        "list_code_tools",
-        "list_skills",
+        *_ARTIFACTS,
         *_MEM_READ,
         "memory_create",
         "create_run_config",
@@ -1476,9 +1601,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         "get_train_results",
         "get_train_expected",
         "get_task_run",
-        "get_code_tool",
-        "get_skill",
-        "get_skill_content",
+        *_ARTIFACTS,
         *_MEM_READ,
         *_MEM_WRITE,
     ),
