@@ -45,7 +45,8 @@ large improvement to the tuner. It is the base for later improvement.
   cannot change today (RAG, sub-agents, worlds and others) get an entry in
   the backlog, not a lever document. The one exception is the model
   and provider tools (section 13.1). See `kiln_gaps.md`.
-- **A change to the promotion gate.** See section 8.
+- **A general change to the promotion gate.** Only the narrow tie rule of
+  section 8 is in, and it can move to a new project.
 - **Proof that the knowledge improves convergence.** The chief scientist
   tests V1 after this project. This project makes that test possible.
 - **The casebook.** It starts in parallel, outside this repository.
