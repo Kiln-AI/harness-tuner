@@ -1175,7 +1175,9 @@ them, is [agent-cli.md](agent-cli.md) section 6.
 
 ```
 src/kiln_harness_tuner/
-  cli.py            the console script: flags, run lock, rendered per-run
+  launch.py         the console script: it stops on native Windows, else
+                    it starts cli.main
+  cli.py            the command: flags, run lock, rendered per-run
                     config, the read fence, the composition root
   paths.py          the state folder: its path, its layout, its checks
   install_agents.py the agent files: a run's install into the state folder,
