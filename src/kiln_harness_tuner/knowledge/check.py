@@ -24,6 +24,7 @@ from kiln_harness_tuner.knowledge.schema import (
     ENTRY_BLOCKS,
     EVAL_STANCES,
     ID_PATTERN,
+    LEVER_ID_PATTERN,
     MAX_CHARS,
     MAX_DEPTH,
     MAX_ID_CHARS,
@@ -95,12 +96,17 @@ def _front_matter(ctx: _Context, *_: object) -> Iterable[Problem]:
 
 def _id(ctx: _Context, *_: object) -> Iterable[Problem]:
     for doc in ctx.components():
-        if not ID_PATTERN.match(doc.id) or len(doc.id) > MAX_ID_CHARS:
+        pattern, joiners = (
+            (LEVER_ID_PATTERN, "'-' or '_'")
+            if doc.kind == "levers"
+            else (ID_PATTERN, "'-'")
+        )
+        if not pattern.match(doc.id) or len(doc.id) > MAX_ID_CHARS:
             yield Problem(
                 "id",
                 doc.path.as_posix(),
-                f"the id {doc.id!r} must be lower-case words joined by '-',"
-                f" at most {MAX_ID_CHARS} characters",
+                f"the id {doc.id!r} must be lower-case words joined by"
+                f" {joiners}, at most {MAX_ID_CHARS} characters",
             )
 
 

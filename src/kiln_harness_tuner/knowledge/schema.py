@@ -74,6 +74,10 @@ PRIOR_SOURCES: tuple[str, ...] = ("public", "own experiment", "anonymised")
 NO_PRIORS = "None yet."
 
 ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+# A lever's id is the short name that the planner writes in the `technique`
+# field of an experiment (architecture decision 2.5), and two of those names
+# join their words with `_`: `tool_config`, `new_tool`.
+LEVER_ID_PATTERN = re.compile(r"^[a-z0-9]+([-_][a-z0-9]+)*$")
 MAX_ID_CHARS = 60
 
 ENTRY_FILES: tuple[str, ...] = (

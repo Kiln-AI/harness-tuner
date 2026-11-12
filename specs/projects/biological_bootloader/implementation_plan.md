@@ -34,7 +34,7 @@ changes knowledge documents also ends with
   The `.gitignore`, `.github/CONTRIBUTING.md` and root `AGENTS.md` changes.
   `tests/test_backlog.py` and the additions to the knowledge and link
   tests.
-- [ ] Phase 3: Levers and techniques, part 1. The other five levers. The
+- [x] Phase 3: Levers and techniques, part 1. The other five levers. The
   fourteen techniques of the groups "Instructions" and "Knowledge". Each
   approved prior is added only after its source is opened and its numbers
   are checked.

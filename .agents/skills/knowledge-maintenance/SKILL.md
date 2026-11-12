@@ -106,7 +106,8 @@ unless it is the first case or it disagrees with the others.
 
    The id is lower case, with words joined by `-`, of at most 60
    characters. A lever's id is the short name that the planner writes in the
-   `technique` field of an experiment.
+   `technique` field of an experiment, so it can also join words with `_`
+   (`tool_config`, `new_tool`).
 2. Fill every required part. Replace each `{{NAME}}` placeholder. Remove each
    HTML comment after you follow it. A link placeholder names an existing
    document by its id.

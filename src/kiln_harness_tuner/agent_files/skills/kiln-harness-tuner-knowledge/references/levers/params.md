@@ -1,0 +1,68 @@
+---
+title: Model settings
+description: The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round.
+reviewed: 2026-11-12
+gateway_ops:
+  - get_run_config
+  - list_available_models
+  - create_run_config
+---
+
+# Model settings
+
+## What it is
+
+A run config sends settings to the model with each call. This lever covers
+three of them, in `run_config_properties`:
+
+- `thinking_level`: how much the model reasons before it answers. Each
+  model has its own list of levels.
+- `temperature`: from 0 to 2.
+- `top_p`: from 0 to 1.
+
+The model and the provider are the lever [model](model.md). The prompt,
+the tools and the skills stay as the parent has them.
+
+## How the tuner changes it
+
+There are two ways.
+
+**A params arm.** The builder makes one run config with
+`create_run_config`. It is identical to the parent, except the named
+settings. No new prompt, skill or tool. The `change` block of the build
+lists each setting with its old and its new value, and everything else
+under `unchanged`.
+
+**A screening round.** The planner writes a plan with `screen` set and no
+items. Each candidate has `overrides` (`thinking_level`, `temperature`,
+`top_p`). Code makes each candidate's run config, measures all of them on
+the same items, and gives each one a verdict. No agent builds them. A
+survivor becomes an arm with `work.existing_rc_id`, and its judged rows are
+used again.
+
+Rules of the object:
+
+- **The thinking levels come from `list_available_models`**: the
+  `thinking_levels` of the model, lowest first. A level that is not in that
+  list is refused.
+- **The properties of a run config are fixed when it is created.** A
+  mistake means another new run config.
+
+## Limits
+
+- A provider can accept a setting and not apply it. Code reads the drives:
+  a thinking level with no reasoning in any drive, and output tokens that
+  did not move against the parent, gives the verdict `lever not applied`.
+  When no signal can show it, the verdict is `lever unverified`.
+- A provider can refuse a setting. One failed call shows it.
+- The output mode (`structured_output_mode`) is not part of this lever. It
+  passes through the run config as the parent has it.
+- Kiln has no setting for `max_tokens`, a seed, `top_k` or penalties.
+
+## See also
+
+- The `kiln-harness-tuner-batch-selection` skill: the params arm, the
+  screening rounds and how to read a screening line.
+- The `kiln-harness-tuner-experiment-build` skill: how a params arm is
+  built and smoked.
+- The `kiln-task-setup` skill: the fields of `run_config_properties`.

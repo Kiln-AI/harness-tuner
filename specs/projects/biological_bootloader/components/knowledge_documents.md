@@ -36,7 +36,10 @@ src/kiln_harness_tuner/agent_files/skills/kiln-harness-tuner-knowledge/
 
 - **The id** of a component is its file name without `.md`. It is lower
   case, with words joined by `-`, of at most 60 characters:
-  `^[a-z0-9]+(-[a-z0-9]+)*$`.
+  `^[a-z0-9]+(-[a-z0-9]+)*$`. A lever's id can also join its words with
+  `_` (`^[a-z0-9]+([-_][a-z0-9]+)*$`), because it is the short name that
+  the planner writes (section 3.3), and `tool_config` and `new_tool` use
+  `_`.
 - **The type** is the directory. A component does not state its type.
 - **Sub-files.** A component of any type can have a directory beside it with
   its id as the name. Only Markdown files go there. The primary document

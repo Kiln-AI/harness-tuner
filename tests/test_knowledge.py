@@ -52,6 +52,39 @@ def test_the_shipped_knowledge_has_a_document_of_each_type():
         assert kb.by_kind(kind), f"no document in {kind}/"
 
 
+# V1 coverage, sections 1 and 3: the six levers, and the techniques of the
+# groups "Instructions" and "Knowledge" with the levers each one uses.
+V1_LEVERS = {"prompt", "skill", "new_tool", "tool_config", "params", "model"}
+V1_TECHNIQUE_LEVERS = {
+    "add-the-missing-requirement": ["prompt"],
+    "state-the-output-contract": ["prompt"],
+    "answer-only-from-the-source": ["prompt"],
+    "decline-rules-paragraph": ["prompt"],
+    "policy-as-step-by-step-procedures": ["prompt", "skill"],
+    "structure-a-long-prompt": ["prompt"],
+    "one-general-rule-per-edit": ["prompt", "skill"],
+    "long-prompt-into-a-skill": ["skill", "prompt"],
+    "skill-into-the-prompt": ["prompt", "skill"],
+    "path-index-in-the-skill-description": ["skill"],
+    "rewrite-an-inherited-skill": ["skill"],
+    "prune-one-group-at-a-time": ["prompt", "skill", "tool_config"],
+    "attach-the-knowledge-source": ["tool_config", "skill"],
+    "document-into-a-skill": ["skill", "tool_config"],
+}
+
+
+def test_the_v1_levers_are_present():
+    assert {d.id for d in load().by_kind("levers")} >= V1_LEVERS
+
+
+@pytest.mark.parametrize("technique", sorted(V1_TECHNIQUE_LEVERS))
+def test_the_v1_technique_is_present_with_its_levers(technique):
+    doc = load().get("techniques", technique)
+    assert doc is not None, f"techniques/{technique}.md is missing"
+    assert doc.meta is not None and doc.meta.status == "active"
+    assert doc.meta.levers == V1_TECHNIQUE_LEVERS[technique]
+
+
 def test_the_generated_blocks_are_current():
     kb = load()
     for (entry, block), text in render_blocks(kb).items():

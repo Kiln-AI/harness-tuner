@@ -1,0 +1,92 @@
+---
+title: Document into a skill
+description: Move a long reference document that sits behind a lookup tool into a skill - a contents body with key terms, one reference file per section - and drop the tool.
+reviewed: 2026-11-12
+status: active
+levers:
+  - skill
+  - tool_config
+applies_to:
+  - tools
+cost: medium
+---
+
+# Document into a skill
+
+## When to use
+
+- A long reference document sits behind a lookup tool: the agent reads it
+  by page, by search or by section.
+- The traces show the agent pick the wrong part, read many pages to find
+  one fact, or never look.
+- The document is stable, and it fits in a skill bundle as text.
+
+## When not to use
+
+- **The agent already finds the right part** with the tool. The change
+  adds a bundle and fixes nothing.
+- **The document is very large, or it changes often.** A skill is
+  immutable: each change of the document needs a new version.
+- **The knowledge is not reachable at all**:
+  [attach the knowledge source](attach-the-knowledge-source.md).
+- **Do not add prompt rules on which page or section to choose.** The
+  model then has to apply a rule to a choice that a contents file makes
+  plain.
+
+## Alternatives
+
+- [Attach the knowledge source](attach-the-knowledge-source.md), when no
+  source of the knowledge is in context.
+- [Path index in the skill description](path-index-in-the-skill-description.md),
+  when the document is already a skill and the agent reads the wrong file.
+
+## How
+
+The change is a new [skill](../levers/skill.md), and the lookup tool
+dropped on the same new run config
+([tool_config](../levers/tool_config.md)).
+
+1. **Split the document by section.** One `references/` file for each
+   section, with a contents line at the top that names what it holds.
+2. **Write the `SKILL.md` body as a contents file**: each section, what it
+   contains, and its key terms. Key terms are the words that a question
+   would use, not only the section's title.
+3. **Write the description** with the path of each file and its key terms,
+   inside the 1,024 characters. When it does not fit, group the sections.
+4. **Drop the lookup tool on the same arm.** With both, the agent chooses,
+   and the result does not tell which path it took. Remove each mention of
+   the tool in the prompt and in other skills.
+5. **Write from the document**, never from the train items.
+6. When the document cannot move (it is too large, or it changes often),
+   a smaller change is a skill that holds only the keyword contents and
+   names the tool's sections, with the tool kept.
+
+## Check that it took effect
+
+Smoke on two or three train items that need the document. In each trace,
+find the read of the right section file before the answer, and no call to
+the dropped tool.
+
+## Budget
+
+Medium cost: a bundle to write from the document, and a measurement on
+every eval that the document touches. On a small budget, take it when the
+traces show wrong parts read, or many lookup calls for one fact.
+
+## If it does not move the evals
+
+It depends. Keep it when it replaces many lookup calls and the cost or the
+latency per item falls with no eval down, because the agent reaches the
+fact in fewer steps. When the calls do not fall and no eval moves, the tool
+was good enough.
+
+## Priors
+
+None yet.
+
+## Confidence
+
+Low to medium. It is reasoning, not a result: a contents file with key
+terms lets the agent choose a section before it reads, which a lookup tool
+does not. It applies the same progressive disclosure as other skill
+techniques. No measured case is recorded here yet.

@@ -353,6 +353,34 @@ def test_id_is_reported(tree):
     assert problem.path == "techniques/Bad_Id.md"
 
 
+def test_a_lever_id_with_an_underscore_is_accepted(tree):
+    # A lever's id is the planner's short name, and `new_tool` is one.
+    tree.write("levers/new_tool.md", LEVER.replace("The prompt", "New tools"))
+    tree.edit("techniques/t-one.md", "  - prompt\n", "  - prompt\n  - new_tool\n")
+    tree.edit(
+        "techniques/t-one.md",
+        "Edit the [prompt](../levers/prompt.md).",
+        "Edit the [prompt](../levers/prompt.md) and add a"
+        " [tool](../levers/new_tool.md).",
+    )
+    assert tree.problems() == []
+
+
+@pytest.mark.parametrize("name", ["_tool", "new__tool", "new_tool_", "New_tool"])
+def test_a_lever_id_with_a_bad_underscore_is_reported(tree, name):
+    tree.write(f"levers/{name}.md", LEVER)
+    [problem] = _only(tree, "id")
+    assert problem.path == f"levers/{name}.md"
+    assert "'-' or '_'" in problem.message
+
+
+def test_an_underscore_outside_a_lever_id_is_reported(tree):
+    tree.write("techniques/t_two.md", TECHNIQUE)
+    [problem] = _only(tree, "id")
+    assert problem.path == "techniques/t_two.md"
+    assert "'_'" not in problem.message
+
+
 def test_sections_is_reported(tree):
     tree.edit("techniques/t-one.md", "## When not to use\n\nNever otherwise.\n\n", "")
     _only(tree, "sections")

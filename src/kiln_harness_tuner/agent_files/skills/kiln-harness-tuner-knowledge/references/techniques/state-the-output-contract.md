@@ -39,7 +39,8 @@ cost: low
 
 ## Alternatives
 
-None.
+- [Add the missing requirement](add-the-missing-requirement.md), when the
+  content of the answer is wrong, not its form.
 
 ## How
 
