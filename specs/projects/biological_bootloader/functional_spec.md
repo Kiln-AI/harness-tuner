@@ -32,7 +32,9 @@ large improvement to the tuner. It is the base for later improvement.
    it gives the agent the templates, the placement rules and the checks, so
    that each change keeps the system's quality.
 4. Automated tests that keep the structure correct.
-5. A pluggable framework for smell detectors in code, with two detectors.
+5. Smell detection with a clear order: a pluggable framework for smell
+   detectors in code, with two detectors, and a new agent that reviews the
+   baseline at the start of a run.
 6. Model and provider tools for the loop agents, with data derived from
    Kiln's model list.
 7. A backlog: one document, with a fixed format, that tracks the known gaps
@@ -71,6 +73,7 @@ large improvement to the tuner. It is the base for later improvement.
 | Detection | What a smell detector reports: a statement of fact about this run. |
 | Issue | The tuner's existing memory record for a problem found in this run. An issue can be an instance of a smell. |
 | Maintenance skill | The skill a coding agent uses to add to, change and audit the knowledge system. |
+| Baseline reviewer | The new agent that reviews the baseline for smells (section 12.2). |
 | Planner | The batch-selection agent. |
 | Builder | The experiment-build agent. |
 
@@ -94,7 +97,8 @@ it is a **lever kind**, not a technique in the sense of this spec.
 |---|---|---|
 | Planner | Smells, playbooks and techniques | Its own entry file |
 | Builder | Techniques and levers | Its own entry file |
-| Analyzer | Smells, so that it can name one when it reads traces. Not every smell can be found by code. | Its own entry file |
+| Baseline reviewer | Smells. It is the main reader of the smell catalogue. | Its own entry file |
+| Analyzer | Smells, so that it can name one that it sees in a candidate's traces. This is secondary. | Its own entry file |
 | Promoter | Only the guidance for a tie (section 8) | Given in its input, for the candidates at hand |
 | Report writer | Playbooks, techniques and priors, where they help it explain the run | Its own entry file |
 | Probe, reviewers, eval roles | Nothing from the knowledge system | — |
@@ -232,7 +236,7 @@ It must hold:
 
 - **How to recognise it**: what is seen in the harness, the traces or the
   eval results.
-- **Who can detect it**: a smell detector in code (section 12), an agent that reads
+- **Who can detect it**: a smell detector in code (section 12.3), an agent that reads
   traces, or both. If a code detector exists, the smell names it.
 - **What it blocks**: what is not worth an experiment until this is fixed,
   if anything.
@@ -292,8 +296,9 @@ one a location and a path from an entry file.
   playbook, because a choice by goal is better than a choice by name.
 - **The builder's entry file** lets the builder reach the technique on its
   work item directly, and from there the levers.
-- **The analyzer's entry file** lists every smell, with how to recognise it
-  in one line and a link to the detail.
+- **The baseline reviewer's entry file and the analyzer's entry file** list
+  every smell, with how to recognise it in one line and a link to the
+  detail.
 - **A technique index** exists for one case only: the user's free-form
   guidance names a technique ("try a sub-agent for X"). The index carries
   the instruction "prefer a playbook; use this index only when the user
@@ -472,12 +477,62 @@ The tests are part of the offline suite. They need no server and no model.
 A test cannot check the content rules that need judgement (conditions,
 confidence, the approval rule). The maintenance skill's audit covers those.
 
-## 12. Smell detection in code
+## 12. Smell detection
+
+### 12.1 The order
+
+Today the start of a run is all code, and no agent reads the baseline's
+traces before the planner does in wave 1. The planner is dispatched new for
+each wave, and it also has to plan. This project gives smell detection a
+fixed order:
+
+| When | Who | What it finds |
+|---|---|---|
+| Start of run, with the baseline audit | Smell detectors in code (12.3) | Smells in the static harness and in the baseline's stored train traces. Nothing is spent yet. |
+| Start of run, before wave 1. Again after each promotion. | The baseline reviewer, a new agent (12.2) | Smells that need reading: for example "the prompt never asks for what the eval wants", or "the agent did not have context that it could have been given". |
+| Each wave | Code, from the run's own history | Smells in the process: for example train wins that validation keeps rejecting, or repeated failed arms on one issue. The planner gets them in its input. |
+| Each experiment | The analyzer | A smell it sees in a candidate's traces. Secondary. |
+
+Two existing checks are smell detectors in all but name: the detectability
+check finds saturated evals, and the noise check finds high variance. They
+report through the same mechanism as the new detectors, so that there is
+one way to detect a smell in code.
+
+### 12.2 The baseline reviewer
+
+A new loop agent. Its one job is to analyse the existing agent before the
+tuner changes it.
+
+- **When it runs.** Once at the start of a run, after the code detectors and
+  before wave 1. Once more after each promotion, because a new baseline can
+  remove a smell or add one.
+- **What it reads.** The baseline's harness (prompt, skills, tools, model
+  and settings), a sample of the baseline's train traces that pass and that
+  fail, the detections from the code detectors, and the smell catalogue. It
+  reads train records only. It never reads val or test.
+- **What it returns.** For each smell it finds: the smell, the evidence
+  (which traces, which part of the harness), and how sure it is. Each
+  becomes an issue that names the smell, in the way the tuner records a
+  problem today. It also confirms or rejects each code detection where
+  reading is needed to tell.
+- **What it does not do.** It does not plan experiments, build anything or
+  measure anything. It states facts and names smells. The planner decides
+  what to do.
+- **Why a new agent.** To find smells and to choose experiments are
+  different jobs, and the planner already has a large skill. The review is
+  needed once for each baseline, not once for each wave. It is one session
+  on the agent CLI's own account, with no eval spend.
+- **What it needs.** A prompt template, a skill with its entry file, a
+  dispatch step, the gateway operations for its role, a place in the run
+  report, and tests. The architecture step defines each one.
+- **A run without it.** If the review fails or is turned off, the run goes
+  on with the code detections only, and the report says so.
+- This work is a later phase of the implementation plan.
+
+### 12.3 Smell detectors in code
 
 Some smells can be found by code. That is a fact about how a smell is
 detected. It is not a different kind of thing, and it has no other name.
-Code runs before the planner starts and gives the planner the obvious
-problems, so that an LLM does not have to find them.
 
 - **A pluggable framework.** A smell detector is a small unit of code with a
   fixed interface. A new detector is one file plus a registration. It needs
@@ -492,8 +547,9 @@ problems, so that an LLM does not have to find them.
   the smell it is evidence of. The smell gives the remedies. A detection
   states a fact. It does not state a verdict. (The analysis code has a "no
   verdict labels" rule, and the detections must agree with it.)
-- **Delivery.** The planner gets the detections before wave 1, with the
-  results of the setup reconnaissance. The run report lists them.
+- **Delivery.** The baseline reviewer and the planner get the detections
+  before wave 1, with the results of the setup reconnaissance. The run
+  report lists them.
 - **A detection does not block the run.** The smell and its playbook say
   what to do first.
 - **Detectors in V1:**
@@ -584,16 +640,21 @@ What this spec fixes now:
    each rule fails its test.
 5. A run on the demo project shows the detection in the planner's input and
    in the report, when the baseline has a very long prompt.
-6. A loop agent lists models and reads the details of one, from data derived
+6. A run dispatches the baseline reviewer before wave 1 and after a
+   promotion. The smells it finds are issues that name the smell, and the
+   planner's next plan can read them. A run in which the review fails goes
+   on and reports it.
+7. A loop agent lists models and reads the details of one, from data derived
    from Kiln's list. The tools fall back when the fetch fails.
-7. `AGENTS.md` has the new rule.
-8. The repository checks pass: `pytest`, `ruff check`, `ruff format --check`.
+8. `AGENTS.md` has the new rule.
+9. The repository checks pass: `pytest`, `ruff check`, `ruff format --check`.
 
 ## 16. Open questions
 
 None. Decisions made in review:
 
 - The components are lever, technique, playbook and smell (section 2).
+- A new agent, the baseline reviewer, is in this project (section 12.2).
 - Playbook ownership is informal (section 10).
 - The provider data is derived from Kiln's model list (section 13.1).
 - Input transforms and the structured-output mode go in the backlog
