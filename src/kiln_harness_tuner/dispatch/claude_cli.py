@@ -1436,12 +1436,25 @@ class ClaudeCliDispatcher:
         return self._agents_dir
 
     def _parse_cli_output(self, stdout: str) -> CliRound | None:
-        """`claude -p --output-format json` prints one JSON object. None when
-        stdout is not one."""
+        """`claude -p --output-format json` prints one JSON object. With
+        `verbose` on (the `--verbose` option, or `"verbose": true` in a
+        Claude Code settings file the run's `--settings` does not override)
+        it prints a list of events in place of it, and the last
+        `"type": "result"` event is that object. None when stdout is
+        neither."""
         try:
             payload = json.loads(stdout)
         except ValueError:
             return None
+        if isinstance(payload, list):
+            results = [
+                event
+                for event in payload
+                if isinstance(event, dict) and event.get("type") == "result"
+            ]
+            if not results:
+                return None
+            payload = results[-1]
         if not isinstance(payload, dict):
             return None
         result_text = payload.get("result")
