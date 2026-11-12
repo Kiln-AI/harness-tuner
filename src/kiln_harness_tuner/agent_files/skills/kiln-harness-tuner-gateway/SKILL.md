@@ -184,7 +184,7 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 | `list_rag_configs` / `get_rag_config` | — / `id` (the RAG config id or its `kiln_tool::rag::` tool id) | a RAG search tool's config: its tool name and description, the document tags it indexes, and each stage (extractor, chunker, embedding, vector store, reranker) with its model and settings |
 | `rag_search` | `id`, `query` | the chunks the RAG search tool returns for `query`: the same retrieval a model's call gets (one embedding call) |
 | `list_documents` | — | the project's document library: name, description, kind, tags, file name, type and size. Not the text: the text reaches you as `rag_search` chunks |
-| `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt. Never that task's runs or evals |
+| `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
 

@@ -978,7 +978,12 @@ class TestDocumentedShapes:
             "chunker_config": {
                 "name": "fixed",
                 "chunker_type": "fixed_window",
-                "properties": {"chunk_size": 512, "chunk_overlap": 64},
+                "properties": {
+                    "chunk_size": 512,
+                    "chunk_overlap": 64,
+                    "api_key": "SECRET",
+                    "auth_header": "SECRET",
+                },
                 "path": "/secret/path/chunker.kiln",
             },
             "embedding_config": {
@@ -1032,6 +1037,7 @@ class TestDocumentedShapes:
         assert listed["embedding"]["model_name"] == "text-embedding-3-small"
         assert listed["reranker"] is None
         assert "/secret/path" not in json.dumps(listed)
+        assert "SECRET" not in json.dumps(listed)
         one = _run(gateway, "get_rag_config", id="kiln_tool::rag::r1")
         assert one["id"] == "r1"
         (hit,) = _run(gateway, "rag_search", id="kiln_tool::rag::r1", query="returns")
@@ -1108,6 +1114,40 @@ class TestDocumentedShapes:
         with pytest.raises(gw.GatewayError, match="not a Kiln task tool") as err:
             _run(gateway, "get_kiln_task_tool", id="m1")
         assert "SECRET" not in str(err.value)
+
+    @pytest.mark.parametrize(
+        "prompt_id, frozen",
+        [("few_shot_prompt_builder", None), ("id::p1", {"base_prompt": "Frozen."})],
+    )
+    def test_a_kiln_task_tool_renders_only_a_saved_prompt(
+        self, tmp_path, prompt_id, frozen
+    ):
+        """A generator builds its text from the called task's stored runs,
+        which can come from held-out drives: it is named, not rendered. A
+        frozen prompt is already on the run config: nothing is rendered."""
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "rc7"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [
+                {
+                    "id": "rc7",
+                    "run_config_properties": {"prompt_id": prompt_id},
+                    "prompt": frozen,
+                }
+            ],
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["prompt"] is None
+        assert not any("gen_prompt" in path for _m, path, *_ in kiln.calls)
+        if frozen is None:
+            assert "few_shot_prompt_builder" in out["note"]
+        else:
+            assert out["run_config"]["prompt"] is not None and out["note"] is None
 
     def test_a_kiln_task_tool_with_a_missing_run_config_says_so(self, tmp_path):
         project = f"/api/projects/{PROJECT}"

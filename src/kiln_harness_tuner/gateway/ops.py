@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -43,6 +44,9 @@ from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 KILN_TASK_TOOL_PREFIX = "kiln_task::"
+SAVED_PROMPT_PREFIX = "id::"
+# A RAG stage's settings key that can hold a credential is never returned.
+_SECRET_KEY = re.compile(r"key|token|secret|password|credential|auth|header", re.I)
 
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
@@ -294,7 +298,11 @@ def _output_text(run: dict[str, Any]) -> str | None:
 
 
 def _rag_part(value: Any) -> m.RagPart | None:
-    return m.project(m.RagPart, value) if isinstance(value, dict) else None
+    if not isinstance(value, dict):
+        return None
+    props = value.get("properties") if isinstance(value.get("properties"), dict) else {}
+    safe = {k: v for k, v in props.items() if not _SECRET_KEY.search(str(k))}
+    return m.project(m.RagPart, value, properties=safe)
 
 
 def _rag_view(row: dict[str, Any]) -> m.RagConfigView:
@@ -1034,7 +1042,10 @@ class Gateway:
             raise GatewayError(f"{req.id} is not a Kiln task tool")
         task_id = str(props["task_id"])
         sub_base = f"{self.s.project}/tasks/{task_id}"
-        task = await self.call("GET", sub_base) or {}
+        task, rc_rows = await asyncio.gather(
+            self.call("GET", sub_base), self.call("GET", f"{sub_base}/run_configs")
+        )
+        task = task if isinstance(task, dict) else {}
         reqs = [m.project(m.Requirement, r) for r in _rows(task.get("requirements"))]
         view = m.KilnTaskToolView(
             tool_id=f"{KILN_TASK_TOOL_PREFIX}{server_id}",
@@ -1043,24 +1054,26 @@ class Gateway:
             task=m.project(m.TaskView, task, requirements=reqs),
         )
         rc_id = str(props.get("run_config_id") or "")
-        row = next(
-            (
-                r
-                for r in _rows(await self.call("GET", f"{sub_base}/run_configs"))
-                if str(r.get("id")) == rc_id
-            ),
-            None,
-        )
+        row = next((r for r in _rows(rc_rows) if str(r.get("id")) == rc_id), None)
         if row is None:
             view.note = f"the tool's run config {rc_id or '(none)'} was not found"
             return view
         view.run_config = _rc_view(row)
         prompt_id = view.run_config.prompt_id
-        if view.run_config.prompt is None and prompt_id:
-            view.prompt = m.project(
-                m.PromptText,
-                await self.call("GET", f"{sub_base}/gen_prompt/{prompt_id}"),
+        if view.run_config.prompt is not None or not prompt_id:
+            return view
+        if not prompt_id.startswith(SAVED_PROMPT_PREFIX):
+            # A generator such as few-shot or repairs builds its text from
+            # the called task's stored runs, which the loop does not split:
+            # one made while a held-out item was driven would show here.
+            view.note = (
+                f"the prompt is the generator {prompt_id!r}; its text is built"
+                " from the task's stored runs, so it is not shown"
             )
+            return view
+        view.prompt = m.project(
+            m.PromptText, await self.call("GET", f"{sub_base}/gen_prompt/{prompt_id}")
+        )
         return view
 
     # ------------------------------------------------------------ writes
