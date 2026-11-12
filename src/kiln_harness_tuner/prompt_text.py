@@ -141,7 +141,7 @@ def _rc_tool_ids(row: dict[str, Any], prefix: str) -> tuple[str, ...]:
 
 
 def rc_tool_ids(row: dict[str, Any]) -> tuple[str, ...]:
-    """Every tool id a run config row attaches — skills, code tools, world
+    """Every tool id a run config row attaches — skills, code tools, OpenEnv
     and MCP tools — in its tool order."""
     return _rc_tool_ids(row, "")
 

@@ -135,7 +135,7 @@ call an attached tool under its output mode, does it read an attached skill,
 does a higher reasoning level change how much it reasons — by forking a
 throwaway run config, driving a handful of train items, and counting in the
 traces. No judge, no measurement, no experiment record, and no eval job
-except to drive a multi-turn or `world_reset` input.
+except to drive a multi-turn or `openenv_reset` input.
 
 A probe is **not** a small experiment. It answers "does the lever move the
 behaviour"; an arm answers "does the lever score". A yes promotes the idea to a

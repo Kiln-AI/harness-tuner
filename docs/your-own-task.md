@@ -233,19 +233,19 @@ check cannot evaluate (anything but `all` and `tag::<name>`)
 stops the run at startup with the fix, and so does a `--project-path` that
 does not name a readable directory.
 
-### 1.6 A multi-turn task, or a task in a world
+### 1.6 A multi-turn task, or a task with an OpenEnv server
 
 The loop drives items itself: the baseline timing, the timing chunks of a
 measurement, the probes, and an agent's `run_task`. For a single-turn task
 these drives use `POST …/tasks/{t}/run`. That endpoint runs one input once.
-It starts no world episode and no simulated user.
+It starts no OpenEnv episode and no simulated user.
 
 So the loop drives an item through a one-item eval job when one of these is
 true:
 
 - the task's `turn_mode` is `multiturn`;
-- a run config of the drive lists a world tool (`kiln_tool::world::…`);
-- the item's input has a `world_reset`.
+- a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`);
+- the item's input has an `openenv_reset`.
 
 The eval job starts the episode and runs the synthetic user, as a
 measurement does. The loop then reads the drive's cost and latency from the
@@ -260,6 +260,15 @@ has the detail.
 
 Multi-turn items need a synthetic-user drive config, as an eval needs it.
 An item that the eval job cannot drive fails its drive and says why.
+
+Keep each OpenEnv server running for the whole run. The agents read its
+tools (names, descriptions, parameters) from the running server, because
+Kiln knows them only during an episode. If a server does not answer, the
+agents see its tools as missing and work from the traces only.
+
+Use Kiln v1.2.1 or later for an OpenEnv task. The loop finds OpenEnv tools
+by `kiln_tool::openenv::` and inputs by `openenv_reset`, the names that
+v1.2.1 uses.
 
 ## 2. What setup does for you
 

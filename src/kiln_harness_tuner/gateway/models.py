@@ -340,6 +340,8 @@ class ToolSetView(Out):
     type: str | None = None
     set_name: str | None = None
     tools: list[ToolView] = []
+    # Why the set has no tools: an OpenEnv server that did not answer.
+    note: str | None = None
 
 
 class ToolDefinition(Out):
