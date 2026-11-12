@@ -219,21 +219,28 @@ class Tree:
         return {p.rule for p in self.problems(**kwargs)}
 
 
+def build_tree(parent: Path) -> Tree:
+    """A small valid tree in `parent`: the entry files, the lever `prompt`,
+    the technique `t-one`, the playbook `p-one`, and the smells `s-one` and
+    `long-thing` (the smell of the detector `long_thing`)."""
+    tree = Tree(parent / "kiln-harness-tuner-knowledge")
+    tree.references.mkdir(parents=True)
+    (tree.root / "SKILL.md").write_text("---\nname: test\n---\n")
+    for entry, blocks in ENTRY_BLOCKS.items():
+        tree.write(entry, _entry(entry, blocks))
+    tree.write("levers/prompt.md", LEVER)
+    tree.write("techniques/t-one.md", TECHNIQUE)
+    tree.write("playbooks/p-one.md", PLAYBOOK)
+    tree.write("smells/s-one.md", SMELL)
+    tree.write("smells/long-thing.md", CODE_SMELL)
+    write_blocks(load(tree.root))
+    return tree
+
+
 @pytest.fixture
 def make_tree(tmp_path):
     def make() -> Tree:
-        tree = Tree(tmp_path / "kiln-harness-tuner-knowledge")
-        tree.references.mkdir(parents=True)
-        (tree.root / "SKILL.md").write_text("---\nname: test\n---\n")
-        for entry, blocks in ENTRY_BLOCKS.items():
-            tree.write(entry, _entry(entry, blocks))
-        tree.write("levers/prompt.md", LEVER)
-        tree.write("techniques/t-one.md", TECHNIQUE)
-        tree.write("playbooks/p-one.md", PLAYBOOK)
-        tree.write("smells/s-one.md", SMELL)
-        tree.write("smells/long-thing.md", CODE_SMELL)
-        write_blocks(load(tree.root))
-        return tree
+        return build_tree(tmp_path)
 
     return make
 

@@ -52,6 +52,18 @@ ROOT_DOCS = (
 )
 
 
+# The maintenance skill of the knowledge system, and the backlog it adds to.
+# Globbed, because a template or a reference file added to the skill is a
+# document a coding agent follows.
+MAINTENANCE_GLOB = ".agents/skills/knowledge-maintenance/**/*.md"
+BACKLOG = "specs/backlog.md"
+
+# A template links documents of a knowledge tree by a placeholder id, such as
+# `../levers/{{LEVER_ID}}.md`. Such a link names no file until an author fills
+# it, and the template test (`test_knowledge.py`) checks the filled document.
+PLACEHOLDER = "{{"
+
+
 # The user-facing documents outside the link-checked set. The retired-form
 # check reads these as well.
 USER_DOCS = (
@@ -88,9 +100,15 @@ def doc_files() -> list[Path]:
     return sorted(DOCS_ROOT.rglob("*.md"))
 
 
+def maintenance_files() -> list[Path]:
+    """The maintenance skill and the backlog."""
+    return sorted(REPO_ROOT.glob(MAINTENANCE_GLOB)) + [REPO_ROOT / BACKLOG]
+
+
 def linked_files() -> list[Path]:
-    """Every document whose links are checked: the tree, plus ROOT_DOCS."""
-    return [REPO_ROOT / name for name in ROOT_DOCS] + doc_files()
+    """Every document whose links are checked: the tree, plus ROOT_DOCS, the
+    maintenance skill and the backlog."""
+    return [REPO_ROOT / name for name in ROOT_DOCS] + maintenance_files() + doc_files()
 
 
 def user_docs() -> list[Path]:
@@ -131,6 +149,13 @@ def test_the_root_documents_are_link_checked():
     )
     for name in ROOT_DOCS:
         assert (REPO_ROOT / name).is_file(), f"{name} does not exist"
+    for name in (
+        ".agents/skills/knowledge-maintenance/SKILL.md",
+        ".agents/skills/knowledge-maintenance/templates/technique.md",
+        BACKLOG,
+    ):
+        assert (REPO_ROOT / name).is_file(), f"{name} does not exist"
+        assert (REPO_ROOT / name).resolve() in checked, f"{name} is not link-checked"
 
 
 def resolves_inside_the_repository(base: Path, target: str) -> bool:
@@ -153,7 +178,9 @@ def resolves_inside_the_repository(base: Path, target: str) -> bool:
     return resolve_link(base, target, REPO_ROOT) is not None
 
 
-@pytest.mark.parametrize("path", linked_files(), ids=lambda p: p.name)
+@pytest.mark.parametrize(
+    "path", linked_files(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
 def test_every_internal_link_resolves(path: Path):
     """Relative links point at files that exist, spelled as they are on disk.
 
@@ -163,6 +190,8 @@ def test_every_internal_link_resolves(path: Path):
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         for target in LINK_RE.findall(line):
             if target.startswith(EXTERNAL_PREFIXES) or target.startswith("#"):
+                continue
+            if PLACEHOLDER in target:
                 continue
             bare = target.split("#", 1)[0]
             if not resolves_inside_the_repository(path.parent, bare):

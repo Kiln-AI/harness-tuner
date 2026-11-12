@@ -28,7 +28,7 @@ changes knowledge documents also ends with
   playbook `output-contract-not-met`, smell `tool-search` (a smell with no
   code detector). `tests/test_knowledge.py` and
   `tests/test_knowledge_checks.py`. No prompt template changes yet.
-- [ ] Phase 2: The maintenance skill, the backlog and the repository rules.
+- [x] Phase 2: The maintenance skill, the backlog and the repository rules.
   `.agents/skills/knowledge-maintenance/` with its templates.
   `specs/backlog.md`, filled from section 7 of the V1 coverage document.
   The `.gitignore`, `.github/CONTRIBUTING.md` and root `AGENTS.md` changes.
