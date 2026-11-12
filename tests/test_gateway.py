@@ -964,6 +964,205 @@ class TestDocumentedShapes:
         code = _run(gateway, "get_tool_definition", id="kiln_tool::code::c1")
         assert code["definition"]["function_name"] == "kestrel"
 
+    def test_rag_configs_documents_and_search(self, tmp_path):
+        """A RAG search tool's config and what it retrieves, and the library
+        it indexes: the document's facts, not its file path."""
+        project = f"/api/projects/{PROJECT}"
+        rag = {
+            "id": "r1",
+            "name": "Handbook",
+            "tool_name": "search_handbook",
+            "tool_description": "Search the handbook.",
+            "is_archived": False,
+            "tags": ["handbook"],
+            "chunker_config": {
+                "name": "fixed",
+                "chunker_type": "fixed_window",
+                "properties": {
+                    "chunk_size": 512,
+                    "chunk_overlap": 64,
+                    "api_key": "SECRET",
+                    "auth_header": "SECRET",
+                },
+                "path": "/secret/path/chunker.kiln",
+            },
+            "embedding_config": {
+                "model_provider_name": "openai",
+                "model_name": "text-embedding-3-small",
+                "properties": {},
+            },
+            "reranker_config": None,
+        }
+        searches = []
+
+        def search(_query, body):
+            searches.append(body)
+            return {
+                "results": [
+                    {
+                        "document_id": "d1",
+                        "chunk_idx": 3,
+                        "chunk_text": "Returns take 30 days.",
+                        "similarity": 0.82,
+                    }
+                ]
+            }
+
+        routes = {
+            ("GET", f"{project}/rag_configs"): [rag],
+            ("GET", f"{project}/rag_configs/r1"): rag,
+            ("POST", f"{project}/rag_configs/r1/search"): search,
+            ("GET", f"{project}/documents"): [
+                {
+                    "id": "d1",
+                    "name": "handbook.pdf",
+                    "friendly_name": "Handbook",
+                    "description": "Policies",
+                    "kind": "document",
+                    "tags": ["handbook"],
+                    "path": "/Users/x/Kiln Projects/p/documents/d1/document.kiln",
+                    "original_file": {
+                        "filename": "handbook.pdf",
+                        "size": 2048,
+                        "mime_type": "application/pdf",
+                        "attachment": {"path": "/Users/x/secret.pdf"},
+                    },
+                }
+            ],
+        }
+        gateway, _ = _gateway(tmp_path, routes, role="analyze_experiment_results")
+        (listed,) = _run(gateway, "list_rag_configs")
+        assert listed["tool_name"] == "search_handbook"
+        assert listed["chunker"]["properties"]["chunk_size"] == 512
+        assert listed["embedding"]["model_name"] == "text-embedding-3-small"
+        assert listed["reranker"] is None
+        assert "/secret/path" not in json.dumps(listed)
+        assert "SECRET" not in json.dumps(listed)
+        one = _run(gateway, "get_rag_config", id="kiln_tool::rag::r1")
+        assert one["id"] == "r1"
+        (hit,) = _run(gateway, "rag_search", id="kiln_tool::rag::r1", query="returns")
+        assert hit["chunk_text"] == "Returns take 30 days." and searches == [
+            {"query": "returns"}
+        ]
+        (doc,) = _run(gateway, "list_documents")
+        assert doc == {
+            "id": "d1",
+            "name": "Handbook",
+            "description": "Policies",
+            "kind": "document",
+            "tags": ["handbook"],
+            "filename": "handbook.pdf",
+            "mime_type": "application/pdf",
+            "size": 2048,
+        }
+
+    def test_a_kiln_task_tool_shows_its_task_and_run_config_only(self, tmp_path):
+        """The task behind a `kiln_task::` tool and the run config it is
+        called with. Its runs and evals are never read: they can hold this
+        task's held-out items."""
+        project = f"/api/projects/{PROJECT}"
+        sub = f"{project}/tasks/t2"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9"): {
+                "id": "s9",
+                "type": "kiln_task",
+                "name": "triage",
+                "properties": {
+                    "task_id": "t2",
+                    "run_config_id": "rc7",
+                    "name": "triage",
+                    "description": "Triage a ticket.",
+                },
+            },
+            ("GET", sub): {
+                "id": "t2",
+                "name": "Triage",
+                "instruction": "Sort the ticket.",
+                "requirements": [],
+            },
+            ("GET", f"{sub}/run_configs"): [
+                {
+                    "id": "rc7",
+                    "name": "fast",
+                    "run_config_properties": {
+                        "model_name": "m",
+                        "model_provider_name": "p",
+                        "prompt_id": "id::p1",
+                    },
+                }
+            ],
+            ("GET", f"{sub}/gen_prompt/id::p1"): {
+                "prompt_id": "id::p1",
+                "prompt": "You triage tickets.",
+            },
+            ("GET", f"{project}/tool_servers/m1"): {
+                "id": "m1",
+                "type": "remote_mcp",
+                "properties": {"server_url": "https://x", "headers": {"k": "SECRET"}},
+            },
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="kiln_task::s9")
+        assert out["tool_id"] == "kiln_task::s9"
+        assert out["tool_description"] == "Triage a ticket."
+        assert out["task"]["instruction"] == "Sort the ticket."
+        assert out["run_config"]["id"] == "rc7"
+        assert out["prompt"]["prompt"] == "You triage tickets."
+        paths = [path for _m, path, *_ in kiln.calls]
+        assert not any("/runs" in p or "/evals" in p for p in paths)
+        # An MCP server is not a Kiln task tool, and its secrets stay out.
+        with pytest.raises(gw.GatewayError, match="not a Kiln task tool") as err:
+            _run(gateway, "get_kiln_task_tool", id="m1")
+        assert "SECRET" not in str(err.value)
+
+    @pytest.mark.parametrize(
+        "prompt_id, frozen",
+        [("few_shot_prompt_builder", None), ("id::p1", {"base_prompt": "Frozen."})],
+    )
+    def test_a_kiln_task_tool_renders_only_a_saved_prompt(
+        self, tmp_path, prompt_id, frozen
+    ):
+        """A generator builds its text from the called task's stored runs,
+        which can come from held-out drives: it is named, not rendered. A
+        frozen prompt is already on the run config: nothing is rendered."""
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "rc7"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [
+                {
+                    "id": "rc7",
+                    "run_config_properties": {"prompt_id": prompt_id},
+                    "prompt": frozen,
+                }
+            ],
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["prompt"] is None
+        assert not any("gen_prompt" in path for _m, path, *_ in kiln.calls)
+        if frozen is None:
+            assert "few_shot_prompt_builder" in out["note"]
+        else:
+            assert out["run_config"]["prompt"] is not None and out["note"] is None
+
+    def test_a_kiln_task_tool_with_a_missing_run_config_says_so(self, tmp_path):
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "gone"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [],
+        }
+        gateway, _ = _gateway(tmp_path, routes, role="probe")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["run_config"] is None and "gone" in out["note"]
+
     def test_statistics_accept_the_documented_nulls(self, tmp_path):
         routes = {("POST", "/api/statistics"): {"n": 1}}
         gateway, kiln = _gateway(tmp_path, routes, role="promote_best")
@@ -992,6 +1191,13 @@ class TestRoles:
         for role, ops in gw.ROLE_OPS.items():
             if role not in gw.VAL_READERS:
                 assert "get_val_summary" not in ops, role
+        # Every role that plans, builds, probes or analyses an arm can read
+        # every tool kind a run config attaches.
+        for role in ("batch_plan", "create_experiment_rc", "probe"):
+            assert set(gw._ARTIFACTS) <= set(gw.ROLE_OPS[role]), role
+        assert set(gw._ARTIFACTS) <= set(gw.ROLE_OPS["analyze_experiment_results"])
+        for reader in ("promote_best", "report_writer"):
+            assert not set(gw._TOOL_READS) & set(gw.ROLE_OPS[reader]), reader
 
     def test_an_operation_outside_the_role_is_refused(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, {}, role="batch_plan")

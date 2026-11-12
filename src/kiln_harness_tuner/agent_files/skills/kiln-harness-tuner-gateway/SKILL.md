@@ -181,6 +181,10 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 | `list_skills` / `get_skill` / `get_skill_content` | — / `id` / `id` | skills and their SKILL.md |
 | `archive_skill` | `id`, `archived?` | the archived skill |
 | `list_available_tools` / `get_tool_definition` | — / `id` | the tools a run config can attach: per set its `type`; per tool its id, name and `function_name`. An OpenEnv server's tools come as a set of `type` `openenv`, read from the running server; a server that does not answer has a `note` and no tools. `get_tool_definition` gives an OpenEnv tool's description and parameters too (from its server, not from Kiln) |
+| `list_rag_configs` / `get_rag_config` | — / `id` (the RAG config id or its `kiln_tool::rag::` tool id) | a RAG search tool's config: its tool name and description, the document tags it indexes, and each stage (extractor, chunker, embedding, vector store, reranker) with its model and settings |
+| `rag_search` | `id`, `query` | the chunks the RAG search tool returns for `query`: the same retrieval a model's call gets (one embedding call) |
+| `list_documents` | — | the project's document library: name, description, kind, tags, file name, type and size. Not the text: the text reaches you as `rag_search` chunks |
+| `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
 
@@ -217,10 +221,10 @@ shows the train items only. Read results with `get_train_results` after
 |---|---|
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
-| batch_plan | reading the task, reading the models, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads, memory |
+| batch_plan | reading the task, reading the models, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory |
 | create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
-| probe | reading the task, reading the models, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, `list_code_tools`, `list_skills`, memory (no update) |
-| analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, `get_code_tool`, `get_skill`, `get_skill_content`, memory |
+| probe | reading the task, reading the models, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, the artifact reads, memory (no update) |
+| analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, the artifact reads, memory |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |
 | eval_build | `get_task`, `list_run_configs`, reading the evals, `get_train_results`, memory, the eval-build operations, the code-tool writes |

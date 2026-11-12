@@ -348,6 +348,75 @@ class ToolDefinition(Out):
     definition: dict[str, Any] = {}
 
 
+class RagPart(Out):
+    """One stage of a RAG config: the extractor, chunker, embedding, vector
+    store or reranker."""
+
+    name: str | None = None
+    description: str | None = None
+    extractor_type: str | None = None
+    chunker_type: str | None = None
+    store_type: str | None = None
+    output_format: str | None = None
+    model_provider_name: str | None = None
+    model_name: str | None = None
+    top_n: int | None = None
+    properties: dict[str, Any] = {}
+
+
+class RagConfigView(Out):
+    """A RAG config, which a `kiln_tool::rag::<id>` search tool runs."""
+
+    id: str | None = None
+    name: str | None = None
+    description: str | None = None
+    tool_name: str | None = None
+    tool_description: str | None = None
+    is_archived: bool | None = None
+    # The document tags the config indexes; none means every document.
+    tags: list[str] | None = None
+    extractor: RagPart | None = None
+    chunker: RagPart | None = None
+    embedding: RagPart | None = None
+    vector_store: RagPart | None = None
+    reranker: RagPart | None = None
+
+
+class RagSearchResult(Out):
+    document_id: str | None = None
+    chunk_idx: int | None = None
+    chunk_text: str | None = None
+    similarity: float | None = None
+
+
+class DocumentView(Out):
+    """A document of the project's library: what it is, not its text. Its
+    text reaches an agent as the chunks a RAG search returns."""
+
+    id: str | None = None
+    name: str | None = None
+    description: str | None = None
+    kind: str | None = None
+    tags: list[str] = []
+    filename: str | None = None
+    mime_type: str | None = None
+    size: int | None = None
+
+
+class KilnTaskToolView(Out):
+    """A Kiln task attached as a tool (`kiln_task::<tool server id>`): the
+    task it calls and the run config it calls it with. Never the task's runs
+    or evals."""
+
+    tool_id: str | None = None
+    tool_name: str | None = None
+    tool_description: str | None = None
+    task: TaskView | None = None
+    run_config: RunConfigView | None = None
+    prompt: PromptText | None = None
+    note: str | None = None
+
+
 class Created(Out):
     id: str
     kind: str
@@ -390,6 +459,11 @@ class NoArgs(In):
 
 class ById(In):
     id: str = Id
+
+
+class RagSearchRequest(In):
+    id: str = Id  # the RAG config id, or its `kiln_tool::rag::<id>` tool id
+    query: str = Field(min_length=1, max_length=2000)
 
 
 class EvalConfigRef(In):
