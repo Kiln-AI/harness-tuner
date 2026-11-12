@@ -385,7 +385,33 @@ knowledge documents.
 
 ## 8. Priors
 
-No prior from the owner's separate research is in this document. The owner
-approves each line first. The approved lines are added to the technique and
-smell documents in the implementation, after each source is opened and its
-numbers are checked.
+**Approved by the owner on 2026-11-12.** Each line below is from a public
+source. Before a line is written into a document, the implementation opens
+the source and checks the numbers. A line whose numbers do not match the
+source is corrected or dropped.
+
+| # | Document | Line | Source |
+|---|---|---|---|
+| 1 | `remove-or-scope-tools` | From Vercel's d0 post, an analytics agent's 17 specialised tools were replaced by bash over a documented semantic layer: success went from 4 of 5 to 5 of 5 queries, 3.5x faster, with 37% fewer tokens. The author says it worked only because the semantic layer was already good documentation. | https://vercel.com/blog/we-removed-80-percent-of-our-agents-tools, 2025-12-22 |
+| 2 | `remove-or-scope-tools` | From GitHub's Copilot post, cutting the default toolset from 40 to 13 with routing improved success by 2 to 5 points on two coding benchmarks. | https://github.blog/ai-and-ml/github-copilot/how-were-making-github-copilot-smarter-with-fewer-tools/, 2025-11-19 |
+| 3 | `prune-one-group-at-a-time` | From Ramp's benchmarking post, an accounting agent's skills were loaded one at a time from a bare base: only two were positive on average, and cutting one skill by 64% kept its effect. | https://builders.ramp.com/post/stack-benchmarking, 2026-06-03 |
+| 4 | `policy-as-step-by-step-procedures` | From Quesma's post, rewriting a policy as step-by-step procedures for a small model on a telecom support benchmark raised the pass rate from 0.55 to 0.675. | https://quesma.com/blog/tau2-benchmark-improving-results-smaller-models, 2025-09-12 |
+| 5 | `attach-the-knowledge-source` | From LinkedIn's text-to-SQL paper, example queries took an analytics agent's correct-or-nearly-correct answers from 24% to 49% on 133 questions, and adding domain-knowledge records lowered it to 42%. | https://arxiv.org/html/2507.14372, 2025-07-18 |
+| 6 | `default-order-of-work` | From Nubank's support-agent paper, an agent that started with a knowledge tool and a human-transfer tool gained a routine from the operating procedures, domain tools and escalation, then tool hierarchies and conciseness budgets. | https://arxiv.org/abs/2606.08867, 2026-06-07 |
+| 7 | `unreliable-judge` | From Shopify's Sidekick post, calibrating LLM judges to human labels moved agreement (Cohen's kappa) from 0.02 to 0.61, against a human baseline of 0.69. | https://shopify.engineering/building-production-ready-agentic-systems, 2025-08-26 |
+| 8 | `unreliable-judge` | From Hex's data-agent post, on an eval with a near-miss trap (2.03% against 2.04%), the judge accepted the difference 35% of the time. | https://hex.tech/blog/evaluate-data-agents/, 2026-05-22 |
+| 9 | `expected-answers-are-wrong` | From Anthropic's agent-evals post, fixing rigid grading, ambiguous specs and a too-constrained scaffold took one model on an agent benchmark from 42% to 95%. | https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents, 2026-01-09 |
+| 10 | `thinking-level-ladder` | From LangChain's harness post, running the highest reasoning level everywhere scored 53.9% against 63.6% at "high", because of agent timeouts. | https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering, 2026-02-17 |
+| 11 | `model-swap-inside-a-class` | From Hex's Quick Edits post, a model with a pass rate about 1 point lower was adopted because it made 20% fewer wrong edits at half the cost. | https://hex.tech/blog/we-used-evals-to-improve-ai-feature, 2026-10-08 |
+| 12 | `skill-resource-not-read` | From Vercel's AGENTS.md post, a skill was never invoked in 56% of cases and the pass rate equalled the no-docs baseline (53%). An explicit trigger instruction raised it to 79%, and a compact index always in context reached 100%. | https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals, 2026-01-27 |
+| 13 | `skill-resource-not-read` | From a 2026 analysis of harness updating, one 32B model loaded its skills at a rate of 0.251 against 0.957 for a frontier model, and another model loaded at 0.961 but followed at only 0.350. | https://arxiv.org/html/2605.30621, 2026-05-28 |
+| 14 | `change-the-surface-not-the-words` | From a 2026 study of a customer-service tool agent, failures were clustered and each cluster sent to the prompt, a tool-boundary guard or both. Removing that routing cut the held-out gain from 14.9 to 5.4 points. | https://arxiv.org/html/2609.05736, 2026-09-09 |
+| 15 | `default-order-of-work` | From a 2026 study of a tool-using assistant, scheduling code and loop changes before text-only changes gave a test pass rate of 60.7 against 54.8 without that order. | https://arxiv.org/html/2608.23041, 2026-08-24 |
+| 16 | `state-the-output-contract` | From a study of six prompt optimisers with 20 training items, 49% of 72 runs scored below the unoptimised prompt, and every method won only on the one task where the output needed a format the model could produce but did not by default. | https://arxiv.org/html/2604.14585v1, 2026-04-16 |
+| 17 | `state-the-output-contract` | From Dropbox's relevance-judge post, a small open model returned malformed JSON in 358 of 856 responses, and prompt optimisation cut that to 9 of 856. | https://dropbox.tech/machine-learning/optimizing-dropbox-dash-relevance-judge-with-dspy, 2026-03-17 |
+| 18 | `dealing-with-train-wins-rejected-at-val` | From a 2026 study of a research agent, the gap between validation and held-out results ranged from 0.034 to 0.160 across three seeds, and reducing per-criterion feedback to one score made held-out transfer negative. | https://arxiv.org/abs/2610.12601, 2026-10-08 |
+| 19 | `model-swap-inside-a-class` | From a vendor study of eight environments, the best variant changed model in six of eight tasks. | https://www.tensorzero.com/blog/automated-ai-engineer/, 2026-03-23 |
+| 20 | `dealing-with-a-noisy-eval` | From a 2026 study of skill optimisation, 16% to 53% of tasks on a banking support benchmark gave mixed results over three tries. | https://arxiv.org/html/2610.25931, 2026-10-23 |
+
+**Not used.** Results from the owner's own runs that the separate research
+mentions are kept out for now, by the owner's decision of 2026-11-12.
