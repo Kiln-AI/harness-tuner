@@ -119,8 +119,8 @@ and persist or run nothing — check the field.
   Kiln task or RAG tool; do not guess its signature. Every callee must be in
   `tool_allowlist`:
   - Kiln accepts code-tool, MCP (remote and local), built-in, Kiln task,
-    RAG, memory and world tool ids (a world tool resolves only inside an
-    episode of its world). The allowlist hygiene rule above still applies
+    RAG, memory and OpenEnv tool ids (an OpenEnv tool resolves only inside an
+    episode of its OpenEnv server). The allowlist hygiene rule above still applies
     to every kind: never `kiln_tool::call_kiln_api`, and never a
     `kiln_tool::memory::…` tool, which reads and writes the project's
     memory store;

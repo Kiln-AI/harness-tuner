@@ -1,5 +1,5 @@
 """Drives through eval jobs: a multi-turn task, a run config
-with a world tool, or an item with a `world_reset` cannot run on the plain
+with an OpenEnv tool, or an item with an `openenv_reset` cannot run on the plain
 run endpoint, so its timing drives, probe drives and the gateway's
 `run_task` go through one-item eval jobs. Judge-free where the server has
 them, judged (with one log line) where it does not."""
@@ -23,7 +23,8 @@ from kiln_harness_tuner.job_drives import (
     EvalJobDriver,
     doc_needs_eval_job,
     driver_for,
-    lists_world_tool,
+    lists_openenv_tool,
+    openenv_tool_parts,
 )
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.latency import paired_drive_pass, split_inputs, timed_drives
@@ -31,7 +32,7 @@ from kiln_harness_tuner.orchestrator import orchestrate
 from kiln_harness_tuner.probes import drive_set, input_from_doc
 from kiln_harness_tuner.provider_errors import ProviderQuotaError
 
-WORLD_TOOL = "kiln_tool::world::424242500001::append_note"
+OPENENV_TOOL = "kiln_tool::openenv::424242500001::append_note"
 
 
 def _multi_turn_doc(item_id: str, tags: list[str], text: str) -> dict[str, Any]:
@@ -44,7 +45,7 @@ def _multi_turn_doc(item_id: str, tags: list[str], text: str) -> dict[str, Any]:
             "synthetic_user_info": {"persona": "a technician", "goal": "log it"},
             "drive_config": {"model_name": "m", "model_provider": "p", "turns": 3},
         },
-        "world_reset": {"world_id": "424242500001", "reset_kwargs": {}},
+        "openenv_reset": {"openenv_server_id": "424242500001", "reset_kwargs": {}},
     }
 
 
@@ -111,15 +112,15 @@ class TestInputs:
         assert inp.plaintext == "hello there" and inp.structured is None
         assert inp.multi_turn and inp.needs_eval_job
 
-    def test_a_single_turn_input_with_a_world_reset_needs_a_job(self):
+    def test_a_single_turn_input_with_an_openenv_reset_needs_a_job(self):
         doc = {
             "id": "b",
             "data": {"type": "single_turn", "user_message": {"text": "x"}},
-            "world_reset": {"world_id": "w", "reset_kwargs": {}},
+            "openenv_reset": {"openenv_server_id": "w", "reset_kwargs": {}},
         }
         inp = input_from_doc(doc)
         assert inp is not None and inp.needs_eval_job and not inp.multi_turn
-        del doc["world_reset"]
+        del doc["openenv_reset"]
         assert not doc_needs_eval_job(doc)
         assert not input_from_doc(doc).needs_eval_job  # type: ignore[union-attr]
 
@@ -132,10 +133,18 @@ class TestInputs:
         assert [i.id for i in inputs] == ["train0", "train1"]
         assert all(i.eval_id == "eval_1" and i.needs_eval_job for i in inputs)
 
-    def test_a_world_tool_is_named(self):
-        assert lists_world_tool({"tools_config": {"tools": [WORLD_TOOL]}})
-        assert not lists_world_tool({"tools_config": {"tools": ["kiln_tool::x"]}})
-        assert not lists_world_tool(None)
+    def test_an_openenv_tool_is_named(self):
+        assert lists_openenv_tool({"tools_config": {"tools": [OPENENV_TOOL]}})
+        assert not lists_openenv_tool({"tools_config": {"tools": ["kiln_tool::x"]}})
+        assert not lists_openenv_tool(None)
+        # The name Kiln used before v1.2.1 is not an OpenEnv tool.
+        old = "kiln_tool::world::424242500001::append_note"
+        assert not lists_openenv_tool({"tools_config": {"tools": [old]}})
+
+    def test_an_openenv_tool_id_splits_into_server_and_tool(self):
+        assert openenv_tool_parts(OPENENV_TOOL) == ("424242500001", "append_note")
+        assert openenv_tool_parts("kiln_tool::openenv::424242500001") is None
+        assert openenv_tool_parts("kiln_tool::code::1") is None
 
 
 # ------------------------------------------------------------ the driver
@@ -148,7 +157,7 @@ class TestTheDriver:
         kiln = FakeKiln()
         single = EvalJobDriver(kiln.call, "p1", "t1")
         assert not await single.needed([{"model_name": "m"}], [])
-        assert await single.needed([{"tools_config": {"tools": [WORLD_TOOL]}}], [])
+        assert await single.needed([{"tools_config": {"tools": [OPENENV_TOOL]}}], [])
         world_input = input_from_doc(_multi_turn_doc("a", ["train"], "hi"))
         assert await single.needed([{}], [world_input])
         kiln.task = {"id": "t1", "turn_mode": "multiturn"}

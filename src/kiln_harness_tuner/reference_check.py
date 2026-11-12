@@ -17,7 +17,7 @@ Two kinds of reference, each from a known set of names, never free text:
 - **a tool.** The prompt, or the text of an attached skill, names a tool
   function that the PARENT attaches and the candidate does not: the build
   detached it or renamed it, and the text still names it. A code tool is
-  named by its `tool_function_name`; a world, MCP or built-in tool by the
+  named by its `tool_function_name`; an OpenEnv, MCP or built-in tool by the
   last `::` part of its id.
 
 **Only what the build introduced is reported.** A skill reference that the
@@ -194,7 +194,7 @@ def project_skills(project_path: str | Path) -> ProjectSkills:
 def tool_function_name(tool_id: str, rc: RcText | None = None) -> str | None:
     """The name the model calls a tool by: a code tool's
     `tool_function_name` (from `rc`'s read code tools), else the last `::`
-    part of a world, MCP or built-in tool id. None for a skill, for a code
+    part of an OpenEnv, MCP or built-in tool id. None for a skill, for a code
     tool that `rc` did not read, and for a name that is only digits."""
     if tool_id.startswith(SKILL_TOOL_PREFIX):
         return None

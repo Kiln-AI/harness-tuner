@@ -180,7 +180,7 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 | `archive_code_tool` | `id`, `archived?` | the archived tool |
 | `list_skills` / `get_skill` / `get_skill_content` | — / `id` / `id` | skills and their SKILL.md |
 | `archive_skill` | `id`, `archived?` | the archived skill |
-| `list_available_tools` / `get_tool_definition` | — / `id` | the tools a run config can attach: per set its `type`; per tool its id, name and `function_name` |
+| `list_available_tools` / `get_tool_definition` | — / `id` | the tools a run config can attach: per set its `type`; per tool its id, name and `function_name`. An OpenEnv server's tools come as a set of `type` `openenv`, read from the running server; a server that does not answer has a `note` and no tools. `get_tool_definition` gives an OpenEnv tool's description and parameters too (from its server, not from Kiln) |
 
 A skill is installed with the skill installer tool, not the gateway.
 

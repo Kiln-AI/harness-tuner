@@ -21,7 +21,7 @@ the longest inputs.
 Train items are read from the project ON DISK (the studio server has no
 eval-input listing route): `<project>/tasks/<task_id> - */eval_inputs/*/
 eval_input.kiln`, filtered by the tag an active eval's train split names.
-A multi-turn input, or one with a `world_reset`, is driven through an eval
+A multi-turn input, or one with an `openenv_reset`, is driven through an eval
 job (`kiln_harness_tuner.job_drives`); every other input through `POST …/run`.
 """
 
@@ -86,7 +86,7 @@ _NO_QUALITY = " — moved, direction says nothing about quality; measure it as a
 class TrainInput:
     """One drivable eval input. For a multi-turn input, `plaintext` is the
     opening user message. `needs_eval_job`: only an eval job can drive it
-    (multi-turn, or a `world_reset`). `eval_id`: the eval the loader found
+    (multi-turn, or an `openenv_reset`). `eval_id`: the eval the loader found
     it in, when it read the evals' splits."""
 
     id: str

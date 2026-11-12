@@ -23,6 +23,7 @@ from kiln_harness_tuner.gateway import hook
 from kiln_harness_tuner.gateway import ops as gw
 from kiln_harness_tuner.gateway.server import POLICY_FILE, create_server, load_policy
 from kiln_harness_tuner.gateway.trainset import TrainSet, TrainSetError, compute
+from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.quarantine import QuarantineError
 
@@ -865,6 +866,7 @@ class TestDocumentedShapes:
                     "tools": [{"id": "t1", "name": "T", "function_name": "kestrel"}],
                 }
             ],
+            ("GET", f"/api/projects/{PROJECT}/openenv_servers"): [],
         }
         gateway, _ = _gateway(tmp_path, routes)
         (model,) = _run(gateway, "list_available_models")
@@ -872,6 +874,87 @@ class TestDocumentedShapes:
         (tool_set,) = _run(gateway, "list_available_tools")
         assert tool_set["type"] == "code"
         assert tool_set["tools"][0]["function_name"] == "kestrel"
+
+    def test_openenv_tools_are_listed_from_their_servers(self, tmp_path):
+        """Kiln's `available_tools` leaves out the tools an OpenEnv server
+        serves: it knows them only during an episode. The gateway asks each
+        server, and a server that does not answer gets a note."""
+        servers = f"/api/projects/{PROJECT}/openenv_servers"
+
+        def down(_query, _body):
+            raise KilnAPIError("GET", f"{servers}/s2/tools", 502, "connection refused")
+
+        routes = {
+            ("GET", f"/api/projects/{PROJECT}/available_tools"): [],
+            ("GET", servers): [
+                {"id": "s1", "name": "Depot", "url": "http://localhost:8000"},
+                {"id": "s2", "name": "Down", "url": "http://localhost:8001"},
+            ],
+            ("GET", f"{servers}/s1/tools"): [
+                {
+                    "tool_id": "kiln_tool::openenv::s1::append_note",
+                    "name": "append_note",
+                    "description": "Add a note to a ticket.",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+            ("GET", f"{servers}/s2/tools"): down,
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        depot, down_set = _run(gateway, "list_available_tools")
+        assert depot["type"] == "openenv" and depot["set_name"] == "Depot"
+        (tool,) = depot["tools"]
+        assert tool["id"] == "kiln_tool::openenv::s1::append_note"
+        assert tool["function_name"] == "append_note"
+        assert tool["description"] == "Add a note to a ticket."
+        assert down_set["tools"] == [] and "connection refused" in down_set["note"]
+
+    def test_a_kiln_without_openenv_servers_lists_its_tools_as_before(self, tmp_path):
+        def missing(_query, _body):
+            raise KilnAPIError("GET", "openenv_servers", 404, "Not Found")
+
+        routes = {
+            ("GET", f"/api/projects/{PROJECT}/available_tools"): [
+                {"type": "code", "set_name": "Code tools", "tools": []}
+            ],
+            ("GET", f"/api/projects/{PROJECT}/openenv_servers"): missing,
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        assert [s["type"] for s in _run(gateway, "list_available_tools")] == ["code"]
+
+    def test_an_openenv_tool_definition_comes_from_its_server(self, tmp_path):
+        """Kiln's definition endpoint answers 404 for an OpenEnv tool outside
+        an episode, so the gateway reads it from the server's tool list."""
+        tools = f"/api/projects/{PROJECT}/openenv_servers/s1/tools"
+        routes = {
+            ("GET", tools): [
+                {
+                    "tool_id": "kiln_tool::openenv::s1::append_note",
+                    "name": "append_note",
+                    "description": "Add a note to a ticket.",
+                    "input_schema": {"properties": {"text": {"type": "string"}}},
+                }
+            ],
+            ("GET", f"{BASE}/tools/kiln_tool::code::c1/definition"): {
+                "function_name": "kestrel"
+            },
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        out = _run(
+            gateway, "get_tool_definition", id="kiln_tool::openenv::s1::append_note"
+        )
+        assert out["definition"] == {
+            "tool_id": "kiln_tool::openenv::s1::append_note",
+            "function_name": "append_note",
+            "description": "Add a note to a ticket.",
+            "parameters": {"properties": {"text": {"type": "string"}}},
+        }
+        assert all("/definition" not in path for _m, path, *_ in kiln.calls)
+        with pytest.raises(gw.GatewayError, match="it serves: append_note"):
+            _run(gateway, "get_tool_definition", id="kiln_tool::openenv::s1::nope")
+        # Any other tool: Kiln's own definition endpoint, as before.
+        code = _run(gateway, "get_tool_definition", id="kiln_tool::code::c1")
+        assert code["definition"]["function_name"] == "kestrel"
 
     def test_statistics_accept_the_documented_nulls(self, tmp_path):
         routes = {("POST", "/api/statistics"): {"n": 1}}

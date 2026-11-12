@@ -168,7 +168,7 @@ Then:
    baseline's stored train rows do not cover an active eval's train split
    (`--coverage-floor`), code measures it on the full split; under the speed
    objective it also times the baseline judge-free on the fixed speed
-   sample. On a multi-turn task, or a task in a world
+   sample. On a multi-turn task, or a task with an OpenEnv server
    ([your-own-task.md](your-own-task.md) section 1.6), each timing drive is
    a one-item eval job (section 16, **Drives through eval jobs**). Both
    objectives: the planner needs the eval sizes, and the first
@@ -1077,7 +1077,7 @@ directory.
      the run's model policy (`--model-policy`, or the `--models keep` pin;
      section 17); a drive (`run_task`) runs a saved config on ONE train
      item and takes the input from the item, never from the agent — on a
-     multi-turn or world task as a one-item TRAIN eval job (section 16); an eval
+     multi-turn or OpenEnv task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
      the two scopes, and the `val` tag is code's. A new eval
      (`create_eval`) gets splits the gateway assigns; its val and test
@@ -1199,7 +1199,7 @@ src/kiln_harness_tuner/
                     model, read by code
   measure.py        the one measurement engine: queue, chunks, stop rules
   job_drives.py     drives through one-item eval jobs, for multi-turn and
-                    world tasks
+                    OpenEnv tasks
   stop_rules.py     the engine's stop rules and their tests
   estimate.py       the stratified estimate of a candidate's net change
   viability.py      screening rounds (N candidates through the engine)
@@ -1349,10 +1349,10 @@ no verdict. The spread (p75 − p25) is reported beside both arms.
 **Drives through eval jobs**
 ([`job_drives.py`](../src/kiln_harness_tuner/job_drives.py)). A drive normally uses
 `POST …/tasks/{t}/run`. That endpoint runs one input once: it starts no
-world episode and no simulated user. So `EvalJobDriver.needed` sends a
+OpenEnv episode and no simulated user. So `EvalJobDriver.needed` sends a
 drive through an eval job when the task's `turn_mode` is `multiturn`, when
-a run config of the drive lists a world tool (`kiln_tool::world::…`), or
-when an input has a `world_reset`. The route covers the three drive paths:
+a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`), or
+when an input has an `openenv_reset`. The route covers the three drive paths:
 `timed_drives` (the baseline timing, the timing chunks, the val gate's
 pass), the code probes (`probes.drive_set`), and the gateway's `run_task`.
 

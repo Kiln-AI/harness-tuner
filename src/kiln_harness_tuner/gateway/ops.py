@@ -36,7 +36,8 @@ from pydantic import BaseModel
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import EvalJobDriver
+from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
 
 Call = Callable[..., Awaitable[Any]]
@@ -885,9 +886,80 @@ class Gateway:
                 tools=[m.project(m.ToolView, t) for t in _rows(s.get("tools"))],
             )
             for s in _rows(response)
-        ]
+        ] + await self._openenv_tool_sets()
+
+    async def _openenv_tool_sets(self) -> list[m.ToolSetView]:
+        """One set per OpenEnv server of the project, with the tools its
+        environment serves. Kiln's `available_tools` leaves them out: it
+        knows them only while an episode runs. So each server is asked, and
+        one that does not answer gets a note, not an error."""
+        try:
+            servers = _rows(await self.call("GET", f"{self.s.project}/openenv_servers"))
+        except KilnAPIError as exc:
+            if exc.status_code in (404, 405):  # a Kiln with no OpenEnv servers
+                return []
+            raise
+        sets = []
+        for server in servers:
+            name = str(server.get("name") or server.get("id"))
+            try:
+                tools = await self._openenv_tools(str(server.get("id")))
+            except KilnAPIError as exc:
+                sets.append(
+                    m.ToolSetView(
+                        type="openenv",
+                        set_name=name,
+                        note=f"the OpenEnv server did not list its tools: {exc.body!r}"[
+                            :500
+                        ],
+                    )
+                )
+                continue
+            sets.append(
+                m.ToolSetView(
+                    type="openenv",
+                    set_name=name,
+                    tools=[
+                        m.ToolView(
+                            id=t.get("tool_id"),
+                            name=t.get("name"),
+                            description=t.get("description"),
+                            function_name=t.get("name"),
+                        )
+                        for t in tools
+                    ],
+                )
+            )
+        return sets
+
+    async def _openenv_tools(self, server_id: str) -> list[dict[str, Any]]:
+        """The tools the OpenEnv server's environment serves, read fresh from
+        the running server (Kiln asks it; no episode starts)."""
+        path = f"{self.s.project}/openenv_servers/{server_id}/tools"
+        return _rows(await self.call("GET", path))
 
     async def get_tool_definition(self, req: m.ById) -> m.ToolDefinition:
+        parts = openenv_tool_parts(req.id)
+        if parts is not None:
+            # Kiln's definition endpoint answers "not found" for an OpenEnv
+            # tool outside an episode, so the server itself is asked.
+            server_id, tool_name = parts
+            tools = await self._openenv_tools(server_id)
+            tool = next((t for t in tools if t.get("name") == tool_name), None)
+            if tool is None:
+                served = ", ".join(sorted(str(t.get("name")) for t in tools))
+                raise GatewayError(
+                    f"OpenEnv server {server_id} serves no tool named"
+                    f" {tool_name!r}; it serves: {served or 'no tools'}"
+                )
+            return m.ToolDefinition(
+                definition={
+                    "tool_id": req.id,
+                    "function_name": tool_name,
+                    "description": tool.get("description") or "",
+                    "parameters": tool.get("input_schema") or {},
+                }
+            )
         row = await self.call("GET", f"{self.s.base}/tools/{req.id}/definition")
         return m.ToolDefinition(definition=row if isinstance(row, dict) else {})
 
@@ -925,9 +997,9 @@ class Gateway:
         """Drive a saved run config on ONE train item. The input comes from
         the item itself, never from the caller.
 
-        A multi-turn task, a run config with a world tool, or an item with a
-        `world_reset` is driven as a one-item TRAIN eval job
-        (`kiln_harness_tuner.job_drives`): the run endpoint starts no world episode
+        A multi-turn task, a run config with an OpenEnv tool, or an item with
+        an `openenv_reset` is driven as a one-item TRAIN eval job
+        (`kiln_harness_tuner.job_drives`): the run endpoint starts no OpenEnv episode
         and no simulated user. That task run is the job's trace, so it
         carries no caller tags."""
         _tags_ok(req.tags, self.s)

@@ -1,13 +1,13 @@
 """Drives through eval jobs.
 
 The plain run endpoint (`POST …/tasks/{t}/run`) runs one input once. It
-starts no world episode and no simulated user. So it cannot drive:
+starts no OpenEnv episode and no simulated user. So it cannot drive:
 
 - a multi-turn task (the task's `turn_mode` is `multiturn`);
-- a run config that lists a world tool (`kiln_tool::world::…`);
-- an item whose input carries a `world_reset`.
+- a run config that lists an OpenEnv tool (`kiln_tool::openenv::…`);
+- an item whose input carries an `openenv_reset`.
 
-There, the world tools fail and the conversation does not start. An eval
+There, the OpenEnv tools fail and the conversation does not start. An eval
 job drives such an item correctly: it starts an episode for the item, runs
 the synthetic user, and saves the trace as a task run with its `usage`.
 
@@ -47,10 +47,12 @@ from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 
 logger = logging.getLogger(__name__)
 
-WORLD_TOOL_PREFIX = "kiln_tool::world::"
+# A tool an OpenEnv server serves: `kiln_tool::openenv::<server id>::<tool>`.
+# Kiln resolves it only while an episode of that server is running.
+OPENENV_TOOL_PREFIX = "kiln_tool::openenv::"
 MULTI_TURN_MODE = "multiturn"
 # The longest one drive may take, end to end: a multi-turn conversation in a
-# world runs several model calls and several tool calls. The server's
+# OpenEnv episode runs several model calls and several tool calls. The server's
 # `POST /api/jobs/wait` caps one wait at an hour.
 JOB_DRIVE_TIMEOUT_SECS = 1800.0
 JOB_DRIVE_WAIT_MARGIN_SECS = 30.0
@@ -61,19 +63,28 @@ Call = Callable[..., Awaitable[Any]]
 Slot = Callable[[], contextlib.AbstractAsyncContextManager[None]]
 
 
-def lists_world_tool(props: Mapping[str, Any] | None) -> bool:
-    """Does this run config's tool list name a world tool?"""
+def openenv_tool_parts(tool_id: str) -> tuple[str, str] | None:
+    """(server id, tool name) of an OpenEnv tool id, or None for any other
+    tool id."""
+    if not tool_id.startswith(OPENENV_TOOL_PREFIX):
+        return None
+    server_id, sep, name = tool_id.removeprefix(OPENENV_TOOL_PREFIX).partition("::")
+    return (server_id, name) if sep and server_id and name else None
+
+
+def lists_openenv_tool(props: Mapping[str, Any] | None) -> bool:
+    """Does this run config's tool list name an OpenEnv tool?"""
     tools_config = props.get("tools_config") if isinstance(props, Mapping) else None
     tools = tools_config.get("tools") if isinstance(tools_config, Mapping) else None
     return any(
-        isinstance(t, str) and t.startswith(WORLD_TOOL_PREFIX) for t in tools or []
+        isinstance(t, str) and t.startswith(OPENENV_TOOL_PREFIX) for t in tools or []
     )
 
 
 def doc_needs_eval_job(doc: Mapping[str, Any]) -> bool:
     """Does this eval input record need an eval job to drive it: a
-    multi-turn input, or one with a `world_reset`?"""
-    if doc.get("world_reset"):
+    multi-turn input, or one with an `openenv_reset`?"""
+    if doc.get("openenv_reset"):
         return True
     data = doc.get("data")
     if isinstance(data, str):
@@ -205,9 +216,9 @@ class EvalJobDriver:
         self, props: Iterable[Mapping[str, Any] | None], inputs: Iterable[Any]
     ) -> bool:
         """Must these drives go through eval jobs? Yes when the task is
-        multi-turn, when one run config lists a world tool, or when one
+        multi-turn, when one run config lists an OpenEnv tool, or when one
         input needs an eval job (`TrainInput.needs_eval_job`)."""
-        if any(lists_world_tool(p) for p in props):
+        if any(lists_openenv_tool(p) for p in props):
             return True
         if any(getattr(i, "needs_eval_job", False) for i in inputs):
             return True
