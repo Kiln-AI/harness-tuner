@@ -296,7 +296,7 @@ skill enforces them, and the tests check what a test can check.
 - Each technique states its cost class and whether it fits a small budget.
 - Each playbook states how its order changes with the budget, if it does.
 - One playbook covers the order of work by budget size: for example, on a
-  small budget pick a model from the model guide and start; on a large
+  small budget pick a model with the model tools and start; on a large
   budget a model scan first, and a settings scan last, become reasonable.
 - The planner must be able to read the run's budget and the cost of the
   evals. If its input does not carry these today, that is a finding for the
