@@ -31,22 +31,20 @@ specs/backlog.md          the backlog
   CLIs find a repository's skills. Claude Code does not read it, so the
   root `AGENTS.md`, which `CLAUDE.md` loads, points to the skill by path
   (section 6).
-- **`.gitignore` changes.** Today `/.agents/` is ignored, from the time when
-  a run was made inside this repository and
+- **`.gitignore` changes.** The line `/.agents/` is removed, with the part
+  of the comment above it that names it. The rule is from the time when a
+  run was made inside this repository and
   `harness-tuner-install-agents --dest .` wrote the loop skills there. The
-  line `/.agents/` is replaced by two lines, so that the maintenance skill
-  is tracked and a `--dest .` install of the loop skills beside it stays out
-  of `git status`:
-
-  ```
-  /.agents/skills/*
-  !/.agents/skills/knowledge-maintenance/
-  ```
-
-  The lines for `/.claude/skills/`, `/.claude/settings.json` and
-  `/.mcp.json` stay. The comment above them is updated.
-- `harness-tuner-install-agents --dest .` copies each loop skill folder. It
-  does not remove other folders, so it does not touch this skill.
+  lines for `/.claude/skills/`, `/.claude/settings.json` and `/.mcp.json`
+  stay: a person's own Claude Code settings do not belong in the
+  repository.
+- **`.github/CONTRIBUTING.md` changes.** The setup step "To use the skills in
+  your own agent CLI while you work here", with its command
+  `harness-tuner-install-agents --agent-cli claude --dest .` and the
+  paragraph after it, is removed. An install of the loop skills goes into a
+  new, clean folder, not into the root of this repository. The sentence
+  that the root `AGENTS.md` is the contributor guide for agent sessions is
+  kept.
 - `ruff` already excludes `.agents/skills/**`.
 - The skill is outside `src/`, so it is not in the wheel and no loop agent
   can read it.
@@ -280,8 +278,8 @@ case study before it is committed, unless it is clearly public.
 - `test_the_maintenance_skill_is_inside_its_line_limit`
 - `test_the_maintenance_skill_names_the_build_and_check_commands`
 - `test_agents_md_points_to_the_maintenance_skill`
-- `test_the_maintenance_skill_is_tracked_and_other_agent_skills_are_ignored`
-  (reads `.gitignore`)
+- `test_the_maintenance_skill_is_not_git_ignored` (reads `.gitignore`)
+- `test_contributing_does_not_install_into_the_repository_root`
 
 `tests/test_docs.py`: `.agents/skills/knowledge-maintenance/**/*.md` and
 `specs/backlog.md` are added to the files whose internal links are checked.

@@ -96,9 +96,12 @@ system: a technique cannot name a lever that has no document.
 ### 2.6 The maintenance skill is in `.agents/skills/`
 
 `.agents/skills/knowledge-maintenance/`, with its templates. The
-`.gitignore` rule for `/.agents/` is narrowed so that this one skill is
-tracked. The root `AGENTS.md` points to it, because Claude Code does not
-read `.agents/skills/`. The backlog is `specs/backlog.md`.
+`.gitignore` rule for `/.agents/` is removed, and so is the step in
+`.github/CONTRIBUTING.md` that installs the loop skills into the root of
+this repository: such an install goes into a new, clean folder. The root
+`AGENTS.md` points to the skill, because Claude Code does not read
+`.agents/skills/`. The backlog is `specs/backlog.md`, in the planning area,
+because people read and rank it.
 
 ### 2.7 Smell detection has one call site
 
@@ -155,7 +158,8 @@ src/kiln_harness_tuner/
   SKILL.md                        the maintenance skill
   templates/                      one template per component type
 specs/backlog.md                  the backlog
-.gitignore                        changed: the maintenance skill is tracked
+.gitignore                        changed: the /.agents/ rule is removed
+.github/CONTRIBUTING.md           changed: no install into the repository root
 AGENTS.md                         changed: the working rule, the pointer to the skill
 docs/                             changed: agents.md, architecture.md, how-it-works.md, cli.md
 tests/
@@ -231,14 +235,3 @@ The implementation plan sets the phases. The dependencies are:
    templates. This needs 1 and 2, and the V1 coverage phase decides it.
 4. The smell detectors. This needs the smell documents of 3.
 5. The baseline reviewer. This needs 4.
-
-## 8. Open points for the owner
-
-1. **The backlog's place.** `specs/backlog.md`, outside the skill folder,
-   because people read and rank it
-   ([components/maintenance_skill.md](./components/maintenance_skill.md),
-   section 2).
-2. **The `.gitignore` change.** `/.agents/` is narrowed, not removed, so
-   that a `--dest .` install of the loop skills beside the maintenance skill
-   stays out of `git status`. `.github/CONTRIBUTING.md` still tells a
-   contributor to run that install.
