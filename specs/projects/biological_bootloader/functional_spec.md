@@ -27,18 +27,24 @@ large improvement to the tuner. It is the base for later improvement.
 1. A knowledge system made of components (capabilities, techniques,
    playbooks) that the planner and the experiment builder read.
 2. A design in which a new technique is one file plus a few edits.
-3. A maintenance skill for the coding agents that work on this repository,
-   so that additions keep the system's quality and rules.
+3. A maintenance skill for the coding agents that work on this repository.
+   It is the way to add to the knowledge system, change it and audit it:
+   it gives the agent the templates, the placement rules and the checks, so
+   that each change keeps the system's quality.
 4. Automated tests that keep the structure correct.
 5. A pluggable red-flag framework in code, with two detectors.
-6. A model guide generated from Kiln's model list.
-7. Pending lists for each component type, for later projects.
+6. Model and provider tools for the loop agents, with data derived from
+   Kiln's model list.
+7. A backlog: one document, with a fixed format, that tracks the known gaps
+   and the pending ideas. A to-do list is part of a system that can be
+   maintained.
 
 ### 1.2 Not in this project
 
 - **Gateway and API work.** No new gateway operation. Capabilities that the
   tuner cannot reach today (RAG, sub-agents, worlds and others) get an entry
-  on a pending list, not a capability document. See `kiln_gaps.md`.
+  in the backlog, not a capability document. The one exception is the model
+  and provider tools (section 13.1). See `kiln_gaps.md`.
 - **A change to the promotion gate.** See section 8.
 - **Proof that the knowledge improves convergence.** The chief scientist
   tests V1 after this project. This project makes that test possible.
@@ -58,9 +64,9 @@ large improvement to the tuner. It is the base for later improvement.
 | Technique | A guide to one specific optimisation. |
 | Playbook | Guidance centred on one goal or one situation. It links to techniques. |
 | Prior | One real case in which a technique was used. |
-| Pending list | A list of ideas for one component type that are not written yet. |
+| Backlog | The one document that lists the known gaps and the ideas that are not written yet. |
 | Red flag | A fact about the harness or its traces that code finds, and that points to a playbook. |
-| Maintenance skill | The skill that guides a coding agent that edits the knowledge system. |
+| Maintenance skill | The skill a coding agent uses to add to, change and audit the knowledge system. |
 | Planner | The batch-selection agent. |
 | Builder | The experiment-build agent. |
 
@@ -77,10 +83,17 @@ that the count in `lever_attempts` still works. See open question 1.
 
 | Reader | Reads | Entry point |
 |---|---|---|
-| Planner | Playbooks and techniques | Its own entry file |
+| Planner | Playbooks and techniques, and the catalogue of common issues | Its own entry file |
 | Builder | Techniques and capabilities | Its own entry file |
-| Other loop agents (analyzer, promoter, reviewers, probe, report writer) | Nothing from the knowledge system | — |
+| Analyzer | The catalogue of common issues, so that it can name one when it reads traces. Not every issue can be found by code. | Its own entry file |
+| Promoter | Only the guidance for a tie (section 8) | Given in its input, for the candidates at hand |
+| Report writer | Playbooks, techniques and priors, where they help it explain the run | Its own entry file |
+| Probe, reviewers, eval roles | Nothing from the knowledge system | — |
 | Coding agents and people who maintain the system | Everything, plus the maintenance skill | The maintenance skill |
+
+The probe answers one yes/no question that the planner asks. It does not
+look for problems, so it does not read the catalogue. The component type for
+common issues, and its name, are open (section 16).
 
 - Each reading role has its own first file. The index and the
   progressive-disclosure path of each entry file fit that role. The planner
@@ -99,11 +112,16 @@ states what each one must hold.
 ### 4.1 Common to every component
 
 - A title and a one-line description. Both have length limits.
-- A component type.
 - A **last-reviewed date**.
 - Text that follows the content rules in section 6.
-- A location and a file name that follow one fixed convention.
+- A location and a file name that follow one fixed convention. **The path
+  gives the component type.** The file does not repeat it.
 - A path from an entry file (section 5).
+- **Sub-files, when it needs them.** A component can have its own reference
+  files, in a directory beside it with the same name without `.md`. Example:
+  a technique for agent-friendly API documents can carry reference files.
+  The primary document is responsible for the disclosure of its sub-files
+  and for the links to them.
 
 ### 4.2 Capability
 
@@ -173,10 +191,10 @@ It must hold:
   condition under which it applies;
 - what to do first, and what not to do yet ("if X is broken, do not
   optimise Y");
-- how the order changes with the budget.
+- how the order changes with the budget, if it does.
 
-Playbooks hold the opinions about order. They are few, and a small group
-owns them.
+Playbooks hold the opinions about order. There are fewer playbooks than
+techniques. A small group owns them, by informal agreement.
 
 ### 4.5 Priors
 
@@ -199,14 +217,21 @@ The three components are not the whole system. Process guidance, tips and
 the two guides in section 10 also have a place. The architecture gives each
 one a location and a path from an entry file.
 
-### 4.7 Pending lists
+### 4.7 The backlog
 
-- One pending list for each component type, plus one for red-flag detectors.
-- An entry is short: a title, one or two lines, and a source if there is
-  one.
-- An entry needs no debate to be added.
-- Loop agents do not read the pending lists.
-- The lists are in the repository, outside the files that loop agents load.
+- **One document.** It is the one place to debate the next change with the
+  highest leverage.
+- It holds two kinds of entry:
+  - **a gap**: something Kiln or the tuner cannot do yet (for example the
+    tuner cannot create a sub-agent);
+  - **a pending idea**: a technique, playbook, capability or detector that
+    is not written yet.
+- **A fixed format** for each entry: a title, the kind, one or two lines, a
+  source if there is one, and what it depends on.
+- An entry needs no debate to be added. Its rank does.
+- Loop agents do not read the backlog. It is in the repository, outside the
+  files that loop agents load.
+- `kiln_gaps.md` in this spec folder is the first source of the gap entries.
 
 ## 5. Navigation
 
@@ -237,16 +262,20 @@ skill enforces them, and the tests check what a test can check.
 
 1. **Experiments decide.** No document states a rule of the form "you must
    do X". A document says what to try, in what order, and under which
-   conditions. A measured result is final.
+   conditions. A measured result is final. A tie can be settled from the
+   knowledge, or from intuition.
 2. **State conditions, not defaults.** The research found a measured case
    where each "almost always" claim loses. A recommendation states the
    condition under which it holds.
 3. **State confidence** (section 4.3).
 4. **Date the guidance.** This field changes each month.
-5. **The cost-of-learning line.** A fact about the current moment that the
-   loop learns cheaply from one failed call does not go in. Example: a
-   provider rejects a non-default temperature. The knowledge is for what is
-   expensive to learn by experiment.
+5. **The cost of learning against the cost of maintenance.** A large base
+   of facts is hard to maintain. A fact about one model, or about one point
+   in time, goes out of date quickly. If the loop learns a lesson easily,
+   let it learn it. Example: a provider rejects a non-default temperature,
+   and one failed call shows it. If a lesson is expensive to learn, save
+   it. Be careful with anything that has a high maintenance cost and is
+   likely to go out of date.
 6. **Nothing from the target.** No measurement, lever advice or lesson that
    comes from the run's own target or from the moderation demo. This is the
    existing rule, and it stays.
@@ -265,7 +294,7 @@ skill enforces them, and the tests check what a test can check.
 - Budget awareness is knowledge. This project does not change how the loop
   computes or enforces a budget.
 - Each technique states its cost class and whether it fits a small budget.
-- Each playbook states how its order changes with the budget.
+- Each playbook states how its order changes with the budget, if it does.
 - One playbook covers the order of work by budget size: for example, on a
   small budget pick a model from the model guide and start; on a large
   budget a model scan first, and a settings scan last, become reasonable.
@@ -282,7 +311,7 @@ skill enforces them, and the tests check what a test can check.
 - So in V1 this guidance has a limited effect: the planner can use it to
   decide whether an arm is worth a slot, and the report can state it. It
   cannot promote a "better design, same eval" change.
-- A follow-up project changes the gate. It goes on a pending list.
+- A follow-up project changes the gate. It goes on the backlog.
 
 ## 9. The existing lever ladder
 
@@ -320,7 +349,7 @@ first.
 | "Read this post and add this approach" | Find the right component type and level. Check for an existing technique that covers it. Add or extend. |
 | "We learned a lesson, record this" | Add a prior to the right technique, under the approval rule. Change the confidence text if the lesson justifies it. |
 | Add a technique, playbook or capability | Start from the template. Fill every required part. Add the links. Rebuild the indexes. Run the tests. |
-| Add an idea for later | Add an entry to the right pending list. |
+| Add an idea or a gap for later | Add an entry to the backlog, in the fixed format. |
 | A technique went out of fashion | Change its "when to use" and each playbook that suggests it. Do not delete it. |
 | Audit | Check documents against the schema and the content rules, and report. |
 
@@ -335,7 +364,10 @@ first.
   state when to use each. The decision is recorded in the documents.
 - **Approval before commit** for a prior that is not clearly public.
 - **Playbooks are owned.** A change to a playbook needs the owners. A change
-  to a technique or a capability does not.
+  to a technique or a capability does not. The ownership is informal: there
+  is no CODEOWNERS file.
+- **Run the generator and the tests.** Each change ends with the indexes
+  rebuilt and the tests passed.
 - **Reasons stay with rules.** The research found that an instruction file
   grows without limit unless the reason is written next to each rule.
 
@@ -357,7 +389,7 @@ The tests are part of the offline suite. They need no server and no model.
 - Each technique names lever kinds that exist in the code.
 - Each playbook links to techniques that exist.
 - Each capability names gateway operations that exist.
-- The pending lists have the required format.
+- The backlog has the required format.
 
 A test cannot check the content rules that need judgement (conditions,
 confidence, the approval rule). The maintenance skill's audit covers those.
@@ -382,38 +414,46 @@ so that an LLM does not have to find it.
 - **Delivery.** The planner gets the flags before wave 1, with the results
   of the setup reconnaissance. The run report lists them.
 - **A flag does not block the run.** The playbook says what to do first.
-- **Two detectors in V1:**
+- **Detectors in V1:**
   - **Very long prompt.** The system prompt is over a size limit.
-  - **Very old model.** The baseline model has a newer model in the same
-    line. This detector needs the model data of section 13.1.
+  - One more that is as easy, chosen in the V1 coverage phase.
+  - **Very old model** moves to the backlog. It needs model data.
 - **Thresholds** are named values in one place, each with its source. The
   research found no measured optimum, only the product limits of agent
   vendors. Each threshold is therefore a default that can change.
-- **A pending list** holds the detectors for later (large tool results, long
+- **The backlog** holds the detectors for later (a very old model, large tool results, long
   tool descriptions, an almost empty skill, too many skills, too many tools,
   repeated calls and others).
 - This work is a later phase of the implementation plan.
 
 ## 13. Other deliverables
 
-### 13.1 The model guide
+### 13.1 Model and provider tools
 
-- The guide of "the best models for the job" is **generated** from Kiln's
-  model list, which Kiln already publishes over the air.
-- This repository fetches the list and generates the text that the planner
-  reads. The text is generated for the run. It is not a file in
-  `agent_files/`.
-- If the fetch fails, the run uses the copy that came with the installed
-  Kiln or with the package, and says so in the log.
-- The model policy still applies. The guide never suggests a model that the
+The data is dynamic, so the loop agents get it from **tools**, not from a
+written guide.
+
+- **Source.** Kiln's model list (`ml_model_list.py`), which Kiln already
+  publishes over the air. Both the model data and the provider data are
+  derived from it.
+- **Model tools.** One tool lists models, with filters (for example by cost
+  class, by speed, by task fit). One tool gives the details of one model.
+  The exact names and filters are for the architecture step.
+- **Provider tools.** A new concept, built the same way: which providers
+  serve a model, and what is known about each (for example speed, and
+  whether it offers zero data retention).
+- If the fetch of the list fails, the run uses the copy that came with the
+  installed Kiln or with the package, and says so in the log.
+- The model policy still applies. A tool never returns a model that the
   policy does not allow.
 - Kiln's model file may need new fields. Those are changes in the Kiln
-  repository. This spec lists them in the architecture step, and this
-  project depends on them.
+  repository. The architecture step lists them, and this project depends on
+  them.
 - Benefits: a publishing channel that does not need a PyPI release, and an
   existing skill that maintains the file.
+- The stable guidance about how to choose a model (lock a model class, tune,
+  scan again) is knowledge, and goes in playbooks and techniques.
 - This work is a later phase of the implementation plan.
-- The provider guide is open question 3.
 
 ### 13.2 The `AGENTS.md` working rule
 
@@ -432,7 +472,7 @@ an earlier run never go in `agent_files/`. The new rule:
 
 **The V1 coverage phase** comes after the architecture and before the
 implementation plan. It decides which components V1 contains and what goes
-on the pending lists. The owner supplies a separate research report at the
+in the backlog. The owner supplies a separate research report at the
 start of that phase. The report seeds the lists. It is not committed.
 
 What this spec fixes now:
@@ -440,12 +480,12 @@ What this spec fixes now:
 - **Capabilities:** one document for each thing the tuner changes today:
   the system prompt, skills, code tools and tool wrappers, tool attachment,
   the model and provider, and the model settings (thinking level, sampling
-  settings, structured-output mode). Nothing for what the tuner cannot
-  reach.
+  settings). Nothing for what the tuner cannot reach. Input transforms and
+  the structured-output mode go in the backlog.
 - **Playbooks and techniques:** at least everything the lever ladder holds
   today (section 9), and enough new ones to exercise each kind of playbook
   and each part of the technique schema. The coverage phase names them.
-- **Pending lists:** seeded from the overview, the owner's notes, the
+- **The backlog:** seeded from the overview, the owner's notes, the
   research and `kiln_gaps.md`.
 
 ## 15. Acceptance
@@ -460,26 +500,23 @@ What this spec fixes now:
    of its rows has a place in the new system.
 4. Each structural rule in section 11 has a test. A deliberate violation of
    each rule fails its test.
-5. A run on the demo project shows the red flags in the planner's input and
-   in the report, when the baseline has a very long prompt or a very old
-   model.
-6. A run generates the model guide from Kiln's list, and falls back when the
-   fetch fails.
+5. A run on the demo project shows the red flag in the planner's input and
+   in the report, when the baseline has a very long prompt.
+6. A loop agent lists models and reads the details of one, from data derived
+   from Kiln's list. The tools fall back when the fetch fails.
 7. `AGENTS.md` has the new rule.
 8. The repository checks pass: `pytest`, `ruff check`, `ruff format --check`.
 
 ## 16. Open questions
 
-1. **The name collision.** Keep the code field `technique` as it is and call
-   it the "lever kind" in the knowledge system (proposed), or rename the
-   field in code in this project?
-2. **Playbook owners.** Who owns the playbooks, and is the ownership
-   enforced (for example with a CODEOWNERS file) or only stated?
-3. **The provider guide.** Is it generated from the same Kiln list as the
-   model guide, written by hand as techniques ("speed with Groq or
-   Cerebras"), or both?
-4. **Input transforms and structured-output mode.** The tuner can set both
-   today, but only because the run config passes through, and no skill
-   teaches them. Do they get capability documents in V1 (proposed: yes,
-   since the tuner can change them), or wait for the project that makes them
-   first-class?
+1. **The component set and its names.** Under discussion with the owner:
+   improvements to the capability, technique and playbook design, the new
+   component type for common issues and its name, and the name collision
+   with the code field `technique` (section 2). Sections 2 to 5 change when
+   this is settled.
+2. **A change that does not move the evals.** Whether this project changes
+   how a tie is promoted (section 8). Under discussion.
+
+Settled: playbook ownership is informal (section 10). The provider data is
+derived from Kiln's model list (section 13.1). Input transforms and the
+structured-output mode go in the backlog (section 14).
