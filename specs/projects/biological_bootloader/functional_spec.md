@@ -33,11 +33,9 @@ large improvement to the tuner. It is the base for later improvement.
    that each change keeps the system's quality.
 4. Automated tests that keep the structure correct.
 5. Smell detection with a clear order: a pluggable framework for smell
-   detectors in code, with two detectors, and a new agent that reviews the
+   detectors in code, with three detectors, and a new agent that reviews the
    baseline at the start of a run.
-6. Model and provider tools for the loop agents, with data derived from
-   Kiln's model list.
-7. A backlog: one document, with a fixed format, that tracks the known gaps
+6. A backlog: one document, with a fixed format, that tracks the known gaps
    and the pending ideas. A to-do list is part of a system that can be
    maintained.
 
@@ -45,10 +43,12 @@ large improvement to the tuner. It is the base for later improvement.
 
 - **Gateway and API work.** No new gateway operation. Things the tuner
   cannot change today (RAG, sub-agents, worlds and others) get an entry in
-  the backlog, not a lever document. The one exception is the model
-  and provider tools (section 13.1). See `kiln_gaps.md`.
-- **A general change to the promotion gate.** Only the narrow tie rule of
-  section 8 is in, and it can move to a new project.
+  the backlog, not a lever document.
+- **Model and provider tools.** A separate project:
+  [model-provider-info](../model-provider-info/project_overview.md).
+- **Any change to the promotion gate**, the tie rule included. A separate
+  project: [tie-promotion](../tie-promotion/project_overview.md). See
+  section 8.
 - **Proof that the knowledge improves convergence.** The chief scientist
   tests V1 after this project. This project makes that test possible.
 - **The casebook.** It starts in parallel, outside this repository.
@@ -84,11 +84,11 @@ and others). That field names the kind of surface an experiment changes, so
 it is a **lever kind**, not a technique in the sense of this spec.
 
 - The component is named **lever**, to agree with the code.
-- There is one lever document for each lever kind in the code. A test
-  checks it.
-- Each technique document states the lever kinds it uses, so that the count
-  in `lever_attempts` still works.
-- This project does not rename the code field. The rename goes in the
+- A lever document is named after the lever: `prompt`, `skill` and so on.
+  Those are the names the planner writes in the `technique` field.
+- Each technique document states the levers it uses, by those names, so
+  that the count in `lever_attempts` and the documents use the same words.
+- This project does not change the code field. The rename goes in the
   backlog.
 
 ## 3. Readers
@@ -99,9 +99,8 @@ it is a **lever kind**, not a technique in the sense of this spec.
 | Builder | Techniques and levers | Its own entry file |
 | Baseline reviewer | Smells. It is the main reader of the smell catalogue. | Its own entry file |
 | Analyzer | Smells, so that it can name one that it sees in a candidate's traces. This is secondary. | Its own entry file |
-| Promoter | Only the guidance for a tie (section 8) | Given in its input, for the candidates at hand |
 | Report writer | Playbooks, techniques and priors, where they help it explain the run | Its own entry file |
-| Probe, reviewers, eval roles | Nothing from the knowledge system | — |
+| Promoter, probe, reviewers, eval roles | Nothing from the knowledge system | — |
 | Coding agents and people who maintain the system | Everything, plus the maintenance skill | The maintenance skill |
 
 The probe answers one yes/no question that the planner asks. It does not
@@ -151,7 +150,6 @@ It must hold:
 - how the tuner creates and changes it: the gateway operations, the rules of
   the object (for example "a skill is immutable; a change is a new version"),
   and the limits;
-- the lever kind in the code that it documents;
 - links to the existing how-to material (for example the code-tool authoring
   skill), without a copy of it.
 
@@ -353,7 +351,7 @@ skill enforces them, and the tests check what a test can check.
 - Each technique states its cost class and whether it fits a small budget.
 - Each playbook states how its order changes with the budget, if it does.
 - One playbook covers the order of work by budget size: for example, on a
-  small budget pick a model with the model tools and start; on a large
+  small budget pick a reasonable model and start; on a large
   budget a model scan first, and a settings scan last, become reasonable.
 - The planner must be able to read the run's budget and the cost of the
   evals. If its input does not carry these today, that is a finding for the
@@ -361,35 +359,17 @@ skill enforces them, and the tests check what a test can check.
 
 ## 8. A change that does not move the evals
 
-Each technique states what to do when it does not move an eval
-(section 4.3). Today the gate promotes a candidate only when held-out data
-shows an improvement, so that guidance cannot yet change a promotion.
-
-**In this project: knowledge settles a tie, never a loss.**
-
-- When validation shows that a candidate is not worse than the baseline on
-  any eval, on cost or on latency, and its technique says "keep it, it is a
-  better design", the candidate can be promoted.
-- Code decides "not worse". The promoter does not judge it.
-- The promoter gets the technique's guidance in its input, for the
-  candidates at hand.
-- The report marks the promotion as made on design grounds.
-
-**Stretch goal: very close, inside the variance.** A regression of 0.5% for
-a large improvement to the architecture is noise. The tie rule extends to a
-candidate whose difference from the baseline is inside the measured
-variance.
-
-**This part can move to a new project.** The architecture step reads the
-gate code and sizes the change. If it is too large, or it weakens the
-guarantee that the test score is a true measure, this section becomes a
-backlog entry and the rest of the project does not depend on it. The first
-rule of the gate does not change in either case: a candidate that is worse
-on held-out data is not promoted.
-
-**Risk.** A series of promotions with no eval evidence can move the
-baseline a long way. The "not worse" test in code, and the mark in the
-report, limit that.
+- Each technique states what to do when it does not move an eval
+  (section 4.3).
+- **The promotion gate does not change in this project.** A candidate
+  becomes the baseline only when held-out data confirms it.
+- So in V1 this guidance is knowledge only. The planner can use it to decide
+  whether an arm is worth a slot, and the report can state it. It cannot
+  promote a "better design, same eval" change.
+- The rule "knowledge settles a tie, never a loss", with its stretch goal
+  (a difference inside the variance), is a separate project:
+  [tie-promotion](../tie-promotion/project_overview.md). The architecture
+  step found it too large for this one. The backlog has the entry.
 
 ## 9. The existing lever ladder
 
@@ -467,7 +447,7 @@ The tests are part of the offline suite. They need no server and no model.
 - Each technique names lever kinds that exist in the code.
 - Each playbook links to techniques that exist.
 - Each lever names gateway operations that exist.
-- Each lever kind in the code has one lever document.
+- Each lever that a technique names has a lever document.
 - Each smell has at least one remedy, and each remedy link resolves.
 - Each smell that names a code detector names one that exists, and each
   code detector names a smell that exists.
@@ -554,8 +534,11 @@ detected. It is not a different kind of thing, and it has no other name.
   what to do first.
 - **Detectors in V1:**
   - **Very long prompt.** The system prompt is over a size limit.
-  - One more that is as easy, chosen in the V1 coverage phase.
+  - **Very long tool description.**
+  - **Very long skill description.**
   - **Very old model** moves to the backlog. It needs model data.
+  - A very long tool name and a very long skill name are not detectors.
+    Kiln limits both names to 64 characters, so neither can occur.
 - **Thresholds** are named values in one place, each with its source. The
   research found no measured optimum, only the product limits of agent
   vendors. Each threshold is therefore a default that can change.
@@ -568,30 +551,11 @@ detected. It is not a different kind of thing, and it has no other name.
 
 ### 13.1 Model and provider tools
 
-The data is dynamic, so the loop agents get it from **tools**, not from a
-written guide.
-
-- **Source.** Kiln's model list (`ml_model_list.py`), which Kiln already
-  publishes over the air. Both the model data and the provider data are
-  derived from it.
-- **Model tools.** One tool lists models, with filters (for example by cost
-  class, by speed, by task fit). One tool gives the details of one model.
-  The exact names and filters are for the architecture step.
-- **Provider tools.** A new concept, built the same way: which providers
-  serve a model, and what is known about each (for example speed, and
-  whether it offers zero data retention).
-- If the fetch of the list fails, the run uses the copy that came with the
-  installed Kiln or with the package, and says so in the log.
-- The model policy still applies. A tool never returns a model that the
-  policy does not allow.
-- Kiln's model file may need new fields. Those are changes in the Kiln
-  repository. The architecture step lists them, and this project depends on
-  them.
-- Benefits: a publishing channel that does not need a PyPI release, and an
-  existing skill that maintains the file.
-- The stable guidance about how to choose a model (lock a model class, tune,
-  scan again) is knowledge, and goes in playbooks and techniques.
-- This work is a later phase of the implementation plan.
+Moved to a separate project:
+[model-provider-info](../model-provider-info/project_overview.md). The
+backlog has the entry. In this project, the guidance about how to choose a
+model (lock a model class, tune, scan again) is knowledge, and goes in
+playbooks and techniques.
 
 ### 13.2 The `AGENTS.md` working rule
 
@@ -644,10 +608,8 @@ What this spec fixes now:
    promotion. The smells it finds are issues that name the smell, and the
    planner's next plan can read them. A run in which the review fails goes
    on and reports it.
-7. A loop agent lists models and reads the details of one, from data derived
-   from Kiln's list. The tools fall back when the fetch fails.
-8. `AGENTS.md` has the new rule.
-9. The repository checks pass: `pytest`, `ruff check`, `ruff format --check`.
+7. `AGENTS.md` has the new rule.
+8. The repository checks pass: `pytest`, `ruff check`, `ruff format --check`.
 
 ## 16. Open questions
 
@@ -656,8 +618,7 @@ None. Decisions made in review:
 - The components are lever, technique, playbook and smell (section 2).
 - A new agent, the baseline reviewer, is in this project (section 12.2).
 - Playbook ownership is informal (section 10).
-- The provider data is derived from Kiln's model list (section 13.1).
+- The model and provider tools are a separate project (section 13.1).
 - Input transforms and the structured-output mode go in the backlog
   (section 14).
-- The tie rule is in this project, and can move to a new project if the
-  architecture step finds it too large (section 8).
+- The tie rule is a separate project (section 8).

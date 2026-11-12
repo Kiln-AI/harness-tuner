@@ -1,8 +1,10 @@
----
-status: draft
----
+# Design notes: model and provider tools
 
-# Component: Model and provider tools
+**Not approved.** Written on 2026-11-12 as a component design of the
+`biological_bootloader` project, before this work was split out. Read
+[project_overview.md](./project_overview.md) first: some of this is
+replaced by the decisions there, and section 4 of that document (an existing
+tool in another repository) can change most of it.
 
 ## 1. Purpose and scope
 

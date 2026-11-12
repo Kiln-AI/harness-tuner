@@ -17,30 +17,46 @@ them. It does not repeat them.
 ## 2. Files
 
 ```
-maintainers/
-  README.md                 one paragraph: what this directory is
-  knowledge/
-    SKILL.md                the maintenance skill
-    templates/
-      lever.md
-      technique.md
-      playbook.md
-      smell.md
-    BACKLOG.md
+.agents/skills/knowledge-maintenance/
+  SKILL.md                the maintenance skill
+  templates/
+    lever.md
+    technique.md
+    playbook.md
+    smell.md
+specs/backlog.md          the backlog
 ```
 
-- `maintainers/` is outside `src/`, so it is not in the wheel and no loop
-  agent can read it.
-- `SKILL.md` has the front matter of an agent skill (`name`,
-  `description`), so an agent CLI that supports skills can load it by path.
-  Its use does not depend on that: the root `AGENTS.md` tells every coding
-  agent to read it before a change to the knowledge system.
-- Pseudo-code in these files is fenced without a language, as the
-  repository rule requires. `ruff` does not exclude this directory.
+- **`.agents/skills/`** is the place where Codex, OpenCode and other agent
+  CLIs find a repository's skills. Claude Code does not read it, so the
+  root `AGENTS.md`, which `CLAUDE.md` loads, points to the skill by path
+  (section 6).
+- **`.gitignore` changes.** Today `/.agents/` is ignored, from the time when
+  a run was made inside this repository and
+  `harness-tuner-install-agents --dest .` wrote the loop skills there. The
+  line `/.agents/` is replaced by two lines, so that the maintenance skill
+  is tracked and a `--dest .` install of the loop skills beside it stays out
+  of `git status`:
+
+  ```
+  /.agents/skills/*
+  !/.agents/skills/knowledge-maintenance/
+  ```
+
+  The lines for `/.claude/skills/`, `/.claude/settings.json` and
+  `/.mcp.json` stay. The comment above them is updated.
+- `harness-tuner-install-agents --dest .` copies each loop skill folder. It
+  does not remove other folders, so it does not touch this skill.
+- `ruff` already excludes `.agents/skills/**`.
+- The skill is outside `src/`, so it is not in the wheel and no loop agent
+  can read it.
+- **The backlog is in `specs/`**, the planning area of the repository, and
+  not inside the skill folder. People read and rank it, and a hidden folder
+  is a poor place for that.
 
 ## 3. The maintenance skill
 
-`maintainers/knowledge/SKILL.md`. Maximum 500 lines. It is written in
+`.agents/skills/knowledge-maintenance/SKILL.md`. Maximum 500 lines. It is written in
 Simplified Technical English, and each rule has its reason beside it.
 
 ### 3.1 Contents, in order
@@ -66,7 +82,7 @@ Simplified Technical English, and each rule has its reason beside it.
 | "Read this post and add this approach" | 1. Read the source. 2. State in one sentence what the approach changes. 3. Search the techniques for one that covers it. 4. If one covers it, extend that technique: add to `When to use`, `How` or `Priors`. 5. If none does, add a technique. 6. Decide if a playbook or a smell must link to it (placement rules). 7. Finish. |
 | "We learned a lesson, record this" | 1. Find the technique. 2. Apply the approval rule. 3. Add a prior. 4. Change `Confidence` only if this lesson changes it, and say why in the commit message. 5. Finish. |
 | Add a technique, playbook, smell or lever | 1. Copy the template to the right directory, with the id as the file name. 2. Fill every required part. 3. Add the links in and out. 4. Finish. |
-| Add an idea or a gap for later | Add an entry to `BACKLOG.md`, at the end, in the fixed format. Do not rank it. |
+| Add an idea or a gap for later | Add an entry to `specs/backlog.md`, at the end, in the fixed format. Do not rank it. |
 | A technique went out of fashion | 1. Set `status: dormant`, or narrow `When to use`. 2. Change each playbook and smell that links to it. 3. Do not delete the file. 4. Finish. |
 | Audit | Section 3.7. |
 
@@ -156,7 +172,8 @@ The audit changes nothing. It returns a list.
 
 ## 4. Templates
 
-One file for each component type, in `maintainers/knowledge/templates/`.
+One file for each component type, in
+`.agents/skills/knowledge-maintenance/templates/`.
 Each is a valid document of its type once its placeholders are filled: the
 front matter keys in order, each required heading, and one line of guidance
 under each heading in an HTML comment, which the author removes.
@@ -167,7 +184,7 @@ out of step with the schema.
 
 ## 5. The backlog
 
-`maintainers/knowledge/BACKLOG.md`.
+`specs/backlog.md`.
 
 ### 5.1 Format
 
@@ -204,10 +221,15 @@ out of step with the schema.
 ### 5.2 First contents
 
 The V1 coverage phase fills it. The sources are `kiln_gaps.md`, the
-overview, the owner's notes, the research summary, and the items this spec
-moved out: the tie rule, the rename of the code field `technique`, the
-"very old model" detector, input transforms and the structured-output mode
-as levers, and the detectors of smells in the process of a run.
+overview, the owner's notes, the research summary, the owner's separate
+research report, and the items this spec moved out:
+
+- the project [model-provider-info](../../model-provider-info/project_overview.md);
+- the project [tie-promotion](../../tie-promotion/project_overview.md);
+- the "very old model" detector, which waits for the first of those;
+- input transforms and the structured-output mode as levers;
+- the detectors of smells in the process of a run;
+- the rename of the code field `technique` to `lever`.
 
 ## 6. `AGENTS.md` and `CONTRIBUTING.md`
 
@@ -225,11 +247,11 @@ findings go in the state folder's `reports/`.
 `agent_files/skills/kiln-harness-tuner-knowledge/` holds what is known
 about how to improve an agent: field knowledge, public sources, our own
 synthetic experiments and anonymised cases from other projects. Read
-`maintainers/knowledge/SKILL.md` before you change it. A person approves a
+`.agents/skills/knowledge-maintenance/SKILL.md` before you change it. A person approves a
 case study before it is committed, unless it is clearly public.
 ```
 
-- The "Layout" block of `AGENTS.md` gets a line for `maintainers/`.
+- The "Layout" block of `AGENTS.md` gets a line for `.agents/skills/`.
 - The sentence in the section on the moderation example that refers to the
   working rule is kept, because the first rule still gives the reason.
 - `.github/CONTRIBUTING.md`: the guideline "Do not put measured results,
@@ -239,8 +261,8 @@ case study before it is committed, unless it is clearly public.
 ## 7. Dependencies
 
 - Uses: the `knowledge` package (its command line and its checks).
-- Used by: coding agents and people. No code imports anything from
-  `maintainers/`.
+- Used by: coding agents and people. No code imports anything from the
+  skill.
 
 ## 8. Test plan
 
@@ -258,10 +280,11 @@ case study before it is committed, unless it is clearly public.
 - `test_the_maintenance_skill_is_inside_its_line_limit`
 - `test_the_maintenance_skill_names_the_build_and_check_commands`
 - `test_agents_md_points_to_the_maintenance_skill`
-- `test_maintainers_is_not_in_the_wheel` (in the packaging smoke test)
+- `test_the_maintenance_skill_is_tracked_and_other_agent_skills_are_ignored`
+  (reads `.gitignore`)
 
-`tests/test_docs.py`: `maintainers/**/*.md` is added to the files whose
-internal links are checked.
+`tests/test_docs.py`: `.agents/skills/knowledge-maintenance/**/*.md` and
+`specs/backlog.md` are added to the files whose internal links are checked.
 
 The behaviour of an agent that uses the skill (acceptance 1 and 2 of the
 functional spec: it adds a technique as one file, and it stops on a

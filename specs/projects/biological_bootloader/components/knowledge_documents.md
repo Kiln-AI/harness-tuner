@@ -40,10 +40,12 @@ src/kiln_harness_tuner/agent_files/skills/kiln-harness-tuner-knowledge/
 - **Sub-files.** A component of any type can have a directory beside it with
   its id as the name. Only Markdown files go there. The primary document
   links to each one and says when to read it.
-- **`SKILL.md`** has the front matter that every skill has (`name`,
-  `description`) and a short body: what the knowledge system is, the golden
-  rule, and a table from role to entry file. Its `name` equals the folder
-  name, as an existing test requires.
+- **`SKILL.md`** is required, as for every skill. It has the front matter
+  that every skill has (`name`, `description`) and a short body: what the
+  knowledge system is, the golden rule, and a table from role to entry
+  file with one line on each. Its `name` equals the folder name, as an
+  existing test requires. A role's prompt template names its entry file
+  directly, so an agent does not depend on `SKILL.md` to find it.
 - The baseline reviewer and the analyzer need the same list, so they share
   one entry file, `smells.md`.
 
@@ -80,11 +82,18 @@ that shape does not matter. The list is the constant `TASK_SHAPES`.
 
 ### 3.3 Lever (`levers/`)
 
+**The id of a lever document is the lever's name**, for example
+`levers/prompt.md`. It is the short name that the planner writes in the
+`technique` field of an experiment (`prompt`, `skill`, `tool_config`,
+`new_tool`, `params`), so that the count in `lever_attempts` and the lever
+documents use the same words. This is a convention in the documents. No
+code constant lists the levers, and no test holds the code to the
+documents: `FixWork.technique` stays a free string.
+
 Front matter, in addition to the common keys:
 
 | Key | Type | Rule |
 |---|---|---|
-| `lever_kind` | string | One of `CORE_LEVER_KINDS`. No two lever documents have the same kind. |
 | `gateway_ops` | list of strings | Each is an operation in `gateway.ops.OPS`. Can be empty. |
 
 Required sections:
@@ -107,7 +116,7 @@ Front matter, in addition to the common keys:
 | Key | Type | Rule |
 |---|---|---|
 | `status` | string | `active` or `dormant` |
-| `levers` | list of strings | One or more of `CORE_LEVER_KINDS` |
+| `levers` | list of strings | One or more ids of lever documents |
 | `applies_to` | see 3.2 | |
 | `cost` | string | `low`, `medium` or `high`: the cost to build and measure it, compared with a prompt edit |
 
@@ -130,8 +139,8 @@ Maximum size: 12,000 characters. A sub-file: 20,000 characters.
 
 Checks on the body:
 
-- The `How` section links to the lever document of each kind in `levers`,
-  and to no lever document of a kind that is not in `levers`.
+- The `How` section links to each lever document in `levers`, and to no
+  other lever document.
 - Each link in `Alternatives` points to a file in `techniques/`.
 
 `cost` is an enum because an index sorts and filters on it. Confidence is
@@ -271,7 +280,7 @@ PRIOR_SOURCES = ("public", "own experiment", "anonymised")
 
 class CommonMeta(BaseModel, extra="forbid"):
     title: str; description: str; reviewed: date
-class LeverMeta(CommonMeta): lever_kind: str; gateway_ops: list[str] = []
+class LeverMeta(CommonMeta): gateway_ops: list[str] = []
 class TechniqueMeta(CommonMeta):
     status: Literal["active", "dormant"]; levers: list[str]
     applies_to: Literal["all"] | list[str]; cost: Literal["low", "medium", "high"]
@@ -280,16 +289,6 @@ class SmellMeta(CommonMeta):
     applies_to: Literal["all"] | list[str]
     detected_by: list[Literal["code", "agent"]]; detectors: list[str] = []
 ```
-
-`CORE_LEVER_KINDS` is defined in `kiln_harness_tuner/schemas.py`, beside
-`FixWork`, and imported here:
-
-```
-CORE_LEVER_KINDS = ("prompt", "skill", "tool_config", "new_tool", "params", "model")
-```
-
-`model` is new as a name. Today a model swap has no fixed lever name. The
-planner's skill is changed to list it with the others.
 
 ### 6.2 `load.py`
 
@@ -337,10 +336,10 @@ def load(root: Path | None = None) -> KnowledgeBase
 @dataclass(frozen=True)
 class Problem: rule: str; path: str; message: str
 
-def check(kb: KnowledgeBase, *, lever_kinds, gateway_ops, detectors) -> list[Problem]
+def check(kb: KnowledgeBase, *, gateway_ops, detectors) -> list[Problem]
 ```
 
-The caller passes the three code-side sets, so the function is pure and the
+The caller passes the two code-side sets, so the function is pure and the
 tests can pass small sets. `detectors` is a mapping from detector id to
 smell id.
 
@@ -354,9 +353,9 @@ smell id.
 | `link` | Each internal link resolves |
 | `reachable` | Each file is reachable from a root |
 | `depth` | Each file is inside `MAX_DEPTH` |
-| `lever-kind` | Each lever names a core kind, each core kind has one lever, each technique's `levers` are core kinds |
+| `technique-lever-ids` | Each value in a technique's `levers` is the id of a lever document |
 | `lever-ops` | Each `gateway_ops` value is a gateway operation |
-| `technique-levers` | The `How` section links the lever documents of `levers`, and only those |
+| `technique-lever-links` | The `How` section links the lever documents of `levers`, and only those |
 | `technique-stance` | `If it does not move the evals` starts with one of the three phrases |
 | `technique-priors` | Each prior has a valid `Source:` |
 | `alternatives` | Each link in `Alternatives` is a technique |
@@ -409,12 +408,13 @@ uv run python -m kiln_harness_tuner.knowledge build
 - **The planner's skill** keeps its process. Step 1 points to the planner
   entry file in place of the ladder. The rule that counts attempts by
   `lever_attempts` stays there.
-- **The planner's skill** lists the six core lever kinds.
+- **The planner's skill** says that the short name in `technique` is the id
+  of a lever document where one exists.
 
 ## 8. Dependencies
 
-- Uses: PyYAML, Pydantic, `gateway.ops.OPS`, `schemas.CORE_LEVER_KINDS`, the
-  detector registry of `smells`.
+- Uses: PyYAML, Pydantic, `gateway.ops.OPS`, the detector registry of
+  `smells`.
 - Used by: the tests, the maintenance skill, and `smells` at run time (the
   list of smell ids).
 
@@ -430,7 +430,6 @@ mapping, so the two packages do not depend on each other in a circle.
 - `test_each_role_template_names_its_entry_file`
 - `test_each_entry_file_exists_and_has_its_blocks`
 - `test_the_lever_ladder_file_is_gone_and_nothing_names_it`
-- `test_the_planner_skill_lists_the_core_lever_kinds`
 - `test_the_knowledge_skill_installs_for_each_agent_cli`
 
 `tests/test_knowledge_checks.py` — one small tree for each rule, built by a

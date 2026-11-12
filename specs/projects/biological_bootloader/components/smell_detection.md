@@ -11,8 +11,8 @@ agent that reviews the baseline, the way a found smell reaches the planner
 and the report, and the one step in the loop that runs them.
 
 Not in this component: the smell documents themselves
-([knowledge_documents.md](./knowledge_documents.md)), and which detectors
-and smells V1 has beyond the two named here (the V1 coverage phase).
+([knowledge_documents.md](./knowledge_documents.md)), and which smells V1
+has beyond those the detectors here name (the V1 coverage phase).
 
 ## 2. The data model
 
@@ -70,7 +70,7 @@ class BaselineReview(BaseModel):
 ```
 
 **A detection states a fact.** `fact` gives the count and the rule, for
-example "The system prompt has 52,340 characters. The reference is 40,000."
+example "The system prompt has 240,310 characters. The reference is 200,000."
 It holds no word of judgement or blame. This agrees with the rule of
 `analysis.py`: code computes numbers, and agents interpret them. The word
 "smell" is a pointer to a document, not a verdict on this run.
@@ -90,7 +90,8 @@ run.py             run_detectors, the adapters, ensure_baseline_reviewed
 detectors/
   __init__.py      DETECTORS: the registration
   long_prompt.py
-  <second>.py      chosen in the V1 coverage phase
+  long_tool_description.py
+  long_skill_description.py
 ```
 
 ### 3.1 The interface
@@ -128,10 +129,18 @@ comment that gives its source. The research found no measured optimum, so
 each value is a default that can change.
 
 ```
-LONG_PROMPT_CHARS = 40_000
-# No published limit for a system prompt. About 10,000 tokens. A house
-# default: above this, a move of part of the prompt into a skill is worth
-# an experiment.
+LONG_PROMPT_CHARS = 200_000
+# No published limit for a system prompt. A house default, set by the
+# project owner: about 50,000 tokens.
+
+LONG_TOOL_DESCRIPTION_CHARS = 4_096
+# Claude Code cuts a tool description at this length when the tool loads
+# up front (Claude Code documentation, read 2026-11-10).
+
+LONG_SKILL_DESCRIPTION_CHARS = 1_024
+# The maximum length of a skill description in the Agent Skills
+# specification (agentskills.io, read 2026-11-10). Every skill description
+# is in the context of every run.
 ```
 
 ### 3.3 The V1 detectors
@@ -141,11 +150,24 @@ system prompt text in `texts`. Above `LONG_PROMPT_CHARS` it returns one
 `Detection` with `scope="harness"`, `value` the length and `reference` the
 constant.
 
-**The second detector** is chosen in the V1 coverage phase. The
-recommended one is `long_tool_description`, smell
-`very-long-tool-description`: a tool description over 4,096 characters. That
-value has a published source (an agent CLI cuts a longer description), and
-the detector needs only `tool_definitions`.
+**`long_tool_description`**, smell `very-long-tool-description`. For each
+attached tool in `tool_definitions`, it reads the length of the description.
+Above `LONG_TOOL_DESCRIPTION_CHARS` it returns one `Detection` for that
+tool, with the tool's name in `fact`.
+
+**`long_skill_description`**, smell `very-long-skill-description`. For each
+attached skill in `texts`, it reads the length of the description in the
+skill's front matter. Above `LONG_SKILL_DESCRIPTION_CHARS` it returns one
+`Detection` for that skill. Kiln's own limit for this field is 1,024
+characters today, so this detector reports only when that limit changes or
+a skill comes from another source. It costs nothing to keep.
+
+**Not detectors: a very long tool name and a very long skill name.** Kiln
+limits both names to 64 characters (`kiln_ai/utils/validation.py`), and the
+model providers limit a function name to the same length. A longer name
+cannot reach a run, so a detector for it would never report.
+
+The three smell documents that these detectors name are part of V1.
 
 ### 3.4 The adapters for the existing checks
 
@@ -434,7 +456,8 @@ one. It writes no smell issue.
 
 - `test_long_prompt_is_silent_at_the_reference`
 - `test_long_prompt_reports_above_the_reference_with_value_and_source`
-- two tests of the same form for the second detector
+- two tests of the same form for `long_tool_description`, and two for
+  `long_skill_description`
 - `test_a_detection_fact_has_no_judgement_word` (a short list of banned
   words, applied to every detector's output on a triggering input)
 - `test_detectability_adapter_reports_only_evals_that_cannot_show_a_win`

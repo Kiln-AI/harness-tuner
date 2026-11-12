@@ -5,14 +5,13 @@ status: draft
 # Architecture: Biological Bootloader
 
 Input: [functional_spec.md](./functional_spec.md). This document gives the
-decisions that cross the parts. Four component designs give the detail:
+decisions that cross the parts. Three component designs give the detail:
 
 | Component | Document | Functional spec |
 |---|---|---|
 | Knowledge documents, indexes and checks | [components/knowledge_documents.md](./components/knowledge_documents.md) | sections 2 to 7, 9, 11 |
 | Maintenance skill and backlog | [components/maintenance_skill.md](./components/maintenance_skill.md) | sections 4.8, 10, 13.2 |
 | Smell detection and the baseline reviewer | [components/smell_detection.md](./components/smell_detection.md) | section 12 |
-| Model and provider tools | [components/model_tools.md](./components/model_tools.md) | section 13.1 |
 
 All paths are relative to the repository root. Line numbers are those of the
 tree on 2026-11-12 and are for orientation only.
@@ -35,16 +34,14 @@ These facts decide much of the design.
    generator and its staleness test are new.
 5. **PyYAML and Pydantic are runtime dependencies already.** Nothing new is
    needed to parse front matter.
-6. **`src/kiln_harness_tuner` never imports `kiln_ai`** and makes no HTTP
-   call to an outside host today.
-7. **The `technique` field on an experiment is a free string**, of at most
+6. **The `technique` field on an experiment is a free string**, of at most
    60 characters. No list of its values exists in code.
-8. **A raise before wave 1 is fatal and leaves no report.**
-9. **Val is read in one function only**, and a role reads val only if it is
+7. **A raise before wave 1 is fatal and leaves no report.**
+8. **Val is read in one function only**, and a role reads val only if it is
    in `VAL_READERS`. Nothing in this project adds a reader of val.
-10. **`.claude/skills/` and `.agents/` are git-ignored**, because they are
-    targets of `harness-tuner-install-agents --dest .`. A skill for
-    contributors cannot live there.
+9. **`/.agents/` is git-ignored today.** The rule is from the time when a
+   run was made inside this repository and the loop skills were installed
+   there.
 
 ## 2. Decisions
 
@@ -55,8 +52,9 @@ These facts decide much of the design.
 - It ships in the wheel and is installed for every agent CLI with no change
   to the installer, the read fences or the packaging tests.
 - `ruff` already excludes the folder.
-- Each role is sent to its own entry file by its prompt template. The
-  `SKILL.md` is short and only says which file is for which role.
+- It has a `SKILL.md`, as every skill must. That file is short: what the
+  knowledge system is, and which entry file is for which role.
+- Each role's prompt template names its entry file directly.
 
 ### 2.2 The path gives the type, and front matter is small
 
@@ -82,19 +80,25 @@ validate smell ids.
 It is run as a module. It adds no console script, because the install
 documents list every console script and a test holds them to the code.
 
-### 2.5 Lever kinds get a constant, and the field stays open
+### 2.5 A lever document is named after the lever, and code is not changed
 
-A new constant `CORE_LEVER_KINDS` in `schemas.py` lists the lever kinds
-that have a lever document. `FixWork.technique` stays a free string, because
-multi-word values are part of its contract and a test protects that. A check
-holds the lever documents and the constant to each other.
+The id of a lever document is the short name that the planner writes in the
+`technique` field: `prompt`, `skill`, `tool_config`, `new_tool`, `params`.
+A technique names the levers it uses by those ids, and a check makes sure
+that each one is a lever document.
 
-### 2.6 The contributor material lives in `maintainers/`
+An earlier draft added a constant in code with the lever names, and a test
+that every name has a document. It is dropped. The field is a free string by
+design, the planner can write a name of a few words, and nothing in the loop
+depends on a closed list. The check that matters is inside the knowledge
+system: a technique cannot name a lever that has no document.
 
-A new top-level directory. It holds the maintenance skill, the templates and
-the backlog. The root `AGENTS.md` points to it, so every coding agent that
-reads `AGENTS.md` finds it. It is in the repository and outside
-`agent_files/`, so no loop agent loads it and it is not in the wheel.
+### 2.6 The maintenance skill is in `.agents/skills/`
+
+`.agents/skills/knowledge-maintenance/`, with its templates. The
+`.gitignore` rule for `/.agents/` is narrowed so that this one skill is
+tracked. The root `AGENTS.md` points to it, because Claude Code does not
+read `.agents/skills/`. The backlog is `specs/backlog.md`.
 
 ### 2.7 Smell detection has one call site
 
@@ -110,36 +114,19 @@ operation. Code validates each smell id against the knowledge system, then
 writes one issue for each finding, with tags that name the smell and the run
 config.
 
-### 2.9 The model catalogue is fetched once and read by the gateway
+### 2.9 Two parts are separate projects
 
-The orchestrator fetches Kiln's published model list at the start of a run
-and writes it to the run directory. Each gateway process reads it from
-there, in the way it reads the model policy. If the fetch fails, the tools
-serve what the Kiln server gives, and the log says so. The tuner keeps its
-own tolerant models of the file, so it does not import `kiln_ai`.
+Decided by the owner on 2026-11-12. Each has a project overview that records
+the decisions and findings so far, and each gets an entry in the backlog.
 
-### 2.10 The tie rule moves to the backlog
-
-The functional spec (section 8) allows this when the change is too large.
-The investigation found that it is:
-
-- A tie never reaches the gate. The train-side rules (`success_by_rule`,
-  the `futility` and `residual` stop rules) need a positive train delta, so
-  they must change too.
-- Under the quality objective, the gate has no "not worse" test for cost
-  and latency on val. It needs extra paid drives at each gate.
-- The stretch goal needs a variance measure on val. None exists. The noise
-  check is train-only, optional and run once.
-- About ten documented guarantees change from "confirms better" to
-  "confirms not worse". A design mark that train-side agents can see is a
-  new val-to-train channel.
-
-So in this project the "if it does not move the evals" section of a
-technique is knowledge only: the planner uses it to decide if an arm is
-worth a slot, and the report can state it. The promoter reads nothing from
-the knowledge system. The backlog entry carries these findings. **This
-decision needs the owner's confirmation**, and section 8 of the functional
-spec changes to match when it is confirmed.
+- **Model and provider information:**
+  [model-provider-info](../model-provider-info/project_overview.md). In this
+  project, no gateway operation is added and nothing is fetched from an
+  outside host.
+- **Promotion on a tie:**
+  [tie-promotion](../tie-promotion/project_overview.md). In this project the
+  "if it does not move the evals" section of a technique is knowledge only,
+  and the promoter reads nothing from the knowledge system.
 
 ## 3. Repository layout after the project
 
@@ -147,7 +134,6 @@ spec changes to match when it is confirmed.
 src/kiln_harness_tuner/
   knowledge/                      new package: schema, load, check, index, CLI
   smells/                         new package: detection model, detectors, thresholds, run step
-  model_catalog.py                new: fetch and parse Kiln's published model list
   agents/
     baseline_review.md            new prompt template
     batch_plan.md                 changed: reads the planner entry file
@@ -159,19 +145,18 @@ src/kiln_harness_tuner/
     kiln-harness-tuner-baseline-review/   new skill: the reviewer's procedure
     kiln-harness-tuner-batch-selection/
       references/lever-ladder.md          removed, moved into the knowledge system
-    kiln-harness-tuner-gateway/SKILL.md   changed: the model and provider tools
-  gateway/                        changed: three new operations, one new role
-  schemas.py                      changed: new models, CORE_LEVER_KINDS
+  gateway/ops.py                  changed: one new role
+  schemas.py                      changed: new models
   orchestrator.py                 changed: ensure_baseline_reviewed, planner input
   memory.py, memory_schema.py     changed: smell issues
   report.py, status.py            changed: the smells appendix
-  cli.py                          changed: two flags
-maintainers/
-  knowledge/
-    SKILL.md                      the maintenance skill
-    templates/                    one template per component type
-    BACKLOG.md                    the backlog
-AGENTS.md                         changed: the working rule, the pointer to maintainers/
+  cli.py                          changed: one flag
+.agents/skills/knowledge-maintenance/
+  SKILL.md                        the maintenance skill
+  templates/                      one template per component type
+specs/backlog.md                  the backlog
+.gitignore                        changed: the maintenance skill is tracked
+AGENTS.md                         changed: the working rule, the pointer to the skill
 docs/                             changed: agents.md, architecture.md, how-it-works.md, cli.md
 tests/
   test_knowledge.py               new
@@ -179,15 +164,11 @@ tests/
   test_backlog.py                 new
   test_smells.py                  new
   test_baseline_review.py         new
-  test_model_catalog.py           new
 ```
 
 ## 4. Data flow
 
 ```
-start of run
-  model_catalog.fetch ──► <run dir>/model_catalog.json ──► gateway: list_models,
-                                                            get_model_details, list_providers
 each wave, when the baseline is not yet reviewed
   ensure_baseline_reviewed
     smells.run_detectors(harness, stored train trace stats) ──► ctx.detections
@@ -210,8 +191,6 @@ end of run
 | A smell detector raises | That detector is skipped, with the event `smell_detector_failed`. The other detectors run. |
 | The baseline reviewer fails, times out or is turned off | The run goes on with the code detections. The event `baseline_review_skipped` gives the reason, and the report states it. |
 | The reviewer names a smell id that does not exist | The finding is dropped, with the event `smell_unknown`. |
-| The model catalogue cannot be fetched or parsed | The tools serve the Kiln server's data only. The event `model_catalog_unavailable` gives the reason. |
-| One entry of the model catalogue is not valid | That entry is dropped. The rest is used. |
 
 `ProviderQuotaError` is never swallowed. It keeps its present meaning: the
 run ends with exit `quota_exhausted`.
@@ -236,23 +215,11 @@ component designs name each test.
   Kiln cover: a review at wave 1, a review after a promotion, a review that
   fails, a review turned off, a finding with an unknown smell, and the
   planner input.
-- **The model catalogue.** `respx` serves the published file. Tests cover a
-  good file, a file with a bad entry, a timeout and a file of the wrong
-  shape.
 - **Documents held to code.** `docs/cli.md`, `docs/agents.md` and the
   gateway skill are already held to the code by tests. Those tests are
   extended, not replaced.
 
-## 7. Changes outside this repository
-
-The model and provider tools become more useful when Kiln's model file has
-more fields. The tools work with today's fields. Each proposed field is
-optional with a default, so an older Kiln ignores it.
-[components/model_tools.md](./components/model_tools.md) lists the proposals.
-The owner decides them in the Kiln repository. No phase of this project
-waits for them.
-
-## 8. Order of the work
+## 7. Order of the work
 
 The implementation plan sets the phases. The dependencies are:
 
@@ -264,17 +231,14 @@ The implementation plan sets the phases. The dependencies are:
    templates. This needs 1 and 2, and the V1 coverage phase decides it.
 4. The smell detectors. This needs the smell documents of 3.
 5. The baseline reviewer. This needs 4.
-6. The model and provider tools. This needs nothing from 1 to 5.
 
-## 9. Open points for the owner
+## 8. Open points for the owner
 
-1. **The tie rule** (section 2.10): confirm that it moves to the backlog.
-2. **The first call to an outside host** (section 2.9): a run will fetch
-   `https://remote-config.getkiln.ai/kiln_config_v2.json` at its start. A
-   flag turns it off. Confirm that this is acceptable as the default.
-3. **`maintainers/`** (section 2.6) as the name and place of the contributor
-   material.
-4. **Fields for Kiln's model file**
-   ([components/model_tools.md](./components/model_tools.md), section 6):
-   the proposals avoid prices and speeds, because those have a high
-   maintenance cost.
+1. **The backlog's place.** `specs/backlog.md`, outside the skill folder,
+   because people read and rank it
+   ([components/maintenance_skill.md](./components/maintenance_skill.md),
+   section 2).
+2. **The `.gitignore` change.** `/.agents/` is narrowed, not removed, so
+   that a `--dest .` install of the loop skills beside the maintenance skill
+   stays out of `git status`. `.github/CONTRIBUTING.md` still tells a
+   contributor to run that install.
