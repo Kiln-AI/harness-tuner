@@ -240,7 +240,7 @@ The generator replaces what is between the markers. It changes nothing else.
 
 | Entry file | Hand-written | Generated blocks |
 |---|---|---|
-| `planner.md` | How to use the knowledge: read the detections and the smell issues, find the playbook for each failure and each eval problem, reach a technique through a playbook or a smell | `smells`, `playbooks-order`, `playbooks-goal`, `playbooks-failure`, `playbooks-eval`, `playbooks-design` |
+| `planner.md` | How to use the knowledge. First step: read the three playbooks of the kind `order` (know the agent, ordering work, spending the budget) before you plan. Then: read the detections and the smell issues, find the playbook for each failure and each eval problem, reach a technique through a playbook or a smell | `smells`, `playbooks-order`, `playbooks-goal`, `playbooks-failure`, `playbooks-eval`, `playbooks-design` |
 | `builder.md` | How to use the knowledge: open the technique named on the item, then the levers it links | `techniques`, `levers` |
 | `smells.md` | How to review a design: read each smell, look for it, state the evidence, do not state a fix | `smells-detail` |
 | `analyzer.md` | How to name a failure pattern in a finding | `playbooks-failure` |

@@ -116,6 +116,11 @@ because each is a property of the design.
 
 Notes:
 
+- `state-the-output-contract` is for a format rule that the model gets in
+  no other way: a layout of free text, a closing block, an escaping rule, or
+  a rule about the content of a field (a date form, the empty case). It is
+  not for the shape of structured output when a JSON schema already gives
+  that to the model. Its "When not to use" says so.
 - `roll-up-tool` covers the two cases of the overview: a fixed chain of
   calls folded into one tool, and one tool that loads the context the agent
   needs at the start, with a prompt line to call it first.
@@ -139,20 +144,27 @@ Notes:
 
 One playbook for each problem or goal. The kind groups the indexes.
 
+The three playbooks of the kind "order" are the least like a playbook: they
+help the planner plan, and they do not answer one problem. They stay as
+playbook files, so that they have the same schema, checks and owners as the
+rest. The planner does not have to choose to open them: the hand-written
+part of the planner's entry file tells it to read all three before it
+plans, as a step of its procedure.
+
 | Id | What it holds | Source |
 |---|---|---|
 | **Kind: order** | | |
 | `know-the-agent-before-you-plan` | Classify the agent first: single-turn or multi-turn, structured output or free text, classifier shape, tools. A multi-turn eval is driven by a synthetic user. | Overview 4 and 7.8 |
-| `default-order-of-work` | The priority comes from the smells and the failures, not from a fixed order of levers. Lock a model that has a reasonable start on the task. Fix first what a smell says blocks other work. Then take each failure to its playbook. One technique in one experiment (a technique can be a set of changes). The settings and the model scan are late, and depend on the budget. All of it is guidance. | Overview 6.4 and 10, research |
+| `ordering-work` | The priority comes from the smells and the failures, not from a fixed order of levers. Lock a model that has a reasonable start on the task. Fix first what a smell says blocks other work. Then take each failure to its playbook. One technique in one experiment (a technique can be a set of changes). The settings and the model scan are late, and depend on the budget. All of it is guidance. | Overview 6.4 and 10, research |
 | `spending-the-budget` | Strategy, with no numbers: the planner's input already has what each eval can show, the noise, the prices and the budget that remains. What a small budget leaves out and what a large budget opens. Fewer experiments, each with enough items to pass its own test. | Overview 5 and 5.1 |
 | **Kind: goal** | | |
-| `cheaper-or-faster` | Another provider of the same model, less thinking, a shorter prompt, fewer output tokens, then a smaller model with the harness adapted to it. Apply the cost goal after quality is stable. | Notes, the planner's skill |
+| `cheaper-or-faster` | Another provider of the same model, less thinking, a shorter prompt, fewer output tokens, then a smaller model with the harness adapted to it. Most techniques help both goals, so they share one playbook. Some do not: a very fast provider can cost more. The playbook marks each step as cheaper, faster or both. Apply the cost goal after quality is stable. | Notes, the planner's skill |
 | `working-inside-restrictions` | A stated restriction is a hard limit on the plan: providers, model origin, data retention, tools that must not change. What to do when the best lever is not allowed. | Overview 8 |
 | **Kind: design** | | |
 | `fit-the-tool-layer-to-the-agent` | The tools are the company's software APIs. Wrap them, do not rewrite them. Which wrapper for which smell. The prompt and the guide skill change with the tools. | Overview 6.3 |
 | **Kind: failure** (a class of failure seen in eval traces) | | |
 | `requirement-missing-from-the-prompt` | The eval wants X, and the prompt never asks for X. State it in new words; do not copy the eval. | Overview 6.1 |
-| `output-contract-not-met` | Wrong shape, no closing block, bad escaping. One prompt line with the contract, then the edge rule. | Ladder row 1 |
+| `output-contract-not-met` | The output breaks a format rule that nothing enforces: a required closing block, a fixed layout of free text, an escaping rule, a rule about the content of a field. One prompt line with the rule, then the edge case. When a JSON schema gives the model the shape, the shape needs no prompt line. | Ladder row 1 |
 | `answers-not-grounded` | The answer needs knowledge that is not in the context. Attach the source, then scope discipline. | Ladder row 2 |
 | `wrong-scope-or-refusal` | Off-topic answers, or refusals of valid requests. A decline-rules paragraph, then rebalance. | Ladder row 3 |
 | `missing-context-the-agent-could-be-given` | "If it had known that, it would have done the right thing." One tool that loads it, and a prompt line to call it first. | Overview 7.5 |
@@ -186,12 +198,12 @@ One row for each idea of the project overview and the design notes.
 | Being right often is the largest saving | 5 | V1 `spending-the-budget` |
 | Plan with the budget in view; a large budget opens options | 5.1 | V1 `spending-the-budget` |
 | The eval wants X and the prompt never asks for it | 6.1 | V1 playbook `requirement-missing-from-the-prompt`, `add-the-missing-requirement` |
-| The prompt is tuned with every other variable, not alone | 6.1 | V1 `default-order-of-work` |
+| The prompt is tuned with every other variable, not alone | 6.1 | V1 `ordering-work` |
 | Progressive disclosure: a skill for each thing the agent can do | 6.2 | V1 `long-prompt-into-a-skill` |
 | A long prompt into a skill is almost always worth an experiment | 6.2 | V1 `long-prompt-into-a-skill` |
 | The reverse: a cached long prompt can beat a skill walk | 6.2 | V1 `skill-into-the-prompt` |
-| It depends on the size of the model | 6.2 | V1, both techniques; `default-order-of-work` |
-| The best harness includes the model | 6.2, 6.4 | V1 `default-order-of-work`, `model-swap-inside-a-class` |
+| It depends on the size of the model | 6.2 | V1, both techniques; `ordering-work` |
+| The best harness includes the model | 6.2, 6.4 | V1 `ordering-work`, `model-swap-inside-a-class` |
 | A good API can be a poor agent tool | 6.3 | V1 `fit-the-tool-layer-to-the-agent` |
 | A list result with every field | 6.3 | V1 `tool-results-flood-the-context`, `cap-and-preview-wrapper` |
 | A chain of calls that passes an id along | 6.3 | V1 `fixed-call-chain`, `roll-up-tool` |
@@ -205,11 +217,11 @@ One row for each idea of the project overview and the design notes.
 | Error-message design | 6.3 | V1 `errors-the-agent-can-act-on` |
 | Settings: a review of what Kiln supports | 6.4 | V1 the lever `params`. Backlog: structured-output mode |
 | A setting that one model needs (an illustration) | 6.4 | Not kept: the loop learns it from one call |
-| The model is the largest single lever | 6.4 | V1 `model-swap-inside-a-class`, `default-order-of-work` |
+| The model is the largest single lever | 6.4 | V1 `model-swap-inside-a-class`, `ordering-work` |
 | A model guide and a provider guide | 6.4 | Backlog: Model and provider information |
 | Very fast providers | 6.4, notes | V1 `faster-provider-for-the-same-model` |
-| Model and harness are a pair | 6.4 | V1 `default-order-of-work` |
-| Lock a model of the right class with a reasonable start | 6.4 | V1 `default-order-of-work`, `dealing-with-an-eval-near-zero` |
+| Model and harness are a pair | 6.4 | V1 `ordering-work` |
+| Lock a model of the right class with a reasonable start | 6.4 | V1 `ordering-work`, `dealing-with-an-eval-near-zero` |
 | A scan of models before the lock, on a large budget only | 6.4 | V1 `spending-the-budget` |
 | Come back to the model after the harness | 6.4 | V1 `model-swap-inside-a-class` |
 | A scan of the settings last, if at all | 6.4 | V1 `spending-the-budget`, `thinking-level-ladder` |
@@ -235,10 +247,10 @@ One row for each idea of the project overview and the design notes.
 | A very long tool description; a very long prompt | 9 | V1 smells with detectors |
 | A skill of a few words | 9 | V1 `skill-too-small-to-earn-its-place`. Backlog: its detector |
 | Thousands of skills | 9 | Backlog: Too many skills |
-| A problem that blocks everything else | 9, 10 | V1 "What it blocks" in each smell; `default-order-of-work` |
+| A problem that blocks everything else | 9, 10 | V1 "What it blocks" in each smell; `ordering-work` |
 | A library of wins from real cases | 2, 10 | Priors; the maintenance skill |
 | Tips for a query tool: timestamps, sample queries | 10 | V1 `guide-skill-for-a-tool-set`, in sub-files |
-| The stack rank | 10 | V1 `default-order-of-work` |
+| The stack rank | 10 | V1 `ordering-work` |
 | Playbook: much cheaper | Notes | V1 `cheaper-or-faster` |
 | Playbook: open models on-prem | Notes | Backlog |
 | Playbook: an eval near zero | Notes | V1 |
@@ -413,7 +425,7 @@ source is corrected or dropped.
 | 3 | `prune-one-group-at-a-time` | From Ramp's benchmarking post, an accounting agent's skills were loaded one at a time from a bare base: only two were positive on average, and cutting one skill by 64% kept its effect. | https://builders.ramp.com/post/stack-benchmarking, 2026-06-03 |
 | 4 | `policy-as-step-by-step-procedures` | From Quesma's post, rewriting a policy as step-by-step procedures for a small model on a telecom support benchmark raised the pass rate from 0.55 to 0.675. | https://quesma.com/blog/tau2-benchmark-improving-results-smaller-models, 2025-09-12 |
 | 5 | `attach-the-knowledge-source` | From LinkedIn's text-to-SQL paper, example queries took an analytics agent's correct-or-nearly-correct answers from 24% to 49% on 133 questions, and adding domain-knowledge records lowered it to 42%. | https://arxiv.org/html/2507.14372, 2025-07-18 |
-| 6 | `default-order-of-work` | From Nubank's support-agent paper, an agent that started with a knowledge tool and a human-transfer tool gained a routine from the operating procedures, domain tools and escalation, then tool hierarchies and conciseness budgets. | https://arxiv.org/abs/2606.08867, 2026-06-07 |
+| 6 | `ordering-work` | From Nubank's support-agent paper, an agent that started with a knowledge tool and a human-transfer tool gained a routine from the operating procedures, domain tools and escalation, then tool hierarchies and conciseness budgets. | https://arxiv.org/abs/2606.08867, 2026-06-07 |
 | 7 | `dealing-with-a-saturated-eval` | From Shopify's Sidekick post, calibrating LLM judges to human labels moved agreement (Cohen's kappa) from 0.02 to 0.61, against a human baseline of 0.69. | https://shopify.engineering/building-production-ready-agentic-systems, 2025-08-26 |
 | 8 | `dealing-with-a-saturated-eval` | From Hex's data-agent post, on an eval with a near-miss trap (2.03% against 2.04%), the judge accepted the difference 35% of the time. | https://hex.tech/blog/evaluate-data-agents/, 2026-05-22 |
 | 9 | Held: no V1 document | From Anthropic's agent-evals post, fixing rigid grading, ambiguous specs and a too-constrained scaffold took one model on an agent benchmark from 42% to 95%. | https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents, 2026-01-09 |
@@ -422,7 +434,7 @@ source is corrected or dropped.
 | 12 | `skill-is-not-read` | From Vercel's AGENTS.md post, a skill was never invoked in 56% of cases and the pass rate equalled the no-docs baseline (53%). An explicit trigger instruction raised it to 79%, and a compact index always in context reached 100%. | https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals, 2026-01-27 |
 | 13 | `skill-is-not-read` | From a 2026 analysis of harness updating, one 32B model loaded its skills at a rate of 0.251 against 0.957 for a frontier model, and another model loaded at 0.961 but followed at only 0.350. | https://arxiv.org/html/2605.30621, 2026-05-28 |
 | 14 | `change-the-surface-not-the-words` | From a 2026 study of a customer-service tool agent, failures were clustered and each cluster sent to the prompt, a tool-boundary guard or both. Removing that routing cut the held-out gain from 14.9 to 5.4 points. | https://arxiv.org/html/2609.05736, 2026-09-09 |
-| 15 | `default-order-of-work` | From a 2026 study of a tool-using assistant, scheduling code and loop changes before text-only changes gave a test pass rate of 60.7 against 54.8 without that order. | https://arxiv.org/html/2608.23041, 2026-08-24 |
+| 15 | `ordering-work` | From a 2026 study of a tool-using assistant, scheduling code and loop changes before text-only changes gave a test pass rate of 60.7 against 54.8 without that order. | https://arxiv.org/html/2608.23041, 2026-08-24 |
 | 16 | `state-the-output-contract` | From a study of six prompt optimisers with 20 training items, 49% of 72 runs scored below the unoptimised prompt, and every method won only on the one task where the output needed a format the model could produce but did not by default. | https://arxiv.org/html/2604.14585v1, 2026-04-16 |
 | 17 | `state-the-output-contract` | From Dropbox's relevance-judge post, a small open model returned malformed JSON in 358 of 856 responses, and prompt optimisation cut that to 9 of 856. | https://dropbox.tech/machine-learning/optimizing-dropbox-dash-relevance-judge-with-dspy, 2026-03-17 |
 | 18 | `dealing-with-train-wins-rejected-at-val` | From a 2026 study of a research agent, the gap between validation and held-out results ranged from 0.034 to 0.160 across three seeds, and reducing per-criterion feedback to one score made held-out transfer negative. | https://arxiv.org/abs/2610.12601, 2026-10-08 |
