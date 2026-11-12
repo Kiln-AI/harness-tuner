@@ -52,8 +52,8 @@ def test_the_shipped_knowledge_has_a_document_of_each_type():
         assert kb.by_kind(kind), f"no document in {kind}/"
 
 
-# V1 coverage, sections 1 and 3: the six levers, and the techniques of the
-# groups "Instructions" and "Knowledge" with the levers each one uses.
+# V1 coverage, sections 1 and 3: the six levers, and the twenty-eight
+# techniques with the levers each one uses.
 V1_LEVERS = {"prompt", "skill", "new_tool", "tool_config", "params", "model"}
 V1_TECHNIQUE_LEVERS = {
     "add-the-missing-requirement": ["prompt"],
@@ -70,7 +70,25 @@ V1_TECHNIQUE_LEVERS = {
     "prune-one-group-at-a-time": ["prompt", "skill", "tool_config"],
     "attach-the-knowledge-source": ["tool_config", "skill"],
     "document-into-a-skill": ["skill", "tool_config"],
+    "cap-and-preview-wrapper": ["new_tool"],
+    "roll-up-tool": ["new_tool", "prompt"],
+    "guide-skill-for-a-tool-set": ["skill"],
+    "new-tool-description": ["new_tool"],
+    "directive-in-the-tool-response": ["new_tool"],
+    "normalize-inputs-wrapper": ["new_tool"],
+    "errors-the-agent-can-act-on": ["new_tool"],
+    "guard-tool-calls-at-the-boundary": ["new_tool", "prompt"],
+    "remove-or-scope-tools": ["tool_config"],
+    "consolidate-tools": ["new_tool", "tool_config"],
+    "thinking-level-ladder": ["params"],
+    "model-swap-inside-a-class": ["model"],
+    "faster-provider-for-the-same-model": ["model"],
+    "decision-model-for-a-classifier": ["model"],
 }
+
+# V1 coverage, section 3: the owner's tips on a query tool, as sub-files of
+# the guide skill technique.
+GUIDE_SKILL_SUB_FILES = ("sample-queries", "schema-as-leaf-files", "timestamps")
 
 
 def test_the_v1_levers_are_present():
@@ -83,6 +101,18 @@ def test_the_v1_technique_is_present_with_its_levers(technique):
     assert doc is not None, f"techniques/{technique}.md is missing"
     assert doc.meta is not None and doc.meta.status == "active"
     assert doc.meta.levers == V1_TECHNIQUE_LEVERS[technique]
+
+
+def test_the_guide_skill_for_a_tool_set_has_its_sub_files():
+    kb = load()
+    owner = kb.get("techniques", "guide-skill-for-a-tool-set")
+    assert owner is not None
+    linked = {link.resolved for link in owner.links}
+    folder = kb.references / "techniques" / "guide-skill-for-a-tool-set"
+    for name in GUIDE_SKILL_SUB_FILES:
+        path = folder / f"{name}.md"
+        assert path.is_file(), path
+        assert path in linked, f"guide-skill-for-a-tool-set.md does not link {name}.md"
 
 
 def test_the_generated_blocks_are_current():

@@ -38,7 +38,7 @@ changes knowledge documents also ends with
   fourteen techniques of the groups "Instructions" and "Knowledge". Each
   approved prior is added only after its source is opened and its numbers
   are checked.
-- [ ] Phase 4: Techniques, part 2. The fourteen techniques of the groups
+- [x] Phase 4: Techniques, part 2. The fourteen techniques of the groups
   "Tools" and "Model and settings", with their priors, and the sub-files of
   `guide-skill-for-a-tool-set`.
 - [ ] Phase 5: Playbooks, and the move of the lever ladder. The other

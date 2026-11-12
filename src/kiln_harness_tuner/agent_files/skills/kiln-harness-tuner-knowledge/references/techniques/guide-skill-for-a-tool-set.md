@@ -37,7 +37,12 @@ cost: medium
 
 ## Alternatives
 
-None.
+- [New tool description](new-tool-description.md), when the agent has few
+  tools and one better description holds what it needs to know.
+- [Remove or scope tools](remove-or-scope-tools.md), when the agent must
+  search among many tools that this task does not use.
+- [Consolidate tools](consolidate-tools.md), when many narrow tools overlap
+  and no guide can make the choice among them clear.
 
 ## How
 
@@ -49,14 +54,24 @@ lever [skill](../levers/skill.md) for how a skill is built and installed.
 2. **The `SKILL.md` body** is a map: for each type of work, which tool to
    use and which file to read. It does not repeat the files.
 3. **One leaf file for each tool**, or for each area of a query tool: what
-   it does, its inputs and outputs, and the traps. For a query tool, put
-   sample queries at each level, and keep the schema in leaf files for the
-   complex query that needs it. Dates and time zones are a frequent trap
-   and deserve their own section.
-4. **A prompt line is not part of this technique.** When the agent must be
+   it does, its inputs and outputs, and the traps.
+4. **For a general query tool** (SQL, GraphQL, a general API), read the
+   three sub-files of this technique before you write the guide:
+   - [sample queries](guide-skill-for-a-tool-set/sample-queries.md): sample
+     queries at each level of the guide, from the simple query to the
+     complex one. Read it first: a sample shows how the tool is used,
+     which a schema alone does not show.
+   - [the schema as leaf files](guide-skill-for-a-tool-set/schema-as-leaf-files.md):
+     where the schema goes, and what each leaf file holds. Read it when the
+     schema does not fit in the body, or when queries fail on names, joins
+     or codes.
+   - [timestamps](guide-skill-for-a-tool-set/timestamps.md): a section on
+     dates and times. Read it when the data has a date or a time field.
+     Dates and time zones are a frequent trap.
+5. **A prompt line is not part of this technique.** When the agent must be
    told to open the guide, that is a second change, measured on its own or
    stated as part of the hypothesis.
-5. **Write from the tools and the traces**, never from the train items:
+6. **Write from the tools and the traces**, never from the train items:
    no value of an item goes into the guide.
 
 ## Check that it took effect
@@ -84,6 +99,9 @@ None yet.
 
 ## Confidence
 
-Low to medium. It is field practice and an idea of this project's owners:
-a list of tools by progressive disclosure is better than tool search in
-most cases that they have seen. No measured case is recorded here yet.
+Low to medium. It is field practice and an idea of this project's owners.
+No public study known to this document compares a guide skill with tool
+search, or with the tool descriptions alone. The reason it can help is
+progressive disclosure: the
+agent reads a short map of the tools first, then only the leaf file that
+the work needs. No measured case is recorded here yet.
