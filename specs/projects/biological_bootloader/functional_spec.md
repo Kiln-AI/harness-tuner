@@ -32,7 +32,7 @@ large improvement to the tuner. It is the base for later improvement.
    it gives the agent the templates, the placement rules and the checks, so
    that each change keeps the system's quality.
 4. Automated tests that keep the structure correct.
-5. A pluggable red-flag framework in code, with two detectors.
+5. A pluggable framework for smell detectors in code, with two detectors.
 6. Model and provider tools for the loop agents, with data derived from
    Kiln's model list.
 7. A backlog: one document, with a fixed format, that tracks the known gaps
@@ -67,7 +67,8 @@ large improvement to the tuner. It is the base for later improvement.
 | Smell | A common problem to check for, with how to recognise it and links to what fixes it. |
 | Prior | One real case in which a technique was used. |
 | Backlog | The one document that lists the known gaps and the ideas that are not written yet. |
-| Red flag | A smell that a code detector found in this run's harness or traces. |
+| Smell detector | Code that checks a run's harness or traces for one smell. |
+| Detection | What a smell detector reports: a statement of fact about this run. |
 | Issue | The tuner's existing memory record for a problem found in this run. An issue can be an instance of a smell. |
 | Maintenance skill | The skill a coding agent uses to add to, change and audit the knowledge system. |
 | Planner | The batch-selection agent. |
@@ -231,7 +232,7 @@ It must hold:
 
 - **How to recognise it**: what is seen in the harness, the traces or the
   eval results.
-- **Who can detect it**: a code detector (section 12), an agent that reads
+- **Who can detect it**: a smell detector in code (section 12), an agent that reads
   traces, or both. If a code detector exists, the smell names it.
 - **What it blocks**: what is not worth an experiment until this is fixed,
   if anything.
@@ -471,26 +472,30 @@ The tests are part of the offline suite. They need no server and no model.
 A test cannot check the content rules that need judgement (conditions,
 confidence, the approval rule). The maintenance skill's audit covers those.
 
-## 12. Red flags
+## 12. Smell detection in code
 
-A red flag is a smell that code finds in the harness or in its traces before
-the planner starts. Each code detector belongs to one smell. It gives the planner the obvious problem at the start,
-so that an LLM does not have to find it.
+Some smells can be found by code. That is a fact about how a smell is
+detected. It is not a different kind of thing, and it has no other name.
+Code runs before the planner starts and gives the planner the obvious
+problems, so that an LLM does not have to find them.
 
-- **A pluggable framework.** A detector is a small unit of code with a fixed
-  interface. A new detector is one file plus a registration. It needs no
-  change to the loop.
+- **A pluggable framework.** A smell detector is a small unit of code with a
+  fixed interface. A new detector is one file plus a registration. It needs
+  no change to the loop.
+- **One detector, one smell.** Each detector belongs to one smell, and the
+  smell document names it (section 4.5).
 - **Input.** The baseline run config and the objects it attaches (prompt,
   skills, tools, model). The framework must also allow a detector that reads
   traces in bulk, although V1 has no such detector.
-- **Output.** For each flag: a statement of fact with its numbers, the
+- **Output.** For each detection: a statement of fact with its numbers, the
   reference value it was compared with and the source of that value, and
-  the smell it is evidence of. The smell gives the remedies. A flag states a fact. It does not state a verdict.
-  (The analysis code has a "no verdict labels" rule, and the red flags must
-  agree with it.)
-- **Delivery.** The planner gets the flags before wave 1, with the results
-  of the setup reconnaissance. The run report lists them.
-- **A flag does not block the run.** The playbook says what to do first.
+  the smell it is evidence of. The smell gives the remedies. A detection
+  states a fact. It does not state a verdict. (The analysis code has a "no
+  verdict labels" rule, and the detections must agree with it.)
+- **Delivery.** The planner gets the detections before wave 1, with the
+  results of the setup reconnaissance. The run report lists them.
+- **A detection does not block the run.** The smell and its playbook say
+  what to do first.
 - **Detectors in V1:**
   - **Very long prompt.** The system prompt is over a size limit.
   - One more that is as easy, chosen in the V1 coverage phase.
@@ -498,9 +503,9 @@ so that an LLM does not have to find it.
 - **Thresholds** are named values in one place, each with its source. The
   research found no measured optimum, only the product limits of agent
   vendors. Each threshold is therefore a default that can change.
-- **The backlog** holds the detectors for later (a very old model, large tool results, long
-  tool descriptions, an almost empty skill, too many skills, too many tools,
-  repeated calls and others).
+- **The backlog** holds the detectors for later (a very old model, large
+  tool results, long tool descriptions, an almost empty skill, too many
+  skills, too many tools, repeated calls and others).
 - This work is a later phase of the implementation plan.
 
 ## 13. Other deliverables
@@ -577,7 +582,7 @@ What this spec fixes now:
    of its rows has a place in the new system.
 4. Each structural rule in section 11 has a test. A deliberate violation of
    each rule fails its test.
-5. A run on the demo project shows the red flag in the planner's input and
+5. A run on the demo project shows the detection in the planner's input and
    in the report, when the baseline has a very long prompt.
 6. A loop agent lists models and reads the details of one, from data derived
    from Kiln's list. The tools fall back when the fetch fails.
