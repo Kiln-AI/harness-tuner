@@ -1375,7 +1375,7 @@ class TestRenderRunConfigs:
         # events. The `--settings` file overrides it.
         from kiln_harness_tuner.gateway.ops import ROLE_OPS
 
-        (_, settings_path), run_dir = self.make(tmp_path)
+        (_, _s), run_dir = self.make(tmp_path)
         names = ["settings.json", "settings.readonly.json"]
         names += [f"settings.{role}.json" for role in ROLE_OPS]
         for name in names:
