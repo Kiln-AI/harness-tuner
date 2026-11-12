@@ -54,6 +54,12 @@ that came up during and after the recording.
    does not connect or change them. The planning for this project includes a
    **ranked gaps document** (`kiln_gaps.md`), which also tracks gaps in Kiln
    itself.
+
+   **Scope decision (2026-11-12).** The gateway and API work is **not in
+   this project**. This project designs the "capability" concept (section
+   2.1) and fills it in for the capabilities the tuner has today: prompts,
+   skills and tools. Each new capability is a later project. The pending
+   ones are tracked in the lists that section 2.1 describes.
 3. **Red-flag detection.** Cheap software analysis of the harness and of
    traces, run before and during planning, that hands the tuner the obvious
    problems (section 9).
@@ -677,14 +683,18 @@ in the design is open.
      know about or cannot reach? Sub-agents and input transforms are known
      examples. Look for others in the Kiln code and docs. The Kiln docs are a
      good source for what Kiln can do.
-3. **Functional spec.** The full list of features to cover, including ones
-   the recording missed.
-4. **Decide how to ship.** This is the main open question. Options, none
-   chosen:
-   - by layer: the whole skill, then the API changes, then the red-flag
-     tools (or red flags first);
-   - by lever: a basic skill, then sub-agents with their knowledge and API
-     changes, then input transforms with theirs, and so on.
+3. **Functional spec.** What the knowledge system must do. It includes the
+   maintenance skill for the coding agents, because that skill enforces the
+   same schemas.
+4. **Architecture.** The schemas, folders, generated indexes and tests.
+5. **V1 coverage.** A phase special to this project, after the architecture
+   and before the implementation plan. It is a content task: decide which
+   techniques, playbooks and capabilities are in V1, and what goes on the
+   pending lists. The owner supplies a separate research report at the start
+   of this phase. That report seeds the lists. It is not committed to this
+   repository.
+6. **Implementation plan.**
+7. **Implement.**
 
 More techniques will arrive from the owner in small pieces after this
 overview. Integrate them.

@@ -1,8 +1,12 @@
 # Kiln gaps (ranked)
 
 A planning document for `biological_bootloader`. It is not part of the spec
-dependency chain. The functional spec decides which gaps this project
-closes.
+dependency chain.
+
+**Scope decision (2026-11-12).** This project closes none of these gaps.
+The gateway and API work is out of scope. This document is a record for the
+later projects, one per new capability. The pending capabilities also go on
+the knowledge system's pending lists.
 
 **Source:** the research in
 [research/harness-optimization](./research/harness-optimization/summary.md),
