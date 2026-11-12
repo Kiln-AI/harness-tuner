@@ -48,43 +48,34 @@ One for each thing the tuner changes today.
 | `params` | The model's settings: thinking level, temperature, top-p | Overview 6.4 |
 | `model` | The model and the provider. Existing fine-tunes are candidates. | Overview 6.4, 7.6 |
 
-## 2. Smells: V1 (30)
+## 2. Smells: V1 (13)
+
+A smell is an issue in the design of the agent. It is true whether an eval
+passes or fails. The baseline reviewer reads these documents and looks for
+each one. A reason why an eval item failed is not a smell: section 4 has a
+playbook for each such failure pattern.
 
 | Id | Recognised by | Detected by | Source |
 |---|---|---|---|
-| **About the harness** | | | |
-| `prompt-does-not-state-a-requirement` | The eval wants X, and the prompt never asks for X | agent | Overview 6.1 |
-| `output-contract-not-met` | Wrong shape, no closing block, bad escaping | agent | Ladder row 1 |
-| `answers-not-grounded` | The answer needs knowledge that is not in the context | agent | Ladder row 2 |
-| `wrong-scope-or-refusal` | Off-topic answers, or refusals of valid requests | agent | Ladder row 3 |
-| `context-the-agent-had-to-ask-for` | "If it had known that, it would have done the right thing", and a tool could have told it | agent | Overview 7.5 |
-| `lost-in-long-instructions` | A long prompt or a one-file skill, and the agent misses a part | agent | Ladder row 8 |
+| **Instructions** | | | |
 | `very-long-prompt` | The system prompt is over the reference length | code | Overview 9 |
-| `skill-resource-not-read` | The agent never loads a skill file, or guesses a path, or loads it and does not follow it | agent | Ladder row 5, research |
+| `one-file-skill-with-many-topics` | A skill that is one long file, with no reference files | agent | Overview 6.2, ladder row 8 |
 | `skill-too-small-to-earn-its-place` | A skill with a few words and no other file: its description costs more than it saves | agent | Overview 9 |
 | `very-long-skill-description` | A skill description is over the reference length | code | Architecture |
-| `faulty-inherited-skill` | An attached skill is wrong, stale, or holds data shaped like test cases | agent | Ladder row 10 |
-| `harness-copies-eval-content` | The prompt, a skill or a tool holds text copied from eval items or from a judge | code (the existing baseline audit), agent | The planner's skill, research |
-| **About the tools** | | | |
-| `tool-results-flood-the-context` | A very large tool result, or one call for each item | agent | Overview 6.3 and 9, ladder row 6 |
+| `faulty-inherited-skill` | An attached skill is wrong, stale, contradicts the task, or holds data shaped like test cases | agent | Ladder row 10 |
+| **Tools** | | | |
+| `tool-results-flood-the-context` | A tool returns a very large result, or the agent makes one call for each item | agent | Overview 6.3 and 9, ladder row 6 |
 | `fixed-call-chain` | The agent calls the same tools in the same order each time, and passes an id from one to the next | agent | Overview 6.3 |
-| `general-query-tool-without-a-guide` | A SQL, GraphQL or general API tool, and the agent must learn the schema by trial | agent | Overview 6.3 and 10 |
-| `failure-at-a-tool-call` | The failing message comes before or with a tool call | agent | Ladder row 4 |
-| `malformed-tool-calls` | Wrong case, wrong id form, a misspelled tool name | agent | Ladder row 7 |
-| `too-many-narrow-tools` | The agent picks the wrong tool, or breaks a rule of the product | agent | Ladder row 11, overview 6.3 |
+| `general-query-tool-without-a-guide` | A SQL, GraphQL or general API tool, with no examples and no guide to the schema | agent | Overview 6.3 and 10 |
+| `too-many-narrow-tools` | Many tools that each do one small thing, or tools that overlap | agent | Ladder row 11, overview 6.3 |
 | `tool-search` | The agent must guess that a tool exists and search for it | agent | Overview 6.3, notes |
-| `lookup-tool-over-a-long-document` | A document behind a paged or search tool, and the agent picks the wrong part | agent | Ladder row 9 |
+| `document-behind-a-lookup-tool` | A long reference document that the agent can reach only by page, by search or by section | agent | Ladder row 9 |
 | `very-long-tool-description` | A tool description is over the reference length | code | Overview 9 |
-| **About the evals and the run** | | | |
-| `expected-answers-are-wrong` | A failing item reads as a correct answer, or the task is contradictory | agent | Research |
-| `unreliable-judge` | A judge's score disagrees with its own reasoning, or it accepts a near miss | agent | Ladder row 12, research |
-| `saturated-eval` | The baseline is at the ceiling: the train rows cannot show a win | code, agent | Ladder row 12, notes |
-| `eval-near-zero` | Almost every item fails, and the traces suggest no fix | agent | Overview 6.4, notes |
-| `noisy-eval` | The same config gives a different result on a second run | code | Notes, the noise check |
-| `evals-against-a-live-server` | The evals read or write a staging or live system, so the right answer changes with time | agent | Overview 7.7 |
-| `train-wins-rejected-at-val` | Fixes that win on train keep losing at the gate | agent | Ladder rule 2, notes |
-| `fix-breaks-passing-items` | A change fixes its target and breaks items that passed | agent | Research |
-| `defect-outside-the-harness` | A broken tool, stale data in a source, a quota or a timeout. Changes to the wording stay flat. | agent | Research |
+| `tools-on-a-live-server` | The tools read or write a staging or live system, so the right answer to an eval changes with time | agent | Overview 7.7 |
+
+Two of these are seen in how the agent runs, not in the harness alone:
+`tool-results-flood-the-context` and `fixed-call-chain`. They are smells
+because each is a property of the design.
 
 ## 3. Techniques: V1 (28)
 
@@ -144,26 +135,41 @@ Notes:
 - The evidence column of the lever ladder becomes priors with the source
   "own experiment". That text is already public in this repository.
 
-## 4. Playbooks: V1 (12)
+## 4. Playbooks: V1 (21)
 
-| Id | Kind | What it holds | Source |
-|---|---|---|---|
-| `know-the-agent-before-you-plan` | Order | Classify the agent first: single-turn or multi-turn, structured output or free text, classifier shape, tools. A multi-turn eval is driven by a synthetic user. Then read the smells that apply. | Overview 4 and 7.8 |
-| `default-order-of-work` | Order | Step 0: check that the eval measures the right thing. Lock a model that has a reasonable start on the task. Fix what blocks other work. Then send each failure to the surface that can fix it. The settings and the model scan come last. One change in one arm. | Overview 6.4 and 10, ladder, research |
-| `spending-the-budget` | Order | The budget is known at the start. What a small budget leaves out and what a large budget opens. Fewer arms, each with enough items to pass its own test. The smallest gain that a given number of items can show. | Overview 5 and 5.1, research |
-| `check-the-eval-first` | Situation | Before any change to the agent: read the failing items for wrong expected answers, test the judge, look for copied eval content, check that the eval can show a win. | Research |
-| `fit-the-tool-layer-to-the-agent` | Design issue | The tools are the company's software APIs. Wrap them, do not rewrite them. Which wrapper for which symptom. The prompt and the guide skill change with the tools. | Overview 6.3 |
-| `change-the-surface-not-the-words` | Response to a smell | When a failure is mechanical, or two text arms failed on one issue: change what the model touches before the words it reads. A policy failure is the exception: procedure text comes first. | Ladder, research |
-| `dealing-with-a-saturated-eval` | Response to a smell | Measure the issue on the baseline, judge the fires, then grow or change the eval. No fix arm. | Ladder row 12, notes |
-| `dealing-with-an-eval-near-zero` | Response to a smell | Read the raw outputs. A format or protocol failure can be fixed. A capability floor cannot: use a stronger model to get a signal. A reasonable start is about 20%, with room to rise. | Overview 6.4, notes, research |
-| `dealing-with-a-noisy-eval` | Response to a smell | Measure the baseline again on the same day. Repeat before you trust a small difference. Do not let a decision turn on one or two items. | Notes, research |
-| `dealing-with-train-wins-rejected-at-val` | Response to a smell | Look for copied eval content and wrong expected answers. Stop writing rules for small groups of failures. Fewer and larger arms. Then change the surface. | Notes, ladder rule 2, research |
-| `cheaper-or-faster` | User goal | Another provider of the same model, less thinking, a shorter prompt, fewer output tokens, then a smaller model with the harness adapted to it. Apply the cost goal after quality is stable. | Notes, the planner's skill |
-| `working-inside-restrictions` | Situation | A stated restriction is a hard limit on the plan: providers, model origin, data retention, tools that must not change. What to do when the best lever is not allowed. | Overview 8 |
+One playbook for each problem or goal. The kind groups the indexes.
 
-`tool-less-generation-task` (ladder row 14) is not a separate playbook. Its
-steps go into the remedies of `lost-in-long-instructions` and into
-`structure-a-long-prompt`.
+| Id | What it holds | Source |
+|---|---|---|
+| **Kind: order** | | |
+| `know-the-agent-before-you-plan` | Classify the agent first: single-turn or multi-turn, structured output or free text, classifier shape, tools. A multi-turn eval is driven by a synthetic user. | Overview 4 and 7.8 |
+| `default-order-of-work` | The priority comes from the smells and the failures, not from a fixed order of levers. Lock a model that has a reasonable start on the task. Fix first what a smell says blocks other work. Then take each failure to its playbook. One technique in one experiment (a technique can be a set of changes). The settings and the model scan are late, and depend on the budget. All of it is guidance. | Overview 6.4 and 10, research |
+| `spending-the-budget` | Strategy, with no numbers: the planner's input already has what each eval can show, the noise, the prices and the budget that remains. What a small budget leaves out and what a large budget opens. Fewer experiments, each with enough items to pass its own test. | Overview 5 and 5.1 |
+| **Kind: goal** | | |
+| `cheaper-or-faster` | Another provider of the same model, less thinking, a shorter prompt, fewer output tokens, then a smaller model with the harness adapted to it. Apply the cost goal after quality is stable. | Notes, the planner's skill |
+| `working-inside-restrictions` | A stated restriction is a hard limit on the plan: providers, model origin, data retention, tools that must not change. What to do when the best lever is not allowed. | Overview 8 |
+| **Kind: design** | | |
+| `fit-the-tool-layer-to-the-agent` | The tools are the company's software APIs. Wrap them, do not rewrite them. Which wrapper for which smell. The prompt and the guide skill change with the tools. | Overview 6.3 |
+| **Kind: failure** (a class of failure seen in eval traces) | | |
+| `requirement-missing-from-the-prompt` | The eval wants X, and the prompt never asks for X. State it in new words; do not copy the eval. | Overview 6.1 |
+| `output-contract-not-met` | Wrong shape, no closing block, bad escaping. One prompt line with the contract, then the edge rule. | Ladder row 1 |
+| `answers-not-grounded` | The answer needs knowledge that is not in the context. Attach the source, then scope discipline. | Ladder row 2 |
+| `wrong-scope-or-refusal` | Off-topic answers, or refusals of valid requests. A decline-rules paragraph, then rebalance. | Ladder row 3 |
+| `missing-context-the-agent-could-be-given` | "If it had known that, it would have done the right thing." One tool that loads it, and a prompt line to call it first. | Overview 7.5 |
+| `failure-at-a-tool-call` | The failing message comes before or with a tool call. A new tool description, then a directive in the tool's response. | Ladder row 4 |
+| `malformed-tool-calls` | Wrong case, wrong id form, a misspelled tool name. A wrapper that normalises, errors the agent can act on, a guard at the tool. | Ladder row 7 |
+| `wrong-tool-chosen` | The agent picks the wrong tool, or breaks a rule that the product enforces. Consolidate, or remove and scope. | Ladder row 11 |
+| `skill-is-not-read` | The agent never loads a skill file, guesses a path, or loads it and does not follow it. The path index in the description, then a prompt rule. | Ladder row 5, research |
+| `lost-in-long-instructions` | The agent misses a part of a long prompt or a long skill. Progressive disclosure, or a prompt-structure change when the task has no tools. A probe first. | Ladder rows 8 and 14 |
+| `change-the-surface-not-the-words` | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception: procedure text comes first. | Ladder, research |
+| **Kind: eval** (the measurement is the problem) | | |
+| `dealing-with-a-saturated-eval` | The baseline is at the ceiling, or the judge's fires are false. Measure the issue on the baseline, judge the fires, then grow or change the eval. No fix. | Ladder row 12, notes |
+| `dealing-with-an-eval-near-zero` | Read the raw outputs. A format or protocol failure can be fixed. A capability floor cannot: use a stronger model to get a signal. A reasonable start is about 20%, with room to rise. | Overview 6.4, notes |
+| `dealing-with-a-noisy-eval` | Repeat before you trust a small difference. Do not let a decision turn on one or two items. | Notes |
+| `dealing-with-train-wins-rejected-at-val` | Look for copied eval content. Stop writing rules for small groups of failures. Fewer and larger experiments. Then change the surface. | Notes, ladder rule 2, research |
+
+The loop already finds these failures and eval problems, and records them as
+issues. These playbooks add no record and no check. They say what to try.
 
 ## 5. Where each idea of the owner goes
 
@@ -179,7 +185,7 @@ One row for each idea of the project overview and the design notes.
 | Targeted experiments, many cheap experiments | 5 | V1 `spending-the-budget` |
 | Being right often is the largest saving | 5 | V1 `spending-the-budget` |
 | Plan with the budget in view; a large budget opens options | 5.1 | V1 `spending-the-budget` |
-| The eval wants X and the prompt never asks for it | 6.1 | V1 `prompt-does-not-state-a-requirement`, `add-the-missing-requirement` |
+| The eval wants X and the prompt never asks for it | 6.1 | V1 playbook `requirement-missing-from-the-prompt`, `add-the-missing-requirement` |
 | The prompt is tuned with every other variable, not alone | 6.1 | V1 `default-order-of-work` |
 | Progressive disclosure: a skill for each thing the agent can do | 6.2 | V1 `long-prompt-into-a-skill` |
 | A long prompt into a skill is almost always worth an experiment | 6.2 | V1 `long-prompt-into-a-skill` |
@@ -217,15 +223,15 @@ One row for each idea of the project overview and the design notes.
 | A sub-agent can be tuned with its own evals | 7.2 | Backlog: Sub-agents |
 | Input transforms: fewer fields, cut text, added features, a field removed | 7.3 | Backlog: Input transforms |
 | Decision models for every classification task | 7.4 | V1 `decision-model-for-a-classifier`. Backlog: other uses |
-| Context loading | 7.5 | V1 `context-the-agent-had-to-ask-for`, `roll-up-tool` |
+| Context loading | 7.5 | V1 playbook `missing-context-the-agent-could-be-given`, `roll-up-tool` |
 | Fine-tuning is late; knowledge does not go in weights | 7.6 | V1 a line in `model-swap-inside-a-class`. Backlog: Fine-tuning |
-| Stateful agents need an environment; stale evals | 7.7 | V1 `evals-against-a-live-server`. Backlog: OpenEnv worlds |
+| Stateful agents need an environment; stale evals | 7.7 | V1 smell `tools-on-a-live-server`. Backlog: OpenEnv worlds |
 | No evals: send the user to the eval builder | 7.8 | The tuner does this today. V1 `know-the-agent-before-you-plan` |
 | Synthetic users drive multi-turn evals | 7.8 | V1 `know-the-agent-before-you-plan` |
 | Compaction; a switch in mid-conversation; guardrails | 7.9 | Backlog: Not in Kiln yet |
 | Restrictions | 8 | V1 `working-inside-restrictions`. Backlog: Collect restrictions |
 | Anything that can be code must be code | 9 | The smell detectors |
-| A very large tool result | 9 | V1 smell. Backlog: its detector |
+| A very large tool result | 9 | V1 smell `tool-results-flood-the-context`. Backlog: its detector |
 | A very long tool description; a very long prompt | 9 | V1 smells with detectors |
 | A skill of a few words | 9 | V1 `skill-too-small-to-earn-its-place`. Backlog: its detector |
 | Thousands of skills | 9 | Backlog: Too many skills |
@@ -248,14 +254,31 @@ One row for each idea of the project overview and the design notes.
 
 ## 6. Where each part of the lever ladder goes
 
+The lever ladder is one table in the planner's skill: a class of failure
+seen in a trace, what to try first, what to try next, and what not to try.
+Its name and its one-table form are not kept. Its content is.
+
 | Part of the ladder | Goes to |
 |---|---|
-| Rows 1 to 12 of the table | The smells and techniques above. "Try first" and "Then" become the smell's remedies, in order. "Do not" becomes "When not to use" of the techniques it names, and a line in the smell. |
-| Row 13 (provider parameters) | `thinking-level-ladder` |
-| Row 14 (a tool-less task with a long prompt) | `lost-in-long-instructions` and `structure-a-long-prompt` |
+| Row 1 | Playbook `output-contract-not-met` |
+| Row 2 | Playbook `answers-not-grounded` |
+| Row 3 | Playbook `wrong-scope-or-refusal` |
+| Row 4 | Playbook `failure-at-a-tool-call` |
+| Row 5 | Playbook `skill-is-not-read` |
+| Row 6 | Smell `tool-results-flood-the-context`. Its remedies keep the row's order. |
+| Row 7 | Playbook `malformed-tool-calls` |
+| Row 8 | Playbook `lost-in-long-instructions`; smell `one-file-skill-with-many-topics` |
+| Row 9 | Smell `document-behind-a-lookup-tool` |
+| Row 10 | Smell `faulty-inherited-skill` |
+| Row 11 | Playbook `wrong-tool-chosen`; smell `too-many-narrow-tools` |
+| Row 12 | Playbook `dealing-with-a-saturated-eval` |
+| Row 13 | Technique `thinking-level-ladder` |
+| Row 14 | Playbook `lost-in-long-instructions`; technique `structure-a-long-prompt` |
+| In each row: "Try first" and "Then" | The ordered steps of the playbook, or the remedies of the smell, each a link to a technique |
+| In each row: "Do not" | "What not to do yet" of the playbook, and "When not to use" of the techniques it names |
 | The evidence column | Priors |
 | The evidence rule at the top | Replaced by the content rules of the functional spec, section 6 |
-| "The rule above the table" | `change-the-surface-not-the-words` |
+| "The rule above the table" | Playbook `change-the-surface-not-the-words` |
 | "Everything the baseline attaches is in the action space" | The levers `skill` and `new_tool` |
 | Rule 1, name the decision point | Stays in the planner's and the analyzer's skills: it is process. `failure-at-a-tool-call` links to it. |
 | Rule 2, two failed text arms | `change-the-surface-not-the-words`. The count from `lever_attempts` stays in the planner's skill. |
@@ -284,9 +307,7 @@ first proposal. The owners rank.
 | RAG | gap | tuner | The lever. RAG or skill, and when each wins. Documents and extraction first; extract once and do not tune it. Test that RAG helps before the chunker and the search type. Reranking. Size in tokens, not in documents. |
 | Structured-output mode | gap | tuner | The lever, and its screen |
 | Detectors from the trace counts | detector | tuner | A very large tool result; repeated calls and loops; a run that ends at a limit; unused tools and skills; a skill of a few words |
-| An eval that is too small to show the effect | smell | knowledge, tuner | The smell, with a detector from the item counts |
-| A change that makes the outputs break while the score rises | smell | knowledge | Read the raw outputs of a winner |
-| Detectors on the process of a run | detector | tuner | Train wins rejected at val; repeated failed arms; items that flip |
+| Budget-aware planning | code | tuner | Software that plans with the budget: each experiment sized so that it can pass its own test; a small budget not split over too many experiments; a probe for room to improve before a change to the wording; the baseline measured again in each wave; a gate that uses support across repeats. The knowledge side is the V1 playbook `spending-the-budget`. |
 | OpenEnv worlds | gap | tuner, kiln | Read and change a world. An environment for a stateful agent. |
 | Collect restrictions at the start | code | tuner | "Ask the user the five best questions" |
 
@@ -326,30 +347,29 @@ first proposal. The owners rank.
 
 **Playbooks.**
 
-- Open models on-prem.
-- After a change of model: the same prompt, a new baseline, fix only what
-  got worse, then remove old workarounds.
-- A structural change measured against plain retries with the same number
-  of calls.
-- A first pass on a new agent: stable failures, items that flip, stable
-  passes, and the cost and latency spread.
-- A support agent: the order of work. An analyst over data: the order of
-  work.
+- Goal: open models on-prem.
+- Order: after a change of model (the same prompt, a new baseline, fix only
+  what got worse, then remove old workarounds); a first pass on a new agent
+  (stable failures, items that flip, stable passes, the cost and latency
+  spread); the order of work for a support agent, and for an analyst over
+  data.
+- Failure: a rule that the agent ignores where it is, and follows when it
+  comes back in a tool result; a classifier whose answers collapse to one
+  class; a change that fixes its target and breaks items that passed; a
+  defect outside the harness (a broken tool, stale data, a quota).
+- Eval: an eval too small to show the effect; a few items that carry all
+  the signal; eval feedback with a score and no reason; a structural change
+  measured against plain retries with the same number of calls; outputs
+  that break while the score rises.
 
 **Smells.**
 
-- Too many tools, or tools that overlap (a count).
 - Very many skills.
 - An old model.
-- Evals that do not cover the product.
-- A low cache hit rate.
-- A rule in the wrong place: the agent ignores it where it is, and follows
-  it when it comes back in a tool result.
-- Eval feedback with a score and no reason.
 - A long list of "must" and "never" lines.
-- A classifier whose answers collapse to one class.
 - One loop for requests of different kinds.
-- A few items carry all the signal.
+- A low cache hit rate.
+- Evals that do not cover the product.
 
 **Levers and gaps.** The rest of [kiln_gaps.md](./kiln_gaps.md):
 compaction, a switch of model or thinking level in mid-conversation, inline
@@ -361,10 +381,6 @@ a classifier.
 **Code: ideas for the loop.** These change how the tuner works. They are not
 knowledge documents.
 
-- A check of the eval and the judge as the first class of experiment.
-- A probe for room to improve before an arm on the wording.
-- The baseline measured again in each wave, paired and on the same day.
-- A gate that uses support across repeats, not a mean.
 - A decision that turns on one or two items is not made.
 - Guards before a measurement: a limit on how much a change grows the
   harness, and no phrase copied from a trace or an eval.
@@ -398,13 +414,13 @@ source is corrected or dropped.
 | 4 | `policy-as-step-by-step-procedures` | From Quesma's post, rewriting a policy as step-by-step procedures for a small model on a telecom support benchmark raised the pass rate from 0.55 to 0.675. | https://quesma.com/blog/tau2-benchmark-improving-results-smaller-models, 2025-09-12 |
 | 5 | `attach-the-knowledge-source` | From LinkedIn's text-to-SQL paper, example queries took an analytics agent's correct-or-nearly-correct answers from 24% to 49% on 133 questions, and adding domain-knowledge records lowered it to 42%. | https://arxiv.org/html/2507.14372, 2025-07-18 |
 | 6 | `default-order-of-work` | From Nubank's support-agent paper, an agent that started with a knowledge tool and a human-transfer tool gained a routine from the operating procedures, domain tools and escalation, then tool hierarchies and conciseness budgets. | https://arxiv.org/abs/2606.08867, 2026-06-07 |
-| 7 | `unreliable-judge` | From Shopify's Sidekick post, calibrating LLM judges to human labels moved agreement (Cohen's kappa) from 0.02 to 0.61, against a human baseline of 0.69. | https://shopify.engineering/building-production-ready-agentic-systems, 2025-08-26 |
-| 8 | `unreliable-judge` | From Hex's data-agent post, on an eval with a near-miss trap (2.03% against 2.04%), the judge accepted the difference 35% of the time. | https://hex.tech/blog/evaluate-data-agents/, 2026-05-22 |
-| 9 | `expected-answers-are-wrong` | From Anthropic's agent-evals post, fixing rigid grading, ambiguous specs and a too-constrained scaffold took one model on an agent benchmark from 42% to 95%. | https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents, 2026-01-09 |
+| 7 | `dealing-with-a-saturated-eval` | From Shopify's Sidekick post, calibrating LLM judges to human labels moved agreement (Cohen's kappa) from 0.02 to 0.61, against a human baseline of 0.69. | https://shopify.engineering/building-production-ready-agentic-systems, 2025-08-26 |
+| 8 | `dealing-with-a-saturated-eval` | From Hex's data-agent post, on an eval with a near-miss trap (2.03% against 2.04%), the judge accepted the difference 35% of the time. | https://hex.tech/blog/evaluate-data-agents/, 2026-05-22 |
+| 9 | Held: no V1 document | From Anthropic's agent-evals post, fixing rigid grading, ambiguous specs and a too-constrained scaffold took one model on an agent benchmark from 42% to 95%. | https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents, 2026-01-09 |
 | 10 | `thinking-level-ladder` | From LangChain's harness post, running the highest reasoning level everywhere scored 53.9% against 63.6% at "high", because of agent timeouts. | https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering, 2026-02-17 |
 | 11 | `model-swap-inside-a-class` | From Hex's Quick Edits post, a model with a pass rate about 1 point lower was adopted because it made 20% fewer wrong edits at half the cost. | https://hex.tech/blog/we-used-evals-to-improve-ai-feature, 2026-10-08 |
-| 12 | `skill-resource-not-read` | From Vercel's AGENTS.md post, a skill was never invoked in 56% of cases and the pass rate equalled the no-docs baseline (53%). An explicit trigger instruction raised it to 79%, and a compact index always in context reached 100%. | https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals, 2026-01-27 |
-| 13 | `skill-resource-not-read` | From a 2026 analysis of harness updating, one 32B model loaded its skills at a rate of 0.251 against 0.957 for a frontier model, and another model loaded at 0.961 but followed at only 0.350. | https://arxiv.org/html/2605.30621, 2026-05-28 |
+| 12 | `skill-is-not-read` | From Vercel's AGENTS.md post, a skill was never invoked in 56% of cases and the pass rate equalled the no-docs baseline (53%). An explicit trigger instruction raised it to 79%, and a compact index always in context reached 100%. | https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals, 2026-01-27 |
+| 13 | `skill-is-not-read` | From a 2026 analysis of harness updating, one 32B model loaded its skills at a rate of 0.251 against 0.957 for a frontier model, and another model loaded at 0.961 but followed at only 0.350. | https://arxiv.org/html/2605.30621, 2026-05-28 |
 | 14 | `change-the-surface-not-the-words` | From a 2026 study of a customer-service tool agent, failures were clustered and each cluster sent to the prompt, a tool-boundary guard or both. Removing that routing cut the held-out gain from 14.9 to 5.4 points. | https://arxiv.org/html/2609.05736, 2026-09-09 |
 | 15 | `default-order-of-work` | From a 2026 study of a tool-using assistant, scheduling code and loop changes before text-only changes gave a test pass rate of 60.7 against 54.8 without that order. | https://arxiv.org/html/2608.23041, 2026-08-24 |
 | 16 | `state-the-output-contract` | From a study of six prompt optimisers with 20 training items, 49% of 72 runs scored below the unoptimised prompt, and every method won only on the one task where the output needed a format the model could produce but did not by default. | https://arxiv.org/html/2604.14585v1, 2026-04-16 |

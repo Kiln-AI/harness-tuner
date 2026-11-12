@@ -141,7 +141,7 @@ src/kiln_harness_tuner/
     baseline_review.md            new prompt template
     batch_plan.md                 changed: reads the planner entry file
     create_experiment_rc.md       changed: reads the builder entry file
-    analyze_experiment_results.md changed: reads the smells entry file
+    analyze_experiment_results.md changed: reads the analyzer entry file
     report_writer.md              changed: reads the report entry file
   agent_files/skills/
     kiln-harness-tuner-knowledge/         new skill: the knowledge system
@@ -179,9 +179,9 @@ each wave, when the baseline is not yet reviewed
     dispatch.baseline_review(detections, trace sample) ──► findings
     code: one issue per finding, tags [issue, smell, smell_<id>, audited_rc_<rc>]
   planner: BatchPlanInput.detections + smell issues in memory
-           + knowledge/references/planner.md (smells, playbooks) ──► techniques
+           + knowledge/references/planner.md (smells, playbooks by kind) ──► techniques
   builder: knowledge/references/builder.md ──► the technique of its item ──► levers
-  analyzer: knowledge/references/smells.md
+  analyzer: knowledge/references/analyzer.md (failure-pattern playbooks)
 end of run
   report: RunStatus.detections, RunStatus.baseline_reviews ──► the smells appendix
 ```

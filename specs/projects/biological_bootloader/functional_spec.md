@@ -65,13 +65,13 @@ large improvement to the tuner. It is the base for later improvement.
 | Component | One document of a fixed type: lever, technique, playbook or smell. |
 | Lever | One thing in a harness that the tuner can change, and how the tuner creates and changes it. (The owner's notes call this a "capability".) |
 | Technique | A guide to one specific optimisation. It can be a set of changes. |
-| Playbook | Guidance centred on one goal or one situation. It links to techniques. |
-| Smell | A common problem to check for, with how to recognise it and links to what fixes it. |
+| Playbook | Guidance on how to solve one problem or reach one goal: a user goal, a class of failure seen in eval traces, a problem with an eval, or the order of work. It links to techniques. |
+| Smell | An issue in the design of the agent. Its document says how to recognise and diagnose it, and links to the playbooks and techniques that fix it. |
 | Prior | One real case in which a technique was used. |
 | Backlog | The one document that lists the known gaps and the ideas that are not written yet. |
 | Smell detector | Code that checks a run's harness or traces for one smell. |
 | Detection | What a smell detector reports: a statement of fact about this run. |
-| Issue | The tuner's existing memory record for a problem found in this run. An issue can be an instance of a smell. |
+| Issue | The tuner's existing memory record for a problem found in this run. A smell that is found in a run is recorded as an issue. |
 | Maintenance skill | The skill a coding agent uses to add to, change and audit the knowledge system. |
 | Baseline reviewer | The new agent that reviews the baseline for smells (section 12.2). |
 | Planner | The batch-selection agent. |
@@ -95,10 +95,10 @@ it is a **lever kind**, not a technique in the sense of this spec.
 
 | Reader | Reads | Entry point |
 |---|---|---|
+| Baseline reviewer | Smells. It is the main reader of the smell documents: it reads them, then looks for each one in the agent. | Its own entry file |
 | Planner | Smells, playbooks and techniques | Its own entry file |
 | Builder | Techniques and levers | Its own entry file |
-| Baseline reviewer | Smells. It is the main reader of the smell catalogue. | Its own entry file |
-| Analyzer | Smells, so that it can name one that it sees in a candidate's traces. This is secondary. | Its own entry file |
+| Analyzer | The playbooks for failure patterns, so that it can name the pattern it sees in a candidate's traces | Its own entry file |
 | Report writer | Playbooks, techniques and priors, where they help it explain the run | Its own entry file |
 | Promoter, probe, reviewers, eval roles | Nothing from the knowledge system | — |
 | Coding agents and people who maintain the system | Everything, plus the maintenance skill | The maintenance skill |
@@ -197,56 +197,76 @@ change, and so does each playbook or smell that suggests it.
 
 ### 4.4 Playbook
 
-A playbook is centred on one goal or one situation. Examples of the kinds:
+A playbook says how to solve one problem or reach one goal. Its title
+names the problem, and the solution where that helps. There is **one
+playbook for each problem**: a new problem is a new file, not a new row in
+a shared table.
 
-- **A user goal**: "much cheaper", "open models on-prem".
-- **The order of work**: the default order, and how it changes with the size
-  of the budget. This is the home of the stack rank ("if X is broken, do not
-  optimise Y").
-- **The response to a smell**: "dealing with saturated evals", "train wins
-  that validation keeps rejecting", "replacing tool search".
+Each playbook states its kind. The kind is used only to group the indexes,
+so that each reader sees the playbooks it needs.
+
+| Kind | What it is | Examples |
+|---|---|---|
+| Goal | What the user wants | "Much cheaper", "open models on-prem" |
+| Order of work | How to plan a run | The default order; how to spend the budget |
+| Failure pattern | A class of failure seen in the traces of eval items | "The output contract is not met", "tool calls are malformed" |
+| Eval problem | The measurement is the problem | "A saturated eval", "train wins that validation keeps rejecting" |
+| Design | The response to a smell that needs more than one technique | "Fit the tool layer to the agent" |
 
 It must hold:
 
-- the goal or situation;
+- **the situation**: the goal, or how to recognise the problem. For a
+  failure pattern, this is what the trace shows and where;
 - an ordered set of things to try, each a link to a technique with the
   condition under which it applies;
 - what to do first, and what not to do yet;
 - how the order changes with the budget, if it does.
 
-A playbook that responds to a smell does not repeat how to recognise it. The
-smell holds that.
+The failure patterns are the knowledge that the lever ladder holds today
+(section 9). The loop already finds failures in eval traces and records
+them as issues. A playbook of this kind adds no new record: it says what to
+try for an issue of that class.
 
 Playbooks hold the opinions about order. There are fewer playbooks than
 techniques. A small group owns them, by informal agreement.
 
 ### 4.5 Smell
 
-A smell is a common problem that the tuner checks for. It is evidence that
-suggests a problem. It is not a verdict. Examples: "saturated evals", "a very
-long prompt", "tool search", "a tool result of very many tokens".
+A smell is an issue in the **design of the agent**. It is true of the agent
+whether an eval passes or fails. Examples: a very long prompt, tool search,
+a tool that returns a very large result, a fixed chain of calls that passes
+an id along.
 
-A smell is its own component type because of who reads it. The analyzer and
-the planner must know every smell, and must not have to read every playbook
-to do so.
+A smell can be seen in the harness, or in how the agent runs (for example
+the size of a tool result in a trace). What makes a problem a smell is that
+it is a property of the design. A reason why one eval item failed is not a
+smell: that is a failure pattern, and a playbook covers it (section 4.4).
+
+A smell is its own component type because of its reader and its purpose.
+The baseline reviewer reads the smell documents and then looks for each
+smell in the agent. So the main content of a smell document is **how to
+recognise and diagnose it**. The fix is elsewhere: the document links to
+playbooks and techniques.
 
 It must hold:
 
-- **How to recognise it**: what is seen in the harness, the traces or the
-  eval results.
-- **Who can detect it**: a smell detector in code (section 12.3), an agent that reads
-  traces, or both. If a code detector exists, the smell names it.
+- **What it is**: one paragraph.
+- **How to recognise it**: the signs in the harness, and the signs in how
+  the agent runs.
+- **How to confirm it**: what to check before it is reported, and what
+  looks like this smell and is not.
+- **Who can detect it**: a smell detector in code (section 12.3), an agent
+  that reviews the design, or both. If a code detector exists, the smell
+  names it.
 - **What it blocks**: what is not worth an experiment until this is fixed,
   if anything.
 - **Remedies. Required, at least one.** Each is a link to a playbook or to a
-  technique, with the condition under which it applies. A smell with a
-  complex response links to its playbook ("saturated evals" links to
-  "dealing with saturated evals"). A simple smell can link to techniques
-  directly. A test fails for a smell with no remedy, so every smell that the
-  tuner detects leads towards a solution.
+  technique, with the condition under which it applies. A test fails for a
+  smell with no remedy, so every smell that the tuner detects leads towards
+  a solution.
 
-When an agent finds a smell in a run, it records it in the way the tuner
-records a problem today: as an issue, which names the smell.
+When a smell is found in a run, it is recorded in the way the tuner records
+a problem today: as an issue, which names the smell.
 
 ### 4.6 Priors
 
@@ -290,13 +310,14 @@ one a location and a path from an entry file.
 - **Generated indexes.** Code builds each index from the component files. A
   person does not edit an index. A test fails when an index is out of date.
 - **The planner's entry file** lists every smell and every playbook, each
-  with its one-line description and a link. The planner reaches a technique through a
+  with its one-line description and a link. The playbooks are grouped by
+  kind. The planner reaches a technique through a
   playbook, because a choice by goal is better than a choice by name.
 - **The builder's entry file** lets the builder reach the technique on its
   work item directly, and from there the levers.
-- **The baseline reviewer's entry file and the analyzer's entry file** list
-  every smell, with how to recognise it in one line and a link to the
-  detail.
+- **The baseline reviewer's entry file** lists every smell, with how to
+  recognise it in one line and a link to the detail.
+- **The analyzer's entry file** lists the playbooks for failure patterns.
 - **A technique index** exists for one case only: the user's free-form
   guidance names a technique ("try a sub-agent for X"). The index carries
   the instruction "prefer a playbook; use this index only when the user
@@ -373,23 +394,26 @@ skill enforces them, and the tests check what a test can check.
 
 ## 9. The existing lever ladder
 
-The planner's skill already has a lever ladder
-(`kiln-harness-tuner-batch-selection/references/lever-ladder.md`): a table
-from a failure class to the lever to try first. Each row is a smell with
-its remedies.
+The planner's skill has a file named the lever ladder
+(`kiln-harness-tuner-batch-selection/references/lever-ladder.md`). It is a
+table from a class of failure, as seen in a trace, to what to try first,
+what to try next and what not to try. It is the tuner's guidance today on
+what to try. It was written before this project.
 
-- The lever ladder moves into the knowledge system. Its rows become smells,
-  with playbooks where the response is complex, and the fixes they name
-  become techniques.
+- The name and the one-table form are not kept. The content is.
+- **Each row becomes one playbook of the kind "failure pattern".** The
+  row's "try first" and "then" become the ordered steps, each a link to a
+  technique. Its "do not" becomes "What not to do yet".
+- The fixes that the rows name become techniques.
 - After the move there is one source of truth. The old file is removed, and
   the planner's skill links to the new entry file.
 - The process rules that go with the ladder (name the decision point; after
   two failed text arms, change the surface class) stay with the planner's
-  process, or become a playbook. The architecture decides.
+  process, or become a playbook. The V1 coverage document says which.
 - The ladder's present evidence rule ("cite nothing: no measured number, no
   model name") is replaced by the rules in section 6.
-- No guidance is lost in the move. A check in the V1 coverage phase lists
-  each row of the ladder and where it went.
+- No guidance is lost in the move. The V1 coverage document lists each part
+  of the ladder and where it goes.
 
 ## 10. The maintenance skill
 
@@ -460,50 +484,49 @@ confidence, the approval rule). The maintenance skill's audit covers those.
 
 ### 12.1 The order
 
-Today the start of a run is all code, and no agent reads the baseline's
-traces before the planner does in wave 1. The planner is dispatched new for
-each wave, and it also has to plan. This project gives smell detection a
-fixed order:
+A smell is an issue in the design of the agent (section 4.5). Today no step
+of a run reviews that design. This project adds two steps before the planner
+plans:
 
 | When | Who | What it finds |
 |---|---|---|
-| Start of run, with the baseline audit | Smell detectors in code (12.3) | Smells in the static harness and in the baseline's stored train traces. Nothing is spent yet. |
-| Start of run, before wave 1. Again after each promotion. | The baseline reviewer, a new agent (12.2) | Smells that need reading: for example "the prompt never asks for what the eval wants", or "the agent did not have context that it could have been given". |
-| Each wave | Code, from the run's own history | Smells in the process: for example train wins that validation keeps rejecting, or repeated failed arms on one issue. The planner gets them in its input. |
-| Each experiment | The analyzer | A smell it sees in a candidate's traces. Secondary. |
+| Start of run. Again after each promotion. | Smell detectors in code (12.3) | Smells that code can see in the harness, and in the baseline's stored train traces |
+| After the detectors | The baseline reviewer, a new agent (12.2) | Smells that need a reader |
 
-Two existing checks are smell detectors in all but name: the detectability
-check finds saturated evals, and the noise check finds high variance. They
-report through the same mechanism as the new detectors, so that there is
-one way to detect a smell in code.
+The failures of eval items are not part of this. The loop finds them today,
+records them as issues, and the planner and the analyzer work on them. The
+detectability check and the noise check also stay as they are. They are not
+smell detectors.
 
 ### 12.2 The baseline reviewer
 
-A new loop agent. Its one job is to analyse the existing agent before the
-tuner changes it.
+A new loop agent. Its one job is to review the design of the existing agent
+before the tuner changes it.
 
 - **When it runs.** Once at the start of a run, after the code detectors and
   before wave 1. Once more after each promotion, because a new baseline can
   remove a smell or add one.
-- **What it reads.** The baseline's harness (prompt, skills, tools, model
-  and settings), a sample of the baseline's train traces that pass and that
-  fail, the detections from the code detectors, and the smell catalogue. It
-  reads train records only. It never reads val or test.
+- **What it reads.** The smell documents. The baseline's harness (prompt,
+  skills, tools, model and settings). A sample of the baseline's train
+  traces, to see how the agent runs: which tools it calls, in what order,
+  and what comes back. The detections from the code detectors. It reads
+  train records only. It never reads val or test.
+- **What it does not read for.** It does not diagnose why an eval item
+  failed. That stays with the planner and the analyzer.
 - **What it returns.** For each smell it finds: the smell, the evidence
-  (which traces, which part of the harness), and how sure it is. Each
-  becomes an issue that names the smell, in the way the tuner records a
-  problem today. It also confirms or rejects each code detection where
-  reading is needed to tell.
+  (which part of the harness, which traces), and how sure it is. Each
+  becomes an issue that names the smell. It also confirms or rejects each
+  code detection where reading is needed to tell.
 - **What it does not do.** It does not plan experiments, build anything or
   measure anything. It states facts and names smells. The planner decides
   what to do.
-- **Why a new agent.** To find smells and to choose experiments are
+- **Why a new agent.** To review a design and to choose experiments are
   different jobs, and the planner already has a large skill. The review is
   needed once for each baseline, not once for each wave. It is one session
   on the agent CLI's own account, with no eval spend.
 - **What it needs.** A prompt template, a skill with its entry file, a
   dispatch step, the gateway operations for its role, a place in the run
-  report, and tests. The architecture step defines each one.
+  report, and tests. The architecture defines each one.
 - **A run without it.** If the review fails or is turned off, the run goes
   on with the code detections only, and the report says so.
 - This work is a later phase of the implementation plan.
@@ -615,6 +638,8 @@ What this spec fixes now:
 None. Decisions made in review:
 
 - The components are lever, technique, playbook and smell (section 2).
+- A smell is an issue in the design of the agent. A class of failure seen
+  in eval traces is a playbook, not a smell (sections 4.4 and 4.5).
 - A new agent, the baseline reviewer, is in this project (section 12.2).
 - Playbook ownership is informal (section 10).
 - The model and provider tools are a separate project (section 13.1).

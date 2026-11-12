@@ -46,8 +46,7 @@ class DetectionCheck(BaseModel):
 
 class TraceSample(BaseModel):
     eval_id: str
-    failing_item_ids: list[str]
-    passing_item_ids: list[str]
+    item_ids: list[str]
 
 class BaselineReviewInput(BaseModel):
     baseline: BaselineRef
@@ -86,7 +85,7 @@ Package `src/kiln_harness_tuner/smells/`:
 __init__.py        exports run_detectors, DETECTORS, detector_smells
 model.py           Detector, DetectorInputs
 thresholds.py      the named reference values
-run.py             run_detectors, the adapters, ensure_baseline_reviewed
+run.py             run_detectors, ensure_baseline_reviewed
 detectors/
   __init__.py      DETECTORS: the registration
   long_prompt.py
@@ -169,35 +168,18 @@ cannot reach a run, so a detector for it would never report.
 
 The three smell documents that these detectors name are part of V1.
 
-### 3.4 The adapters for the existing checks
+### 3.4 What is not a detector
 
-The detectability check and the noise check keep their behaviour, their
-events and their report sections. Two pure functions turn their train-side
-results into detections, so that code-found smells have one form:
+- **The detectability check and the noise check** stay as they are. They
+  report on the evals, not on the design of the agent, so they are not smell
+  detectors and their results are not detections.
+- **Patterns in the history of a run** (for example train wins that
+  validation keeps rejecting) are not smells. The planner gets that history
+  today, and a playbook of the kind `eval` covers what to do.
+- **The failure of an eval item** is not a smell. The loop records it as an
+  issue today.
 
-```
-def detections_from_detectability(rows: list[TrainDetectability]) -> list[Detection]
-    # one per eval whose train rows cannot show a win; smell "saturated-eval"
-def detections_from_noise(noise: NoiseCheckResult | None) -> list[Detection]
-    # one per eval whose flip rate is above the noise warning level; smell "noisy-eval"
-```
-
-- Their inputs are the values the planner gets today
-  (`train_detectability`, `train_noise`). The val-side text of the
-  detectability report is not used.
-- The two smell documents are part of V1, because these adapters name them.
-- The adapters are registered as detectors of those smells for the knowledge
-  check, through two entries in `detector_smells()`.
-
-### 3.5 Detectors on the process of a run
-
-The functional spec names smells in the process of a run (for example train
-wins that validation keeps rejecting). The planner gets that history today
-in `gate_blocks`, `lever_attempts` and `prior_rejected_summary`. V1 adds no
-detector for them. The backlog has the entry. The interface above does not
-prevent it: a later detector of this kind takes a second input type.
-
-### 3.6 `run_detectors`
+### 3.5 `run_detectors`
 
 ```
 async def run_detectors(ctx: Ctx, rc_id: str) -> list[Detection]
@@ -208,13 +190,12 @@ async def run_detectors(ctx: Ctx, rc_id: str) -> list[Detection]
    baseline.
 2. Call each detector inside `try/except Exception`. A detector that raises
    is skipped, with the event `smell_detector_failed detector=<id>`.
-3. Add the adapter detections from `ctx`.
-4. Drop a detection whose `smell` is not a smell document, with the event
+3. Drop a detection whose `smell` is not a smell document, with the event
    `smell_unknown`.
-5. Emit the event `smell_detections rc=<rc_id> count=<n>` with the list.
+4. Emit the event `smell_detections rc=<rc_id> count=<n>` with the list.
 
-If step 1 fails, the function returns the adapter detections only, with the
-event `smell_detection_skipped reason=…`.
+If step 1 fails, the function returns an empty list, with the event
+`smell_detection_skipped reason=…`.
 
 ## 4. The baseline reviewer
 
@@ -222,9 +203,11 @@ A new role, `baseline_review`.
 
 ### 4.1 What it does
 
-It reads the baseline before the planner plans against it. It names the
-smells it finds, with evidence. It also reads each code detection and says
-whether it holds. It does not plan, build or measure.
+It reviews the design of the baseline before the planner plans against it.
+It reads each smell document, looks for that smell in the agent, and names
+the smells it finds, with evidence. It also reads each code detection and
+says whether it holds. It does not plan, build or measure, and it does not
+diagnose why an eval item failed.
 
 ### 4.2 Wiring
 
@@ -270,29 +253,32 @@ ROLE_OPS["baseline_review"] = (
 ### 4.4 The skill's procedure
 
 1. Read `references/smells.md` of the knowledge skill.
-2. Read the baseline: the prompt, each attached skill, each tool's name and
-   description, the model and the settings.
-3. Read each code detection in the input. For each, look at the thing it
+2. Read the baseline: the prompt, each attached skill, each tool's name,
+   description and parameters, the model and the settings.
+3. Read the sampled traces to see how the agent runs: which tools it calls,
+   in what order, how large each result is, and what it reads. Do not judge
+   whether an answer is right.
+4. Read each code detection in the input. For each, look at the thing it
    names and return a `DetectionCheck`.
-4. Read the sampled traces: the failing items first. For each failure, find
-   the first point at which the run went wrong. Then read the passing items,
-   to see what the agent does when it succeeds.
-5. For each smell in the list, decide if the evidence shows it. Open the
-   smell document when the one-line description is not enough.
+5. For each smell in the list, open its document when the one-line
+   description is not enough, and apply its "How to recognise it" and "How
+   to confirm it".
 6. Return one `SmellFinding` for each smell that the evidence shows.
    - State what was seen and where. Do not state a fix.
    - Use only the ids in `known_smells`.
    - A smell with weak evidence is returned with that said in `confidence`.
      A smell with no evidence is not returned.
-7. A problem that fits no smell goes in `notes`, in a few lines.
+7. A design issue that fits no smell goes in `notes`, in a few lines.
 
 Hard rules in the skill: train records only; no write to Kiln or to memory;
-no plan and no experiment; at most 15 findings.
+no plan and no experiment; no diagnosis of a failed eval item; at most 15
+findings.
 
 ### 4.5 The trace sample
 
 Code chooses the sample, so that the reviewer starts from the same place
-each time and the cost has a limit.
+each time and the cost has a limit. The sample shows how the agent runs. It
+is not chosen by whether an item passed.
 
 ```
 def baseline_trace_samples(ctx, rc_id) -> list[TraceSample]
@@ -300,12 +286,11 @@ def baseline_trace_samples(ctx, rc_id) -> list[TraceSample]
 
 - For each active eval, from the baseline's stored train rows
   (`ctx.analyzer.stored_results(..., "train")`): up to
-  `REVIEW_FAILING_PER_EVAL = 4` failing items and
-  `REVIEW_PASSING_PER_EVAL = 2` passing items.
+  `REVIEW_ITEMS_PER_EVAL = 4` items.
 - The items are taken in the order of the train set file, so the choice is
   the same on a second run.
-- At most `REVIEW_MAX_ITEMS = 30` items in total. When the evals give more,
-  each eval's share is cut in turn, the failing items last.
+- At most `REVIEW_MAX_ITEMS = 20` items in total. When the evals give more,
+  each eval's share is cut in turn.
 - An eval with no stored train row gives an empty sample. A new baseline can
   have partial rows, because the stop rules ended its measurement early.
   The reviewer uses what there is, and it can ask the gateway for more.
@@ -421,9 +406,10 @@ the same exclusion that the audit issues have:
 - The planner's rule "an issue that no eval measures is not a candidate"
   gets the exception for smell issues, beside the one for audit issues.
 
-The analyzer's template gets one sentence: it can name a smell from
-`references/smells.md` in its `findings` when a candidate's traces show
-one. It writes no smell issue.
+The analyzer does not find smells. Its template gets one sentence of a
+different kind: it reads `references/analyzer.md` of the knowledge skill,
+and its `findings` can name the failure-pattern playbook that fits what the
+candidate's traces show.
 
 ## 8. The report
 
@@ -460,8 +446,6 @@ one. It writes no smell issue.
   `long_skill_description`
 - `test_a_detection_fact_has_no_judgement_word` (a short list of banned
   words, applied to every detector's output on a triggering input)
-- `test_detectability_adapter_reports_only_evals_that_cannot_show_a_win`
-- `test_noise_adapter_is_empty_without_a_noise_check`
 - `test_a_detector_that_raises_is_skipped_and_the_others_run`
 - `test_a_detection_of_an_unknown_smell_is_dropped`
 - `test_every_registered_detector_has_a_unique_id`

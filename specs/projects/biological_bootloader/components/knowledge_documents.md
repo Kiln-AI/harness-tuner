@@ -23,7 +23,8 @@ src/kiln_harness_tuner/agent_files/skills/kiln-harness-tuner-knowledge/
   references/
     planner.md            entry file: planner
     builder.md            entry file: builder
-    smells.md             entry file: baseline reviewer and analyzer
+    smells.md             entry file: baseline reviewer
+    analyzer.md           entry file: analyzer
     report.md             entry file: report writer
     technique-index.md    generated; for a technique the user names
     levers/<id>.md
@@ -46,9 +47,6 @@ src/kiln_harness_tuner/agent_files/skills/kiln-harness-tuner-knowledge/
   file with one line on each. Its `name` equals the folder name, as an
   existing test requires. A role's prompt template names its entry file
   directly, so an agent does not depend on `SKILL.md` to find it.
-- The baseline reviewer and the analyzer need the same list, so they share
-  one entry file, `smells.md`.
-
 ## 3. Schemas
 
 Each component starts with YAML front matter between `---` lines. Unknown
@@ -148,16 +146,29 @@ text because it carries conditions.
 
 ### 3.5 Playbook (`playbooks/`)
 
+One playbook for each problem or goal. Its title names the problem.
+
 Front matter, in addition to the common keys:
 
 | Key | Type | Rule |
 |---|---|---|
+| `kind` | string | `goal`, `order`, `failure`, `eval` or `design`. It groups the indexes. It changes no other rule. |
 | `applies_to` | see 3.2 | |
+
+| Kind | Meaning |
+|---|---|
+| `goal` | What the user wants |
+| `order` | How to plan a run |
+| `failure` | A class of failure seen in the traces of eval items |
+| `eval` | A problem with an eval or with the measurement |
+| `design` | The response to a smell that needs more than one technique |
 
 Required sections:
 
-1. `## Situation` — the goal or the situation. A playbook that responds to
-   a smell links to the smell here and does not repeat how to recognise it.
+1. `## Situation` — the goal, or how to recognise the problem. For the kind
+   `failure`: what the trace shows, and where in the trace. A playbook that
+   responds to a smell links to the smell here and does not repeat how to
+   recognise it.
 2. `## What to try, in order` — a numbered list. Each item links to a
    technique and states its condition.
 3. `## What not to do yet`
@@ -172,6 +183,9 @@ two directories.
 
 ### 3.6 Smell (`smells/`)
 
+A smell document is a guide to recognise and diagnose one issue in the
+design of an agent. Its reader is the baseline reviewer.
+
 Front matter, in addition to the common keys:
 
 | Key | Type | Rule |
@@ -182,10 +196,14 @@ Front matter, in addition to the common keys:
 
 Required sections:
 
-1. `## How to recognise it`
-2. `## What it blocks` — or the line `Nothing.`
-3. `## Remedies` — a list. Each item links to a playbook or a technique and
-   states its condition.
+1. `## What it is`
+2. `## How to recognise it` — the signs in the harness, and the signs in
+   how the agent runs.
+3. `## How to confirm it` — what to check before it is reported, and what
+   looks like this smell and is not.
+4. `## What it blocks` — or the line `Nothing.`
+5. `## Remedies` — a list. Each item links to a playbook or a technique and
+   states its condition. This section holds links, not the fix.
 
 Maximum size: 4,000 characters.
 
@@ -222,9 +240,10 @@ The generator replaces what is between the markers. It changes nothing else.
 
 | Entry file | Hand-written | Generated blocks |
 |---|---|---|
-| `planner.md` | How to use the knowledge: read the detections and the smell issues, find the smells that match, start from the default-order playbook, reach a technique through a playbook or a smell | `smells`, `playbooks` |
+| `planner.md` | How to use the knowledge: read the detections and the smell issues, find the playbook for each failure and each eval problem, reach a technique through a playbook or a smell | `smells`, `playbooks-order`, `playbooks-goal`, `playbooks-failure`, `playbooks-eval`, `playbooks-design` |
 | `builder.md` | How to use the knowledge: open the technique named on the item, then the levers it links | `techniques`, `levers` |
-| `smells.md` | How to name a smell: state the evidence, do not state a fix | `smells-detail` |
+| `smells.md` | How to review a design: read each smell, look for it, state the evidence, do not state a fix | `smells-detail` |
+| `analyzer.md` | How to name a failure pattern in a finding | `playbooks-failure` |
 | `report.md` | What the report can take from the knowledge | `smells`, `playbooks`, `techniques` |
 | `technique-index.md` | "Prefer a playbook. Use this index only when the user's guidance names a technique." | `techniques` |
 
@@ -234,7 +253,8 @@ Block contents. Each is a Markdown table, sorted by id:
 |---|---|
 | `smells` | Smell (link), Applies to, Description |
 | `smells-detail` | Smell (link), Applies to, Detected by, Description |
-| `playbooks` | Playbook (link), Applies to, Description |
+| `playbooks` | Playbook (link), Kind, Applies to, Description |
+| `playbooks-<kind>` | Playbook (link), Applies to, Description, for the playbooks of that kind |
 | `techniques` | Technique (link), Levers, Applies to, Cost, Description. Dormant techniques are left out. |
 | `levers` | Lever (link), Kind, Description |
 
@@ -243,7 +263,7 @@ both.
 
 ## 5. Reachability and depth
 
-- The roots are the four role entry files and `technique-index.md`.
+- The roots are the five role entry files and `technique-index.md`.
 - A file is reachable when a chain of Markdown links leads to it from a
   root.
 - **Every file** under `references/` must be reachable.
@@ -284,7 +304,9 @@ class LeverMeta(CommonMeta): gateway_ops: list[str] = []
 class TechniqueMeta(CommonMeta):
     status: Literal["active", "dormant"]; levers: list[str]
     applies_to: Literal["all"] | list[str]; cost: Literal["low", "medium", "high"]
-class PlaybookMeta(CommonMeta): applies_to: Literal["all"] | list[str]
+class PlaybookMeta(CommonMeta):
+    kind: Literal["goal", "order", "failure", "eval", "design"]
+    applies_to: Literal["all"] | list[str]
 class SmellMeta(CommonMeta):
     applies_to: Literal["all"] | list[str]
     detected_by: list[Literal["code", "agent"]]; detectors: list[str] = []
@@ -397,8 +419,9 @@ uv run python -m kiln_harness_tuner.knowledge build
   that names the knowledge skill and the entry file of the role, for
   example: "Read `references/planner.md` of the
   `kiln-harness-tuner-knowledge` skill before Step 1."
-- **The lever ladder.** `references/lever-ladder.md` is removed. Its rows
-  move as the V1 coverage phase decides. Each reference to it is changed:
+- **The lever ladder.** `references/lever-ladder.md` is removed. Each row
+  becomes one playbook of the kind `failure`, as the V1 coverage document
+  lists. Each reference to it is changed:
   `batch-selection/SKILL.md` (lines 411, 424, 430, 792, 795, 902, 1014),
   `experiment-build/SKILL.md:296`,
   `code-tool-authoring/references/wrappers/README.md:4`,
