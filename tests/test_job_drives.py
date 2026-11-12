@@ -144,6 +144,8 @@ class TestInputs:
     def test_an_openenv_tool_id_splits_into_server_and_tool(self):
         assert openenv_tool_parts(OPENENV_TOOL) == ("424242500001", "append_note")
         assert openenv_tool_parts("kiln_tool::openenv::424242500001") is None
+        # Kiln refuses more than four parts; so does the parser.
+        assert openenv_tool_parts("kiln_tool::openenv::s1::a::b") is None
         assert openenv_tool_parts("kiln_tool::code::1") is None
 
 

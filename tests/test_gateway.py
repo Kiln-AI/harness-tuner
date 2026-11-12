@@ -23,7 +23,7 @@ from kiln_harness_tuner.gateway import hook
 from kiln_harness_tuner.gateway import ops as gw
 from kiln_harness_tuner.gateway.server import POLICY_FILE, create_server, load_policy
 from kiln_harness_tuner.gateway.trainset import TrainSet, TrainSetError, compute
-from kiln_harness_tuner.kiln import KilnAPIError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.quarantine import QuarantineError
 
@@ -884,11 +884,15 @@ class TestDocumentedShapes:
         def down(_query, _body):
             raise KilnAPIError("GET", f"{servers}/s2/tools", 502, "connection refused")
 
+        def hangs(_query, _body):  # the client's timeout: not an HTTP answer
+            raise KilnError("GET s3/tools timed out after 600s")
+
         routes = {
             ("GET", f"/api/projects/{PROJECT}/available_tools"): [],
             ("GET", servers): [
                 {"id": "s1", "name": "Depot", "url": "http://localhost:8000"},
                 {"id": "s2", "name": "Down", "url": "http://localhost:8001"},
+                {"id": "s3", "name": "Hangs", "url": "http://localhost:8002"},
             ],
             ("GET", f"{servers}/s1/tools"): [
                 {
@@ -899,15 +903,17 @@ class TestDocumentedShapes:
                 }
             ],
             ("GET", f"{servers}/s2/tools"): down,
+            ("GET", f"{servers}/s3/tools"): hangs,
         }
         gateway, _ = _gateway(tmp_path, routes)
-        depot, down_set = _run(gateway, "list_available_tools")
+        depot, down_set, hung_set = _run(gateway, "list_available_tools")
         assert depot["type"] == "openenv" and depot["set_name"] == "Depot"
         (tool,) = depot["tools"]
         assert tool["id"] == "kiln_tool::openenv::s1::append_note"
         assert tool["function_name"] == "append_note"
         assert tool["description"] == "Add a note to a ticket."
         assert down_set["tools"] == [] and "connection refused" in down_set["note"]
+        assert hung_set["tools"] == [] and "timed out" in hung_set["note"]
 
     def test_a_kiln_without_openenv_servers_lists_its_tools_as_before(self, tmp_path):
         def missing(_query, _body):
@@ -952,6 +958,8 @@ class TestDocumentedShapes:
         assert all("/definition" not in path for _m, path, *_ in kiln.calls)
         with pytest.raises(gw.GatewayError, match="it serves: append_note"):
             _run(gateway, "get_tool_definition", id="kiln_tool::openenv::s1::nope")
+        # One list per server per process: a list is a fresh read of the server.
+        assert sum(path == tools for _m, path, *_ in kiln.calls) == 1
         # Any other tool: Kiln's own definition endpoint, as before.
         code = _run(gateway, "get_tool_definition", id="kiln_tool::code::c1")
         assert code["definition"]["function_name"] == "kestrel"

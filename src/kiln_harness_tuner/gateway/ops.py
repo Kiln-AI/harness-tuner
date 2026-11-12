@@ -37,7 +37,7 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
 from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
-from kiln_harness_tuner.kiln import KilnAPIError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
 
 Call = Callable[..., Awaitable[Any]]
@@ -318,6 +318,9 @@ class Gateway:
         self._job_driver: EvalJobDriver | None = None
         # Over-cap answers this process gave, for `get_answer_part`.
         self._answers: OrderedDict[str, str] = OrderedDict()
+        # Each OpenEnv server's tool list, read once per process: a list is a
+        # new connection to the server and a fresh read of its metadata.
+        self._openenv_lists: dict[str, list[dict[str, Any]]] = {}
 
     def _writer(self) -> TraceWriter | None:
         root = self.s.trace_root
@@ -899,44 +902,40 @@ class Gateway:
             if exc.status_code in (404, 405):  # a Kiln with no OpenEnv servers
                 return []
             raise
-        sets = []
-        for server in servers:
-            name = str(server.get("name") or server.get("id"))
-            try:
-                tools = await self._openenv_tools(str(server.get("id")))
-            except KilnAPIError as exc:
-                sets.append(
-                    m.ToolSetView(
-                        type="openenv",
-                        set_name=name,
-                        note=f"the OpenEnv server did not list its tools: {exc.body!r}"[
-                            :500
-                        ],
-                    )
+        # The servers are asked at once: a dead one waits for its connect
+        # failure, and the others need not wait behind it.
+        return list(await asyncio.gather(*(self._openenv_set(s) for s in servers)))
+
+    async def _openenv_set(self, server: dict[str, Any]) -> m.ToolSetView:
+        name = str(server.get("name") or server.get("id"))
+        try:
+            tools = await self._openenv_tools(str(server.get("id")))
+        except KilnError as exc:  # an HTTP error, a timeout or a lost connection
+            detail = exc.body if isinstance(exc, KilnAPIError) else exc
+            note = f"the OpenEnv server did not list its tools: {detail!r}"
+            return m.ToolSetView(type="openenv", set_name=name, note=note[:500])
+        return m.ToolSetView(
+            type="openenv",
+            set_name=name,
+            tools=[
+                m.ToolView(
+                    id=t.get("tool_id"),
+                    name=t.get("name"),
+                    description=t.get("description"),
+                    function_name=t.get("name"),
                 )
-                continue
-            sets.append(
-                m.ToolSetView(
-                    type="openenv",
-                    set_name=name,
-                    tools=[
-                        m.ToolView(
-                            id=t.get("tool_id"),
-                            name=t.get("name"),
-                            description=t.get("description"),
-                            function_name=t.get("name"),
-                        )
-                        for t in tools
-                    ],
-                )
-            )
-        return sets
+                for t in tools
+            ],
+        )
 
     async def _openenv_tools(self, server_id: str) -> list[dict[str, Any]]:
-        """The tools the OpenEnv server's environment serves, read fresh from
-        the running server (Kiln asks it; no episode starts)."""
-        path = f"{self.s.project}/openenv_servers/{server_id}/tools"
-        return _rows(await self.call("GET", path))
+        """The tools the OpenEnv server's environment serves, read from the
+        running server (Kiln asks it; no episode starts). Read once per
+        process; a failed read is not kept, so the next call asks again."""
+        if server_id not in self._openenv_lists:
+            path = f"{self.s.project}/openenv_servers/{server_id}/tools"
+            self._openenv_lists[server_id] = _rows(await self.call("GET", path))
+        return self._openenv_lists[server_id]
 
     async def get_tool_definition(self, req: m.ById) -> m.ToolDefinition:
         parts = openenv_tool_parts(req.id)

@@ -37,7 +37,7 @@ compares drives made at different times, so its `method` says so.
 `compare_eval_run_costs` is the same passive read for the per-request cost
 of the task call.
 
-A drive goes through `POST …/run`, or, when the task needs a OpenEnv episode
+A drive goes through `POST …/run`, or, when the task needs an OpenEnv episode
 or a simulated user, through a one-item eval job (`kiln_harness_tuner.job_drives`).
 The pairing is the same on both routes.
 """

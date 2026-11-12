@@ -65,11 +65,13 @@ Slot = Callable[[], contextlib.AbstractAsyncContextManager[None]]
 
 def openenv_tool_parts(tool_id: str) -> tuple[str, str] | None:
     """(server id, tool name) of an OpenEnv tool id, or None for any other
-    tool id."""
-    if not tool_id.startswith(OPENENV_TOOL_PREFIX):
+    tool id. Exactly four `::` parts, as Kiln requires
+    (`openenv_and_tool_name_from_id`)."""
+    parts = tool_id.split("::")
+    if not tool_id.startswith(OPENENV_TOOL_PREFIX) or len(parts) != 4:
         return None
-    server_id, sep, name = tool_id.removeprefix(OPENENV_TOOL_PREFIX).partition("::")
-    return (server_id, name) if sep and server_id and name else None
+    server_id, name = parts[2], parts[3]
+    return (server_id, name) if server_id and name else None
 
 
 def lists_openenv_tool(props: Mapping[str, Any] | None) -> bool:
