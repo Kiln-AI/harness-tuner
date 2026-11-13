@@ -21,8 +21,13 @@ cost: high
   carries the rule: a permission check, a required step, a default.
 - The tools mirror the endpoints of an API, one for one, and the work of
   the task needs several of them for each step.
-- A smell of too many narrow tools is reported, and removal alone would
-  leave a part of the work with no tool.
+- A smell of too many tools or of unnecessary tools is reported, and
+  removal alone would leave a part of the work with no tool.
+- The agent finds its tools through tool search, with no list of them to
+  read. The collapsed style is one general tool that can call each
+  operation, such as a `call_api` tool, with a guide skill that names the
+  operations (step 6). A search call and a load call before each use are
+  then gone.
 
 ## When not to use
 

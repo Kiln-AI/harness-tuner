@@ -809,3 +809,13 @@ as which of two conflicting requirements wins. Each question offers options, plu
 
 A planner item, or a flag on `remeasure`, that drives and judges an existing run config again on
 train items. Today only `--noise-check` repeats a measurement, one time, before wave 1.
+
+### A read fence on expected outputs for the design reviewer
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [moderate_batches.md](../reviews/projects/biological_bootloader/moderate_batches.md), 9.2
+
+A hard read fence in code, so that the design reviewer cannot read `traces/_expected/`. Today only
+the text of its skill keeps it out.

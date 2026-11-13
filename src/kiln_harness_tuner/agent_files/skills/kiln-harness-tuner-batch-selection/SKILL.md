@@ -791,7 +791,9 @@ Per experiment item:
   to the **val gate**: the promotion pass measures the full suite anyway, so
   routine train-side guard evals are duplicated spend paid per item. This is
   your cost lever — one or a few, never the full suite (the full val pass is
-  the promotion stage, not your call). `scores` omitted = all directional
+  the promotion stage, not your call). The exception is a swap to another
+  model, which changes every item: its technique documents measure every
+  eval. The same model on another provider is not an exception. `scores` omitted = all directional
   scores; list a subset only for multi-score evals. Informational scores
   can't be targeted. Merge items list their **ingredients' targeted evals**
   (attribution order).

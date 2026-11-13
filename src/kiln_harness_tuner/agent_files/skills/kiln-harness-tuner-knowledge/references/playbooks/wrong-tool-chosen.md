@@ -18,10 +18,11 @@ the failing items:
 - the agent calls one of two tools that do almost the same thing, and the
   choice changes from item to item;
 - it calls a narrow tool many times where one general tool would do;
-- it calls a general tool with no rules, and breaks a rule of the product:
-  a permission, a limit, a default;
-- the attached tools are many, narrow, or overlap: the smell
-  [too many narrow tools](../smells/too-many-narrow-tools.md).
+- it calls the right tool, and the call breaks a rule of the product: a
+  permission, a limit, a default;
+- the attached tools are too many for the context, or some overlap or are
+  never called: the smells [too many tools](../smells/too-many-tools.md)
+  and [unnecessary tools](../smells/unnecessary-tools.md).
 
 When the right tool is called with a malformed input, see
 [malformed tool calls](malformed-tool-calls.md).

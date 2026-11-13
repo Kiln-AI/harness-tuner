@@ -34,6 +34,7 @@ from kiln_harness_tuner.smells.thresholds import (
     LONG_PROMPT_CHARS,
     LONG_SKILL_DESCRIPTION_CHARS,
     LONG_TOOL_DESCRIPTION_CHARS,
+    MANY_TOOLS,
 )
 
 BY_ID = {d.id: d for d in DETECTORS}
@@ -43,13 +44,23 @@ def inputs(
     prompt: str | None = "short",
     tools: list[dict] | None = None,
     skills: dict[str, SkillText] | None = None,
+    tool_ids: tuple[str, ...] = (),
 ) -> DetectorInputs:
     return DetectorInputs(
         rc_id="rc_base",
         properties={},
-        texts=RcText(prompt=prompt, skill_ids=tuple(skills or ()), skills=skills or {}),
+        texts=RcText(
+            prompt=prompt,
+            skill_ids=tuple(skills or ()),
+            skills=skills or {},
+            tool_ids=tool_ids,
+        ),
         tool_definitions=tools or [],
     )
+
+
+def tool_ids(count: int) -> tuple[str, ...]:
+    return tuple(f"mcp::remote::server::tool_{i}" for i in range(count))
 
 
 def tool(name: str, chars: int) -> dict:
@@ -61,33 +72,43 @@ def skill(name: str, chars: int) -> SkillText:
     return SkillText(skill_id=f"id_{name}", name=name, files={"SKILL.md": body})
 
 
-# Each detector, with an input at the reference and one just above it.
+# Each detector, with an input at the reference and one just above it: the
+# input, the reference, the start of the fact and the unit of the value.
 CASES = {
     "long_prompt": (
         lambda n: inputs(prompt="p" * n),
         LONG_PROMPT_CHARS,
         "The system prompt has",
+        "characters",
     ),
     "long_tool_description": (
         lambda n: inputs(tools=[tool("search_all", n)]),
         LONG_TOOL_DESCRIPTION_CHARS,
         "The description of the tool `search_all` has",
+        "characters",
     ),
     "long_skill_description": (
         lambda n: inputs(skills={"id_guide": skill("guide", n)}),
         LONG_SKILL_DESCRIPTION_CHARS,
         "The description of the skill `guide` has",
+        "characters",
+    ),
+    "many_tools": (
+        lambda n: inputs(tool_ids=tool_ids(n)),
+        MANY_TOOLS,
+        "The run config attaches",
+        "tools",
     ),
 }
 
 
 def _silent_at_the_reference(detector_id: str) -> None:
-    make, reference, _ = CASES[detector_id]
+    make, reference, _, _ = CASES[detector_id]
     assert BY_ID[detector_id].run(make(reference)) == []
 
 
 def _reports_above_the_reference(detector_id: str) -> None:
-    make, reference, start = CASES[detector_id]
+    make, reference, start, unit = CASES[detector_id]
     (detection,) = BY_ID[detector_id].run(make(reference + 1))
     assert detection.detector == detector_id
     assert detection.smell == BY_ID[detector_id].smell
@@ -96,7 +117,7 @@ def _reports_above_the_reference(detector_id: str) -> None:
     assert detection.reference == reference
     assert detection.reference_source
     assert detection.fact.startswith(start)
-    assert f"{reference + 1:,} characters" in detection.fact
+    assert f"{reference + 1:,} {unit}" in detection.fact
     assert f"The reference is {reference:,}." in detection.fact
 
 
@@ -124,6 +145,20 @@ def test_long_skill_description_reports_above_the_reference_with_value_and_sourc
     _reports_above_the_reference("long_skill_description")
 
 
+def test_many_tools_is_silent_at_the_reference():
+    _silent_at_the_reference("many_tools")
+
+
+def test_many_tools_reports_above_the_reference_with_value_and_source():
+    _reports_above_the_reference("many_tools")
+
+
+def test_many_tools_counts_neither_skills_nor_a_repeated_id():
+    skills = tuple(f"kiln_tool::skill::s{i}" for i in range(10))
+    at_the_reference = (*tool_ids(MANY_TOOLS), *skills, *tool_ids(1))
+    assert BY_ID["many_tools"].run(inputs(tool_ids=at_the_reference)) == []
+
+
 def test_a_detection_names_each_tool_and_each_skill_over_the_reference():
     over = LONG_TOOL_DESCRIPTION_CHARS + 1
     found = BY_ID["long_tool_description"].run(
@@ -139,7 +174,7 @@ def test_a_detector_is_silent_when_the_text_cannot_be_read():
         texts=RcText(prompt=None, skill_ids=("s1",), skills=None),
         tool_definitions=[{"tool_id": "t", "name": "t", "description": None}],
     )
-    assert [d.run(unread) for d in DETECTORS] == [[], [], []]
+    assert all(d.run(unread) == [] for d in DETECTORS)
 
 
 def test_skill_description_reads_the_front_matter():
@@ -172,7 +207,7 @@ JUDGEMENT_WORDS = {
 
 
 def test_a_detection_fact_has_no_judgement_word():
-    for detector_id, (make, reference, _) in CASES.items():
+    for detector_id, (make, reference, _, _) in CASES.items():
         (detection,) = BY_ID[detector_id].run(make(reference * 3))
         words = set(re.findall(r"[a-z]+", detection.fact.lower()))
         assert not words & JUDGEMENT_WORDS, (detector_id, detection.fact)
@@ -199,7 +234,7 @@ def test_every_threshold_has_a_source_comment():
             assert lines[node.end_lineno].lstrip().startswith("#"), target.id
             text = getattr(thresholds, f"{target.id}_SOURCE", "")
             assert isinstance(text, str) and text.strip(), f"{target.id}_SOURCE"
-    assert len(names) == 3
+    assert len(names) == 4
 
 
 # ---- run_detectors, with the fake Kiln ----
@@ -250,6 +285,18 @@ async def test_run_detectors_reads_the_baseline_and_emits_the_detections():
     assert not [c for c in ctx.kiln.calls if c[1].endswith("skill::s1/definition")]
     # One listing of the run configs serves the properties and the texts.
     assert len([c for c in ctx.kiln.calls if c[1].endswith("/run_configs")]) == 1
+
+
+async def test_run_detectors_counts_the_attached_tools_whose_definition_is_unread():
+    ctx = make_ctx()
+    ctx.kiln.run_configs = [
+        baseline_row("short", (*tool_ids(MANY_TOOLS + 1), "kiln_tool::skill::s1"))
+    ]
+    (found,) = await run_detectors(ctx, "rc_base")
+    assert (found.detector, found.smell) == ("many_tools", "too-many-tools")
+    assert found.value == MANY_TOOLS + 1
+    (event,) = events(ctx, "smell_detections")
+    assert len(event["unread_tools"]) == MANY_TOOLS + 1
 
 
 async def test_run_detectors_skips_when_the_run_config_cannot_be_read():

@@ -1,7 +1,7 @@
 ---
 title: Remove or scope tools
 description: Drop the attached tools that this task does not need, or that overlap, so the agent chooses among fewer tools and reads fewer descriptions on every call.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - tool_config
@@ -22,6 +22,10 @@ cost: low
   set, a tool of another product area.
 - The tool descriptions are a large part of each call, and the cost or
   the latency per item is high.
+- The agent finds its tools through tool search, and the traces show that
+  it uses a few of them. Attach those few directly, where the tool server
+  offers them as tools, and drop the search tool. The same lever makes
+  this change: the list of attached tools.
 
 ## When not to use
 

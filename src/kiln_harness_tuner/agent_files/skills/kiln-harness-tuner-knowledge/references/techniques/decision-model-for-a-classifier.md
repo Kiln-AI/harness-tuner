@@ -73,7 +73,9 @@ run's model policy allows it and the server lists it.
 4. **Screen it in code** against the baseline, on the same items, with the
    baseline's passes judged first. Commit it as an arm only when it keeps
    the passes that the objective needs.
-5. **Measure it on every eval.** The swap changes every item.
+5. **Measure it on every eval.** This is an exception to the planner's
+   lean-target default: a model swap changes every item, so every eval is
+   its target.
 
 ## Check that it took effect
 

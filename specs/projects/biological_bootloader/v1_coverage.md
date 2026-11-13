@@ -58,16 +58,17 @@ playbook for each such failure pattern.
 | Id | Recognised by | Detected by | Source |
 |---|---|---|---|
 | **Instructions** | | | |
-| `very-long-prompt` | The system prompt is over the reference length | code | Overview 9 |
+| `very-long-prompt` | The system prompt is over the reference length. After V1, also a reader's criterion: many unrelated topics | code, agent | Overview 9 |
 | `one-file-skill-with-many-topics` | A skill that is one long file, with no reference files | agent | Overview 6.2, ladder row 8 |
 | `skill-too-small-to-earn-its-place` | A skill with a few words and no other file: its description costs more than it saves | agent | Overview 9 |
-| `very-long-skill-description` | A skill description is over the reference length | code | Architecture |
+| `very-long-skill-description` | A skill description is over the reference length. After V1, also a reader's criterion: rules or facts in the description | code, agent | Architecture |
 | `faulty-inherited-skill` | An attached skill is wrong, stale, contradicts the task, or holds data shaped like test cases | agent | Ladder row 10 |
 | **Tools** | | | |
 | `tool-results-flood-the-context` | A tool returns a very large result, or the agent makes one call for each item | agent | Overview 6.3 and 9, ladder row 6 |
 | `fixed-call-chain` | The agent calls the same tools in the same order each time, and passes an id from one to the next | agent | Overview 6.3 |
 | `general-query-tool-without-a-guide` | A SQL, GraphQL or general API tool, with no examples and no guide to the schema | agent | Overview 6.3 and 10 |
-| `too-many-narrow-tools` | Many tools that each do one small thing, or tools that overlap | agent | Ladder row 11, overview 6.3 |
+| `too-many-tools` | More than 40 tools, all in context on every call. Split from `too-many-narrow-tools` after V1 | code | Ladder row 11, overview 6.3 |
+| `unnecessary-tools` | Tools that overlap or are never called, with trace evidence. Split from `too-many-narrow-tools` after V1 | agent | Ladder row 11, overview 6.3 |
 | `tool-search` | The agent must guess that a tool exists and search for it | agent | Overview 6.3, notes |
 | `document-behind-a-lookup-tool` | A long reference document that the agent can reach only by page, by search or by section | agent | Ladder row 9 |
 | `very-long-tool-description` | A tool description is over the reference length | code | Overview 9 |
@@ -283,7 +284,7 @@ Its name and its one-table form are not kept. Its content is.
 | Row 8 | Playbook `lost-in-long-instructions`; smell `one-file-skill-with-many-topics` |
 | Row 9 | Smell `document-behind-a-lookup-tool` |
 | Row 10 | Smell `faulty-inherited-skill` |
-| Row 11 | Playbook `wrong-tool-chosen`; smell `too-many-narrow-tools` |
+| Row 11 | Playbook `wrong-tool-chosen`; smells `too-many-tools` and `unnecessary-tools` (split from `too-many-narrow-tools` after V1) |
 | Row 12 | Playbooks `dealing-with-a-saturated-eval` and `dealing-with-a-wrong-eval` |
 | Row 13 | Technique `thinking-level-ladder` |
 | Row 14 | Playbook `lost-in-long-instructions`; technique `structure-a-long-prompt` |

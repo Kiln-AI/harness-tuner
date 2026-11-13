@@ -2052,6 +2052,7 @@ config, its texts and its tool definitions, and spend nothing.
 | `long_prompt` | `very-long-prompt` | the prompt is over `LONG_PROMPT_CHARS` (200,000 characters) |
 | `long_tool_description` | `very-long-tool-description` | a tool's description is over `LONG_TOOL_DESCRIPTION_CHARS` (4,096) |
 | `long_skill_description` | `very-long-skill-description` | a skill's description is over `LONG_SKILL_DESCRIPTION_CHARS` (1,024) |
+| `many_tools` | `too-many-tools` | the run config attaches more than `MANY_TOOLS` (40) tools, skills not counted |
 
 The thresholds are in `smells/thresholds.py`, each with its source. No
 measured optimum is known for any of them, so each is a default that can

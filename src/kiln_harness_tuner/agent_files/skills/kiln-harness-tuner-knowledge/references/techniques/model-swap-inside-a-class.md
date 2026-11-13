@@ -73,9 +73,11 @@ round of candidates in code, and an arm.
 3. **Tune the harness with the model locked.** The prompt, the skills, the
    tools and the settings.
 4. **Scan the class again** with the tuned harness: screen the candidates
-   in code, on the same items, then commit the best survivor as an arm.
-   Set a thinking level from the new model's own list, and the output mode
-   to the new model's default (the lever gives the step).
+   in code, on the same items, then commit the best survivor as an arm,
+   measured on every eval. This is an exception to the planner's
+   lean-target default: a model swap changes every item, so every eval is
+   its target. Set a thinking level from the new model's own list, and the
+   output mode to the new model's default (the lever gives the step).
 5. **After a swap, measure again what the harness gained.** Each promoted
    change was measured with the old model. With the new model, a change
    can help less, help more, or hurt. Check the evals that each change

@@ -33,3 +33,11 @@ LONG_SKILL_DESCRIPTION_CHARS_SOURCE = (
     "the maximum length of a skill description in the Agent Skills"
     " specification (read 2026-11-13)"
 )
+
+MANY_TOOLS = 40
+# A house default, set by the project owner, not a measured optimum. Every
+# attached tool definition is in the context of every call. A skill is not
+# counted.
+MANY_TOOLS_SOURCE = (
+    "a default of the tuner, set by the project owner; not a measured optimum"
+)

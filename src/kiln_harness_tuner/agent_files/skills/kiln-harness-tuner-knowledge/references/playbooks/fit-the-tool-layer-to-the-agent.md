@@ -22,7 +22,8 @@ to recognise it. The smells of the tools are:
 [tool results flood the context](../smells/tool-results-flood-the-context.md),
 [fixed call chain](../smells/fixed-call-chain.md),
 [general query tool without a guide](../smells/general-query-tool-without-a-guide.md),
-[too many narrow tools](../smells/too-many-narrow-tools.md),
+[too many tools](../smells/too-many-tools.md),
+[unnecessary tools](../smells/unnecessary-tools.md),
 [tool search](../smells/tool-search.md),
 [document behind a lookup tool](../smells/document-behind-a-lookup-tool.md)
 and [very long tool description](../smells/very-long-tool-description.md).
@@ -56,11 +57,11 @@ most other work.
 3. A general query tool (SQL, GraphQL, a general API) with no examples and
    no guide to its schema, or tool search:
    [guide skill for a tool set](../techniques/guide-skill-for-a-tool-set.md).
-4. Many narrow tools, or tools that overlap: first
+4. Too many tools, or tools that overlap or are never called: first
    [remove or scope tools](../techniques/remove-or-scope-tools.md), when
    some of them are not needed; then
    [consolidate tools](../techniques/consolidate-tools.md), when the
-   remaining tools still overlap or carry no rule of the product.
+   remaining tools still overlap or are still too many.
 5. Errors that the agent cannot act on, or inputs in forms that the tool
    refuses:
    [errors the agent can act on](../techniques/errors-the-agent-can-act-on.md)

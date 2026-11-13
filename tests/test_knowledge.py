@@ -216,22 +216,28 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
     assert doc.meta is not None and doc.meta.kind == V1_PLAYBOOK_KINDS[playbook]
 
 
-# V1 coverage, section 2: the thirteen smells, each with who detects it, and
-# the code detectors of the three that code detects.
+# V1 coverage, section 2: the smells, each with who detects it and its code
+# detectors. `too-many-narrow-tools` was split after V1 into `too-many-tools`
+# and `unnecessary-tools`: a count of tools and a tool set with tools it does
+# not need are two issues.
+CODE = ["code"]
+AGENT = ["agent"]
+BOTH = ["code", "agent"]
 V1_SMELL_DETECTION = {
-    "very-long-prompt": ["long_prompt"],
-    "one-file-skill-with-many-topics": [],
-    "skill-too-small-to-earn-its-place": [],
-    "very-long-skill-description": ["long_skill_description"],
-    "faulty-inherited-skill": [],
-    "tool-results-flood-the-context": [],
-    "fixed-call-chain": [],
-    "general-query-tool-without-a-guide": [],
-    "too-many-narrow-tools": [],
-    "tool-search": [],
-    "document-behind-a-lookup-tool": [],
-    "very-long-tool-description": ["long_tool_description"],
-    "tools-on-a-live-server": [],
+    "very-long-prompt": (BOTH, ["long_prompt"]),
+    "one-file-skill-with-many-topics": (AGENT, []),
+    "skill-too-small-to-earn-its-place": (AGENT, []),
+    "very-long-skill-description": (BOTH, ["long_skill_description"]),
+    "faulty-inherited-skill": (AGENT, []),
+    "tool-results-flood-the-context": (AGENT, []),
+    "fixed-call-chain": (AGENT, []),
+    "general-query-tool-without-a-guide": (AGENT, []),
+    "too-many-tools": (CODE, ["many_tools"]),
+    "unnecessary-tools": (AGENT, []),
+    "tool-search": (AGENT, []),
+    "document-behind-a-lookup-tool": (AGENT, []),
+    "very-long-tool-description": (CODE, ["long_tool_description"]),
+    "tools-on-a-live-server": (AGENT, []),
 }
 
 
@@ -239,9 +245,9 @@ V1_SMELL_DETECTION = {
 def test_the_v1_smell_is_present_with_its_detection(smell):
     doc = load().get("smells", smell)
     assert doc is not None, f"smells/{smell}.md is missing"
-    detectors = V1_SMELL_DETECTION[smell]
+    detected_by, detectors = V1_SMELL_DETECTION[smell]
     assert doc.meta is not None
-    assert doc.meta.detected_by == (["code"] if detectors else ["agent"])
+    assert doc.meta.detected_by == detected_by
     assert doc.meta.detectors == detectors
 
 

@@ -25,8 +25,8 @@ an eval passes or fails.
 In the harness:
 
 - a tool whose input is a query string or an API path;
-- no skill and no prompt text with sample queries, the main tables or
-  types, or the rules of the data.
+- no skill, no prompt text and no text in the tool's own description with
+  sample queries, the main tables or types, or the rules of the data.
 
 In how the agent runs:
 
@@ -36,10 +36,13 @@ In how the agent runs:
 
 ## How to confirm it
 
-- Read the prompt and each skill for sample queries and a description of
-  the schema.
+- Read the prompt, each skill and the tool's own description for sample
+  queries and a description of the schema.
 - In the sampled traces, count the failed queries and the schema reads
-  before the first query that returns data.
+  before the first query that returns data. The traces decide.
+- **Not this smell:** the tool description or the prompt gives the schema,
+  and the traces show no failed query and no schema read before the first
+  query that returns data.
 - **Not this smell:** a narrow tool with fixed parameters, which needs no
   query language.
 

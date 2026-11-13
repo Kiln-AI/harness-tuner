@@ -1,6 +1,6 @@
 ---
 title: Faulty inherited skill
-description: A skill that the baseline attaches is wrong, stale, contradicts the task, or holds data shaped like test cases. It can be changed as a new version.
+description: A skill that the baseline attaches is wrong or stale, contradicts the task, or holds an example whose answer contradicts a rule. It can be changed as a new version.
 reviewed: 2026-11-13
 applies_to: all
 detected_by:
@@ -13,9 +13,9 @@ detected_by:
 
 A skill that the baseline attaches has a fault in its content: a fact that
 is wrong, a description of tools, routes or fields that the agent does not
-have, a rule that contradicts the task, or examples shaped like test cases
-that teach the model the wrong pattern. The agent follows the skill, so the
-fault reaches the output. This is a property of the design, whether an eval
+have, a rule that contradicts the task, or an example whose answer
+contradicts a rule. The agent follows the skill, so the fault reaches the
+output. This is a property of the design, whether an eval
 passes or fails.
 
 ## How to recognise it
@@ -26,7 +26,9 @@ In the harness:
   have;
 - a rule in a skill that says the opposite of the prompt or of the task's
   instruction;
-- a block of examples with inputs and answers, in the form of eval items.
+- a block of examples with inputs and answers, where one answer
+  contradicts the prompt, the task's instruction or another rule in the
+  same skill.
 
 In how the agent runs:
 
@@ -38,11 +40,14 @@ In how the agent runs:
 
 - Read the whole skill, with its reference files, beside the prompt, the
   task's instruction and the tool list.
-- State each fault with the file and the words.
-- **Not this smell:** a skill that copies train items word for word. The
-  baseline audit reports that as its own issue. A skill that is right and
-  that the agent does not open is a failure pattern, not a fault of the
-  skill.
+- State each fault with the file and the words. For an example block,
+  quote the answer and the text that it contradicts, both.
+- **Not this smell:** a block of examples whose answers contradict no
+  other text. Worked examples are a normal technique, and the review does
+  not judge whether an answer is right. A skill that copies train items
+  word for word is not this smell either: the baseline audit reports that
+  as its own issue. A skill that is right and that the agent does not open
+  is a failure pattern, not a fault of the skill.
 
 ## What it blocks
 
