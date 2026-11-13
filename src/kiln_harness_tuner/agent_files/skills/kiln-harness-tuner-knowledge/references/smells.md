@@ -17,6 +17,10 @@ Use this file to review the design of the baseline agent.
 "Detected by" says who can find the smell: `code` (a detector in code, whose
 detections are in your input) or `agent` (a reader of the design).
 
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
+
 ## Smells
 
 <!-- BEGIN GENERATED: smells-detail -->

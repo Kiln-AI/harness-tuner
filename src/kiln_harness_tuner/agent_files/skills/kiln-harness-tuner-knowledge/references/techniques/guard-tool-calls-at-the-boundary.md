@@ -1,7 +1,7 @@
 ---
 title: Guard tool calls at the boundary
 description: A check in a wrapper that refuses a call which breaks a rule the product enforces, with an error that says why, and the prompt text that the guard takes over removed.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -84,9 +84,11 @@ call that breaks the rule.
 
 ## Budget
 
-Medium cost: a wrapper with a check, a dry run, and a measurement on every
-eval that the tool touches, the guard evals first. A good step on any
-budget when an eval guards a rule that the agent breaks on some items.
+Medium cost: a wrapper with a check, a dry run, and a measurement on its
+target evals: the evals that check the rule. When it fixes its target, the
+val gate measures every eval before a promotion, the evals that the tool
+touches too. A good step on any budget when an eval guards a rule that the
+agent breaks on some items.
 
 ## If it does not move the evals
 

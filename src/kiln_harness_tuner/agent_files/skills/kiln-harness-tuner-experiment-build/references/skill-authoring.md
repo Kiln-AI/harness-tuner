@@ -76,7 +76,10 @@ instructions) makes the FIRST arm structural, not a rewrite of the text.
    first, then look up the case"): it changes the model's call order and can
    break a criterion the bundle was not aimed at. State what each file covers;
    let the task decide the order.
-5. Measure the bundle against EVERY active eval, not only its target.
+5. The bundle is measured on its target evals, like every arm (the
+   planner's lean-target default). When it fixes its target, the val gate
+   measures every eval before a promotion. Step 4 lowers the risk to the
+   other evals.
 
 **Lint before install, for free.** `install_skill_bundle` validates the
 whole bundle and returns every error at once with nothing written; a

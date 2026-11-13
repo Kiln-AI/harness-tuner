@@ -10,6 +10,10 @@ was planned, what a smell means, or what a technique is.
 - A prior in a technique or a playbook is one case from elsewhere. Do not
   present it as a result of this run.
 
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
+
 ## Smells
 
 <!-- BEGIN GENERATED: smells -->

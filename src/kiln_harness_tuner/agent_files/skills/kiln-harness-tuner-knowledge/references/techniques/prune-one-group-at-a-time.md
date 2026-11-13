@@ -1,7 +1,7 @@
 ---
 title: Prune one group at a time
 description: Find what helps in a large harness - remove one group (a prompt section, a skill, a set of tools) on each arm and measure it, or add groups one at a time to a bare base.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - prompt
@@ -57,8 +57,9 @@ tools with one job ([tool_config](../levers/tool_config.md)).
      arm for the bare base.
 3. **One group for each arm.** Two groups on one arm do not tell which one
    moved the eval.
-4. **Measure on every eval that the group could change**, not only the
-   target.
+4. **Measure the arm on its target evals**: the evals that the group is
+   for. When the arm holds its target, the val gate measures every eval
+   before a promotion, the evals that the group could change too.
 5. **Remove each mention** of a removed skill or tool in the prompt and in
    the other skills.
 6. **Then act on the results.** Keep the groups that help. Drop the groups

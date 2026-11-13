@@ -1,7 +1,7 @@
 ---
 title: Roll-up tool
 description: One code tool that does what the agent does in many calls - a fixed chain that passes an id along, a loop of one call per item, or the context the agent needs at the start.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -96,11 +96,12 @@ the answer.
 
 ## Budget
 
-Medium cost: one code tool, a dry run, and a measurement on every eval
-that the tools touch. A good step on any budget when the traces show the
-same chain on most items, because each item then costs fewer model calls.
-A context loader that fixes a class of failures is worth a slot on a small
-budget.
+Medium cost: one code tool, a dry run, and a measurement on its target
+evals. When it fixes its target, the val gate measures every eval before a
+promotion, the evals that the tools touch too. A good step on any budget
+when the traces show the same chain on most items, because each item then
+costs fewer model calls. A context loader that fixes a class of failures
+is worth a slot on a small budget.
 
 ## If it does not move the evals
 

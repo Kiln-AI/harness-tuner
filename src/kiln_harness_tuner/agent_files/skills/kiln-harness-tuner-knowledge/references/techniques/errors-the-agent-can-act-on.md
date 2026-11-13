@@ -1,7 +1,7 @@
 ---
 title: Errors the agent can act on
 description: A wrapper that turns a raw tool error into an error the agent can correct from - what was wrong, the valid values or nearest matches, and what to do next.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -78,8 +78,10 @@ count the retries and the calls that fail again in the same way.
 ## Budget
 
 Medium cost: a wrapper, a dry run for each class of error, and a
-measurement on every eval that the tool touches. A good step on any
-budget when the traces show retries after raw errors.
+measurement on its target evals. When it fixes its target, the val gate
+measures every eval before a promotion, the evals that the tool touches
+too. A good step on any budget when the traces show retries after raw
+errors.
 
 ## If it does not move the evals
 

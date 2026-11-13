@@ -12,9 +12,16 @@ Use this file to build the technique of your work item.
    operations, the rules of the object and the limits.
 3. **Use the check of the technique in your smoke.** A change that did not
    reach the agent is not built.
+4. **Fit the technique to this agent.** Read it for the spirit of its
+   guidance, as [the knowledge skill](../SKILL.md) says in "How to read
+   these documents". The hard limits in the lever documents do not change.
 
 The procedure of your role stays in the `kiln-harness-tuner-experiment-build`
 skill. This file adds what to build, not how a build is done.
+
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
 
 ## Techniques
 

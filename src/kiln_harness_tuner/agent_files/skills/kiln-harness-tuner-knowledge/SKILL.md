@@ -11,10 +11,26 @@ mode. It is general knowledge, from the field, from public sources and
 from other projects. It holds nothing that was measured on the task that
 you tune.
 
-**Experiments decide.** No document here is a rule of the form "you must do
-X". A document says what to try, in what order, and under which conditions.
-A measured result on this task is final, and it replaces what a document
-suggests. When two options tie, the knowledge can settle the choice.
+## How to read these documents
+
+**These are ideas to try.** The techniques, the playbooks and the smells
+are ideas to try as part of experimentation. What actually works varies
+from agent to agent. A document says what to try, in what order, and under
+which conditions. You know more about this agent than the documents do.
+Read each document for the spirit of its guidance. Fit its suggestions to
+the agent's goal, its tools and its task, and change a suggestion where the
+agent needs it. The hard limits are the exception: the safety and integrity
+rules in the lever documents. For example: never attach a tool that can
+reach the Kiln server; the allowlist and the shared-tool rules of a code
+tool; no value from a train item in a change. No measurement overrides a
+hard limit, and you do not change one to fit the agent.
+
+**A clear measurement outranks a document.** A result measured on this task
+outranks what a document suggests only when it is clearly past the noise,
+as the stop rules and the val gate judge it. A result inside the noise does
+not refute a technique: see
+[dealing with a noisy eval](references/playbooks/dealing-with-a-noisy-eval.md).
+When two options tie, the knowledge can settle the choice.
 
 ## The parts
 

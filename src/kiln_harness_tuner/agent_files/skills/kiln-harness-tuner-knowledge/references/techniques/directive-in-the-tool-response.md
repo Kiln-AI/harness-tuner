@@ -1,7 +1,7 @@
 ---
 title: Directive in the tool response
 description: A wrapper whose response carries a short directive for the reply, or the derived facts the reply must state, so that the agent reads it at the moment it writes the reply.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -80,9 +80,11 @@ and the reply that follows it.
 
 ## Budget
 
-Medium cost: a wrapper and a dry run, and a measurement on every eval that
-the reply touches. On a small budget, take it after a new description,
-when the reply still fails after a right call.
+Medium cost: a wrapper and a dry run, and a measurement on its target
+evals. When it fixes its target, the val gate measures every eval before a
+promotion, the evals that the reply touches too. On a small budget, take
+it after a new description, when the reply still fails after a right
+call.
 
 ## If it does not move the evals
 

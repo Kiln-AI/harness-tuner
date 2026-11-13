@@ -1,7 +1,7 @@
 ---
 title: Spending the budget
 description: How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scans only on a large one.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: order
 applies_to: all
 ---
@@ -68,7 +68,9 @@ spend buys no lesson.
 - Do not spend a small budget on the choice of the model to lock. Pick a
   model of the right class with a reasonable start, and begin the work.
 - Do not plan a full measurement of every eval for an arm that has not yet
-  fixed its target. The target eval decides first.
+  fixed its target. The target eval decides first. This holds for every
+  arm: a skill bundle and the wildcard too. The val gate measures every
+  eval before a promotion.
 - Do not judge an arm by its build cost alone. A cheap arm that the
   evidence says cannot win is the most expensive arm in the plan.
 

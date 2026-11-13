@@ -189,10 +189,17 @@ These rules apply to every document that a loop agent reads. A test checks
 the structure. It cannot check these rules, so you apply them, and the audit
 (section 10) looks for each one.
 
-1. **Experiments decide.** Do not write a rule of the form "you must do X".
-   Say what to try, in what order, and under which conditions. Reason: a
-   measured result on the target is final. A rule that overrides it makes
-   the loop ignore its own evidence.
+1. **Documents are ideas to try.** Do not write a rule of the form "you
+   must do X". Say what to try, in what order, and under which conditions.
+   The reader fits each suggestion to its agent: it knows more about that
+   agent than the document does. A measurement on the target outranks a
+   document only when it is clearly past the noise. The exception is the
+   safety and integrity rules of the lever documents (for example: never
+   attach a tool that can reach the Kiln server). They are hard limits that
+   no measurement overrides. Reason: what works varies from agent to agent,
+   and a rule that overrides a clear result makes the loop ignore its own
+   evidence. The knowledge skill's `SKILL.md` says this to the loop agents,
+   in "How to read these documents".
 2. **State conditions, not defaults.** Each recommendation states the
    condition under which it holds. Reason: the research found a measured
    case where each "almost always" claim loses.
@@ -297,7 +304,8 @@ The audit covers what a test cannot. It changes nothing. It returns a list.
 
 For each document, report each of these, with the file and the line:
 
-- a rule of the form "you must" (content rule 1);
+- a rule of the form "you must" (content rule 1), other than a hard limit
+  of a lever document;
 - a recommendation with no condition (content rule 2);
 - a `Confidence` section that states no basis;
 - a `reviewed` date older than six months;

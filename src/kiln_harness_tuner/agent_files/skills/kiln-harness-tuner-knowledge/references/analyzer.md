@@ -9,11 +9,18 @@ Use this file to name the failure pattern that a candidate's traces show.
 2. **Find the playbook whose situation fits** in the table below. Open it
    when the one-line description is not enough. Its "Situation" says what
    the trace shows, and where.
-3. **Name the playbook in your findings**, by its id, with the evidence. When
-   no playbook fits, describe the failure in your own words.
+3. **Name the playbook in your `memory_content`**, by its id, with the
+   evidence: in the interpretation or in the `next:` line. The planner
+   reads `memory_content`. It does not read `findings`. Name the playbook
+   in `findings` too, for the report. When no playbook fits, describe the
+   failure in your own words, in the same places.
 
-You do not plan the next experiment. The planner reads your findings and the
-playbook.
+You do not plan the next experiment. The planner reads your
+`memory_content` and the playbook.
+
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
 
 ## Failure patterns
 

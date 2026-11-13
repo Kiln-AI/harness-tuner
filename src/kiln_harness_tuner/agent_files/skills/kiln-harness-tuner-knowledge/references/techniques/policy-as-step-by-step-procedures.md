@@ -1,7 +1,7 @@
 ---
 title: Policy as step-by-step procedures
 description: Rewrite a policy that is written as prose into numbered procedures, one for each type of request, with yes-or-no conditions and a check after each fix.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - prompt
@@ -73,10 +73,11 @@ not reach it, or the step is not the cause.
 
 ## Budget
 
-Low cost to build: one prompt edit, or one skill version. The measurement
-covers every eval that the policy touches, because a rewrite changes many
-behaviours at once. On a small budget, take it when the traces show steps
-skipped or out of order.
+Low cost to build: one prompt edit, or one skill version. Measure it on
+its target evals. When it fixes its target, the val gate measures every
+eval before a promotion, the evals that the policy touches too. That
+matters here, because a rewrite changes many behaviours at once. On a
+small budget, take it when the traces show steps skipped or out of order.
 
 ## If it does not move the evals
 

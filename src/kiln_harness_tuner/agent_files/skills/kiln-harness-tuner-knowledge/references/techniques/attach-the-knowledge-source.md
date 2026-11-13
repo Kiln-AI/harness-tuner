@@ -1,7 +1,7 @@
 ---
 title: Attach the knowledge source
 description: Give the agent the knowledge its answers need - attach an existing search or RAG tool, or write the knowledge into a skill - when the answers are not grounded.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - tool_config
@@ -78,9 +78,11 @@ looks, the source did not reach the decision.
 ## Budget
 
 Medium cost: a tool to attach is cheap, a skill to write is not, and both
-need a measurement on every eval that the knowledge touches. On a small
-budget, take it when the traces show answers that need facts the agent
-does not have. It is the first step for that failure.
+need a measurement on their target evals. When it fixes its target, the
+val gate measures every eval before a promotion, the evals that the
+knowledge touches too. On a small budget, take it when the traces show
+answers that need facts the agent does not have. It is the first step for
+that failure.
 
 ## If it does not move the evals
 

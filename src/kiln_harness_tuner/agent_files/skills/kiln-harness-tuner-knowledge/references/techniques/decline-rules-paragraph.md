@@ -1,7 +1,7 @@
 ---
 title: Decline rules paragraph
 description: One prompt paragraph that states the agent's scope as rules - what it does, what it declines, how it declines, and what is not a reason to decline.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - prompt
@@ -67,8 +67,9 @@ over-refusal before the measurement.
 ## Budget
 
 Low cost: one prompt edit. A good first step on any budget, when the
-failures are about scope. Measure it on every eval that checks a valid
-answer too, because a stronger guard can break them.
+failures are about scope. Measure it on its target evals. When it fixes
+its target, the val gate measures every eval before a promotion, the evals
+that check a valid answer too: a stronger guard can break them.
 
 ## If it does not move the evals
 

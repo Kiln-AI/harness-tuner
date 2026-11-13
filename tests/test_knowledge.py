@@ -329,6 +329,27 @@ def test_each_entry_file_exists_and_has_its_blocks():
             assert f"<!-- END GENERATED: {block} -->" in text, (entry, block)
 
 
+ALL_OF_RULE = "A document applies only when the task has every shape in its list."
+
+
+def test_each_page_with_an_applies_to_column_reads_it_as_all_of():
+    """A document applies only when the task has every shape in its `applies_to`
+    list (components/knowledge_documents.md). A reader who takes the list as
+    "any of" applies a classifier technique to a tool agent with structured
+    output, so each top-level page that shows the column states the rule."""
+    pages = sorted((default_root() / "references").glob("*.md"))
+    with_column = [
+        p for p in pages if "| Applies to |" in p.read_text(encoding="utf-8")
+    ]
+    assert {p.name for p in with_column} >= {*ENTRY_BLOCKS, "technique-index.md"}
+    missing = [
+        p.name
+        for p in with_column
+        if ALL_OF_RULE not in " ".join(p.read_text(encoding="utf-8").split())
+    ]
+    assert not missing, missing
+
+
 def test_skill_md_names_its_folder_and_links_each_entry_file():
     text = (default_root() / "SKILL.md").read_text(encoding="utf-8")
     assert re.search(rf"^name: {SKILL_NAME}$", text, re.MULTILINE)

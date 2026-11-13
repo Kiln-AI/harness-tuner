@@ -1,7 +1,9 @@
 # The planner's entry file
 
-Use this file to choose what to try. The knowledge suggests. An experiment
-decides, and a result measured on this task replaces what a document says.
+Use this file to choose what to try. The documents are ideas to try. Fit
+them to this agent, as [the knowledge skill](../SKILL.md) says in "How to
+read these documents". A result measured on this task outranks a document
+only when it is clearly past the noise.
 
 ## How to use the knowledge
 
@@ -15,20 +17,31 @@ decides, and a result measured on this task replaces what a document says.
 3. **Take each failure and each eval problem to its playbook.** Find the
    playbook whose situation fits the issue, in the tables of the kinds
    `failure` and `eval`. Its steps are in order, and each step states its
-   condition. Take the first step whose condition holds. Move to the next
-   step when the step before it was measured, or when its condition does
-   not hold.
+   condition. The order is the priority. Skip a step whose condition does
+   not hold. Take the first step whose condition holds. When the budget
+   allows, the next steps whose conditions hold can run as parallel arms
+   in the same wave. The outcome of a measured step sets what comes next:
+   - **Landed**: go to the next step only if the issue is still open.
+   - **Refuted**, clearly past the noise: go on to the next step.
+   - **Capped**: the step is not measured. Run it again with a larger
+     `max_usd`, or run the next step beside it. The step stays open.
+   - **Inconclusive**, inside the noise
+     ([dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md)):
+     the step is not refuted. The step stays open, and the next step can
+     run in parallel.
 4. **Reach a technique through a playbook or a smell.** A choice by goal or
-   by situation is better than a choice by name. The technique document
-   says how to build it, how to check that it took effect, and what to do
-   when it does not move the evals.
+   by situation is better than a choice by name. When the guidance names a
+   technique, find it in [technique-index.md](technique-index.md). The
+   technique document says how to build it, how to check that it took
+   effect, and what to do when it does not move the evals.
 
 The `technique` field of an experiment is the id of a lever document where
 one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `params`,
 `output_mode`, `model`.
 
-Each table gives the task shapes a document applies to. `all` means that the
-shape does not matter.
+Each table gives the task shapes a document applies to. A document applies
+only when the task has every shape in its list. `all` means that the shape
+does not matter.
 
 ## Smells
 

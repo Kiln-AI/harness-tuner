@@ -1,7 +1,7 @@
 ---
 title: Cap and preview wrapper
 description: A wrapper that returns only what this agent needs from a large tool result - the fields it uses, a capped preview with a follow-up query, or an error when the result is too large.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -97,10 +97,11 @@ than the baseline's.
 
 ## Budget
 
-Medium cost: one code tool, a dry run, and a measurement on every eval
-that the tool touches. When a very large result is in the traces, it is a
-good first step on any budget: other changes measure little while one
-result can fill the context.
+Medium cost: one code tool, a dry run, and a measurement on its target
+evals. When it fixes its target, the val gate measures every eval before a
+promotion, the evals that the tool touches too. When a very large result
+is in the traces, it is a good first step on any budget: other changes
+measure little while one result can fill the context.
 
 ## If it does not move the evals
 

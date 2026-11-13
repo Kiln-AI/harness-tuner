@@ -435,11 +435,12 @@ on long instructions and on the choice of a tool, and the technique for a
 rewrite of an inherited skill).
 
 **Only config failures become fix arms.** Before you pick a lever, read the
-failure class the analyst named for the failing items (`findings`): a
-config failure gets a lever; an eval-data or judge failure gets
-`measure_issue_baseline` or an `open_questions` entry for the eval's owner,
-never an arm, because no config change fixes an eval; an environment
-failure (a tool server, a provider) and noise get nothing until they recur.
+failure class the analyst named for the failing items (in the
+experiment's memory content): a config failure gets a lever; an eval-data
+or judge failure gets `measure_issue_baseline` or an `open_questions`
+entry for the eval's owner, never an arm, because no config change fixes
+an eval; an environment failure (a tool server, a provider) and noise get
+nothing until they recur.
 
 **The expected outputs are the owner's policy.** The task's instructions
 can be shorter than the rules its expected outputs follow. Then the expected
@@ -459,21 +460,21 @@ input with different expected outputs, or an expected output that the
 instructions forbid. Then name the conflict, and still run the arm for the
 rule that most of the expected outputs follow.
 
-**Name the failure class before the lever**. Read
-`references/planner.md` of the `kiln-harness-tuner-knowledge` skill
-before this step: it lists the smells and the playbooks, grouped by kind,
-and says how to use them. For every issue you consider, read its failing
-items' `findings` for the decision point (before / with / after which tool
-call), take the failure to the playbook whose situation fits, and take the
-first step whose condition holds. The decision point names the surface
-the model reads at that moment: before or with a call, that tool's
-description (a new one is a code-tool clone or a wrapper); after a call,
-the tool's response or the prompt; when a skill is chosen, the skill's
-description. When the failure is mechanical (wrong case, id form,
+**Name the failure class before the lever**. Read `references/planner.md` of
+the `kiln-harness-tuner-knowledge` skill before this step: it lists the
+smells and the playbooks, grouped by kind, and says how to use them. For
+every issue you consider, read the decision point (before / with / after
+which tool call) and the failure pattern that the analyst wrote in the
+content of its experiment memories, take the failure to the playbook whose
+situation fits, and take the first step whose condition holds. The decision
+point names the surface the model reads at that moment: before or with a
+call, that tool's description (a new one is a code-tool clone or a wrapper);
+after a call, the tool's response or the prompt; when a skill is chosen, the
+skill's description. When the failure is mechanical (wrong case, id form,
 pagination, floods, unusable errors, text the model does not read at the
 moment it fails), the first arm is a wrapper or a skill restructure, not a
-prompt line. Your input's `max_concurrent_agents` and `lever_costs` are
-the capacity and cost signals (Step 3).
+prompt line. Your input's `max_concurrent_agents` and `lever_costs` are the
+capacity and cost signals (Step 3).
 
 `lever_attempts` (issue id → technique → arms ever opened on that pair,
 ANY outcome: promoted, refuted, failed on infra) is the count behind the
@@ -750,12 +751,14 @@ forever behind marginal cheap wins.
 **The wildcard slot and the deferral rule.** One slot in
 every wave that has three or more slots goes to the wildcard candidate
 from Step 1, marked `"wildcard": true` on its `FixWork`. It is exempt from
-the "two text arms then change surface" rule (it IS the surface change) and
-from the lean-target default (measure every active eval on it — a big swing
-needs its guards). When its mechanism is unverified, its slot may instead
-hold the `probe` that verifies it, and the wildcard builds next wave on the
-answer. **An idea may be deferred once.** State the deferral in
-`rejected_summary` as `deferred (1st): <idea> — <reason>`; the next wave
+the "two text arms then change surface" rule (it IS the surface change).
+It is NOT exempt from the lean-target default (below): like every arm, it
+measures its target evals and only the couplings it states a reason to
+fear, and the val gate measures the rest. When its mechanism is
+unverified, its slot may instead hold the `probe` that verifies it, and
+the wildcard builds next wave on the answer. **An idea may be deferred
+once.** State the deferral in `rejected_summary` as
+`deferred (1st): <idea> — <reason>`; the next wave
 must probe it or build it, and `deferred (3rd)` is a plan the skill
 forbids — if you cannot build it, write the `dead_end` that says why and
 retire it, or raise the blocker in `open_questions`. Deferral counts carry

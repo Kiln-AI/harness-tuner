@@ -1,7 +1,7 @@
 ---
 title: Consolidate tools
 description: Replace many narrow or overlapping tools with a few general wrappers by job, each with the product's policy inside - its permission checks, guards and defaults.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -89,10 +89,12 @@ count the calls to the right job.
 ## Budget
 
 High cost: several code tools, a dry run for each, and a measurement on
-every eval, because the change touches every call. On a small budget,
-leave it out unless the traces show wrong tool choices on many items and
-cheaper changes did not fix them. On a large budget, it is a good step
-once the cheaper tool changes have been measured.
+its target evals. When it fixes its target, the val gate measures every
+eval before a promotion. That matters here, because the change touches
+every call. On a small budget, leave it out unless the traces show wrong
+tool choices on many items and cheaper changes did not fix them. On a
+large budget, it is a good step once the cheaper tool changes have been
+measured.
 
 ## If it does not move the evals
 

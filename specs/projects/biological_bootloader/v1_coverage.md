@@ -190,7 +190,7 @@ One row for each idea of the project overview and the design notes.
 
 | Idea | Overview | Goes to |
 |---|---|---|
-| Experiments decide; guidance is never a "must" | 3 | The content rules; `SKILL.md` |
+| Documents are ideas to try; guidance is never a "must" (hard limits excepted) | 3 | The content rules; `SKILL.md` |
 | A tie can be settled from knowledge | 3 | The content rules. Backlog: Promotion on a tie |
 | Cost of learning against cost of maintenance | 3 | The content rules; the maintenance skill |
 | Classify the agent first: turns, output, others | 4 | V1 `know-the-agent-before-you-plan`; the task shapes |

@@ -1,7 +1,7 @@
 ---
 title: Normalize inputs wrapper
 description: A wrapper that accepts the input forms the agent sends - case, aliases, display numbers, types - maps each to what the tool needs, and names the valid values when it cannot.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -77,9 +77,10 @@ three train items that had malformed calls, and count the failed calls.
 ## Budget
 
 Medium cost: a wrapper with a mapping, a dry run for each form, and a
-measurement on every eval that the tool touches. A good step on any
-budget when malformed calls recur in the traces, because it removes a
-failure that text can only ask the model to avoid.
+measurement on its target evals. When it fixes its target, the val gate
+measures every eval before a promotion, the evals that the tool touches
+too. A good step on any budget when malformed calls recur in the traces,
+because it removes a failure that text can only ask the model to avoid.
 
 ## If it does not move the evals
 
