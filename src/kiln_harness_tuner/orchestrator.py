@@ -137,6 +137,7 @@ from kiln_harness_tuner.schemas import (
     BatchPlan,
     BatchPlanInput,
     CandidateValTable,
+    Detection,
     ErrorInfo,
     EvalTarget,
     ExperimentItem,
@@ -163,6 +164,7 @@ from kiln_harness_tuner.setup import (
     measurable_evals,
     run_setup,
 )
+from kiln_harness_tuner.smells import ensure_detections
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
@@ -437,6 +439,11 @@ class Ctx:
     # Each drop's line, oldest first: every later planner reads them
     #   (`BatchPlanInput.dropped_eval_items`), so it knows they never ran.
     dropped_eval_lines: list[str] = field(default_factory=list)
+    # The smell detectors in code (`kiln_harness_tuner.smells`): the
+    #   detections of the present baseline, for every planner, and the rc
+    #   they were run on. Run again when a promotion moves the baseline.
+    detections: list[Detection] = field(default_factory=list)
+    detected_rc_id: str | None = None
 
 
 def should_wrap(
@@ -758,6 +765,9 @@ async def _run_loop(
         baseline = BaselineRef(rc_id=ctx.memory.baseline_rc_id(record))
         lineage = ctx.memory.baseline_lineage(record)
         ctx.policy_exempt_rcs.update([baseline.rc_id, *lineage])
+        # The smell detectors, once for each baseline: at wave 1, and on
+        # the wave after a promotion. Free reads; it never raises.
+        await ensure_detections(ctx, baseline)
 
         # The planning dispatch is a full agent session and the run's longest
         # silence (minutes with only the header printed) —
@@ -1032,6 +1042,7 @@ async def _dispatch_plan(
                 train_noise=list(ctx.train_noise),
                 eval_building=ctx.eval_building,
                 dropped_eval_items=list(ctx.dropped_eval_lines),
+                detections=list(ctx.detections),
             ),
             backoffs=LOOP_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,

@@ -823,11 +823,14 @@ def test_build_rewrites_only_between_the_markers(tree):
 
 
 @pytest.fixture
-def cli_tree(tree) -> Tree:
-    """The tree without its code-detected smell: the command line passes the
-    package's own detector registry, which does not know `long_thing`."""
-    (tree.references / "smells" / "long-thing.md").unlink()
-    write_blocks(load(tree.root))
+def cli_tree(tree, monkeypatch) -> Tree:
+    """The tree, with the command line held to this tree's code side. The
+    package's own registry names smells that a small tree does not have;
+    `test_knowledge.py` checks the real tree against it."""
+    monkeypatch.setattr(
+        "kiln_harness_tuner.knowledge.__main__.code_side",
+        lambda: (GATEWAY_OPS, REGISTRY),
+    )
     return tree
 
 

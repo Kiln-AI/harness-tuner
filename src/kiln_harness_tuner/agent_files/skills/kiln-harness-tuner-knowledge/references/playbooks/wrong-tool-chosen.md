@@ -20,7 +20,8 @@ the failing items:
 - it calls a narrow tool many times where one general tool would do;
 - it calls a general tool with no rules, and breaks a rule of the product:
   a permission, a limit, a default;
-- the attached tools are many, narrow, or overlap.
+- the attached tools are many, narrow, or overlap: the smell
+  [too many narrow tools](../smells/too-many-narrow-tools.md).
 
 When the right tool is called with a malformed input, see
 [malformed tool calls](malformed-tool-calls.md).

@@ -22,7 +22,10 @@ final answer:
 - or the source was read, and the answer goes past what the source says.
 
 The knowledge exists somewhere the tuner can reach: a search tool or a
-RAG tool of the project, a document, a skill.
+RAG tool of the project, a document, a skill. When the source is a long
+document that the agent reaches only by page, by search or by section, the
+smell [document behind a lookup tool](../smells/document-behind-a-lookup-tool.md)
+says how to recognise it.
 
 ## What to try, in order
 

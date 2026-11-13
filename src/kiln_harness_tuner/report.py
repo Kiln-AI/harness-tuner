@@ -836,6 +836,47 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+SMELLS_APPENDIX_HEADING = "## Smells (code-computed)"
+
+
+def _number(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value:,.0f}" if float(value).is_integer() else f"{value:,g}"
+
+
+def render_smells_appendix(status: RunStatus) -> str:
+    """What the smell detectors in code found on each baseline of the run:
+    one table for each baseline with a detection. A detection is a fact
+    with its reference, and its smell names a document of the knowledge
+    skill, which gives the remedies. Empty string when no baseline has a
+    detection."""
+    found = {rc: rows for rc, rows in status.detections_by_rc.items() if rows}
+    if not found:
+        return ""
+    lines = [
+        SMELLS_APPENDIX_HEADING,
+        "",
+        "Facts that code found in the design of each baseline. Each smell is"
+        " a document of the knowledge skill, which says how to confirm it and"
+        " gives the remedies. A detection is evidence, not a verdict.",
+    ]
+    for rc_id, rows in found.items():
+        lines += [
+            "",
+            f"Baseline `{rc_id}`:",
+            "",
+            "| smell | fact | reference | source of the reference |",
+            "|---|---|---:|---|",
+        ]
+        lines += [
+            f"| {_md(d.smell)} | {_md(d.fact)} | {_number(d.reference)}"
+            f" | {_md(d.reference_source)} |"
+            for d in rows
+        ]
+    return "\n".join(lines) + "\n"
+
+
 def _cost_cells(c: object) -> str:
     if not isinstance(c, dict) or c.get("median_ratio") is None:
         return " — | — | — |"
@@ -1009,6 +1050,9 @@ class ReportWriter:
         missing_evals = render_missing_evals_appendix(status)
         if missing_evals:
             markdown = markdown.rstrip("\n") + "\n\n" + missing_evals
+        smells = render_smells_appendix(status)
+        if smells:
+            markdown = markdown.rstrip("\n") + "\n\n" + smells
         path = self.report_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")

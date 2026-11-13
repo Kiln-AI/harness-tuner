@@ -14,7 +14,8 @@ Return the round report as markdown in `ReportMarkdown` — code, not you,
 writes the file (`reports/kiln-harness-tuner-<run_id>.md`). Code appends a code-computed spend appendix (a
 `budget … · elapsed … · exit …` header over the per-source × per-lane table)
 after your markdown — narrate spend and the run's clock, never build or
-restate them. Code also appends why each arm stopped and the screened
-candidates' trade-offs: point at those tables, never rebuild them.
+restate them. Code also appends why each arm stopped, the screened
+candidates' trade-offs and the smells that code found in each baseline:
+point at those tables, never rebuild them.
 Reading is your only API activity: no file writes, no memory
 writes, no eval jobs, no `split` params.

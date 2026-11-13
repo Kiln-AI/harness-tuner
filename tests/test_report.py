@@ -461,6 +461,8 @@ async def test_orchestrate_end_to_end_wires_report_and_wave_log(tmp_path):
         "janitor",
         "baseline_found",  # pre-flight, voiced
         "contract_ok",  # $0 API-contract preflight
+        # The smell detectors on the baseline; the fake lists no run config.
+        "smell_detection_skipped",
         "phase_start",  # planning wave 1
         "phase_end",
         "spend",

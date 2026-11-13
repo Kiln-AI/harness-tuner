@@ -29,6 +29,10 @@ aimed at the failing items can fit the train items and not others. A
 change to the surface (a tool, a wrapper, the structure of a skill)
 removes the cause, instead of asking the model to avoid it.
 
+Some causes are smells of the design, with their own documents:
+[tool results flood the context](../smells/tool-results-flood-the-context.md)
+and [faulty inherited skill](../smells/faulty-inherited-skill.md).
+
 ## What to try, in order
 
 1. A wrapper that removes the mechanical failure, chosen by its cause:

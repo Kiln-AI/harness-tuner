@@ -47,7 +47,7 @@ changes knowledge documents also ends with
   analyzer and the report writer name their entry files. The planner's
   skill points to the knowledge system. The phase ends with the line-by-line
   check of section 6 of the V1 coverage document against the removed file.
-- [ ] Phase 6: Smells and the code detectors. The other twelve smell
+- [x] Phase 6: Smells and the code detectors. The other twelve smell
   documents. The `smells` package: the detection model, the three
   detectors, the thresholds, `run_detectors`. The detections in the
   planner's input and in the report. `tests/test_smells.py`.

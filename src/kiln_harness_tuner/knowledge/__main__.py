@@ -20,12 +20,12 @@ from kiln_harness_tuner.knowledge.schema import Problem
 def code_side() -> tuple[frozenset[str], Mapping[str, str]]:
     """The gateway operations and the detector registry (detector id to
     smell id) that the check holds the documents to."""
+    # Imported here, not at the top: `smells` imports `knowledge`, and
+    # `knowledge` itself does not import `smells`.
     from kiln_harness_tuner.gateway.ops import OPS
+    from kiln_harness_tuner.smells import detector_smells
 
-    # No smell detector exists yet. The `smells` package and its
-    # `detector_smells()` come in a later phase of the biological_bootloader
-    # project, and its registry is passed here then.
-    return frozenset(OPS), {}
+    return frozenset(OPS), detector_smells()
 
 
 def run_check(root: Path | None) -> list[Problem]:

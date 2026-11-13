@@ -18,9 +18,14 @@ calls. So a good API can be a poor tool for an agent.
 
 This playbook responds to the smells of the tool design. Each smell has
 its own document in the planner's entry file, and that document says how
-to recognise it. The smells of the tools include: tool results that flood
-the context, a fixed chain of calls, a general query tool with no guide,
-too many narrow tools, and [tool search](../smells/tool-search.md).
+to recognise it. The smells of the tools are:
+[tool results flood the context](../smells/tool-results-flood-the-context.md),
+[fixed call chain](../smells/fixed-call-chain.md),
+[general query tool without a guide](../smells/general-query-tool-without-a-guide.md),
+[too many narrow tools](../smells/too-many-narrow-tools.md),
+[tool search](../smells/tool-search.md),
+[document behind a lookup tool](../smells/document-behind-a-lookup-tool.md)
+and [very long tool description](../smells/very-long-tool-description.md).
 
 The tuner does not change the company's tools. It writes a layer of code
 tools over them: a wrapper calls the original tool and changes what goes

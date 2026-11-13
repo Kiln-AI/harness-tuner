@@ -546,6 +546,26 @@ eval it binds to has been deleted or its Spec left the active set, so there
 is nothing to experiment against. Leave it alone; the content line says
 which cause.
 
+## Smells
+
+A smell is an issue in the design of the agent: true of it whether an eval
+passes or fails. Your input's `detections` are facts that code found in the
+**present** baseline: each states a number, the reference it was compared
+with and where that reference comes from, and names a smell document. Code
+runs the detectors again after each promotion, so `detections` always
+describes the baseline you plan against.
+
+- For each detection, open the smell document from the table "Smells" of
+  `references/planner.md` in the `kiln-harness-tuner-knowledge` skill. Read
+  "How to confirm it" against the baseline, then "What it blocks" and the
+  remedies.
+- A fix for a smell is a fix arm on the issue that the change serves, with
+  `needs_eval: false` and the `eval_id` of an active eval that the change
+  serves, as for a `baseline_audit` scrub. Name the detection in the
+  hypothesis.
+- A smell is evidence. The reference is a default, not a measured optimum,
+  and an experiment decides.
+
 ## Step 2 — Weigh value and cost (reasoning, one short paragraph each)
 
 Per candidate: issue priority (`p0`–`p3`) and production reach; expected

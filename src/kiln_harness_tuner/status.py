@@ -31,6 +31,7 @@ from kiln_harness_tuner.schemas import (
     SUBSCRIPTION_LANE,
     BatchItem,
     DetectabilityReport,
+    Detection,
     DroppedEvalItem,
     EvalOnlyItem,
     GateBlock,
@@ -492,6 +493,21 @@ class RunStatusTracker:
                 self._status.screen_results.append(ScreenResult.model_validate(raw))
             except ValidationError:
                 continue
+
+    def _on_smell_detections(
+        self, rc: object = None, detections: Sequence[object] = (), **_: object
+    ) -> None:
+        # The code detections of each baseline, for the report's smells
+        # appendix. A detection that does not validate is left out.
+        if not isinstance(rc, str):
+            return
+        kept = []
+        for raw in detections:
+            try:
+                kept.append(Detection.model_validate(raw))
+            except ValidationError:
+                continue
+        self._status.detections_by_rc[rc] = kept
 
     # The warm path carries the same object: `setup_ok` means nothing was
     # written, not that nothing is worth reporting (unbound issues and the

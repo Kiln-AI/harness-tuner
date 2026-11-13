@@ -1,7 +1,7 @@
 ---
 title: Tool search
 description: The agent must guess that a tool exists, decide to search for it, and find the right search terms, before it can call it.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 applies_to:
   - tools
 detected_by:
@@ -29,7 +29,7 @@ In how the agent runs:
 
 - searches for tools before the calls that do the work;
 - searches with terms that find nothing, then a guess;
-- an answer that says a capability is missing, when a tool for it exists.
+- more tool searches in a run than calls of the tools that they find.
 
 ## How to confirm it
 

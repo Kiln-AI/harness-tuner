@@ -150,6 +150,43 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
     assert doc.meta is not None and doc.meta.kind == V1_PLAYBOOK_KINDS[playbook]
 
 
+# V1 coverage, section 2: the thirteen smells, each with who detects it, and
+# the code detectors of the three that code detects.
+V1_SMELL_DETECTION = {
+    "very-long-prompt": ["long_prompt"],
+    "one-file-skill-with-many-topics": [],
+    "skill-too-small-to-earn-its-place": [],
+    "very-long-skill-description": ["long_skill_description"],
+    "faulty-inherited-skill": [],
+    "tool-results-flood-the-context": [],
+    "fixed-call-chain": [],
+    "general-query-tool-without-a-guide": [],
+    "too-many-narrow-tools": [],
+    "tool-search": [],
+    "document-behind-a-lookup-tool": [],
+    "very-long-tool-description": ["long_tool_description"],
+    "tools-on-a-live-server": [],
+}
+
+
+@pytest.mark.parametrize("smell", sorted(V1_SMELL_DETECTION))
+def test_the_v1_smell_is_present_with_its_detection(smell):
+    doc = load().get("smells", smell)
+    assert doc is not None, f"smells/{smell}.md is missing"
+    detectors = V1_SMELL_DETECTION[smell]
+    assert doc.meta is not None
+    assert doc.meta.detected_by == (["code"] if detectors else ["agent"])
+    assert doc.meta.detectors == detectors
+
+
+def test_the_check_uses_the_real_detector_registry():
+    from kiln_harness_tuner.smells import detector_smells
+
+    _ops, detectors = code_side()
+    assert detectors == detector_smells()
+    assert detectors
+
+
 def test_spending_the_budget_names_real_planner_input_fields():
     """The playbook tells the planner which input fields carry the budget,
     the prices and the noise. A renamed field would send it to nothing."""

@@ -22,6 +22,11 @@ holds many topics. Signs in the traces and the outputs:
 - the task has no tools, and the eval is scored by a judge on long free
   text (a rubric, a summary, an extraction).
 
+Two smells of the design describe the long text itself:
+[very long prompt](../smells/very-long-prompt.md) and
+[one-file skill with many topics](../smells/one-file-skill-with-many-topics.md).
+Their documents say how to recognise each one.
+
 This is not a missing requirement: the text asks for the part. When the
 text does not ask for it, see
 [a requirement is missing from the prompt](requirement-missing-from-the-prompt.md).

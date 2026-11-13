@@ -1749,6 +1749,23 @@ class MeasurementPrices(BaseModel):
     rule: str = ""
 
 
+class Detection(BaseModel):
+    """One fact that a smell detector in code found about the baseline
+    (`kiln_harness_tuner.smells`). It states the fact and its numbers, never
+    a verdict: `smell` names a smell document of the knowledge skill, and
+    that document gives the remedies. No val: a detector reads the harness
+    and stored train rows only, so a detection can go to an agent."""
+
+    smell: str  # the id of a smell document
+    detector: str  # the id of the detector
+    scope: Literal["harness", "train"]
+    fact: str = Field(max_length=300)  # one sentence with its numbers
+    value: float | None = None
+    reference: float | None = None  # what the value was compared with
+    reference_source: str = ""  # where the reference comes from
+    eval_id: str | None = None  # when the fact is about one eval
+
+
 class BatchPlanInput(BaseModel):
     guidance: str  # kickoff human guidance, verbatim, every wave
     baseline: BaselineRef
@@ -1839,6 +1856,10 @@ class BatchPlanInput(BaseModel):
     #   dropped from an earlier plan because eval building is off. A dropped
     #   item never ran. Empty when nothing was dropped.
     dropped_eval_items: list[str] = []
+    # What the smell detectors in code found on the PRESENT baseline
+    #   (`smells.run_detectors`), run again after each promotion. Each names
+    #   a smell document of the knowledge skill. Empty when none was found.
+    detections: list[Detection] = []
 
 
 class EvalBuildInput(BaseModel):
@@ -2120,6 +2141,12 @@ class RunStatus(BaseModel):
     eval_building: bool = False
     dropped_eval_items: list[DroppedEvalItem] = []
     issues_without_eval: list[IssueWithoutEval] | None = None
+    # The smell detections of each baseline the run reviewed, by its rc id,
+    #   in review order (`smell_detections` events) — the report's smells
+    #   appendix. A baseline with no detection has an empty list. Keyed by rc,
+    #   not the flat list of the component design, because a `Detection`
+    #   does not name its baseline and the appendix shows each one.
+    detections_by_rc: dict[str, list[Detection]] = {}
 
 
 class ReportInput(BaseModel):

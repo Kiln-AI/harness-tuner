@@ -50,7 +50,8 @@ Rules of the object:
   measures the build.
 - No text copied from an eval or its judge. The judge-copy check refuses it.
 - The prompt is in the context of every call, so each line costs tokens on
-  every item. A long prompt has its own smell.
+  every item. A long prompt has its own smell:
+  [very long prompt](../smells/very-long-prompt.md).
 
 ## See also
 
