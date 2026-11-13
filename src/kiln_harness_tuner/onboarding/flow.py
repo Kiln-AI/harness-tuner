@@ -17,7 +17,7 @@ import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from kiln_harness_tuner import __version__
 from kiln_harness_tuner.analysis import KilnApi
@@ -32,6 +32,7 @@ from kiln_harness_tuner.onboarding.errors import (
     OnboardingStopped,
 )
 from kiln_harness_tuner.onboarding.keys import (
+    AVAILABLE_MODELS_PATH,
     Baseline,
     Need,
     key_problem,
@@ -73,9 +74,9 @@ from kiln_harness_tuner.onboarding.terminal import (
 T = TypeVar("T")
 
 PICK_ANOTHER_TASK = Action("t", "Pick a different task", ActionKind.PICK_TASK)
-START = Action("s", "Start the run", ActionKind.START)
+START = Action("s", "Start tuning", ActionKind.START)
 CHANGE = Action("e", "Change an answer", ActionKind.CHANGE)
-START_QUESTION = "Start the run?"
+START_QUESTION = "Start tuning?"
 CHANGE_QUESTION = "Which answer do you want to change?"
 WELCOME_TITLE = "Kiln Harness Tuner"
 WELCOME_DESCRIPTION = (
@@ -132,6 +133,7 @@ def prepare_start(
     home: Path | None = None,
     which: Callable[[str], str | None] = shutil.which,
     report: Callable[[StartReport], None] | None = None,
+    policy_dir: Path | None = None,
 ) -> argparse.Namespace:
     """Check that Kiln answers and is new enough, make and import a copy of
     the demo when `args.demo_project` asks for one, choose the project and
@@ -154,7 +156,9 @@ def prepare_start(
     demo's copies go in `home`'s `Kiln Projects/` folder; `home` is
     `Path.home()` by default. `which` finds the agent CLIs on PATH.
     `report`, when given, gets the `StartReport` once, just before the
-    start returns, and never when it stops or fails.
+    start returns, and never when it stops or fails. `policy_dir` is where
+    the Models question saves a pick: the state folder's `policies/` by
+    default.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
     guided, or an unknown ID); a guided start also shows it as a block.
@@ -194,8 +198,17 @@ def prepare_start(
             return f"\n{RERUN_HEADING}\n{command}\n"
 
         if terminal.interactive:
+            baseline = keys.baseline
             context = QuestionContext(
-                terminal, defaults, policy_loader, demo=args.demo_project, which=which
+                terminal,
+                defaults,
+                policy_loader,
+                demo=args.demo_project,
+                which=which,
+                baseline_model=None if baseline is None else baseline.model_text,
+                baseline_pair=None if baseline is None else baseline.pair,
+                offered=lambda: run(_available_models),
+                policy_dir=policy_dir,
             )
             _ask_until_started(
                 answers, context, given=given, keys=keys, summary=summary, rerun=rerun
@@ -243,7 +256,7 @@ def _ask_until_started(
     changes the model policy runs the key check again, so its providers are
     covered.
 
-    Esc at "Start the run?" asks the last question again, and the walk goes
+    Esc at "Start tuning?" asks the last question again, and the walk goes
     on from there (`QuestionWalk`). Esc while an answer is changed leaves it
     as it was and shows the summary again."""
     terminal = context.terminal
@@ -277,6 +290,11 @@ def _ask_until_started(
             terminal.rewind(shown)
             continue
         keys.check_if_changed(answers.model_policy)
+
+
+async def _available_models(kiln: KilnApi) -> Any:
+    """Kiln's model list, for the Models question's picker."""
+    return await kiln.call("GET", AVAILABLE_MODELS_PATH)
 
 
 def _use_demo(

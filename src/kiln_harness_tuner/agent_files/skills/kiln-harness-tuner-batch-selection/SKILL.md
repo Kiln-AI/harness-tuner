@@ -10,7 +10,8 @@ You plan one wave of the Kiln Harness Tuner optimize loop. You are dispatched fr
 (memory-first: durable state lives in Kiln memories, not passed context). Your
 input model is `BatchPlanInput`: `guidance` (kickoff human guidance, verbatim),
 `baseline` (`{rc_id}` — the rc every experiment branches from),
-`should_wrap_up` (code's budget judgment: this is the last wave),
+`should_wrap_up` (true on the last wave only: the run's time limit has
+passed, or the budget has room for one more wave only),
 `eval_sizes` (per active eval, the items your experiments can actually be
 measured on — see Eval economics), `train_detectability` and `train_noise`
 (per score, what the train rows can show — see Eval economics), and
@@ -58,13 +59,18 @@ going looking.
 - Levers exclude **fine-tuning and GEPA-style prompt optimizers** —
   agent-initiated training is out of scope. Only an explicit
   kickoff-guidance directive ("try fine-tuning for tone") makes one a normal
-  candidate. **A model swap is excluded by default** — the subject model is
-  the environment; only guidance that explicitly allows other models, or
-  `objective: "speed"` (below), makes it a lever. Provider
-  parameters (thinking level, temperature, top_p) are in scope
-  unless the guidance names them.
+  candidate. **A model or provider swap is a lever exactly when
+  `allowed_models` lists a (provider, model) other than the baseline's.**
+  The owner chose that list at start-up (`--models keep`, `--models any`
+  or a `--model-policy`), and `model_policy` describes it. When the list
+  holds the baseline's model alone, keep `model_name` and
+  `model_provider_name`, do not plan a swap and do not raise it as an open
+  question — it is answered. Guidance that forbids a swap ("do not change
+  the model") still excludes it. Provider parameters (thinking level,
+  temperature, top_p) are in scope unless the guidance names them.
 - **Only models in `allowed_models`**. When `model_policy` is
-  set, a run config on any other (provider, model) pair is refused by code —
+  set (`--models keep` sets one too), a run config on any other
+  (provider, model) pair is refused by code —
   the build is blocked at the call, and an rc that exists anyway is never
   measured or promoted. Never plan an arm on a model outside the list.
   `allowed_models` is what the server offers, filtered by the policy.
@@ -317,9 +323,10 @@ carry items.
   round's size, so its judging costs up to about twice as much at round 1
   on 8 evals, and more on fewer evals; its default budget is priced on
   those items.
-- **Under the quality objective** screening is for model, provider,
-  thinking or sampling swaps you want to test; an arm that makes such a
-  swap without screening is timed by the engine too, so its lever is
+- **Under the quality objective** screening is for thinking or sampling
+  changes you want to test, and for model or provider swaps when
+  `allowed_models` lists other models (Hard rules); an arm that makes such a
+  change without screening is timed by the engine too, so its lever is
   checked on the drives before it is judged.
 
 ## Step 1 — Generate candidates
@@ -422,6 +429,24 @@ config failure gets a lever; an eval-data or judge failure gets
 never an arm, because no config change fixes an eval; an environment
 failure (a tool server, a provider) and noise get nothing until they recur.
 
+**The expected outputs are the owner's policy.** The task's instructions
+can be shorter than the rules its expected outputs follow. Then the expected
+outputs are where the owner's rules are written: they are not a policy
+question for a human. When many failing items of one kind of input have the
+same expected output, and the prompt does not give that rule, the failure is
+a config failure. Write the rule in general words — the kind of input, and
+the decision for it — and make it an arm. A rule of that form is not
+memorisation: the generality check refuses a rule that names a train item,
+copies its text or gives answers case by case, and it accepts a rule that a
+new input of the same kind also follows. The val split then shows whether
+the rule holds on items the build did not see, and the promotion gate
+refuses a rule that does not. Do not hold such an arm back for an
+`open_questions` entry, and do not end the loop on it. An `open_questions`
+entry is correct only when the expected outputs disagree: the same kind of
+input with different expected outputs, or an expected output that the
+instructions forbid. Then name the conflict, and still run the arm for the
+rule that most of the expected outputs follow.
+
 **Name the failure class before the lever**. Read
 `references/planner.md` of the `kiln-harness-tuner-knowledge` skill
 before this step: it lists the smells and the playbooks, grouped by kind,
@@ -497,12 +522,10 @@ runs; only "did the output change in the named way" needs the agent.
   one rung DOWN and keep it if the target evals hold. Guidance that forbids
   touching thinking, or the `speed` and `cost` objectives, override this
   order (the run then opens with a round of the lower levels). **The model
-  itself is NOT a lever by default**: the subject model is the environment
-  the task is being optimized for, and swapping it (`model_name` /
-  `model_provider_name`) is allowed only when the guidance says so
-  explicitly ("you may try other models") or the objective is `speed` or
-  `cost`. Otherwise do not plan a model swap and do not
-  raise it as an open question — it is answered. An
+  itself is a lever only when `allowed_models` lists another model**
+  (Hard rules). Otherwise the subject model is the environment the task is
+  being optimized for: do not plan a model swap and do not raise it as an
+  open question — it is answered. An
   issue record's `- eval: <eval_id> (built <date>, reproduced)` content line
   means a prior wave already built its eval — set `eval_id` +
   `needs_eval: false` (required together; the schema rejects
@@ -596,7 +619,7 @@ quantity is **expected value vs cost**, never a computed score.
 reasoning says an arm is the cheapest untried one and the only one reaching
 every target failure — a `params` arm, a skill attach, a resubmission —
 run it this wave unless the guidance excludes its lever class by name (or,
-for a model swap, unless the guidance fails to allow it). An
+for a model swap, unless `allowed_models` lists no other model). An
 `open_questions` entry is for what a human must DECIDE; it is not the place
 for what a cheap arm can MEASURE.
 
@@ -690,9 +713,10 @@ more headroom can be impossible by construction on a near-ceiling baseline.
   holds across tasks even though the prices do not: attaching an existing
   skill is the cheapest build and the fastest; copying and editing a skill
   costs several times that; a new wrapper code tool is the most expensive
-  build of the three. Every arm then pays a small fixed amount for its drives
-  and a larger one for its analysis session — so the analysis, not the build,
-  is the floor under a cheap arm. A cheap second arm costs a fraction of an
+  build of the three. Every arm then pays a small fixed amount of budget
+  dollars for its drives, and its analysis session takes the most agent
+  tokens and time — so the analysis, not the build, is the floor under a
+  cheap arm. A cheap second arm costs a fraction of an
   expensive one and none of the wall clock. For actual prices, measure on THIS
   task (`experiment-costing`): a figure from another task is not an estimate
   for this one.
@@ -701,8 +725,8 @@ more headroom can be impossible by construction on a near-ceiling baseline.
 
 Pick highest value-for-cost first, respecting cohesion; stop when remaining
 candidates are low-value, conflict with picks, or aren't worth starting
-under the budget signal (`should_wrap_up` is the only clock you get — code
-owns the arithmetic). N falls out — never set directly (N=1 is a valid
+under the budget signal (`should_wrap_up` is the only clock you get, and it
+comes only on the last wave — code owns the arithmetic). N falls out — never set directly (N=1 is a valid
 wave). Early waves
 lean cheap/stable/disparate (low-hanging fruit builds the base config and
 calibrates cost intuition); later waves deliberately escalate to expensive
@@ -948,8 +972,8 @@ target`, no promotion:
   `unclear` is a real answer: plan the follow-up probe or the arm with the
   risk stated.
 - **`existing_rc_id` on a FixWork** — the arm was BUILT by a
-  prior run and lost only its analysis (the run ended, or its deadline
-  cancelled the item). Its experiment record reads `— ABANDONED (…)` or
+  prior run and lost only its analysis (the run stopped before it: Ctrl+C,
+  a signal or a fatal error). Its experiment record reads `— ABANDONED (…)` or
   `— FAILED (infra: timeout)` and carries an `rc: <id>` content line (code
   writes it the moment a build lands). Set `existing_rc_id` to that rc and
   restate the hypothesis: no build session, no build spend — the item
@@ -996,7 +1020,10 @@ new experiment with its own record (val-gate carve-out below).
 
 ## Wrap-up wave (`should_wrap_up: true`)
 
-This is the last wave — how to spend it is your call, but the strong default
+This is the last wave. It comes after the run's time limit: the wave that
+was in flight at the limit has finished, promotion gate included, and no
+normal wave starts after it. It also comes when the budget has room for one
+more wave only. How to spend it is your call, but the strong default
 is **merge the pooled unpromoted wins** (a merge, or a merge plus one last
 cheap fix). **Never return `loop_exit` while unpromoted wins sit pooled**
 — spend the wave merging instead. **Carve-out:** a pooled win whose
@@ -1011,7 +1038,7 @@ rc over" — not as a dead lever, and not as a this-run-only fact: the same
 design re-enters as a new experiment once the condition that failed it
 changes (an enlarged eval, an answered OPEN). `loop_exit` on a wrap-up wave
 is right only when there are genuinely no wins to merge and nothing worth
-its cost.
+its cost. The run then goes straight to the report.
 
 ## Returning the plan
 

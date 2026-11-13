@@ -46,10 +46,7 @@ REVIEW_MAX_ITEMS = 20
 REVIEW_MAX_FINDINGS = 15
 REVIEW_REASON_CHARS = 300
 # The review sits before the planner on the run's clock: one retry at most,
-# and none after a session that hit its time cap (`timeout`). A late
-# failure of another class, or the dispatcher's in-session repair of bad
-# output, can still take more than the one timeout `_too_little_time`
-# allows for; the deadline check after the review covers that.
+# and none after a session that hit its time cap (`timeout`).
 REVIEW_DISPATCH_BACKOFFS: tuple[float, ...] = (30.0,)
 REVIEW_TERMINAL_ERRORS = ("parse_failure", "timeout")
 
@@ -59,8 +56,7 @@ async def ensure_baseline_reviewed(
     baseline: BaselineRef,
     *,
     wrap_up: bool = False,
-    deadline: float | None = None,
-) -> bool:
+) -> None:
     """Find the smells of the present baseline, once for each baseline: the
     detectors in code, then the baseline reviewer. At wave 1 the baseline is
     the first one; after a promotion the next wave sees a new rc id, so the
@@ -71,32 +67,26 @@ async def ensure_baseline_reviewed(
     would end the run with no report. A review that cannot run is recorded
     as `failed`, and the run goes on with the code detections.
 
-    No session is dispatched on a wrap-up wave (`wrap_up`), or when the
-    time to `deadline` is under the minimum to start a wave plus the
-    review's timeout: no planner after it would read the review. Such a
-    review is `skipped`, and the detectors still run.
-
-    Returns True when the review phase ran (it takes minutes on the run's
-    clock, so the caller checks the deadline again)."""
+    No session is dispatched on a wrap-up wave (`wrap_up`): the wrap-up
+    planner only merges pooled wins, so no planner after it would read the
+    review. Such a review is `skipped`, and the detectors still run."""
     if ctx.reviewed_rc_id == baseline.rc_id:
-        return False
+        return
     ctx.reviewed_rc_id = baseline.rc_id
     not_run = None
     if not ctx.baseline_review:
         not_run = BaselineReview(
             rc_id=baseline.rc_id, status="off", reason="turned off"
         )
-    elif wrap_up or _too_little_time(ctx, deadline):
+    elif wrap_up:
         not_run = BaselineReview(
-            rc_id=baseline.rc_id,
-            status="skipped",
-            reason="a wrap-up wave" if wrap_up else "too little time",
+            rc_id=baseline.rc_id, status="skipped", reason="a wrap-up wave"
         )
     if not_run is not None:
         # No session runs, so no phase opens: the detectors are free reads.
         await ensure_detections(ctx, baseline)
         _record(ctx, not_run)
-        return False
+        return
     started = ctx.clock()
     ctx.log.event(
         "phase_start",
@@ -109,19 +99,6 @@ async def ensure_baseline_reviewed(
         ctx.log.event(
             "phase_end", name="baseline_review", elapsed_secs=ctx.clock() - started
         )
-    return True
-
-
-def _too_little_time(ctx: Ctx, deadline: float | None) -> bool:
-    """True when a review of its full timeout would leave less than the
-    minimum to start a wave before `deadline`."""
-    if deadline is None:
-        return False
-    from kiln_harness_tuner.dispatch.base import BASELINE_REVIEW_TIMEOUT_SECS
-    from kiln_harness_tuner.orchestrator import MIN_WAVE_START_SECS
-
-    needed = MIN_WAVE_START_SECS + BASELINE_REVIEW_TIMEOUT_SECS
-    return deadline - ctx.clock() < needed
 
 
 async def _review_or_failure(ctx: Ctx, baseline: BaselineRef) -> BaselineReview:

@@ -13,6 +13,7 @@ goes in the summary's card.
 
 from __future__ import annotations
 
+import logging
 import re
 import textwrap
 from typing import Any
@@ -27,6 +28,7 @@ from textual.widgets import Footer, Static
 from kiln_harness_tuner.tui import bridge
 from kiln_harness_tuner.tui.screens.prompts import (
     ActionMenu,
+    MultiPicker,
     Picker,
     PromptPart,
     TextAnswer,
@@ -41,6 +43,8 @@ from kiln_harness_tuner.tui.widgets import (
     step_content,
     warn_content,
 )
+
+logger = logging.getLogger("kiln_harness_tuner.tui")
 
 # The step that names the chosen task (`onboarding/choose.py`), and its text:
 # "<name> (<id>)", then " · the only task …" for a task nobody picked. The
@@ -161,9 +165,21 @@ class StartupScreen(Screen[None]):
         return self.query_one("#column", Vertical)
 
     def show(self, request: bridge.Request) -> None:
+        """Draw `request`, or keep it until the screen has mounted. A prompt
+        the screen can't draw fails, so the start raises instead of waiting
+        for an answer that can't come: also one that came before the mount,
+        which `on_mount` draws."""
         if not self._ready:
             self._backlog.append(request)
             return
+        try:
+            self._draw(request)
+        except Exception as error:
+            logger.exception("the start-up screen could not show a request")
+            if isinstance(request, bridge.Prompt):
+                request.fail(error)
+
+    def _draw(self, request: bridge.Request) -> None:
         match request:
             case bridge.Welcome():
                 self._add(self._welcome(request))
@@ -189,6 +205,8 @@ class StartupScreen(Screen[None]):
                 self._add(StepLineView(Content.assemble(said, link(url))))
             case bridge.Pick():
                 self._add(Picker(request))
+            case bridge.PickMany():
+                self._add(MultiPicker(request))
             case bridge.Act():
                 self._add(ActionMenu(request))
             case bridge.Text():

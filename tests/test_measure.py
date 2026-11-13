@@ -524,6 +524,23 @@ def test_the_progress_line_shape():
     )
 
 
+def test_a_chunk_with_no_row_stored_is_not_shown_as_losses():
+    """A candidate whose model call errors stores no row. Its line says so,
+    rather than "lost 2/2 passes" under speed and cost."""
+    ev = Evidence(
+        judged=[
+            Judged("e", "a", PASS, BLOCK_DISC, True, None),
+            Judged("e", "b", PASS, BLOCK_DISC, True, None),
+        ],
+        objective="cost",
+    )
+    line = progress_line("s1-5", 1, 3, ev, "failed")
+    assert line == "s1-5: chunk 1/3 · no row stored for 2 item(s) · failed"
+    # One stored row: the usual counts again.
+    ev.judged[0] = Judged("e", "a", PASS, BLOCK_DISC, True, True)
+    assert "lost 1/2 passes" in progress_line("s1-5", 1, 3, ev, "continue")
+
+
 async def test_a_quality_arm_completes_and_its_rows_are_the_train_measurement(
     tmp_path,
 ):

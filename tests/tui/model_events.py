@@ -36,6 +36,7 @@ from kiln_harness_tuner.schemas import (
     WinRef,
 )
 from kiln_harness_tuner.status import item_summary
+from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.names import RcNames
@@ -99,13 +100,19 @@ def merge(item_id: str, *rc_ids: str) -> ExperimentItem:
     )
 
 
-def probe(item_id: str, question: str = "Does the agent call get_container?"):
+def probe(
+    item_id: str,
+    question: str = "Does the agent call get_container?",
+    *,
+    for_idea: str | None = None,
+):
     return ProbeItem(
         id=item_id,
         type="probe",
         question=question,
         method="drive three items and read the trace",
         max_drives=3,
+        for_idea=for_idea,
         reason="the planner needs it",
     )
 
@@ -250,8 +257,11 @@ class Run:
         cards = self.model.experiments(self.t).cards
         return next(c for c in cards if c.item_id == item_id)
 
-    def concern(self, title: str):
-        return next(c for c in self.model.results().cards if c.title == title)
+    def concern(self, name: str):
+        """The Results card of the concern `name`: an eval's card says
+        "Eval: " before its name."""
+        titles = (name, words.eval_title(name))
+        return next(c for c in self.model.results().cards if c.title in titles)
 
     def line5(self, item_id: str) -> str:
         return plain(self.card(item_id).line5)
@@ -397,6 +407,7 @@ class Run:
         stop_kind: str | None = None,
         measurement_status: str = "stopped",
         error_class: str | None = None,
+        findings: str = "",
     ) -> Run:
         item = self.plan_items[item_id]
         if rc_id is None and isinstance(item, RemeasureItem):
@@ -405,7 +416,7 @@ class Run:
         if successful is not None:
             result = ExperimentResult(
                 successful=successful,
-                findings="",
+                findings=findings,
                 memory_overview="+5",
                 memory_content="",
             )
@@ -499,9 +510,18 @@ class Run:
         return self
 
 
-def table(rc_id: str, *rows: PerEvalResult) -> CandidateValTable:
+def table(
+    rc_id: str,
+    *rows: PerEvalResult,
+    latency: LatencyComparison | None = None,
+    cost: LatencyComparison | None = None,
+) -> CandidateValTable:
     return CandidateValTable(
-        rc_id=rc_id, experiment_memory_id=f"exp-{rc_id}", per_eval=list(rows)
+        rc_id=rc_id,
+        experiment_memory_id=f"exp-{rc_id}",
+        per_eval=list(rows),
+        latency=latency,
+        cost=cost,
     )
 
 

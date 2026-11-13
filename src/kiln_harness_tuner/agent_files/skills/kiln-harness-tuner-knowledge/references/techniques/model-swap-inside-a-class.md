@@ -1,7 +1,7 @@
 ---
 title: Model swap inside a class
 description: Lock one model of the class the task needs, tune the harness on it, then scan the class again for a model that is better, cheaper or faster with that harness.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - model
@@ -13,8 +13,9 @@ cost: high
 
 ## When to use
 
-- The run's guidance allows a model change in plain words, or the
-  objective is speed or cost. Otherwise the model is not a lever.
+- `allowed_models` lists a model other than the baseline's, and the
+  guidance does not forbid a model change. Otherwise the model is not a
+  lever.
 - **At the start**, the model has no reasonable start on the task: almost
   every item fails, so no change to the harness can show a signal. A
   model of the same class with a reasonable start gives the tuning a

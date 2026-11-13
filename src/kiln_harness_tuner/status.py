@@ -110,14 +110,17 @@ def item_summary(item: BatchItem) -> dict[str, Any]:
 
 def item_details(item: BatchItem) -> dict[str, Any]:
     """What a display shows of a planned item before its outcome: its type,
-    hypothesis, targets and kind of change. Every key is on every item, None
-    where it does not apply to the item's type. The lists are new lists:
-    the loop changes the item's own lists during the wave (a `needs_eval`
-    fix gains its new eval as a target)."""
+    hypothesis, predicted effect, targets and kind of change, and why the
+    planner added an eval build or a measurement. Every key is on every
+    item, None where it does not apply to the item's type. The lists are
+    new lists: the loop changes the item's own lists during the wave (a
+    `needs_eval` fix gains its new eval as a target)."""
     details: dict[str, Any] = {
         "type": item.type,
         "hypothesis": None,
         "technique": None,
+        "predicted_effect": None,
+        "reason": None,
         "issue_memory_id": None,
         "wildcard": None,
         "needs_eval": None,
@@ -134,10 +137,13 @@ def item_details(item: BatchItem) -> dict[str, Any]:
     }
     if isinstance(item, EvalOnlyItem):
         details["issue_memory_id"] = item.issue_memory_id
+        details["reason"] = item.reason
     elif isinstance(item, MeasureIssueBaselineItem):
         details["issue_memory_id"] = item.issue_memory_id
+        details["reason"] = item.reason
         details["measure"] = {"eval_id": item.eval_id, "scores": _copy(item.scores)}
     elif isinstance(item, RemeasureItem):
+        details["reason"] = item.reason
         details["remeasure"] = {"rc_id": item.rc_id, "eval_ids": list(item.eval_ids)}
     elif isinstance(item, ProbeItem):
         details["probe"] = {
@@ -164,6 +170,7 @@ def item_details(item: BatchItem) -> dict[str, Any]:
             details.update(
                 hypothesis=work.hypothesis,
                 technique=work.technique,
+                predicted_effect=work.predicted_effect,
                 issue_memory_id=work.issue_memory_id,
                 wildcard=work.wildcard,
                 needs_eval=work.needs_eval,
@@ -180,9 +187,10 @@ def _copy(scores: Sequence[str] | None) -> list[str] | None:
 
 def exit_detail(reason: object, detail: object) -> str | None:
     """The `exit` event's `detail` as the run screen, the plain log and the
-    report show it: only on a `timeout`, where it says how much time was
-    left (`orchestrator.wave_floor_detail`). Other details stay in the wave
-    log: a provider error has its own line, and a crash its traceback."""
+    report show it: only on a `timeout`, where it says how the run ended
+    after its time limit (`orchestrator.time_limit_detail`). Other details
+    stay in the wave log: a provider error has its own line, and a crash its
+    traceback."""
     if reason != "timeout" or not isinstance(detail, str) or not detail:
         return None
     return detail

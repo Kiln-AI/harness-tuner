@@ -46,8 +46,11 @@ if TYPE_CHECKING:
     from kiln_harness_tuner.tui.model.fold import RunModel
 
 Metric = Literal["latency", "cost"]
-# Cost and latency bars are drawn against Start, which sits at this share
-# of the bar, so a cut shows as a shorter bar.
+# A rating's scale (`words.RATING_SCALE`).
+RATING_LOW, RATING_HIGH = 1.0, 5.0
+# Cost and latency bars are drawn linearly from zero. The full bar is the
+# card's largest value, but never less than Start ÷ START_SHARE, so a card
+# that shows only cuts draws Start at this share and each cut shorter.
 START_SHARE = 0.8
 
 
@@ -238,22 +241,42 @@ def survivor_unconfirmed(result: ScreenResult, generation: int) -> list[Unconfir
     return out
 
 
-def fraction(kind: ConcernKind, value: float, start: float | None) -> float:
+def on_scale(kind: ConcernKind, value: float) -> float:
+    """`value` inside its concern's scale: a pass rate in 0–100%, a rating
+    in 1–5, cost and latency at 0 or more. A train change added to its
+    parent's value can pass the scale's end."""
+    if kind == "pass":
+        return max(0.0, min(1.0, value))
+    if kind == "rating":
+        return max(RATING_LOW, min(RATING_HIGH, value))
+    return max(0.0, value)
+
+
+def bar_top(start: float | None, *values: float | None) -> float:
+    """The cost or latency value that a card draws as a full bar: its
+    largest value, and at least Start ÷ START_SHARE."""
+    present = [value for value in (start, *values) if value is not None]
+    if start:
+        present.append(start / START_SHARE)
+    return max(present, default=0.0)
+
+
+def fraction(kind: ConcernKind, value: float, top: float) -> float:
     """The bar's length: a pass rate on 0–100%, a rating on 1–5, cost and
-    latency against Start."""
+    latency from zero to the card's `top` (`bar_top`)."""
     if kind == "pass":
         share = value
     elif kind == "rating":
-        share = (value - 1) / 4
+        share = (value - RATING_LOW) / (RATING_HIGH - RATING_LOW)
     else:
-        share = value / start * START_SHARE if start else START_SHARE
+        share = value / top if top > 0 else 0.0
     return max(0.0, min(1.0, share))
 
 
 def _tier(
     concern: Concern,
     value: float,
-    start: float | None,
+    top: float,
     reference: float | None,
     tone: Tone,
 ) -> TierView:
@@ -264,7 +287,7 @@ def _tier(
         words.value_text(concern.kind, value),
         change,
         tone,
-        fraction(concern.kind, value, start),
+        fraction(concern.kind, value, top),
     )
 
 
@@ -293,6 +316,7 @@ def best_unconfirmed(
         if not model.counts(result):
             continue
         value = parent * result.change if result.factor else parent + result.change
+        value = on_scale(concern.kind, value)
         if not concern.better(value, parent):
             continue
         if best is None or concern.better(value, best[0]):
@@ -326,6 +350,8 @@ def parent_value(model: RunModel, key: ConcernKey) -> float | None:
 
 
 def _title(concern: Concern, multi: Counter[str | None]) -> tuple[str, str]:
+    """An eval's card says it is an eval, and names its score only when
+    the eval has more than one card."""
     qualifiers = []
     if concern.eval_id is not None and multi[concern.eval_id] > 1:
         qualifiers.append(concern.key[1])
@@ -333,7 +359,14 @@ def _title(concern: Concern, multi: Counter[str | None]) -> tuple[str, str]:
         qualifiers.append(words.RATING_SCALE)
     if concern.kind == "latency":
         qualifiers.append(words.MEDIAN)
-    return concern.name, " · ".join(qualifiers)
+    name = words.eval_title(concern.name) if concern.eval_id else concern.name
+    return name, " ".join(qualifiers)
+
+
+def concern_title(model: RunModel, concern: Concern) -> tuple[str, str]:
+    """A concern's name and its muted qualifier, as its Results card says
+    them."""
+    return _title(concern, Counter(c.eval_id for c in model.concerns))
 
 
 def _subtitle(in_flight: int | None, holder: str | None) -> Line:
@@ -358,6 +391,7 @@ def concern_view(
     confirmed = model.confirmed.get(concern.key) if model.confirmed_rc else None
     parent = parent_value(model, concern.key)
     best = best_unconfirmed(model, concern, parent)
+    top = bar_top(start, confirmed, None if best is None else best[0])
     in_flight = (
         None
         if concern.eval_id is None
@@ -374,21 +408,21 @@ def concern_view(
     return ConcernView(
         title=title,
         qualifier=qualifier,
-        start=None if start is None else _tier(concern, start, start, None, "muted"),
+        start=None if start is None else _tier(concern, start, top, None, "muted"),
         start_note=_start_note(model, start, split),
         confirmed=None
         if confirmed is None
         else _tier(
             concern,
             confirmed,
-            start,
+            top,
             start,
             "muted" if start is None else _direction_tone(concern, confirmed, start),
         ),
         unconfirmed=None
         if best is None
         else _tier(
-            concern, best[0], start, parent, "success" if best[1].clear else "muted"
+            concern, best[0], top, parent, "success" if best[1].clear else "muted"
         ),
         in_flight=in_flight,
         subtitle=_subtitle(in_flight, holder),

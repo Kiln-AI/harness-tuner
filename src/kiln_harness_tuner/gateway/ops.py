@@ -1206,9 +1206,12 @@ class Gateway:
 
     async def get_val_summary(self, req: m.NoArgs) -> m.ValSummary:
         path = self.s.run_dir / VAL_SUMMARY_FILE if self.s.run_dir else None
-        if path is None or not path.exists():
+        # The run folder is prepared with an empty file (the read fence must
+        # deny it from the first session on), so empty means no gate yet.
+        text = path.read_text() if path is not None and path.exists() else ""
+        if not text.strip():
             return m.ValSummary(note="no promotion gate has run yet")
-        data = json.loads(path.read_text())
+        data = json.loads(text)
         from kiln_harness_tuner.schemas import CandidateValTable
 
         tables = [

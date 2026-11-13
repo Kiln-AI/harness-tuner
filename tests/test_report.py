@@ -269,7 +269,7 @@ async def test_spend_appendix_appended_to_agent_markdown(tmp_path):
     assert text.startswith("# Report\nbody\n")
     assert SPEND_APPENDIX_HEADING in text
     # The agents are tokens, not dollars: never in the budget.
-    assert "| source | Kiln | Claude Code tokens |" in text
+    assert "| source | API keys | Claude Code tokens |" in text
     assert "| batch_plan | — | 12,345 |" in text
     assert "| eval_jobs | $1.25 | — |" in text
     assert "| val_pass | $0.75 | — |" in text
@@ -318,7 +318,7 @@ def test_render_spend_appendix_gives_unexpected_lane_its_own_column():
     spend(tracker, "batch_plan", "subscription_equivalent", 0.5)
     tracker.event("spend", source="mystery", cost_usd=0.1)  # lane-less
     text = render_spend_appendix(tracker.snapshot())
-    assert "| source | Kiln | unknown | Claude Code tokens |" in text
+    assert "| source | API keys | unknown | Claude Code tokens |" in text
     assert "| mystery | — | $0.10 | — |" in text
     assert "| **total** | $0.00 | $0.10 | 0 |" in text
 
@@ -372,16 +372,16 @@ def test_spend_appendix_header_states_budget_elapsed_and_exit():
     )
 
 
-def test_spend_appendix_header_says_how_little_time_was_left():
-    tracker = timed_tracker(4 * 60, deadline=1200.0, timeout_mins=20)
+def test_spend_appendix_header_says_how_the_time_limit_ended_the_run():
+    tracker = timed_tracker(24 * 60, deadline=1200.0, timeout_mins=20)
     tracker.event(
         "exit",
         reason="timeout",
-        detail="3m46s left after setup, under the 15-minute minimum to start a wave",
+        detail="finished wave 1, then the wrap-up",
     )
     assert render_spend_header(tracker.snapshot()) == (
-        "budget 20 min · elapsed 4 min · exit timeout (3m46s left after setup,"
-        " under the 15-minute minimum to start a wave)"
+        "budget 20 min · elapsed 24 min · exit timeout (finished wave 1, then"
+        " the wrap-up)"
     )
 
 
@@ -512,29 +512,6 @@ async def test_write_fallback_ships_a_report_with_no_dispatch(tmp_path):
     assert [k for k, _ in ctx.log.events] == ["report_written"]
     (event,) = [f for k, f in ctx.log.events if k == "report_written"]
     assert event["fallback"] is True
-
-
-async def test_report_agent_gets_one_attempt_past_the_deadline(tmp_path):
-    """The report agent gets one attempt past the deadline, not the five-rung
-    loop ladder — which could run ~85 minutes past a deadline that is meant to
-    be hard."""
-    ctx = make_ctx()
-    ctx.deadline = -1.0  # already past (the fake clock reads 0)
-    writer, tracker = make_writer(tmp_path)
-    start_wave(tracker)
-    ctx.dispatch.queue(
-        "report_writer", infra("provider_error"), infra("provider_error")
-    )
-
-    path = await writer(ctx, "timeout")
-
-    assert len(ctx.dispatch.calls_to("report_writer")) == 1
-    assert ctx.sleeps == []
-    from pathlib import Path
-
-    (written,) = [f for k, f in ctx.log.events if k == "report_written"]
-    assert written["fallback"] is True
-    assert Path(path).read_text().startswith("# ")
 
 
 # ---- issues with no eval ----

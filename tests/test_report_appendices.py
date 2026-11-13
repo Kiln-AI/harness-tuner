@@ -82,7 +82,7 @@ def _item(outcome, live_state="done", kind="fix"):
 def test_every_stop_rule_and_outcome_status_has_a_plain_sentence():
     # Every stop kind the engine can set, and every outcome status, maps to
     # a sentence: none of them falls back to the raw code.
-    # `failed_infra` is read as `error`, or as `cut_off` at the deadline.
+    # `failed_infra` is read as `error`; an arm with no outcome as `cut_off`.
     codes = [*get_args(StopKind), "lever_not_applied", "error", "cut_off"]
     codes += [
         s
@@ -178,16 +178,6 @@ def _capped(line):
             ),
             "Stopped by an error: the numbers say nothing about the change"
             " (error: provider_error, 502).",
-        ),
-        (
-            _arm(
-                "failed_infra",
-                infra_error=ErrorInfo(
-                    error_class="timeout",
-                    detail="run deadline reached — item cancelled in flight",
-                ),
-            ),
-            "Cut off: the run ended before this candidate finished (cut_off).",
         ),
         (
             _arm("dead_end"),
@@ -398,8 +388,11 @@ def test_tradeoff_cells_for_unjudged_capped_and_error_candidates():
         _screen("s1-6", None, None, items=0, verdict="error", rc_id=None),
         _screen("s1-7", 0.8, 0.8, verdict="capped"),
         _screen("s1-8", None, None, items=0, verdict="dead_end", reason="refused"),
+        # Asked on 8 items, no row stored: an error, not 8 lost passes.
+        _screen("s1-9", None, None, items=8, verdict="error", rc_id="rc9"),
     ]
     text = render_tradeoff_appendix(_screened("cost", results))
+    assert "| no rows stored (error) | — | — | not screened (error) |" in text
     assert "| not judged | — | — | not screened (error) | — |" in text
     assert "| capped (inconclusive) |" in text
     assert "| dead end: refused |" in text

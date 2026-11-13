@@ -1,7 +1,7 @@
 ---
 title: Know the agent before you plan
 description: Classify the agent before the first plan - its turns, its output, a classifier shape, its tools, skills and model - because each document says which shapes it fits.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: order
 applies_to: all
 ---
@@ -33,8 +33,8 @@ traces. Record these facts:
 - **Skills.** Which skills are attached, and whether this model opens a
   skill under this run config. A probe answers that at a low cost.
 - **Model and settings.** The model, the provider and the thinking level.
-  Whether the model is a lever: only when the guidance allows a model
-  change, or the objective is speed or cost.
+  Whether the model is a lever: only when `allowed_models` lists another
+  model, and the guidance does not forbid a model change.
 - **Evals.** What each eval measures, whether a judge or code scores it,
   and how many train items it can pair.
 - **Restrictions.** What the guidance and the model policy do not allow.

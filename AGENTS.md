@@ -8,7 +8,7 @@ stays a true measure.
 
 In the code, the agent is a Kiln task and its harness is the task's run
 config. Every agent in the loop is an agent-CLI session (`claude -p` by
-default), and every measurement is a Kiln eval job on the train or val split.
+default), and every quality measurement is a Kiln eval job on the train or val split.
 
 This file is the contributor guide. `CLAUDE.md` loads it for Claude Code.
 Loop agents do not read it: they read
@@ -31,8 +31,9 @@ src/kiln_harness_tuner/
   knowledge/        the knowledge system's code: load, check and index the
                     skill kiln-harness-tuner-knowledge (python -m
                     kiln_harness_tuner.knowledge check|build)
-  onboarding/       the start before the run: checks, guided questions,
-                    the summary
+  onboarding/       the start before a run: the Kiln and task checks, the API
+                    keys, the guided questions, the summary and the rerun
+                    command
   skill_installer/  the MCP server that installs a skill bundle atomically
   smells/           smell detection: the detectors in code, their
                     thresholds, and the baseline review step
@@ -40,18 +41,20 @@ src/kiln_harness_tuner/
                     start-up and run screens, and the run model
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 docs/               the reference documentation
-examples/           the moderation example and a model policy
-tests/              the offline suite — no live server, no model spend
-  packaging/        the CI smoke test of the installed wheel
 specs/              the project specs, and backlog.md: the known gaps and
                     the pending ideas of the knowledge system
+examples/           the moderation example and a model policy
+tests/              the offline suite — no live server, no model spend
+  tui/              the terminal app's tests
+  packaging/        the CI smoke test of the installed wheel
 .agents/skills/     the skills for coding agents that work on this
                     repository: knowledge-maintenance
 ```
 
 A run writes nothing here. Its state goes in the state folder,
 `~/.kiln_ai/harness_tuner/` (or `$KILN_HARNESS_TUNER_HOME`): `runs/`,
-`traces/`, `reports/`, and `agents/`, the agent files a run's sessions read.
+`traces/`, `reports/`, `agents/`, the agent files a run's sessions read, and
+`policies/`, the model policies the guided start writes when you pick models.
 
 `docs/architecture.md` section 13 is the same layout in full.
 

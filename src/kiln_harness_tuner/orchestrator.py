@@ -103,8 +103,10 @@ from kiln_harness_tuner.memory import (
 from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError, canonical_question
 from kiln_harness_tuner.model_policy import (
+    KEEP_SOURCE,
     ModelPolicy,
     allowed_models,
+    keep_policy,
     run_config_pair,
 )
 from kiln_harness_tuner.model_preflight import flagged_reason, run_model_preflight
@@ -179,42 +181,20 @@ from kiln_harness_tuner.viability import (
 
 logger = logging.getLogger(__name__)
 
-# The wrap-up window IS the reserved room that stops a run exiting while
-# wins sit pooled and unmerged. It is a FLOOR, not the window: `should_wrap`
-# takes the max of this and the run's own mean wave-cycle time, so a run whose
-# waves outgrow half an hour reserves what its own waves actually cost.
-WRAP_UP_WINDOW_SECS = 30 * 60
-# The floor under the wrap-up window: with little time left, a wrap-up wave
-# would be a full planner session whose only arm is cancelled the moment it
-# starts. No wave can complete in less
-# than a planner session plus the cheapest arm, so below this the loop goes
-# straight to the report.
-MIN_WAVE_START_SECS = 15 * 60
+
+def time_limit_detail(waves_done: int, wrapped: bool) -> str:
+    """The `exit` event's `detail` when the time limit ended the run: `finished
+    wave 3, then the wrap-up`, or `finished wave 3; no wrap-up: nothing to
+    merge` when the wrap-up planner found nothing pooled. `waves_done` is the
+    last normal wave, the one in flight at the limit (0: none, the limit came
+    during setup). The run screen, the plain log and the report show it as it
+    is."""
+    after = "setup" if waves_done < 1 else f"wave {waves_done}"
+    if wrapped:
+        return f"finished {after}, then the wrap-up"
+    return f"finished {after}; no wrap-up: nothing to merge"
 
 
-def wave_floor_detail(
-    left_secs: float, waves_done: int, after: str | None = None
-) -> str:
-    """The `exit` event's `detail` when too little time is left to start a
-    wave: `3m46s left after setup, under the 15-minute minimum to start a
-    wave`. `after` names what took the time when it was not setup or the
-    last wave (the baseline review). The run screen, the plain log and the
-    report show it as it is."""
-    secs = max(int(left_secs), 0)
-    left = f"{secs // 60}m{secs % 60:02d}s" if secs >= 60 else f"{secs}s"
-    if after is None:
-        after = "setup" if waves_done < 1 else f"wave {waves_done}"
-    return (
-        f"{left} left after {after}, under the {MIN_WAVE_START_SECS // 60}-minute"
-        " minimum to start a wave"
-    )
-
-
-# An item that is ANALYZING at the deadline has already paid for its build
-# and its drives; the analysis is one bounded agent session and the only
-# thing standing between that spend and a stored verdict. Such items get
-# this much extra time; every other in-flight item is cancelled at once.
-ANALYSIS_GRACE_SECS = 10 * 60
 # One long backoff after a tripped wave, then continue.
 TRIPWIRE_BACKOFF_SECS = 300.0
 # Promotion apply writes: up to 3 calls with 20s backoff; exhaustion is fatal.
@@ -305,10 +285,6 @@ class Ctx:
     # measurements running side by side size their caps against the same
     # run budget only once (`kiln_harness_tuner.budget`, **Held**).
     budget_holds: BudgetHolds = field(default_factory=BudgetHolds)
-    # The run's hard deadline in `clock` units, set by `orchestrate`.
-    # Read by the promotion gate and the report writer, so their full
-    # ladders do not run AFTER the deadline has passed.
-    deadline: float | None = None
     # Where the run's memory snapshots go (runs/<id>/snapshots);
     # None = keep none. The dispatcher keeps its own step records beside them.
     run_dir: Path | None = None
@@ -325,10 +301,6 @@ class Ctx:
     # gate; without it the gate escalates on an OPEN constraint the
     # guidance had answered).
     guidance: str = ""
-    # item id → its current `item_state` (building_rc / measuring /
-    # analyzing / …), kept by items.py beside the log event so the wave
-    # runner can tell an ANALYZING item from the rest at the deadline.
-    item_states: dict[str, str] = field(default_factory=dict)
     # The dispatcher's agent-session cap (None = unlimited) and, per
     # technique, the (tokens, secs) of every build this run — both go to the
     # planner so it can see idle capacity and price a second arm.
@@ -341,6 +313,9 @@ class Ctx:
     recon: bool = False
     # `objective`: `--objective` ("quality" | "speed").
     #   `model_policy`: `--model-policy`, loaded; None = every model allowed.
+    #   `keep_model`: `--models keep` (the quality default) with no policy
+    #   file. At start-up `pin_baseline_model` turns it into a policy of the
+    #   baseline's one pair, here and in the run directory for the gateway.
     #   `quarantine_root`: where the start-up quarantine moves stored val/test
     #   results — a tree the read fence denies. cli.py always sets it; None
     #   skips the pass (other unit tests).
@@ -351,6 +326,7 @@ class Ctx:
     #   checked. Kept current each wave.
     objective: str = "quality"
     model_policy: ModelPolicy | None = None
+    keep_model: bool = False
     quarantine_root: Path | None = None
     train_set_path: Path | None = None
     # The evals on disk at start-up; an eval that appears later
@@ -459,43 +435,6 @@ class Ctx:
     baseline_reviews: list[BaselineReview] = field(default_factory=list)
 
 
-def _too_late_to_start_a_wave(
-    ctx: Ctx, deadline: float, now: float, waves_done: int, after: str | None = None
-) -> bool:
-    """The checks before a wave starts. True after the `exit` event, when
-    no wave may start now."""
-    if now >= deadline:
-        # HARD stop: no wave — wrap-up included — ever STARTS past the
-        # deadline. The should_wrap buffer IS the reserved room.
-        ctx.log.event("exit", reason="timeout")
-        return True
-    if deadline - now < MIN_WAVE_START_SECS:
-        # Under the floor a wave cannot finish: the planner alone takes
-        # 4-8 minutes. Exit to the report instead of paying for a plan
-        # whose arms are cancelled on arrival.
-        ctx.log.event(
-            "exit",
-            reason="timeout",
-            detail=wave_floor_detail(deadline - now, waves_done, after),
-        )
-        return True
-    return False
-
-
-def should_wrap(
-    deadline: float,
-    clock: Callable[[], float],
-    projected_wave_secs: float | None = None,
-) -> bool:
-    """The budget judgment lives in code — the planner gets only the
-    conclusion. The window is the LARGER of the static 30-min reserve and the
-    run's own measured wave-cycle time: the static window alone cannot be
-    honest once real waves outgrow it."""
-    remaining = deadline - clock()
-    window = max(WRAP_UP_WINDOW_SECS, projected_wave_secs or 0.0)
-    return 0 < remaining < window
-
-
 async def orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int = 180) -> str:
     """Run the loop; ALWAYS exits through a report.
 
@@ -544,7 +483,6 @@ class _ReconcileBeforeExit:
 
 async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
     deadline = ctx.clock() + timeout_mins * 60
-    ctx.deadline = deadline
     ctx.guidance = user_guidance
     ctx.log.event(
         "run_start",
@@ -704,6 +642,7 @@ async def _run_loop(
             *ctx.memory.baseline_lineage(startup_record),
         ]
     )
+    await pin_baseline_model(ctx, ctx.memory.baseline_rc_id(startup_record))
     await _note_baseline_policy(ctx, ctx.memory.baseline_rc_id(startup_record))
     # $0 API-contract check: the evals envelope, both statistics
     # operations and one stored-results read, against the LIVE server, so a
@@ -732,7 +671,7 @@ async def _run_loop(
         await run_noise_check(ctx, ctx.memory.baseline_rc_id(startup_record))
     if ctx.recon:
         await run_recon(
-            ctx, BaselineRef(rc_id=ctx.memory.baseline_rc_id(startup_record)), deadline
+            ctx, BaselineRef(rc_id=ctx.memory.baseline_rc_id(startup_record))
         )
     if ctx.opening_screen:
         await run_opening_screen(
@@ -742,25 +681,26 @@ async def _run_loop(
     prior_rejected_summary: str | None = None  # None on wave 1
     consecutive_tripwires = 0
     exit_reason = "timeout"
-    # Budget honesty: the run's own measured cycle times/costs feed the
+    # Budget honesty: the run's own measured cycle costs feed the budget's
     # wrap-up admission gate — a wave is only started if the budget can be
     # expected to fit it.
-    wave_cycle_secs: list[float] = []
     wave_cycle_costs: list[float] = []
     while True:
         wave += 1
         # At every wave boundary the ledger is reconciled with the
         # records, so the budget check below reads the true spend.
         reconcile(ctx, when=f"before wave {wave}", quiet=True)
-        cycle_started = ctx.clock()
-        if _too_late_to_start_a_wave(ctx, deadline, cycle_started, wave - 1):
-            exit_reason = "timeout"
-            break
-        projected = fmean(wave_cycle_secs) if wave_cycle_secs else None
-        wrap_up = should_wrap(deadline, ctx.clock, projected)
+        # The time limit is checked here, at wave boundaries only. Before it,
+        # every wave is a normal wave. The wave in flight at the limit is not
+        # cancelled: it ran to its end, promotion gate included. At or after
+        # the limit no normal wave starts: this wave is the wrap-up, and it
+        # is the last one. Nobody can say beforehand how long a wave takes,
+        # so the run does not guess when to wrap up.
+        time_up = ctx.clock() >= deadline
+        wrap_up = time_up
         # --budget-usd is a real ceiling, not a ledger. At the ceiling the
         # run exits; inside one projected wave of it, the next wave is the
-        # wrap-up. Checked at wave boundaries, like the deadline.
+        # wrap-up. Checked at wave boundaries, like the time limit.
         spent = ctx.spend.total if ctx.spend is not None else None
         if ctx.budget_usd is not None and spent is not None:
             if spent >= ctx.budget_usd:
@@ -789,24 +729,11 @@ async def _run_loop(
         ctx.policy_exempt_rcs.update([baseline.rc_id, *lineage])
         # The smell detectors, then the baseline reviewer, once for each
         # baseline: at wave 1, and on the wave after a promotion. It never
-        # raises, apart from a quota error.
-        # A wrap-up wave, or one with too little time for a review and a
-        # wave, runs the detectors only: no planner after it would read the
-        # review.
-        if await ensure_baseline_reviewed(
-            ctx, baseline, wrap_up=wrap_up, deadline=deadline
-        ):
-            # The review is a session of minutes. The wave-start checks run
-            # again before the planner, and the wave cycle starts after the
-            # review, so the projected wave length (and so the wrap-up
-            # timing) stays the wave's own.
-            cycle_started = ctx.clock()
-            if _too_late_to_start_a_wave(
-                ctx, deadline, cycle_started, wave - 1, after="the baseline review"
-            ):
-                exit_reason = "timeout"
-                break
-            wrap_up = wrap_up or should_wrap(deadline, ctx.clock, projected)
+        # raises, apart from a quota error. A wrap-up wave runs the detectors
+        # only: no planner after it would read the review. The time limit is
+        # not checked again after the review: it is checked at wave
+        # boundaries only, and the review is part of this wave.
+        await ensure_baseline_reviewed(ctx, baseline, wrap_up=wrap_up)
 
         # The planning dispatch is a full agent session and the run's longest
         # silence (minutes with only the header printed) —
@@ -847,8 +774,7 @@ async def _run_loop(
         # Schema-guaranteed mutually exclusive: a plan with
         # loop_exit has no items, so honoring exit never drops composed work.
         if plan.loop_exit or not plan.items:
-            exit_reason = plan.loop_exit or "empty_plan"
-            ctx.log.event("exit", reason=exit_reason)
+            exit_reason = _plan_exit(ctx, plan, time_up, wave)
             break
 
         if plan.probe_phase:
@@ -866,14 +792,8 @@ async def _run_loop(
                 items=[item_summary(item) for item in plan.items],
                 probe_phase=True,
             )
-            _, deadline_hit = await _run_wave(
-                ctx, plan.items, baseline, lineage, wave, deadline
-            )
+            await _run_wave(ctx, plan.items, baseline, lineage, wave)
             ctx.log.event("wave_end", wave=wave, probe_phase=True)
-            if deadline_hit:
-                exit_reason = "timeout"
-                ctx.log.event("exit", reason=exit_reason)
-                break
             plan_result = await _dispatch_plan(
                 ctx,
                 wave=wave,
@@ -904,8 +824,7 @@ async def _run_loop(
                 ctx.log.event("exit", reason=exit_reason)
                 break
             if plan.loop_exit or not plan.items:
-                exit_reason = plan.loop_exit or "empty_plan"
-                ctx.log.event("exit", reason=exit_reason)
+                exit_reason = _plan_exit(ctx, plan, time_up, wave)
                 break
             if plan.probe_phase:
                 ctx.log.event("probe_phase_repeated", wave=wave)
@@ -920,18 +839,9 @@ async def _run_loop(
             items=[item_summary(item) for item in plan.items],
         )
         progress.waves_started += 1
-        outcomes, deadline_hit = await _run_wave(
-            ctx, plan.items, baseline, lineage, wave, deadline
-        )
+        outcomes = await _run_wave(ctx, plan.items, baseline, lineage, wave)
 
-        if deadline_hit:
-            # Hard deadline: in-flight items were cancelled AT the
-            # deadline (see _run_wave) — their failed_infra(timeout) rows
-            # must not count toward the tripwire (it would sleep 5 minutes
-            # past a deadline, or mislabel the exit as `tripwire`).
-            tripped = False
-        else:
-            tripped = await check_wave_tripwire(ctx, wave, outcomes)
+        tripped = await check_wave_tripwire(ctx, wave, outcomes)
         consecutive_tripwires = consecutive_tripwires + 1 if tripped else 0
         tripwire_exit = consecutive_tripwires >= 2
 
@@ -942,24 +852,29 @@ async def _run_loop(
         await maybe_promote(ctx, outcomes, record, wave)
         await archive_probe_run_configs(ctx)
 
-        wave_cycle_secs.append(ctx.clock() - cycle_started)
         if ctx.spend is not None and spent is not None:
             wave_cycle_costs.append(ctx.spend.total - spent)
 
-        if deadline_hit:  # promotion-over-what-completed ran; now stop
-            exit_reason = "timeout"
-            ctx.log.event("exit", reason=exit_reason)
-            break
         if tripwire_exit:  # double tripwire exits AFTER promotion
             exit_reason = "tripwire"
             ctx.log.event("exit", reason=exit_reason)
             break
-        if wrap_up:  # the wrap-up wave was the last wave — never a second one
+        if time_up:  # the wrap-up after the time limit — never a second one
+            exit_reason = "timeout"
+            ctx.log.event(
+                "exit",
+                reason=exit_reason,
+                detail=time_limit_detail(wave - 1, wrapped=True),
+            )
+            break
+        if wrap_up:  # the budget's wrap-up wave was the last wave
             exit_reason = "wrap_up"
             ctx.log.event("exit", reason=exit_reason)
             break
-        if tripped:
-            # Long backoff — 5 silent minutes without a phase ticker.
+        if tripped and ctx.clock() < deadline:
+            # Long backoff — 5 silent minutes without a phase ticker. Past
+            # the time limit there is no backoff: it would only add to the
+            # overrun before the wrap-up wave.
             backoff_started = ctx.clock()
             ctx.log.event(
                 "phase_start",
@@ -980,6 +895,24 @@ async def _run_loop(
         prior_rejected_summary = plan.rejected_summary  # the one in-context carry
 
     return exit_reason
+
+
+def _plan_exit(ctx: Ctx, plan: BatchPlan, time_up: bool, wave: int) -> str:
+    """Log the `exit` for a plan with no items (the planner's `loop_exit`, or
+    an empty plan) and return the exit reason. After the time limit that plan
+    is the wrap-up planner's answer that nothing is pooled to merge: the time
+    limit ended the run, and the detail says so."""
+    if time_up:
+        ctx.log.event(
+            "exit",
+            reason="timeout",
+            detail=time_limit_detail(wave - 1, wrapped=False),
+            loop_exit=plan.loop_exit,
+        )
+        return "timeout"
+    reason = plan.loop_exit or "empty_plan"
+    ctx.log.event("exit", reason=reason)
+    return reason
 
 
 async def _dispatch_plan(
@@ -1264,7 +1197,7 @@ async def run_opening_screen(ctx: Ctx, baseline: BaselineRef) -> None:
     )
 
 
-async def run_recon(ctx: Ctx, baseline: BaselineRef, deadline: float | None) -> None:
+async def run_recon(ctx: Ctx, baseline: BaselineRef) -> None:
     """The setup reconnaissance battery: the standing code
     probes on the baseline, run as wave 0 before the first plan so the
     planner reads facts about this model on this task instead of assuming
@@ -1289,7 +1222,7 @@ async def run_recon(ctx: Ctx, baseline: BaselineRef, deadline: float | None) -> 
         items=[item_summary(item) for item in items],
         probe_phase=True,
     )
-    await _run_wave(ctx, items, baseline, [], 0, deadline)
+    await _run_wave(ctx, items, baseline, [], 0)
     ctx.log.event("wave_end", wave=0, probe_phase=True)
 
 
@@ -1299,21 +1232,15 @@ async def _run_wave(
     baseline,
     lineage: list[str],
     wave: int,
-    deadline: float | None = None,
-) -> tuple[list[ItemOutcome], bool]:
+) -> list[ItemOutcome]:
     """One wave's items, concurrently (eval-job concurrency is capped inside
     the Analyzer — `--max-concurrent-evals`; agent dispatches inside the
     dispatcher). Hard errors (no-degradation rows: 422 missing split,
     direction flag, stats contract, memory-write exhaustion) are fatal —
-    every sibling finishes first (no orphaned awaits mid-write; leftover
-    `— RUNNING` memories are exactly the startup janitor's crash-debris case),
-    then the first raises.
+    the first one cancels the siblings, then raises.
 
-    Hard deadline: the run's deadline is not only checked at wave boundaries,
-    because a wave started 15s before T-0 would run far past it. Items still
-    in flight AT the deadline are cancelled (the dispatcher's kill/reap path
-    stops their subprocess spend) and land as failed_infra(timeout); returns
-    (outcomes, deadline_hit)."""
+    The time limit does not stop a wave: every item runs to its end, and
+    the loop checks the limit at the next wave boundary."""
     # Every item reaches `execute_plan_item` through here, so this is the
     # guard no path around the planner check can pass. A no-op for a plan
     # `_dispatch_plan` already checked.
@@ -1322,13 +1249,10 @@ async def _run_wave(
         asyncio.ensure_future(execute_plan_item(ctx, item, baseline, lineage, wave))
         for item in items
     ]
-    timeout = None
-    if deadline is not None:
-        timeout = max(deadline - ctx.clock(), 0.0)
     # The first hard error cancels the siblings. The run exits on
     # it, so their remaining sessions and jobs were spend on a dead run — the
     # circuit breaker would fire and then wait up to an hour for them.
-    error, pending = await first_error_or_done(tasks, timeout=timeout)
+    error = await first_error_or_done(tasks)
     if error is not None:
         cancelled_ids = [
             item.id for item, task in zip(items, tasks, strict=True) if task.cancelled()
@@ -1337,74 +1261,7 @@ async def _run_wave(
             "fatal_cancel", wave=wave, item_ids=cancelled_ids, error=repr(error)
         )
         raise error
-    deadline_hit = bool(pending)
-    if pending:
-        # Items already ANALYZING keep going for a bounded grace: their
-        # build and drives are paid, and the analysis is the one session
-        # that turns that spend into a verdict the next run can use.
-        by_task = dict(zip(tasks, items, strict=True))
-        graced = {
-            task
-            for task in pending
-            if ctx.item_states.get(by_task[task].id) == "analyzing"
-        }
-        cancelled_ids = [
-            item.id
-            for item, task in zip(items, tasks, strict=True)
-            if task in pending and task not in graced
-        ]
-        if cancelled_ids:
-            ctx.log.event("deadline_cancel", wave=wave, item_ids=cancelled_ids)
-            logger.warning(
-                "run deadline reached mid-wave %d — cancelling %d item(s): %s",
-                wave,
-                len(cancelled_ids),
-                ", ".join(cancelled_ids),
-            )
-        for task in pending - graced:
-            task.cancel()
-        await asyncio.gather(*(pending - graced), return_exceptions=True)
-        if graced:
-            graced_ids = [by_task[t].id for t in graced]
-            ctx.log.event(
-                "deadline_grace",
-                wave=wave,
-                item_ids=graced_ids,
-                grace_secs=ANALYSIS_GRACE_SECS,
-            )
-            logger.warning(
-                "run deadline reached mid-wave %d — %d item(s) analyzing get %ds: %s",
-                wave,
-                len(graced),
-                ANALYSIS_GRACE_SECS,
-                ", ".join(graced_ids),
-            )
-            _done, still = await asyncio.wait(graced, timeout=ANALYSIS_GRACE_SECS)
-            if still:
-                late_ids = [by_task[t].id for t in still]
-                ctx.log.event("deadline_cancel", wave=wave, item_ids=late_ids)
-                for task in still:
-                    task.cancel()
-                await asyncio.gather(*still, return_exceptions=True)
-    outcomes: list[ItemOutcome] = []
-    for item, task in zip(items, tasks, strict=True):
-        if task.cancelled():
-            outcomes.append(
-                ItemOutcome(
-                    item=item,
-                    status="failed_infra",
-                    rc_id=None,
-                    experiment_memory_id=None,
-                    result=None,
-                    infra_error=ErrorInfo(
-                        error_class="timeout",
-                        detail="run deadline reached — item cancelled in flight",
-                    ),
-                )
-            )
-            continue
-        outcomes.append(task.result())
-    return outcomes, deadline_hit
+    return [task.result() for task in tasks]
 
 
 async def check_wave_tripwire(ctx: Ctx, wave: int, outcomes: list[ItemOutcome]) -> bool:
@@ -1517,19 +1374,6 @@ async def _maybe_promote(
     if not candidates:
         # No gate — the wave's block (items + tripwire banner) is already
         # final: `wave_end` says so now.
-        ctx.log.event("wave_end", wave=wave)
-        return None
-    if ctx.deadline is not None and ctx.clock() >= ctx.deadline:
-        # The deadline is hard for the gate too. A full val pass
-        # (every active eval × candidates + baseline, each on the job ladder)
-        # plus a promote session ran up to 72 minutes PAST the deadline. The
-        # wins stay pooled in memory — the next run's planner can nominate
-        # them on complete evidence.
-        ctx.log.event(
-            "promotion_skipped",
-            reason="deadline reached — val pass not started; wins stay pooled",
-            candidate_rc_ids=[c.rc_id for c in candidates],
-        )
         ctx.log.event("wave_end", wave=wave)
         return None
 
@@ -2456,7 +2300,7 @@ async def _assemble_val_tables(
     # answer) cancel the sibling fills and raise (running them to completion
     # would spend on a run that had already decided to exit).
     fill_tasks = [asyncio.ensure_future(fill(*key)) for key in fill_keys]
-    error, _pending = await first_error_or_done(fill_tasks)
+    error = await first_error_or_done(fill_tasks)
     if error is not None:
         raise error
     fills: dict[tuple[str, str], tuple[list[dict[str, Any]], JobHealth]] = {}
@@ -3095,20 +2939,20 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
 async def _allowed_models(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]:
     """`BatchPlanInput.allowed_models`: what the server offers, filtered by
     the model policy. Advisory — a failed read is logged, never a lost wave.
-    The full list is sent only when it can change a plan — a policy is in
-    force, or the objective is speed or cost (where a model switch is the
-    first lever). Otherwise the model is the environment and the list is
-    prompt weight, so it holds the baseline's own model alone. It is never
-    empty there: the planner plans arms only on listed models, and an empty
-    list reads as "no arm at all"."""
-    if ctx.model_policy is None and not is_efficiency(ctx.objective):
+    Under `--models keep` the policy is the baseline's one pair, so the list
+    holds the baseline's own model alone. It is never empty there: the
+    planner plans arms only on listed models, and an empty list reads as "no
+    arm at all"."""
+    if ctx.keep_model and ctx.model_policy is None:
+        # The baseline's pair could not be read at start-up, so nothing is
+        # pinned; the planner still gets the baseline's model alone.
         return await _baseline_model_row(ctx, baseline_rc_id)
     try:
         available = await ctx.kiln.call("GET", "/api/available_models")
     except KilnError:
         ctx.log.event("available_models_unavailable")
         return []
-    return [
+    rows = [
         row
         for row in allowed_models(
             ctx.model_policy, available if isinstance(available, list) else []
@@ -3116,6 +2960,9 @@ async def _allowed_models(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]
         # A model the preflight flagged is not offered to plans.
         if (row["provider"], row["model"]) not in ctx.flagged_models
     ]
+    if not rows and ctx.keep_model:
+        return await _baseline_model_row(ctx, baseline_rc_id)
+    return rows
 
 
 async def _baseline_model_row(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]:
@@ -3237,6 +3084,37 @@ async def require_policy(ctx: Ctx, rc_id: str) -> None:
     if refusal is not None:
         ctx.log.event("model_policy_refused", rc_id=rc_id, reason=refusal)
         raise ModelPolicyRefused(refusal)
+
+
+async def pin_baseline_model(ctx: Ctx, rc_id: str) -> None:
+    """`--models keep`: the policy of the baseline's one (provider, model),
+    set on `ctx` and written to the run directory, where each gateway
+    process reads it (`gateway.server.POLICY_FILE`). From here on the code
+    refuses every other model, as for a policy file. A baseline whose pair
+    cannot be read pins nothing: the run says so, and the planner still
+    gets the baseline's model alone (`_allowed_models`)."""
+    if not ctx.keep_model or ctx.model_policy is not None:
+        return
+    try:
+        provider, model = await _rc_pair(ctx, rc_id)
+    except KilnError:
+        provider = model = None
+    if not provider or not model:
+        ctx.log.event("keep_model_unpinned", rc_id=rc_id)
+        logger.warning(
+            "%s: the baseline %s names no provider and model, so its model is"
+            " not pinned in code",
+            KEEP_SOURCE,
+            rc_id,
+        )
+        return
+    data = keep_policy(provider, model)
+    ctx.model_policy = ModelPolicy.from_json(data, source=KEEP_SOURCE)
+    if ctx.run_dir is not None:
+        (ctx.run_dir / "model_policy.json").write_text(
+            json.dumps(data, indent=1) + "\n", encoding="utf-8"
+        )
+    ctx.log.event("keep_model_pinned", rc_id=rc_id, provider=provider, model=model)
 
 
 async def _note_baseline_policy(ctx: Ctx, rc_id: str) -> None:

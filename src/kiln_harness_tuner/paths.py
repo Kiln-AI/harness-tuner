@@ -56,6 +56,12 @@ class StatePaths:
     def agents(self) -> Path:
         return self.root / "agents"
 
+    @property
+    def policies(self) -> Path:
+        """The model policies the guided start's picker writes. Made when
+        the first one is written."""
+        return self.root / "policies"
+
     def quarantine(self, project_id: str, task_id: str) -> Path:
         """Where a task's probe and eval configs are archived. Under `runs/`,
         which the read fence denies, so no agent reads it."""

@@ -410,7 +410,8 @@ def test_analysis_skill_defines_bundle_cost_as_the_one_spend_figure():
     assert "ONE spend figure an EXP record reports" in normalized
     assert "**always labeled `bundle cost`**" in normalized
     assert "**both arms** (candidate + baseline)" in normalized
-    assert "It excludes agent session cost" in normalized
+    assert "It excludes the agent sessions" in normalized
+    assert "booked as tokens, never dollars" in normalized
     assert "It **under-reports by the holes**" in normalized
     assert "Never patch it with a hand-computed estimate" in normalized
     # …and the frozen record format spends the label, not a bare dollar sign.

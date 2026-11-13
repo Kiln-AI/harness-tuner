@@ -39,7 +39,6 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from kiln_harness_tuner.dispatch.base import BASELINE_REVIEW_TIMEOUT_SECS
 from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
 from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
 from kiln_harness_tuner.provider_errors import (
@@ -136,7 +135,7 @@ AGENT_TIMEOUTS_SECS: dict[str, float] = {
     "generality_review": 10 * 60,
     # The baseline reviewer: reads the smell documents, the harness and a
     # sample of train traces through its gateway operations, then answers.
-    "baseline_review": BASELINE_REVIEW_TIMEOUT_SECS,
+    "baseline_review": 20 * 60,
     "preflight": 3 * 60,
 }
 
@@ -359,7 +358,12 @@ class AsyncioSubprocessRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
-            env=self._env,
+            # `PWD` names the session's folder too. A child inherits the
+            # tuner's own `PWD`, the folder `harness-tuner` was started in,
+            # and OpenCode takes its project folder from `PWD`, not from the
+            # process's working directory: with the tuner's `PWD` it does not
+            # see the session folder's `.agents/skills` and `AGENTS.md`.
+            env={**self._env, "PWD": cwd},
             # Its own session ⇒ its own process group, so a kill reaches the
             # MCP servers and Bash children too (`_kill_and_reap`).
             start_new_session=True,
@@ -1449,12 +1453,25 @@ class ClaudeCliDispatcher:
         return self._agents_dir
 
     def _parse_cli_output(self, stdout: str) -> CliRound | None:
-        """`claude -p --output-format json` prints one JSON object. None when
-        stdout is not one."""
+        """`claude -p --output-format json` prints one JSON object. With
+        `verbose` on (the `--verbose` option, or `"verbose": true` in a
+        Claude Code settings file the run's `--settings` does not override)
+        it prints a list of events in place of it, and the last
+        `"type": "result"` event is that object. None when stdout is
+        neither."""
         try:
             payload = json.loads(stdout)
         except ValueError:
             return None
+        if isinstance(payload, list):
+            results = [
+                event
+                for event in payload
+                if isinstance(event, dict) and event.get("type") == "result"
+            ]
+            if not results:
+                return None
+            payload = results[-1]
         if not isinstance(payload, dict):
             return None
         result_text = payload.get("result")

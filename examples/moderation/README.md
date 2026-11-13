@@ -91,7 +91,7 @@ invented.
 
 ## Run the loop on it
 
-You need the requirements in the [main README](../../README.md#requirements):
+You need the requirements in the [main README](../../README.md#what-you-need):
 the loop installed, a running Kiln studio server, and a signed-in agent CLI.
 You also need an OpenRouter key in Kiln, because the baseline calls DeepSeek
 V4.1 Flash 1017 through OpenRouter. The start checks that Kiln has the key,
@@ -118,11 +118,13 @@ and says where to add it when it doesn't.
    | Question | Pre-filled |
    |---|---|
    | What should the tuner improve? | Quality |
+   | Which models may the tuner use? | Keep the task's model |
    | Guidance for the tuner's planner (optional) | `Improve the moderation decisions. Keep the output format.` |
    | Which agent CLI should run the tuner's agents? | Claude Code; not asked when only one is installed |
    | Model for the agents | `opus` for Claude Code |
+   | Thinking level for the agents | `high` |
    | Budget for this run | `50`, in USD |
-   | Time limit | `12h` |
+   | Time limit (1h, 24h, 45m) | `12h` |
    | Advanced options | Keep these |
 
    It does not ask for the project or the task: they are the copy's. A flag
@@ -149,6 +151,8 @@ and says where to add it when it doesn't.
    the report's path. The report is in `~/.kiln_ai/harness_tuner/reports/` by
    default, not in the clone.
 
-2. Check the result on test yourself. The loop never reads test. In Kiln, run
-   the `Decision correct` eval on the test split for the baseline and for the
-   run config the loop promoted, and compare the two.
+2. Check the result on test yourself. The loop never reads test. The Done
+   card's next steps link to a Kiln page that compares the best run config
+   with the starting point ("Compare … to the starting point in Kiln"). There,
+   run the `Decision correct` eval on the test split for both, and compare
+   the two.

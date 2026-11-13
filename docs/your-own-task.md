@@ -358,21 +358,33 @@ Three things it is good for:
 - **Scope.** "Only work on the two issues about writes; leave the answer
   wording alone." The planner reads this as a hard constraint on candidate
   generation.
-- **Prohibition.** "Do not change the model, and do not raise the reasoning
-  level — this has to run at the current cost." A lever the guidance forbids is
-  not tried.
+- **Prohibition.** "Do not raise the reasoning level — this has to run at
+  the current cost." A lever the guidance forbids is not tried.
 - **Answering an open question.** The planner records questions it cannot
   resolve as constraint records with a re-ask condition. The promotion gate
   escalates on an *open* constraint instead of judging the numbers — but a
   constraint your guidance answers is answered, and the gate is told so
   explicitly.
 
+Guidance cannot allow a model: the Models question (section 5.2), or
+`--models` and `--model-policy`, say which models the task may use. Guidance
+can forbid a model swap that they allow ("Do not change the model"), and it
+can say how to try the models they allow ("Try DeepSeek first. Move on to
+the more expensive models only if it gets stuck").
+
+Under `quality` the promotion gate checks the evals only: the cost and the
+latency are reported, not held. So when other models are allowed, a more
+expensive model that scores better can become the new baseline. Guidance
+like the example above makes the tuner try the cheaper models first, but
+code does not hold the cost. A short list of picked models, or
+`--objective cost`, does.
+
 > *An illustration, on an invented task.* A freight depot operations desk
 > assistant has two problems: it reports actions as done when the API refused
 > them, and it answers count questions from the first page of results.
 > Guidance: *"Focus on the two reporting issues. The tool surface is fair game
 > — wrappers and new tools are fine. Do not edit the system prompt's persona
-> section, and do not change the model."*
+> section, and keep the current thinking level."*
 
 What it is **not** for: instructions to a subject model. The guidance steers
 the loop, not the task.
@@ -414,7 +426,7 @@ project and task reads:
 │ prompt, model, tools, skills and settings around it.             │
 ╰───────────────────────────────────────────────────────── v0.1.0 ─╯
 
-✓ Kiln      1.2.0 at http://localhost:8757
+✓ Kiln      1.3.0 at http://localhost:8757
 ✓ Project   Forum Moderation (424242975950)
 ✓ Task      Forum Moderation (424242783061)
 ✓ Ready     1 run config · 1 eval the tuner can measure
@@ -538,51 +550,67 @@ line of that answer. Then the questions go on from there. The steps are:
 The agents question is three steps. Esc at the thinking level asks the model
 again, and Esc at the model asks the agent CLI again. With only one CLI
 installed, Esc at the model asks the question before the agents question.
-After Other, Esc at the typed name or level shows the list again. In a picker
+After Other, Esc at the typed name or level shows the list again. Esc in
+the Pick models list, or at the policy file's path, asks the Models question
+again, and Esc at the Models question asks the objective again. In a picker
 with filter text, the first Esc clears the filter, and the second goes back.
 The footer shows `esc Back` only where Esc goes back.
 
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
 | What should the tuner improve? | `--objective` | Quality | Quality (higher eval scores), Speed (lower latency per request) or Cost (lower cost per request). Speed and cost only promote a change that keeps quality equal or better. |
-| Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. |
+| Which models may the tuner use? | `--models` or `--model-policy` | Keep the task's model under Quality; Any model Kiln offers under Speed and Cost. The pre-filled row reads `(recommended)` | Keep the task's model (`--models keep`); Any model Kiln offers (`--models any`), which can move the task to a more expensive model and raise the spend; Pick models, at most 12, from the providers that have a key, saved as a policy file (`--model-policy`); the task's own model starts marked, and unmarking it (with a warning) makes every experiment move to a marked model; or Use a policy file, loaded at once, so a bad file shows the loader's message under the field. [objectives.md](objectives.md#which-models-a-run-may-use) has each choice. |
+| Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. It comes after the Models question, and its hint's model example follows that answer: how to try other models when they are allowed, else what to do with the task's own model. |
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
-| Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, the CLI's own default, for Codex and OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
+| Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, Codex's own default, for Codex; blank, OpenCode's own default, for OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
 | Thinking level for the agents | `--agent-cli` | `high`, the tuner's own level | Claude Code: `low`, `medium`, `high`, `xhigh` or `max`. Codex: the same five, or Other and one typed level, such as `ultra` for the models that take it; a name Codex does not know fails the start-up check. OpenCode: one typed `--variant` name; the names depend on the model, and a model ignores a variant it does not have. The tuner sets the level itself, so the CLI's own setting is not used. [agent-cli.md](agent-cli.md) section 9 has the details. |
 | Budget for this run | `--budget-usd` | `50` | An amount in USD above 0 (`50`, `12.50`), or `none` for no cap. The question also accepts a leading `$` (`$12.50`). On the command line, type a plain number: `--budget-usd 12.50`. |
-| Time limit | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 30 minutes: setup takes a few minutes, and no wave starts with less than 15 minutes left. Plan on 1 hour or more for more than one wave. |
-| Advanced options | the five flags below | Keep these | `Enter` keeps them, `c` asks each one. |
+| Time limit (1h, 24h, 45m) | `--timeout-mins` | `12h` | Minutes (`90`), or a number with `m` or `h` (`90m`, `12h`, `1.5h`), rounded to the nearest minute. At least 10 minutes: setup takes a few. The limit is approximate: no new wave starts after it, but the wave in flight and one wrap-up wave finish, so the run can end later. |
+| Advanced options | the four flags below | Keep these | `Enter` keeps them, `c` asks each one. |
 
-- **The agent CLI and its model** make one `--agent-cli` command: the model
-  becomes `claude -p --model sonnet`, `codex exec -m <model>` or
-  `opencode run -m <model>`, and is left out when it is the default. The
+- **The agent CLI, its model and its thinking level** make one `--agent-cli`
+  command: the model becomes `claude -p --model sonnet`, `codex exec -m
+  <model>` or `opencode run -m <model>`, and is left out when it is the
+  default. The level becomes `--effort <level>` (Claude Code),
+  `-c model_reasoning_effort=<level>` (Codex) or `--variant <level>`
+  (OpenCode), and is left out when it is `high`. The
   tuner's agents (planner, builders, reviewers) run through that CLI and are
   billed to its account, not to your Kiln provider keys. With only one CLI
   installed there is no CLI question, and with none the start stops until you
-  install one ([install.md](install.md) section 4). The model is asked unless
-  `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
+  install one ([install.md](install.md) section 4). The model and the level
+  are asked unless `--agent-cli` was given. For Claude Code, `sonnet` or `haiku` makes a run
   cheaper, with weaker plans.
 - **The budget** is the most this run may spend on the task's model calls,
   and no wave starts past it. It never counts the tuner's agents: they run on
   your agent CLI's account, and the run shows their tokens for information.
   The summary's Limits line says so.
-- **The time limit**: at least 30 minutes. Setup runs first and takes a few
-  minutes, and no wave starts with less than 15 minutes left, so a shorter
-  limit can end the run before its first wave. Plan on 1 hour or more for more
-  than one wave. No wave starts after the limit, and work still running at
-  the limit is cancelled, so leave room for a whole wave. When a run ends
-  because too little time is left, the Done screen, the exit line and the
-  report say how much was left, for example `3m46s left after setup, under
-  the 15-minute minimum to start a wave`.
+- **The time limit**: at least 10 minutes, because setup runs first and
+  takes a few. The time limit is approximate: the question's hint says so,
+  and the summary's Limits line reads `about 12 hours`. The rerun command
+  keeps the exact value. When the time
+  limit ends a run, the Done screen, the exit line and the report say how,
+  for example `Time limit reached (finished wave 3, then the wrap-up)`, or
+  `(finished wave 3; no wrap-up: nothing to merge)` when nothing was pooled.
 
-The step lines read, for example, `✓ Improve   Quality`, `✓ Guidance  none`,
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
+
+The step lines read, for example, `✓ Improve   Quality`,
+`✓ Models    keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)`,
+`✓ Guidance  none`,
 `✓ Agents    Claude Code (claude -p) · opus`, `✓ Budget    $50.00` (or
 `no cap`) and `✓ Time      12 hours`.
 
 **Advanced options** are one menu, with their current values on its line:
 
 ```
-Advanced options: any model · 4 evals and 4 agents at once · no minimum effect · no noise check
+Advanced options: 4 evals and 4 agents at once · no minimum effect · no noise check
  Enter) Keep these
  c) Customize
 ```
@@ -592,21 +620,23 @@ a flag is skipped.
 
 | Question | Flag | Pre-filled | What you can answer |
 |---|---|---|---|
-| Model policy file | `--model-policy` | empty: any model Kiln offers | A path to a policy file, loaded at once, so a bad file shows the loader's message under the field; or nothing. |
 | Smallest improvement worth acting on | `--min-effect` | empty: not set | A fraction above 0 and at most 1 (`0.1` is 10%), or nothing. |
 | Eval jobs at once | `--max-concurrent-evals` | `4` | A whole number, 0 or more (0 is no limit). |
 | Agent sessions at once | `--max-concurrent-agents` | `4` | A whole number, 0 or more (0 is no limit). |
 | Noise check: items per eval re-run before wave 1 | `--noise-check` | `0`, off | A whole number, 0 or more. |
 
 The `Advanced` step line reads `defaults`, or lists what changed, such as
-`model policy ./policy.json · 2 evals at once`. A model policy set here gets
-the API-key check again, for the providers it names.
+`2 evals at once · minimum effect 10%`.
+
+A model policy set at the Models question, picked or typed, gets the API-key
+check again, for the providers it names.
 
 **Never asked**, and set only by their flags ([cli.md](cli.md)):
 `--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,
 `--max-turns`, `--gate-agent`, `--reference-check`, `--no-recon`,
 `--no-baseline-audit`, `--no-baseline-review`, `--allow-underpowered`,
-`--skip-model-preflight` and `--no-progress`.
+`--skip-model-preflight`, `--experimental-eval-building` and
+`--no-progress`.
 
 ### 5.3 The summary and the start
 
@@ -618,9 +648,10 @@ again, and one last question:
 │ Task         Forum Moderation (424242783061) in project Forum Moderation (424242975950) │
 │ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
 │ Improve      Quality                                                                    │
+│ Models       keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)              │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 on the task's model calls · 12 hours                                │
+│ Limits       $50.00 on the task's model calls · about 12 hours                          │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │
@@ -628,14 +659,15 @@ again, and one last question:
 │   --project-id 424242975950 --task-id 424242783061 \                                    │
 │   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
 │   --objective quality \                                                                 │
+│   --models keep \                                                                       │
 │   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
 │   --agent-cli 'claude -p' \                                                             │
 │   --budget-usd 50 --timeout-mins 720 \                                                  │
 │   --no-interaction                                                                      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-Start the run?
- s) Start the run
+Start tuning?
+ s) Start tuning
  e) Change an answer
  x) Exit
 ```
@@ -662,7 +694,9 @@ command line with every flag the start fills in replaced by its answer
 (`--no-progress`, `--agent-model`, …), and `--no-interaction` added, so it asks
 nothing. Each value is quoted for a POSIX shell and the lines end in `\`, so
 it pastes as is. Empty guidance is `--guidance ''`, and no cap is
-`--budget-usd none`. The advanced flags appear only when they differ from
+`--budget-usd none`. A value that starts with `-` is joined to its flag with
+`=`, as in `--guidance=-terse`, because the parser reads `--guidance -terse`
+as two options. The advanced flags appear only when they differ from
 their defaults.
 
 **Not guided**, the start prints the `Ready to start` block to stdout, with no
@@ -681,14 +715,13 @@ harness-tuner --project-path "/path/to/Your Project" \
           --no-interaction
 ```
 
-**Start it bounded, with headroom for a whole wave.** The defaults are $50
-and 12 hours (`--budget-usd 50`, `--timeout-mins 720`), which the questions
-pre-fill; `--budget-usd none` runs with no cap. No wave ever *starts* past
-`--timeout-mins` or `--budget-usd`, but the two do not end a run the same way:
-at the budget ceiling the wave in flight runs to completion, while at the
-deadline every in-flight item except one that is already analyzing is cancelled,
-its drives paid for and no verdict stored. A first run against an unfamiliar
-task is the wrong place to discover how long a wave takes.
+**Start it bounded.** The defaults are $50 and 12 hours (`--budget-usd 50`,
+`--timeout-mins 720`), which the questions pre-fill; `--budget-usd none` runs
+with no cap. Neither limit stops a wave in flight. At the budget ceiling the
+run exits after the wave in flight. At the time limit the wave in flight
+finishes, then one wrap-up wave runs, so the run ends later than the limit.
+A first run against an unfamiliar task is the wrong place to discover how
+long a wave takes.
 
 **Keep the reconnaissance battery on a first run** — that is, do **not** pass
 `--no-recon`. It is a handful of short drives on your own baseline, and it is
@@ -727,9 +760,9 @@ each question about the run:
 |---|---|
 | Title bar | The task, the run id, the agent CLI and the slot counts. |
 | Goal | What the run optimizes, what it holds and what it only watches, by `--objective`; and the split sizes. |
-| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the Kiln spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave. |
-| Run timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
-| Results | One card per eval score that can decide a promotion, then one for cost and one for latency per request. |
+| Time & spend | Elapsed time against the time limit and spend against the budget, as two gauges; the API keys spend and per hour, and the agents' tokens, which the budget does not count; `wave N of ~M`, and a `LAST WAVE` tag in the wrap-up wave; the start time and the time limit (`started 14:12 · limit 17:12`), which is not the end time. |
+| Tuning timeline | Setup, and each wave's planning, screening, experiments and promotion gate, on one axis to the time limit. A mark shows each promotion, and the waves still to come are faint. |
+| Results | One card per eval score that can decide a promotion (`Eval: <name>`), then one for cost and one for latency per request. |
 | Experiments | What the loop does now: the run's start-up steps, the planner's steps, or one card per item of the wave. At the end, the run summary. |
 | Log | One line per notable event, newest at the bottom. A rule marks each wave. |
 
@@ -748,22 +781,40 @@ each question about the run:
 Green means better, red means worse, and every state also has a glyph or a
 word.
 
-**An experiment card** shows what the item tries, the concern it targets, its
-steps (build, measure, analyze, and gate for a promotion candidate) and how
-it goes: one cell per judged item, and how many it fixed and broke so far. A
-finished card shows its verdict in plain words, for example
-`Success · goes to the gate`, `Stopped: can't beat its parent` or
-`Promoted · now Best Confirmed`. A card keeps its place until the next wave's
-plan replaces the cards.
+**An experiment card** has the item id and the eval it targets on its top
+border, and what the item tries under it (`Hypothesis: …`, or `Question: …`
+for a probe). Then come its steps (build, measure, analyze, and gate for a
+promotion candidate) and how it goes: one cell per judged item, and how many
+it fixed and broke so far. The bottom border shows what the item has spent so
+far on API keys: its eval jobs, not its agents' tokens. A finished card shows its
+verdict in plain words, for example `Train success · checking validation
+set`, `Stopped: can't beat its parent` or `Promoted · now Best Confirmed`.
+When the gate promotes another candidate, the card says `Not selected · w4-3
+promoted` in yellow: it can have beaten the baseline on val too. A card keeps
+its place until the next wave's plan replaces the cards.
+
+**The details panel.** A card has room for a little only. Click a card
+(`details ›` on its bottom border) to open its details panel over the screen,
+or press `e` to pick any item of the tuning, the earlier waves and recon
+included. The panel shows the item in full: what kind of item it is, its
+wave and its parent, its targets, its lever, its spend (and the spending cap
+on its measurement), the planner's whole hypothesis and predicted effect,
+what the build changed, its results on train and on val, and the analyzer's
+findings. A probe shows its question and its evidence. An eval build or a
+measurement shows why the planner added it. Two links open the
+Experiment Graph with the item selected, and Compare its run config with
+its parent's. The panel updates while it is open. Esc, or a click outside
+it, closes it.
 
 **Keys and links:**
 
 | Key | What it does |
 |---|---|
-| `c` | Opens Compare in Kiln UI: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
-| `l` | Opens Lineage in Kiln UI: the run configs of the task and where each came from. |
+| `e` | Once the run has items: opens the list of the tuning's items, newest wave first. ↑↓ and Enter open an item's details panel; Esc goes back. A click on a card opens its panel too. |
+| `c` | Opens Compare in Kiln: Start, Best Confirmed and each Best Unconfirmed run config, side by side. |
+| `g` | Opens the Experiment Graph in Kiln: the run configs of the task and where each came from. |
 | `r` | Opens the report. The key shows once the report is written. |
-| `q`, Ctrl-C | Opens the stop dialog. At the end, `q` or Enter closes the app. |
+| `q`, Ctrl-C | Opens the stop dialog, also over a details panel. At the end, `q` or Enter closes the app (in a panel, Esc closes the panel first). |
 
 A link on the screen (underlined, with `↗`) also opens with a click. With no
 graphical browser, or over SSH, nothing opens: the log shows
@@ -772,24 +823,36 @@ log. Below 150 columns, Time & spend moves under Goal and the log under
 Experiments. A small window scrolls, and nothing is cut off. The app follows
 the terminal's light or dark background.
 
-**The stop dialog** asks `Stop the run?` and says what a stop loses, for
+**The stop dialog** asks `Stop tuning?` and says what a stop loses, for
 example `4 experiments are in flight. Their work so far is lost, and no report
-is written.` **Keep running** has the focus, and Esc also keeps the run going.
-**Stop the run** does what Ctrl-C does to a run with plain log lines (section
-5.4): the Experiments header shows `Stopping…` until the run has stopped, and
-the exit code is 130.
+is written.` **Keep tuning** has the focus, and Esc or a click outside the
+dialog also keeps the run going. **Stop tuning** does what Ctrl-C does to a
+run with plain log lines (section 5.4): the Experiments header shows
+`Stopping…` until the run has stopped, and the exit code is 130.
 
 **At the end** the Experiments section shows the run summary: how the run
 ended, the time, the spend against the budget, the waves, experiments,
-promotions and early stops, Best Confirmed, the report, and the links. Its
-last line is the next step: run your test split on Best Confirmed, which the
-tuner never read. The app stays open until you press `q` or Enter.
+promotions and early stops, Best Confirmed, and the report. Then come the
+next steps, each a link:
+
+```
+Next steps
+ · Visualize Experiment Graph in Kiln ↗
+ · Compare w2-1 to the starting point in Kiln ↗  You may need to run evals on the 'test' dataset, which is intentionally withheld from tuning.
+ · Read Tuning Report ↗
+```
+
+The compare link shows only the starting run config and Best Confirmed. The
+tuner never read the test split, so its evals there are a true measure of the
+result. With no promotion, the second line says that the starting point stays
+best. The app stays open until you press `q` or Enter.
 
 **The closing block.** When the app closes, it prints a plain block to the
 terminal, because the app's screen goes with it. It holds the start's summary
 and, after a guided start, the command that runs it again. Then come the run's
-exit line, Best Confirmed, the report (or `no report` after a stop) and the
-run folder:
+exit line, Best Confirmed, the report (or `no report` after a stop), the run
+folder and the next steps, with their addresses written out. Where the
+terminal supports it, each address and the report's path are links:
 
 ```
 Ready to start
@@ -802,10 +865,16 @@ To run this again with the same answers and no questions:
     …
     --no-interaction
 
-exit: timeout — total $27.20 (Kiln $27.20 · Claude Code ~8.4M tokens) · 2h41m elapsed · 19m left
+exit: timeout (finished wave 3, then the wrap-up) — total $27.20 (API keys $27.20 · Claude Code ~8.4M tokens) · 3h18m elapsed · 0s left
 Best Confirmed: refusal rule in prompt · w2-1 (424242002001)
 report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 Run folder: /Users/you/.kiln_ai/harness_tuner/runs/261109-1412
+
+Next steps
+ · Visualize Experiment Graph in Kiln: http://localhost:8757/optimize/424242975950/424242783061/experiment_lineage
+ · Compare w2-1 to the starting point in Kiln: http://localhost:8757/specs/424242975950/424242783061/compare?models=424242000003,424242002001&columns=2&from=optimize
+   You may need to run evals on the 'test' dataset, which is intentionally withheld from tuning.
+ · Read Tuning Report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 harness-tuner: run finished — report: /Users/you/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-261109-1412.md
 ```
 
@@ -831,7 +900,7 @@ from.
 |---|---|
 | `reports/kiln-harness-tuner-<run_id>.md` | the round report: what was planned, what was measured, what was promoted, and code-computed appendices: the spend, why each arm stopped and how many of its items were judged, and the trade-offs of the screened candidates (quality lost against cost and latency saved) |
 | `runs/<run_id>/` | the run log (`kiln-harness-tuner.log`), the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
-| `runs/.quarantine/<project>-<task>/archived_run_configs/` | the loop's own `PROBE …` run configs, archived out of the project after a run |
+| `runs/.quarantine/<project>-<task>/` | the loop's own `PROBE …` run configs (`archived_run_configs/`), archived out of the project after a run, and with `--noise-check` the copies of the judge configs (`archived_eval_configs/`) |
 | `traces/<project>/<task>/<run_id>/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |
 | Kiln memory | the durable result: the baseline record and its promotion chain, every issue's state, every experiment's verdict |
 

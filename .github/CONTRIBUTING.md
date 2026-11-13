@@ -28,7 +28,7 @@ agent sessions in this repository.
 
 ## Running the checks
 
-CI runs these on Python 3.11 and 3.13, and all of them must pass before you
+CI runs these on Python 3.11, 3.13 and 3.14, and all of them must pass before you
 open a pull request:
 
 ```

@@ -37,12 +37,6 @@ from kiln_harness_tuner.schemas import (
     Usage,
 )
 
-# The wall-clock cap of one baseline-review session. Here, not only in a
-# dispatcher's timeout table, because the loop reads it too: it starts no
-# review that would leave too little time for a wave
-# (`smells.run.ensure_baseline_reviewed`).
-BASELINE_REVIEW_TIMEOUT_SECS = 20 * 60
-
 
 @runtime_checkable
 class AgentDispatcher(Protocol):

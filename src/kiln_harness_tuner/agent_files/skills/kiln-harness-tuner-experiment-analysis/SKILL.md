@@ -109,8 +109,9 @@ feeding this comparison — **both arms** (candidate + baseline), subject
 `task_run_usage.cost` + judge `eval_usage.cost` — over the item's measured
 evals. What it does not tell you — say the clause when it bites:
 
-- It excludes agent session cost (your analysis session, the build session) —
-  those are subscription-lane spend the orchestrator books, not yours.
+- It excludes the agent sessions (your analysis session, the build session):
+  they run on the agent CLI's account and are booked as tokens, never
+  dollars.
 - It **under-reports by the holes**: a pair with no rows contributes $0 even
   though the job that failed to measure it cost real money.
 - It is the cost of the rows this comparison *reads*, not new money this item
@@ -346,7 +347,12 @@ promotion pass together with the planner's `promotion_candidate` intent.
   rubric), **environment** (a tool server, the provider or the task's
   world failed or answered wrongly), or **noise** (the same config passes
   it on another run). Compare with `get_train_expected` before you call
-  one eval data. A finding that lumps the classes together sends a planner
+  one eval data. An expected output that applies a rule the task's
+  instructions do not state is not eval data: the expected outputs are the
+  owner's policy, so a config that misses that rule is a config failure.
+  Call it eval data only when the expected output contradicts the
+  instructions, or contradicts the expected outputs of the same kind of
+  input. A finding that lumps the classes together sends a planner
   to fix the config for an eval's fault.
   **A judge may read the config.** A judge that scores the full trace sees
   the tool results, and a skill the model loaded is one of them. When the

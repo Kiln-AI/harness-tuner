@@ -2135,7 +2135,7 @@ async def test_wait_504_cancels_before_retrying():
 
 
 async def test_caller_cancellation_cancels_the_server_job():
-    # The run's hard deadline cancels the awaiting task mid-wait; the server
+    # A sibling's fatal error cancels the awaiting task mid-wait; the server
     # job survives observer teardown — the shielded best-effort cancel is
     # what stops its spend (the eval-lane twin of the dispatcher's
     # kill-and-reap).

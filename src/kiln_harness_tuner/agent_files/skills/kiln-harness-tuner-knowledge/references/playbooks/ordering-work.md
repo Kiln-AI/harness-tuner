@@ -1,7 +1,7 @@
 ---
 title: Ordering work
 description: How to order the work of a run - the priority comes from the smells and the failures of this agent, not from a fixed order of levers. All of it is guidance.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: order
 applies_to: all
 ---
@@ -34,8 +34,8 @@ Three facts shape the order:
 1. [Know the agent before you plan](know-the-agent-before-you-plan.md),
    when the shapes of the agent are not yet known.
 2. A model with a reasonable start on the task, only when the model is a
-   lever (the guidance allows a model change, or the objective is speed or
-   cost), and the baseline model passes almost no item:
+   lever (`allowed_models` lists another model, and the guidance does not
+   forbid a model change), and the baseline model passes almost no item:
    [dealing with an eval near zero](dealing-with-an-eval-near-zero.md).
    Lock that model, then tune the harness. When the model is not a lever,
    it is the environment of the task, and this step does not apply.

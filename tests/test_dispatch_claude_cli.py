@@ -474,6 +474,114 @@ class TestRepairRetry:
         assert len(runner.calls) == 2  # exactly one repair retry
 
 
+def verbose_events(result_payload: str, *, session_id: str = "sess-1") -> str:
+    """What `claude -p --output-format json` prints with verbose on: a list
+    of events, the result object last. The shape is recorded from Claude Code
+    2.1.286 (`--verbose`, or `"verbose": true` in a settings file), with the
+    fields the dispatcher does not read cut."""
+    return json.dumps(
+        [
+            {
+                "type": "system",
+                "subtype": "status",
+                "status": "requesting",
+                "permissionMode": "default",
+                "session_id": session_id,
+            },
+            {
+                "type": "system",
+                "subtype": "init",
+                "cwd": "/tmp/agents",
+                "model": "claude-haiku-5-5",
+                "tools": ["Read", "Bash"],
+                "mcp_servers": [],
+                "session_id": session_id,
+            },
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Working on it."}],
+                },
+                "parent_tool_use_id": None,
+                "session_id": session_id,
+            },
+            {
+                "type": "rate_limit_event",
+                "rate_limit_info": {"status": "allowed"},
+                "session_id": session_id,
+            },
+            json.loads(result_payload),
+        ],
+        ensure_ascii=False,
+    )
+
+
+class TestVerboseEventList:
+    """A `"verbose": true` the run's `--settings` does not override (or a
+    `--verbose` in the CLI options) makes stdout a list of events. The last
+    result event is read as the one object."""
+
+    async def test_batch_plan_ok_from_event_list(self):
+        dispatcher, _ = make_dispatcher(
+            [
+                ok_proc(
+                    verbose_events(
+                        cli_payload(
+                            envelope_text(PLAN_DATA),
+                            cost_usd=0.42,
+                            input_tokens=1500,
+                            output_tokens=500,
+                            duration_ms=90_000,
+                        )
+                    )
+                )
+            ]
+        )
+        result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
+        assert result.status == "ok"
+        assert isinstance(result.data, BatchPlan)
+        assert result.data.items[0].id == "w1-1"
+        assert result.usage == Usage(cost_usd=0.42, tokens=2000, wall_secs=90.0)
+
+    async def test_event_list_error_keeps_its_class(self):
+        dispatcher, _ = make_dispatcher(
+            [
+                ok_proc(
+                    verbose_events(
+                        cli_payload(
+                            "API rate limit reached, retry later", is_error=True
+                        )
+                    )
+                )
+            ]
+        )
+        result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
+        assert result.status == "failed_infra"
+        assert result.error.error_class == "rate_limit"
+
+    async def test_event_list_without_a_result_is_agent_crash(self):
+        events = json.loads(verbose_events(cli_payload("unused")))[:-1]
+        dispatcher, _ = make_dispatcher([ok_proc(json.dumps(events))])
+        result = await dispatcher.batch_plan(BATCH_PLAN_INPUT)
+        assert result.status == "failed_infra"
+        assert result.error.error_class == "agent_crash"
+
+    def test_the_last_result_event_wins(self):
+        dispatcher, _ = make_dispatcher([])
+        events = json.loads(verbose_events(cli_payload("first", session_id="a")))
+        events.append(json.loads(cli_payload("second", session_id="b")))
+        cli = dispatcher._parse_cli_output(json.dumps(events))
+        assert cli is not None
+        assert cli.result_text == "second"
+        assert cli.session_id == "b"
+
+    def test_a_list_of_non_objects_is_not_cli_output(self):
+        dispatcher, _ = make_dispatcher([])
+        assert dispatcher._parse_cli_output("[1, 2, 3]") is None
+        assert dispatcher._parse_cli_output("[]") is None
+
+
 class TestInfraFailures:
     async def test_timeout_maps_to_failed_infra_timeout(self):
         dispatcher, _ = make_dispatcher([DispatchTimeoutError("900s exceeded")])
@@ -1423,6 +1531,18 @@ class TestAsyncioSubprocessRunner:
                 f"the child never spawned: {task.exception() if task.done() else task}"
             ) from None
         return task, spawned[0]
+
+    async def test_the_child_s_pwd_is_its_working_folder(self, tmp_path, monkeypatch):
+        # OpenCode takes its project folder from PWD: with the tuner's own
+        # PWD it does not find the session folder's skills.
+        monkeypatch.setenv("PWD", "/somewhere/else")
+        result = await AsyncioSubprocessRunner().run(
+            [sys.executable, "-c", "import os; print(os.environ['PWD'])"],
+            stdin_text="",
+            timeout_secs=30,
+            cwd=str(tmp_path),
+        )
+        assert result.stdout.strip() == str(tmp_path)
 
     async def test_cancelling_kills_and_reaps_the_child(self, monkeypatch):
         # Without the kill, a cancelled dispatch leaves a live `claude -p`

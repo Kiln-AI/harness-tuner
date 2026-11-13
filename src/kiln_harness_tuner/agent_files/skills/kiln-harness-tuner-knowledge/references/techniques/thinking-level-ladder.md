@@ -1,7 +1,7 @@
 ---
 title: Thinking level ladder
 description: Change the thinking level one rung at a time from the baseline's level - up only for hard cases, down for cost or latency once quality is stable - and temperature at most once.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - params
@@ -46,7 +46,7 @@ cost: low
 ## Alternatives
 
 - [Model swap inside a class](model-swap-inside-a-class.md), when the
-  objective is cost or latency and the guidance allows a model change: a
+  objective is cost or latency and `allowed_models` lists another model: a
   smaller model can save more than a lower level.
 - [Faster provider for the same model](faster-provider-for-the-same-model.md),
   when the goal is latency, and the same model at the same level is served

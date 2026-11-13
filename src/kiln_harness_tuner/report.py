@@ -62,9 +62,9 @@ SPEND_APPENDIX_HEADING = "## Appendix: spend by source and lane (code-computed)"
 # notes keep the wire lane name in parentheses, because that is what the
 # `spend` events in `wave_log.jsonl` beside the report actually say.
 SPEND_APPENDIX_NOTES = (
-    "- **Kiln** $ (`provider`) = real money today (Kiln eval jobs: subject "
-    "`task_run_usage` + judge `eval_usage`). The budget (`--budget-usd`) "
-    "counts this column.",
+    "- **API keys** $ (`provider`) = real money today (Kiln eval jobs: "
+    "subject `task_run_usage` + judge `eval_usage`). The budget "
+    "(`--budget-usd`) counts this column.",
     "- **Claude Code** tokens (`subscription_equivalent`) = the tokens each "
     "agent session used, a rough count for information. The agents run on "
     "the agent CLI's own account, so the budget does not count them.",
@@ -520,8 +520,6 @@ def stop_code(item: ItemStatus) -> tuple[str, str]:
         err = outcome.infra_error
         if err is None:
             return "error", ""
-        if err.error_class == "timeout" and "deadline" in err.detail:
-            return "cut_off", ""  # the orchestrator cancelled it in flight
         return "error", f"{err.error_class}, {err.detail[:160]}"
     m = outcome.measurement
     if m is not None:
@@ -727,7 +725,9 @@ def render_tradeoff_appendix(status: RunStatus) -> str:
     ]
     for r in sorted(results, key=screen_sort_key(status.objective)):
         quality = (
-            f"lost {r.broke} of {r.baseline_passed}, fixed {r.fixed}"
+            "no rows stored (error)"
+            if r.verdict == "error" and r.items
+            else f"lost {r.broke} of {r.baseline_passed}, fixed {r.fixed}"
             if r.items
             else "not judged"
         )
@@ -1155,18 +1155,13 @@ class ReportWriter:
             name="reporting",
             label="Writing report… (a full agent session)",
         )
-        # Past the run's deadline the report agent gets ONE
-        # attempt — the five-rung loop ladder ran up to ~85 minutes after a
-        # deadline that was supposed to be hard. The code fallback below
-        # still ships a report either way.
-        past_deadline = ctx.deadline is not None and ctx.clock() >= ctx.deadline
         await snapshot_memory(ctx, "report-before")  # the store at exit
         await _add_issues_without_eval(ctx, status)
         try:
             result = await call_with_retries(
                 ctx.dispatch.report_writer,
                 ReportInput(run_status=for_report_agent(status)),
-                backoffs=() if past_deadline else LOOP_DISPATCH_BACKOFFS,
+                backoffs=LOOP_DISPATCH_BACKOFFS,
                 sleep=ctx.sleep,
                 log=ctx.log,
                 source="report_writer",

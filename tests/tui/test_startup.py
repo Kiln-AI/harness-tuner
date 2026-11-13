@@ -16,6 +16,7 @@ from kiln_harness_tuner.onboarding import demo
 from kiln_harness_tuner.onboarding.choose import TaskRow, _step
 from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
 from kiln_harness_tuner.onboarding.flow import WELCOME_DESCRIPTION
+from kiln_harness_tuner.onboarding.questions import GUIDANCE_HINT
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING, SUMMARY_HEADING
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
@@ -25,10 +26,10 @@ from kiln_harness_tuner.onboarding.terminal import (
     Option,
     aligned_rows,
 )
-from kiln_harness_tuner.tui import opener
+from kiln_harness_tuner.tui import bridge, opener
 from kiln_harness_tuner.tui.bridge import CancellableRunner
 from kiln_harness_tuner.tui.screens.prompts import ActionMenu, Picker, TextAnswer
-from kiln_harness_tuner.tui.screens.startup import task_name
+from kiln_harness_tuner.tui.screens.startup import StartupScreen, task_name
 from kiln_harness_tuner.tui.widgets import BusyLine, StepLineView, TitleBar
 
 PROJECTS = [
@@ -209,6 +210,17 @@ async def test_a_prompt_the_screen_cannot_show_fails_instead_of_waiting():
     assert isinstance(harness.start.outcome.error, ValueError)
 
 
+def test_a_prompt_that_comes_before_the_mount_and_cannot_be_drawn_fails():
+    # The screen keeps a request that comes before it has mounted, and
+    # draws it on the mount: a failure there fails the prompt too.
+    screen = StartupScreen()
+    request = bridge.Pick("Which?", (), None, None)
+    screen.show(request)
+    assert not request.answer.done()
+    screen.on_mount()
+    assert isinstance(request.answer.exception(timeout=0), ValueError)
+
+
 # ---- act ----
 
 
@@ -254,6 +266,27 @@ async def test_text_enter_accepts_the_default():
 async def test_text_typed_after_the_default():
     typed = ["backspace", "backspace", *"12.5", "enter"]
     assert await answered(text(), *typed) == "12.5"
+
+
+@pytest.mark.parametrize("width", [210, 60])
+async def test_a_hint_of_several_lines_keeps_its_lines(width):
+    async with asking(text(hint=GUIDANCE_HINT), size=(width, 40)) as (_h, pilot):
+        hint = pilot.app.screen.query_one(TextAnswer).query_one(".hint")
+        # Laid out: at least one row per line of the hint.
+        lines = GUIDANCE_HINT.count("\n") + 1
+        await until(pilot, lambda: hint.region.height >= lines)
+        drawn = [
+            "".join(segment.text for segment in strip).rstrip()
+            for strip in hint.render_lines(hint.region.reset_offset)
+        ]
+        # One line per example; a line too long for the width wraps.
+        assert drawn[0].startswith("These instructions guide the tuner")
+        assert drawn[-1].endswith("Optional. Blank means no guidance.")
+        assert sum(line.startswith(" · ") for line in drawn) == 6
+        # Nothing is cut off: every word of the hint is drawn, in order.
+        assert " ".join(drawn).split() == GUIDANCE_HINT.split()
+        if width == 210:
+            assert drawn == GUIDANCE_HINT.split("\n")
 
 
 def digits(answer: str) -> str | None:
@@ -518,7 +551,7 @@ async def test_a_rewind_takes_away_the_parts_shown_since_its_mark():
         terminal.step("ok", "Guidance", "none")
         terminal.say(SUMMARY)
         try:
-            terminal.act("Start the run?", ACTIONS, back=True)
+            terminal.act("Start tuning?", ACTIONS, back=True)
         except GoBack:
             terminal.rewind(before)
         terminal.step("ok", "Guidance", '"Shorter."')
@@ -795,7 +828,7 @@ def long_texts(terminal):
 async def test_long_lines_in_cards_wrap_and_titles_show_whole(width):
     def start(terminal):
         long_texts(terminal)
-        return terminal.act("Start the run?", ACTIONS)
+        return terminal.act("Start tuning?", ACTIONS)
 
     harness = Asking(start)
     async with harness.app.run_test(size=(width, 140)) as pilot:
@@ -837,3 +870,77 @@ async def test_a_long_description_and_a_long_refusal_wrap(width):
     async with asking(text(validate=refuse), size=(width, 40)) as (harness, pilot):
         assert await still_asking(harness, pilot, "enter")
         assert "END-REFUSAL" in screen_text(pilot.app)
+
+
+# ---- pick_many ----
+
+MODELS = [
+    Option(("openai", "gpt_a"), "GPT A", ("gpt_a",), group="OpenAI"),
+    Option(("openai", "gpt_b"), "GPT B", ("gpt_b",), group="OpenAI"),
+    Option(("anthropic", "claude_c"), "Claude C", ("claude_c",), group="Anthropic"),
+    Option(("fireworks", "glm_d"), "GLM D", ("glm_d",), group="Fireworks"),
+]
+A, B, C, D = (option.value for option in MODELS)
+
+
+def pick_many(**kwargs):
+    return lambda terminal: terminal.pick_many("Which models?", MODELS, **kwargs)
+
+
+async def test_pick_many_marks_with_space_and_answers_in_option_order():
+    keys = ["down", "down", "space", "up", "up", "space", "enter"]
+    assert await answered(pick_many(), *keys) == [A, C]
+
+
+async def test_pick_many_starts_with_its_default_marked():
+    assert await answered(pick_many(default=[D]), "enter") == [D]
+    # Space on a marked row unmarks it.
+    keys = ["up", "space", "space", "down", "space", "enter"]
+    assert await answered(pick_many(default=[D]), *keys) == [A, D]
+
+
+async def test_pick_many_needs_one_mark_before_enter():
+    async with asking(pick_many()) as (harness, pilot):
+        assert await still_asking(harness, pilot, "enter")
+        assert "Mark at least one" in rendered(harness.app.screen.query_one(".count"))
+
+
+async def test_pick_many_marks_no_more_than_its_limit():
+    keys = ["space", "down", "space", "down", "space", "enter"]
+    assert await answered(pick_many(limit=2), *keys) == [A, B]
+
+
+async def test_tab_steps_through_the_provider_facets():
+    # Tab: OpenAI's rows only; Tab again: Anthropic's.
+    assert await answered(pick_many(), "tab", "down", "space", "enter") == [B]
+    assert await answered(pick_many(), "tab", "tab", "space", "enter") == [C]
+    # Shift+Tab from All goes to the last facet.
+    assert await answered(pick_many(), "shift+tab", "space", "enter") == [D]
+
+
+async def test_a_mark_stays_when_the_filter_hides_its_row():
+    keys = ["space", *"glm", "space", "backspace", "backspace", "backspace", "enter"]
+    assert await answered(pick_many(), *keys) == [A, D]
+    # Space marks; it is not typed into the filter.
+    async with asking(pick_many()) as (harness, pilot):
+        await pilot.press(*"gp", "space")
+        assert harness.app.screen.query_one(Input).value == "gp"
+
+
+async def test_an_unmarked_warned_row_shows_its_warning():
+    warned = Option(
+        D, "GLM D", ("glm_d",), description="the task's model", group="Fireworks"
+    )
+    options = [*MODELS[:3], warned]
+    ask = lambda terminal: terminal.pick_many(  # noqa: E731
+        "Which models?", options, default=[D], warn_unmarked={D: "Kept off: careful."}
+    )
+    # It can be unmarked, like any row.
+    assert await answered(ask, "shift+tab", "space", "tab", "space", "enter") == [A]
+    async with asking(ask) as (harness, pilot):
+        count = harness.app.screen.query_one(".count")
+        assert "Kept off" not in rendered(count)
+        await pilot.press("shift+tab", "space")
+        assert "Kept off: careful." in rendered(count)
+        await pilot.press("space")  # marked again: the warning goes
+        assert "Kept off" not in rendered(count)

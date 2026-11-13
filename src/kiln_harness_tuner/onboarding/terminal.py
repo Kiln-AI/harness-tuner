@@ -11,7 +11,7 @@ path never loads Textual through them.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import Enum
@@ -29,6 +29,10 @@ StepStatus = Literal["ok", "fail", "warn"]
 WHAT_NEXT = "What next?"
 # What a picker says under its question when the question gives no hint.
 PICK_HINT = "↑↓ move · type to filter · Enter pick"
+# What a multi-picker says under its question when the question gives no hint.
+PICK_MANY_HINT = (
+    "↑↓ move · type to filter · Tab next provider · Space mark · Enter done"
+)
 COLUMN_GAP = "   "
 
 
@@ -41,6 +45,7 @@ class Option(Generic[T]):
     columns: tuple[str, ...] = ()
     description: str | None = None  # shown under the highlighted row
     disabled: str | None = None  # why it can't be picked, shown dimmed
+    group: str | None = None  # a multi-picker's facet, such as the provider
 
 
 def aligned_rows(options: Sequence[Option[Any]]) -> list[str]:
@@ -126,6 +131,26 @@ class Terminal(Protocol):
         on the first one that can be picked. Ctrl-C raises
         `OnboardingStopped(130)`, and Ctrl-D `OnboardingStopped(1)`, as at
         every prompt. With `back`, Esc raises `GoBack`, at every prompt."""
+        ...
+
+    def pick_many(
+        self,
+        question: str,
+        options: Sequence[Option[T]],
+        *,
+        hint: str | None = None,
+        default: Sequence[T] = (),
+        warn_unmarked: Mapping[T, str] | None = None,
+        limit: int | None = None,
+        back: bool = False,
+    ) -> list[T]:
+        """The values of the options the user marks, at least one, in the
+        options' order. The rows are `aligned_rows`, and `default`'s are
+        marked first. Typing filters the rows; each option's `group` is a
+        facet, and Tab and Shift+Tab step through all groups and each one.
+        Space marks or unmarks the highlighted row, at most `limit` rows.
+        While a value of `warn_unmarked` is unmarked, its warning shows under
+        the rows. Enter accepts. Ctrl-C, Ctrl-D and Esc as at `pick`."""
         ...
 
     def act(

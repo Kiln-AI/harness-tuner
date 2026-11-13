@@ -15,6 +15,7 @@ from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from kiln_harness_tuner.model_policy import resolve_models
 from kiln_harness_tuner.onboarding.choose import Selection
 from kiln_harness_tuner.onboarding.keys import Baseline
 from kiln_harness_tuner.onboarding.questions import (
@@ -22,9 +23,10 @@ from kiln_harness_tuner.onboarding.questions import (
     advanced_changes,
     agents_text,
     budget_default,
-    duration_text,
     guidance_text,
     limits_budget_text,
+    limits_time_text,
+    models_text,
     number_text,
     objective_text,
 )
@@ -52,6 +54,7 @@ SET_BY_START = frozenset(
         "budget_usd",
         "timeout_mins",
         "model_policy",
+        "models",
         "min_effect",
         "max_concurrent_evals",
         "max_concurrent_agents",
@@ -67,7 +70,6 @@ SUMMARY_LABEL_WIDTH = 12
 # The advanced flags the rerun command passes when they aren't the
 # defaults, each with how its value is written.
 ADVANCED_FLAGS: tuple[tuple[str, str, Callable[[Any], str]], ...] = (
-    ("model_policy", "--model-policy", str),
     ("min_effect", "--min-effect", number_text),
     ("max_concurrent_evals", "--max-concurrent-evals", str),
     ("max_concurrent_agents", "--max-concurrent-agents", str),
@@ -145,10 +147,11 @@ def summary_lines(
     if baseline is not None:
         lines.append(("Starts from", _baseline_text(baseline)))
     budget = limits_budget_text(answers.budget_usd)
-    limits = f"{budget} · {duration_text(answers.timeout_mins)}"
+    limits = f"{budget} · {limits_time_text(answers.timeout_mins)}"
     return [
         *lines,
         ("Improve", objective_text(answers.objective)),
+        ("Models", models_text(answers, baseline and baseline.model_text)),
         ("Guidance", guidance_text(answers.guidance)),
         ("Agents", agents_text(answers.agent_cli)),
         ("Limits", limits),
@@ -159,6 +162,13 @@ def summary_lines(
 def summary_text(lines: Sequence[tuple[str, str]]) -> str:
     rows = (f"  {label:<{SUMMARY_LABEL_WIDTH}} {text}" for label, text in lines)
     return "\n".join([SUMMARY_HEADING, *rows])
+
+
+def _option(flag: str, value: str) -> list[str]:
+    """`flag` and its `value` as rerun tokens. A value that starts with `-`
+    is joined to its flag with `=`: argparse reads `--guidance -terse` as
+    two options, and refuses it."""
+    return [f"{flag}={value}"] if value.startswith("-") else [flag, value]
 
 
 def rerun_command(
@@ -181,7 +191,7 @@ def rerun_command(
     for dest, flag, written in ADVANCED_FLAGS:
         value = getattr(answers, dest)
         if value is not None and value != getattr(defaults, dest):
-            advanced += [flag, written(value)]
+            advanced += _option(flag, written(value))
     kept = [
         token
         for group, info in _read(argv, option_dests)
@@ -189,16 +199,22 @@ def rerun_command(
         for token in group
     ]
     lines = [
-        ["--project-id", selection.project.id, "--task-id", selection.task.id],
-        ["--project-path", str(selection.project_path)],
-        ["--objective", answers.objective],
-        ["--guidance", answers.guidance],
-        ["--agent-cli", answers.agent_cli],
         [
-            "--budget-usd",
-            budget_default(answers.budget_usd),
-            "--timeout-mins",
-            str(answers.timeout_mins),
+            *_option("--project-id", selection.project.id),
+            *_option("--task-id", selection.task.id),
+        ],
+        _option("--project-path", str(selection.project_path)),
+        _option("--objective", answers.objective),
+        (
+            _option("--model-policy", answers.model_policy)
+            if answers.model_policy
+            else _option("--models", resolve_models(answers.models, answers.objective))
+        ),
+        _option("--guidance", answers.guidance),
+        _option("--agent-cli", answers.agent_cli),
+        [
+            *_option("--budget-usd", budget_default(answers.budget_usd)),
+            *_option("--timeout-mins", str(answers.timeout_mins)),
         ],
         advanced,
         kept,

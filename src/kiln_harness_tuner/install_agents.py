@@ -34,7 +34,6 @@ import argparse
 import contextlib
 import errno
 import filecmp
-import importlib.metadata
 import importlib.resources
 import json
 import os
@@ -48,7 +47,6 @@ from pathlib import Path
 
 from kiln_harness_tuner import __version__
 
-DIST_NAME = "harness-tuner"
 SOURCE_INSTRUCTIONS = "AGENTS.md"
 # Names that are never agent files, wherever they sit. Byte code: the suite
 # imports the wrapper templates under `agent_files/skills/` from the source
@@ -97,11 +95,8 @@ def source_dir() -> Path:
 
 def package_version() -> str:
     """The installed distribution's version, which names a run's agents
-    folder. `__version__` when no distribution metadata is found."""
-    try:
-        return importlib.metadata.version(DIST_NAME)
-    except importlib.metadata.PackageNotFoundError:
-        return __version__
+    folder. `__version__` reads it from the distribution metadata."""
+    return __version__
 
 
 def _files_under(folder: Path) -> Iterator[Path]:
@@ -239,52 +234,49 @@ def install_for_run(agent_cli: str, agents_root: Path, version: str) -> Path:
 # ---- `harness-tuner-install-agents --dest DIR` ----
 
 
-def _merge_json(target: Path, merge) -> Path:
-    """Apply `merge` to the JSON object in `target` (empty when the file is
-    absent) and write it back. A file that is not a JSON object is refused."""
-    data: dict = {}
-    if target.exists():
-        try:
-            data = json.loads(target.read_text(encoding="utf-8"))
-        except ValueError as exc:
-            raise InstallError(
-                f"{target} is not valid JSON ({exc}).\nfix: correct or move it."
-            ) from exc
-        if not isinstance(data, dict):
-            raise InstallError(f"{target} is not a JSON object.\nfix: move it.")
-    merge(data)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    return target
+def _read_object(target: Path) -> dict:
+    """The JSON object in `target`, or an empty one when the file is absent.
+    A file that is not a JSON object is refused."""
+    if not target.exists():
+        return {}
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise InstallError(
+            f"{target} is not valid JSON ({exc}).\nfix: correct or move it."
+        ) from exc
+    if not isinstance(data, dict):
+        raise InstallError(f"{target} is not a JSON object.\nfix: move it.")
+    return data
 
 
-def _install_claude_mcp(source: Path, dest: Path) -> list[Path]:
-    """The `kiln_api_mcp` server into `.mcp.json`, and its switch into
-    `.claude/settings.json`. Other servers and settings are kept."""
+def _claude_configs(source: Path, dest: Path) -> list[tuple[Path, dict]]:
+    """`.mcp.json` with the `kiln_api_mcp` server added, and
+    `.claude/settings.json` with its switch, each with the file it goes to.
+    Other servers and settings are kept. Both files are read before anything
+    is written, so a refused file stops the install with nothing changed."""
     ours = json.loads((source / "claude" / ".mcp.json").read_text(encoding="utf-8"))
     enabled = json.loads(
         (source / "claude" / "settings.json").read_text(encoding="utf-8")
     )["enabledMcpjsonServers"]
-
-    def add_servers(data: dict) -> None:
-        data.setdefault("mcpServers", {}).update(ours["mcpServers"])
-
-    def enable(data: dict) -> None:
-        names = data.setdefault("enabledMcpjsonServers", [])
-        names.extend(n for n in enabled if n not in names)
-
-    return [
-        _merge_json(dest / ".mcp.json", add_servers),
-        _merge_json(dest / ".claude" / "settings.json", enable),
-    ]
+    mcp_path = dest / ".mcp.json"
+    settings_path = dest / ".claude" / "settings.json"
+    mcp = _read_object(mcp_path)
+    settings = _read_object(settings_path)
+    mcp.setdefault("mcpServers", {}).update(ours["mcpServers"])
+    names = settings.setdefault("enabledMcpjsonServers", [])
+    names.extend(n for n in enabled if n not in names)
+    return [(mcp_path, mcp), (settings_path, settings)]
 
 
 def install_into(agent_cli: str, dest: Path) -> list[Path]:
     """Install the skills for `agent_cli` under `dest`, and for `claude` the
     `kiln_api_mcp` server. Returns what was written. A skill of the same name
-    is replaced; other skills under `dest` are left alone."""
+    is replaced; other skills under `dest` are left alone. A JSON file that
+    is refused stops the install before anything is written."""
     source = source_dir()
     layout = AGENT_CLIS[agent_cli]
+    configs = _claude_configs(source, dest) if agent_cli == "claude" else []
     written: list[Path] = []
     for skill in sorted(p for p in (source / "skills").iterdir() if p.is_dir()):
         target = dest / layout.skills / skill.name
@@ -294,8 +286,10 @@ def install_into(agent_cli: str, dest: Path) -> list[Path]:
             shutil.rmtree(target)
         shutil.copytree(skill, target, ignore=shutil.ignore_patterns(*NOT_AGENT_FILES))
         written.append(target)
-    if agent_cli == "claude":
-        written += _install_claude_mcp(source, dest)
+    for path, data in configs:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        written.append(path)
     return written
 
 
@@ -355,6 +349,14 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
     except InstallError as exc:
         print(f"harness-tuner-install-agents: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        # A --dest that is a file, or a folder that cannot be written.
+        print(
+            f"harness-tuner-install-agents: cannot install into {dest} ({exc}).\n"
+            "fix: give a folder that you can write to as --dest.",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

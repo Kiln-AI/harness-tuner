@@ -49,6 +49,7 @@ from kiln_harness_tuner.onboarding.flow import (
     StartReport,
     prepare_start,
 )
+from kiln_harness_tuner.onboarding.questions import TIME_HINT
 from kiln_harness_tuner.onboarding.summary import RERUN_HEADING
 
 SUPPORT = project("118230554411", "Support Triage", "/kiln-projects/Support Triage")
@@ -80,9 +81,10 @@ DEFAULT_SUMMARY = (
     " (424242975950)\n"
     '  Starts from  run config "Baseline": llama-v3p1-8b-instruct on Fireworks AI\n'
     "  Improve      Quality\n"
+    "  Models       keep the task's model (llama-v3p1-8b-instruct on Fireworks AI)\n"
     "  Guidance     none\n"
     "  Agents       Claude Code (claude -p) · opus\n"
-    "  Limits       $50.00 on the task's model calls · 12 hours\n"
+    "  Limits       $50.00 on the task's model calls · about 12 hours\n"
     "  Advanced     defaults"
 )
 
@@ -112,6 +114,7 @@ def start(
     home=None,
     which=every_cli,
     report=None,
+    policy_dir=None,
 ):
     parser = build_parser()
     return prepare_start(
@@ -125,6 +128,7 @@ def start(
         home=home,
         which=which,
         report=report,
+        policy_dir=policy_dir,
     )
 
 
@@ -174,6 +178,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
             TASK_ID,
             "r",
             "speed",
+            "any",
             "Keep the output format.",
             "codex",
             "gpt-6.1-sol",
@@ -195,6 +200,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "Keep the output format.",
         "codex exec -m gpt-6.1-sol",
     )
+    assert args.models == "any"
     assert (args.budget_usd, args.timeout_mins) == (20.0, 90)
     assert (args.model_policy, args.min_effect, args.noise_check) == (None, None, 0)
     assert (args.max_concurrent_evals, args.max_concurrent_agents) == (4, 4)
@@ -217,6 +223,8 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "step API keys: Fireworks AI",
         "pick What should the tuner improve?",
         "step Improve: Speed",
+        "pick Which models may the tuner use?",
+        "step Models: any model Kiln offers",
         "text Guidance for the tuner's planner (optional)",
         'step Guidance: "Keep the output format."',
         "busy Looking for agent CLIs…",
@@ -242,15 +250,17 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         '  Starts from  run config "Baseline": llama-v3p1-8b-instruct on'
         " Fireworks AI\n"
         "  Improve      Speed\n"
+        "  Models       any model Kiln offers\n"
         '  Guidance     "Keep the output format."\n'
         "  Agents       Codex (codex exec) · gpt-6.1-sol\n"
-        "  Limits       $20.00 on the task's model calls · 90 minutes\n"
+        "  Limits       $20.00 on the task's model calls · about 90 minutes\n"
         "  Advanced     defaults",
         f"\n{RERUN_HEADING}\n"
         "  kiln-harness-tuner \\\n"
         "    --project-id 424242975950 --task-id 424242783061 \\\n"
         "    --project-path '/kiln-projects/Forum Moderation' \\\n"
         "    --objective speed \\\n"
+        "    --models any \\\n"
         "    --guidance 'Keep the output format.' \\\n"
         "    --agent-cli 'codex exec -m gpt-6.1-sol' \\\n"
         "    --budget-usd 20 --timeout-mins 90 \\\n"
@@ -265,6 +275,7 @@ def test_a_rerun_with_the_printed_command_asks_nothing_and_gets_the_same_flags()
             PROJECT_ID,
             TASK_ID,
             "cost",
+            "any",
             "",
             "claude",
             "sonnet",
@@ -337,9 +348,9 @@ def test_every_question_answered_by_a_flag_is_skipped():
         0.1,
         3,
     )
+    assert "  Models       policy policy.json" in summaries(terminal)[0]
     assert summaries(terminal)[0].endswith(
-        "  Advanced     model policy policy.json · minimum effect 10%"
-        " · noise check on 3 items per eval"
+        "  Advanced     minimum effect 10% · noise check on 3 items per eval"
     )
 
 
@@ -353,7 +364,7 @@ def test_exit_at_the_start_prompt_stops_with_1():
 
 def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "high", "50", "12h", "enter"]
+        ["any", "", "claude", "opus", "high", "50", "12h", "enter"]
         + ["e", "budget", "$5", "e", "time", "3h", "s"]
     )
     args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
@@ -362,31 +373,60 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     picks = [a for a in terminal.asked if a.kind == "pick"]
     change = picks.index(terminal.asked_about(CHANGE_QUESTION))
     assert picks[change].offered == (
+        "models",
         "guidance",
         "agents",
         "budget",
         "time",
-        "model_policy",
         "min_effect",
         "max_concurrent_evals",
         "max_concurrent_agents",
         "noise_check",
     )
-    budget = terminal.options[change][2]
+    budget = terminal.options[change][3]
     assert (budget.label, budget.columns) == ("Budget", ("$50.00",))
     assert terminal.asked_about("Budget for this run").default == "50"
     assert terminal.asked_about("Time limit (1h, 24h, 45m)").default == "12h"
     limits = [s.splitlines()[-2] for s in summaries(terminal)]
     assert limits == [
-        "  Limits       $50.00 on the task's model calls · 12 hours",
-        "  Limits       $5.00 on the task's model calls · 12 hours",
-        "  Limits       $5.00 on the task's model calls · 3 hours",
+        "  Limits       $50.00 on the task's model calls · about 12 hours",
+        "  Limits       $5.00 on the task's model calls · about 12 hours",
+        "  Limits       $5.00 on the task's model calls · about 3 hours",
     ]
     assert rerun_commands(terminal)[-1].endswith(
         "--budget-usd 5 --timeout-mins 180 --no-interaction"
     )
     # The key check ran once: no answer touched the policy.
     assert terminal.busy_texts.count("Checking API keys…") == 1
+
+
+# ---- the time limit is approximate ----
+
+
+def test_the_time_question_says_the_limit_is_approximate_with_no_warning():
+    # Every core flag but the time limit: the time is the one question.
+    no_time = [a for a in CORE_ANSWERED if a not in ("--timeout-mins", "720")]
+    terminal = ScriptedTerminal(["45m", *KEEP_AND_START])
+    start(two_projects(), terminal, [*EVERY_FLAG, *no_time])
+    assert terminal.asked_about("Time limit (1h, 24h, 45m)").hint == TIME_HINT
+    assert "approximate" in TIME_HINT
+    # No warning line follows the answer: nothing went wrong.
+    time_step = terminal.transcript.index("step Time: 45 minutes")
+    assert not terminal.transcript[time_step + 1].startswith("warn ")
+    assert terminal.err == []
+    assert summaries(terminal)[-1].splitlines()[-2] == (
+        "  Limits       $50.00 on the task's model calls · about 45 minutes"
+    )
+    # The rerun command stays exact.
+    assert "--timeout-mins 45" in rerun_commands(terminal)[-1]
+
+
+def test_a_start_that_is_not_guided_has_no_time_warning():
+    terminal = ScriptedTerminal(interactive=False)
+    start(two_projects(), terminal, [*EVERY_FLAG, "--timeout-mins", "45"])
+    assert terminal.err == []
+    (summary,) = summaries(terminal)
+    assert "· about 45 minutes" in summary
 
 
 # ---- Esc at the start prompt and while changing an answer ----
@@ -396,7 +436,7 @@ TIME_QUESTION = "Time limit (1h, 24h, 45m)"
 
 
 def test_esc_at_start_asks_the_last_question_again():
-    terminal = ScriptedTerminal(["enter", ESC, "c", "", "", "4", "4", "2", "s"])
+    terminal = ScriptedTerminal(["enter", ESC, "c", "", "4", "4", "2", "s"])
     args = start(two_projects(), terminal, [*EVERY_FLAG, *CORE_ANSWERED])
     assert terminal.questions[:3] == [ADVANCED_PROMPT, START_PROMPT, ADVANCED_PROMPT]
     assert terminal.asked[1].back is True
@@ -409,7 +449,7 @@ def test_esc_at_start_asks_the_last_question_again():
 
 
 def test_esc_at_start_after_the_last_advanced_question_asks_it_again():
-    terminal = ScriptedTerminal(["c", "", "", "4", "4", "0", ESC, "5", "s"])
+    terminal = ScriptedTerminal(["c", "", "4", "4", "0", ESC, "5", "s"])
     args = start(two_projects(), terminal, [*EVERY_FLAG, *CORE_ANSWERED])
     noise = "Noise check: items per eval re-run before wave 1"
     assert terminal.questions[-3:] == [START_PROMPT, noise, START_PROMPT]
@@ -419,7 +459,7 @@ def test_esc_at_start_after_the_last_advanced_question_asks_it_again():
 
 def test_esc_at_start_walks_back_on_from_the_last_question():
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "high", "50", "12h", "enter", ESC, ESC, "3h"]
+        ["any", "", "claude", "opus", "high", "50", "12h", "enter", ESC, ESC, "3h"]
         + ["enter", "s"]
     )
     argv = [*EVERY_FLAG, "--objective", "speed"]
@@ -473,7 +513,7 @@ def test_esc_at_the_changed_question_leaves_the_answer_as_it_was():
 
 def test_esc_while_changing_the_agents_steps_back_then_cancels():
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "high", "50", "12h", "enter"]
+        ["any", "", "claude", "opus", "high", "50", "12h", "enter"]
         + ["e", "agents", "codex", "", ESC, ESC, ESC, "s"]
     )
     args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
@@ -516,14 +556,16 @@ def openai_kiln() -> RouteKiln:
     return kiln
 
 
-CUSTOMIZE_WITH_A_POLICY = ["c", "policy.json", "", "4", "4", "0"]
+# Every core flag but `--models`, so the Models question is asked.
+NO_MODELS = [a for a in CORE_ANSWERED if a not in ("--models", "keep")]
+A_POLICY_FILE = ["file", "policy.json", "enter"]
 
 
-def test_a_policy_set_in_advanced_runs_the_key_check_again():
+def test_a_policy_file_set_at_models_runs_the_key_check_again():
     load, loaded = policy_naming("openai")
-    terminal = ScriptedTerminal([*CUSTOMIZE_WITH_A_POLICY, "s"])
-    args = start(openai_kiln(), terminal, [*EVERY_FLAG, *CORE_ANSWERED], load)
-    assert args.model_policy == "policy.json"
+    terminal = ScriptedTerminal([*A_POLICY_FILE, "s"])
+    args = start(openai_kiln(), terminal, [*EVERY_FLAG, *NO_MODELS], load)
+    assert (args.model_policy, args.models) == ("policy.json", None)
     # The first check loads no policy; the field's check and the key check
     # each load the one typed.
     assert loaded == [None, "policy.json", "policy.json"]
@@ -532,10 +574,11 @@ def test_a_policy_set_in_advanced_runs_the_key_check_again():
         "API keys: Fireworks AI, OpenAI",
     ]
     transcript = terminal.transcript
-    assert transcript.index("step Advanced: model policy policy.json") < (
+    assert transcript.index("step Models: policy policy.json") < (
         transcript.index("step API keys: Fireworks AI, OpenAI")
     )
     assert "--model-policy policy.json" in rerun_commands(terminal)[0]
+    assert "--models" not in rerun_commands(terminal)[0]
 
 
 def test_a_policy_with_a_missing_key_is_fixed_before_the_summary():
@@ -546,8 +589,8 @@ def test_a_policy_with_a_missing_key_is_fixed_before_the_summary():
         available_models("fireworks_ai"),
         available_models("fireworks_ai", "openai"),
     )
-    terminal = ScriptedTerminal([*CUSTOMIZE_WITH_A_POLICY, "r", "s"])
-    start(kiln, terminal, [*EVERY_FLAG, *CORE_ANSWERED], load)
+    terminal = ScriptedTerminal([*A_POLICY_FILE, "r", "s"])
+    start(kiln, terminal, [*EVERY_FLAG, *NO_MODELS], load)
     (body,) = [body for title, body in terminal.blocks if title == KEY_MISSING]
     assert body[1] == (
         "  • OpenAI: used by --model-policy, or remove it from the model policy"
@@ -559,18 +602,41 @@ def test_a_policy_with_a_missing_key_is_fixed_before_the_summary():
 
 def test_a_policy_changed_by_change_an_answer_runs_the_key_check_again():
     load, loaded = policy_naming("openai")
-    terminal = ScriptedTerminal(["enter", "e", "model_policy", "policy.json", "s"])
-    start(openai_kiln(), terminal, [*EVERY_FLAG, *CORE_ANSWERED], load)
+    terminal = ScriptedTerminal(
+        ["keep", "enter", "e", "models", "file", "policy.json", "s"]
+    )
+    start(openai_kiln(), terminal, [*EVERY_FLAG, *NO_MODELS], load)
     assert loaded == [None, "policy.json", "policy.json"]
     assert terminal.step_lines()[-2:] == [
-        "Advanced: model policy policy.json",
+        "Models: policy policy.json",
         "API keys: Fireworks AI, OpenAI",
     ]
-    advanced = [s.splitlines()[-1] for s in summaries(terminal)]
-    assert advanced == [
-        "  Advanced     defaults",
-        "  Advanced     model policy policy.json",
+    models = [
+        line
+        for summary in summaries(terminal)
+        for line in summary.splitlines()
+        if line.startswith("  Models")
     ]
+    assert models == [
+        "  Models       keep the task's model (llama-v3p1-8b-instruct on Fireworks AI)",
+        "  Models       policy policy.json",
+    ]
+
+
+def test_picked_models_are_saved_and_passed_as_a_policy(tmp_path):
+    kiln = openai_kiln()
+    terminal = ScriptedTerminal(["pick", [("openai", "some_model")], "enter", "s"])
+    args = start(
+        kiln,
+        terminal,
+        [*EVERY_FLAG, *NO_MODELS],
+        policy_dir=tmp_path,
+    )
+    (saved,) = tmp_path.glob("picked-*.json")
+    assert args.model_policy == str(saved)
+    assert args.models is None
+    assert "Models: 1 model picked: some_model" in terminal.step_lines()
+    assert f"--model-policy {saved}" in rerun_commands(terminal)[0]
 
 
 def test_a_policy_given_by_flag_is_checked_once():
@@ -955,7 +1021,8 @@ def test_an_error_is_shown_as_a_block_only_in_a_guided_start(interactive):
 def test_the_start_report_names_the_choice_and_repeats_the_last_texts():
     reports: list[StartReport] = []
     terminal = ScriptedTerminal(
-        ["", "claude", "opus", "high", "50", "12h", "enter", "e", "budget", "$5", "s"]
+        ["any", "", "claude", "opus", "high", "50", "12h", "enter", "e", "budget"]
+        + ["$5", "s"]
     )
     argv = [*EVERY_FLAG, "--objective", "speed"]
     start(two_projects(), terminal, argv, report=reports.append)
@@ -1071,7 +1138,7 @@ def test_demo_project_copies_imports_and_runs_on_the_copy(tmp_path):
 
 
 def test_the_demo_pre_fills_its_guidance(tmp_path):
-    terminal = ScriptedTerminal(["quality", DEMO_GUIDANCE])
+    terminal = ScriptedTerminal(["quality", "keep", DEMO_GUIDANCE])
     with pytest.raises(OnboardingStopped):  # the answers run out at the agents
         start(demo_kiln(), terminal, ["--demo-project"], home=tmp_path)
     asked = terminal.asked_about("Guidance for the tuner's planner (optional)")
@@ -1130,7 +1197,7 @@ def test_no_projects_m_makes_the_demo_and_runs_on_it(tmp_path):
 def test_no_projects_m_pre_fills_the_demo_guidance(tmp_path):
     kiln = RouteKiln(kiln_routes())
     kiln.routes[("POST", IMPORT_PATH)] = import_project_route(kiln)
-    terminal = ScriptedTerminal(["m", "quality", DEMO_GUIDANCE])
+    terminal = ScriptedTerminal(["m", "quality", "keep", DEMO_GUIDANCE])
     with pytest.raises(OnboardingStopped):
         start(kiln, terminal, [], home=tmp_path)
     asked = terminal.asked_about("Guidance for the tuner's planner (optional)")

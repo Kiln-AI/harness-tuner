@@ -81,7 +81,7 @@ PROVIDER_LANE: SpendLane = "provider"
 # words itself.
 SPEND_LANE_LABELS: dict[str, str] = {
     SUBSCRIPTION_LANE: "Claude Code",
-    PROVIDER_LANE: "Kiln",
+    PROVIDER_LANE: "API keys",
 }
 # The agent lane is named after the agent CLI the run dispatches through.
 AGENT_CLI_LABELS: dict[str, str] = {
@@ -202,7 +202,7 @@ class FixWork(BaseModel):
         return self
 
     # Reuse a run config a PRIOR run already built and measured
-    #   (it lost only its analysis to that run's deadline; the abandoned
+    #   (it lost only its analysis when that run stopped; the abandoned
     #   experiment record names it on its `rc:` line). Set → no build session
     #   and no build spend; the item measures and analyzes that rc. The arm
     #   still opens its own experiment record, marked `reused rc:` so the
@@ -1834,8 +1834,9 @@ class BaselineReview(BaseModel):
 class BatchPlanInput(BaseModel):
     guidance: str  # kickoff human guidance, verbatim, every wave
     baseline: BaselineRef
-    should_wrap_up: bool  # the code budget judgment — the conclusion,
-    #   not the clock
+    should_wrap_up: bool  # code's judgment that this is the last wave
+    #   (the time limit has passed, or the budget fits one more wave only)
+    #   — the conclusion, not the clock
     eval_sizes: dict[str, int]  # eval_id -> measurable TRAIN items on the
     #   baseline: the count of stored EvalRuns, i.e. what a comparison can
     #   actually pair, not the dataset's nominal size. Advisory
@@ -1864,10 +1865,13 @@ class BatchPlanInput(BaseModel):
     #   `baseline_latency`: the baseline's own per-item latency on the stored
     #   train eval runs (median/p90 over its items; the `candidate_*` fields
     #   are unset) — so a speed plan knows where the baseline stands.
-    #   `model_policy`: the `--model-policy` rules, or None when no policy is
-    #   in force. `allowed_models`: the models the server offers that the
-    #   policy allows (every offered model without a policy) — an arm on any
-    #   other model is refused by code before it is built or measured.
+    #   `model_policy`: the policy in force, or None under `--models any`:
+    #   the `--model-policy` rules, or under `--models keep` the baseline's
+    #   one pair (`orchestrator.pin_baseline_model`). `allowed_models`: the
+    #   models the server offers that the policy allows (every offered model
+    #   without a policy) — an arm on any other model is refused by code
+    #   before it is built or measured. A model or provider swap is a lever
+    #   exactly when it lists a model other than the baseline's.
     objective: Objective = "quality"
     baseline_cost: LatencyComparison | None = None  # speed/cost: the
     #   baseline's per-request cost on the fixed speed sample (metric cost_usd)
@@ -2127,7 +2131,7 @@ class RunStatus(BaseModel):
     spend_total_usd: float  # the task's model calls: no agent dollars
     time_remaining_secs: float
     exit_reason: str | None
-    # Why a `timeout` exit came early, in words (`status.exit_detail`).
+    # How a `timeout` exit ended, in words (`status.exit_detail`).
     exit_detail: str | None = None
     # The live totals row (and the report-appendix header) need the
     # run's clock as well as its deadline:

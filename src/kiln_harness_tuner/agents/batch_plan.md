@@ -152,7 +152,11 @@ shorter prompt, fewer output tokens — as the skill's "speed objective"
 section says. An arm wins only when it is clearly faster (cheaper) AND
 its quality is equal or better; the exact rule, its staging and its cost
 are `speed_rule` in your input. Screen candidate models and levels first;
-only survivors become arms. Whatever the objective, plan arms only on models in
+only survivors become arms. A model or provider swap is a lever exactly
+when `allowed_models` lists a model other than the baseline's: the owner
+chose that list at start-up, and under `--models keep` (the quality
+default) it holds the baseline's model alone (the skill's Hard rules).
+Whatever the objective, plan arms only on models in
 `allowed_models`: code refuses any other model before it is built or
 measured. `flagged_models` names each model the start-up model preflight
 flagged this run, with the reason (its test call failed, or its context

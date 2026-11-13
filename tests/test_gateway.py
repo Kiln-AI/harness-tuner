@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from test_quarantine import TASK, Project
 
 from kiln_harness_tuner.gateway import hook
 from kiln_harness_tuner.gateway import ops as gw
-from kiln_harness_tuner.gateway.server import create_server
+from kiln_harness_tuner.gateway.server import POLICY_FILE, create_server, load_policy
 from kiln_harness_tuner.gateway.trainset import TrainSet, TrainSetError, compute
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.quarantine import QuarantineError
@@ -333,6 +334,80 @@ class TestReads:
         gateway, _ = _gateway(tmp_path, routes, policy=policy)
         out = _run(gateway, "list_available_models")
         assert [(r["provider"], r["model"]) for r in out] == [("openai", "gpt")]
+
+
+class TestThePolicyCopy:
+    """The gateway reads `runs/<run_id>/model_policy.json`. An unreadable copy
+    refuses every model and names the file. It does not stop the gateway."""
+
+    @pytest.mark.parametrize(
+        "text",
+        ["{bad", '{"allow": []}', '{"allow": [{"provider": "*"}]}', "[]"],
+    )
+    def test_an_invalid_copy_refuses_every_model(self, tmp_path, text):
+        path = tmp_path / POLICY_FILE
+        path.write_text(text)
+        self._refuses_every_model(load_policy(tmp_path), path)
+
+    def test_a_copy_that_is_not_utf8_refuses_every_model(self, tmp_path):
+        path = tmp_path / POLICY_FILE
+        path.write_bytes(b"\xff\xfe{")
+        self._refuses_every_model(load_policy(tmp_path), path)
+
+    def test_a_copy_that_is_a_folder_refuses_every_model(self, tmp_path):
+        path = tmp_path / POLICY_FILE
+        path.mkdir()
+        self._refuses_every_model(load_policy(tmp_path), path)
+
+    @pytest.mark.skipif(
+        not hasattr(os, "geteuid") or os.geteuid() == 0,
+        reason="root reads a file with no read permission",
+    )
+    def test_a_copy_with_no_read_permission_refuses_every_model(self, tmp_path):
+        path = tmp_path / POLICY_FILE
+        path.write_text(json.dumps({"allow": [{"provider": "*", "model": "*"}]}))
+        path.chmod(0)
+        try:
+            policy = load_policy(tmp_path)
+        finally:
+            path.chmod(0o600)
+        self._refuses_every_model(policy, path)
+
+    @staticmethod
+    def _refuses_every_model(policy: ModelPolicy | None, path: Path) -> None:
+        assert policy is not None
+        for provider, model in [("openai", "gpt"), ("groq", "kimi"), ("x", "y")]:
+            reason = policy.refusal(provider, model)
+            assert reason is not None
+            assert str(path) in reason
+        assert policy.refusal(None, None) is not None
+        assert str(path) in policy.summary()["description"]
+
+    def test_the_gateway_refuses_a_run_config_under_an_unreadable_copy(self, tmp_path):
+        (tmp_path / POLICY_FILE).write_text("{bad")
+        gateway, kiln = _gateway(tmp_path, {}, policy=load_policy(tmp_path))
+        props = {
+            "type": "kiln_agent",
+            "model_provider_name": "openai",
+            "model_name": "gpt",
+        }
+        with pytest.raises(gw.GatewayError, match="unreadable"):
+            _run(gateway, "create_run_config", name="n", run_config_properties=props)
+        assert kiln.calls == []
+
+    def test_no_copy_or_an_empty_copy_is_no_policy(self, tmp_path):
+        assert load_policy(tmp_path) is None
+        (tmp_path / POLICY_FILE).write_text("  \n")
+        assert load_policy(tmp_path) is None
+
+    def test_a_readable_copy_is_the_policy(self, tmp_path):
+        (tmp_path / POLICY_FILE).write_text(
+            json.dumps({"allow": [{"provider": "openai", "model": "*"}]})
+        )
+        policy = load_policy(tmp_path)
+        assert policy is not None
+        assert policy.refusal("openai", "gpt") is None
+        assert policy.refusal("groq", "kimi") is not None
 
 
 class TestEvalListShapes:
@@ -921,6 +996,11 @@ def test_the_val_readers_get_the_code_assembled_tables(tmp_path):
 
     gateway, _ = _gateway(tmp_path, {}, role="promote_best")
     assert _run(gateway, "get_val_summary")["candidates"] == []
+    # The run folder is prepared with an empty file: still no gate, no error.
+    (tmp_path / "run" / gw.VAL_SUMMARY_FILE).write_text("")
+    empty = _run(gateway, "get_val_summary")
+    assert empty["candidates"] == []
+    assert empty["note"] == "no promotion gate has run yet"
     table = CandidateValTable(rc_id="rc1", experiment_memory_id="m1", per_eval=[])
     (tmp_path / "run" / gw.VAL_SUMMARY_FILE).write_text(
         json.dumps({"candidates": [table.model_dump(mode="json")], "note": "n"})

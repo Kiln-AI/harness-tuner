@@ -168,9 +168,9 @@ type, a missing default eval config — so those are reported as
 
 **A timeout.** The subprocess is killed and the result is
 `failed_infra(timeout)`. Every dispatch runs under a per-role cap, and the cap
-is what bounds a hang *inside* a wave. The run deadline does not do that job: it
-stops the wave, cancelling the item and losing what it had paid for, and it only
-arrives at the end of the time the operator asked for. A per-role cap turns a
+is what bounds a hang *inside* a wave. The run's time limit does not do that
+job: it is checked at wave boundaries only, and a wave in flight at the limit
+runs to its end. A per-role cap turns a
 wedged session into one failed item the ladder can retry, minutes after it
 wedged rather than hours.
 
@@ -227,8 +227,9 @@ it changes what the run's numbers mean. That is the harder failure to notice,
 which is why each row names the specific thing an agent could reach.
 
 The hook is **one** row because `cli.py` renders **one** hook per role, with
-one matcher on MCP tools: the role's gateway operations pass, every other
-MCP tool is refused. The other rules — this run's project and task, memory
+one matcher on MCP tools: the role's gateway operations pass, and so do the
+skill-installer tools of the builder and the probe; every other MCP tool is
+refused. The other rules — this run's project and task, memory
 scopes, train only, the model policy — are the gateway's own, in code
 (`kiln_harness_tuner.gateway`), so a dispatcher that serves the gateway per
 role inherits them.
@@ -256,13 +257,14 @@ worth, so the decision is informed.
   subprocess or the MCP servers it spawns, because agents hold a shell and
   transcripts are files. One of them also changes billing: with an API key
   present, the CLI bills the API instead of the operator's login, and the
-  reported cost silently turns from a shadow price into real money.
+  agents' use becomes real API money, which the tuner neither shows in
+  dollars nor counts.
   `--budget-usd` never counts the agents, for any agent CLI: the loop shows
   their tokens for information ([costs.md](costs.md)).
 - **Per-role model and effort.** Pinned in code so that runs do not differ
-  across machines, overridable per role from the CLI. Worth: the agent side is
-  where a run's spend concentrates, and the mechanical roles do not need the
-  same model as the planner.
+  across machines, overridable per role from the CLI. Worth: the agents use most of a
+  run's tokens, and the mechanical roles do not need the same model as the
+  planner.
 - **A per-dispatch scratch directory.** Under the run folder's `scratch/`,
   and the only place the session may write files.
 - **A provider-quota circuit breaker.** A classified quota or authentication
@@ -284,7 +286,10 @@ worth, so the decision is informed.
 
 The short version:
 
-1. Implement the twelve methods (eleven roles and `preflight`). Return `AgentResult[T]` with a validated `data`
+1. Implement the twelve methods (eleven roles and `preflight`), and the
+   start-up check `check_cli`. `cli.py` also reads the class attributes
+   `CLI_NAME` and `HAS_MAX_TURNS`, and its `DISPATCHERS` table types every
+   adapter as a `ClaudeCliDispatcher`, so a new one subclasses it. Return `AgentResult[T]` with a validated `data`
    on success.
 2. Make `preflight` prove the agents' Kiln lane and raise with an actionable
    message when it cannot.
@@ -293,7 +298,9 @@ The short version:
 4. Pass the agent's own `failed_expected` through. Do not convert a measured
    negative into an infrastructure failure.
 5. Report `usage` across every attempt, and `attempts` honestly.
-6. Read section 6 and decide, per row, what you are giving up.
+6. Start each session in its workspace, with `PWD` set to it: a CLI can read
+   `PWD` rather than the process's working folder, and then finds no skills.
+7. Read section 6 and decide, per row, what you are giving up.
 
 Construct it in `cli.py` and nowhere else, or
 `tests/test_dispatch_boundary.py` will say so. `cli.DISPATCHERS` maps the
@@ -378,7 +385,7 @@ Codex home:
 |---|---|
 | `":root" = "deny"` | The whole disk is unreadable and unwritable. |
 | `":minimal" = "read"` | The platform paths common tools need. |
-| `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the val readers. |
+| `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the read-only roles (`READ_ONLY_ROLES`: the val readers, the two reviewers and the baseline reviewer). |
 | the agents folder's `.agents/skills` = `"read"` | The skills, and nothing else of the state folder. |
 | the run folder's `scratch/traces` = `"read"` | The gateway's trace folder, for the roles that read traces (`TRACE_READER_ROLES`) only. |
 | `network.enabled = false` | No network for any command: no `curl` to the Kiln server. |
@@ -462,9 +469,9 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 | Rule | Effect |
 |---|---|
 | `"*": "deny"` | Every tool is denied, so the shell, web fetch, web search, grep, glob, sub-agents and the rest are not in the session at all. |
-| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces; denied everywhere else. |
-| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the val readers. |
-| `external_directory` | Denied, except the workspace, the skills and, for the roles that read traces, the trace folder. |
+| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces. Also allowed for the `tool_*` files in OpenCode's own `tool-output` folder (`<XDG data>/opencode/tool-output`): when OpenCode cuts a long tool answer, it puts the rest there and names the file. The agent cannot list that folder. Denied everywhere else. |
+| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers, the two reviewers and the baseline reviewer). |
+| `external_directory` | Denied, except the workspace, the skills, the `tool_*` files in OpenCode's `tool-output` folder and, for the roles that read traces, the trace folder. |
 | `skill` | Allowed, so the skills load as they do under Claude Code. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |
 | `skill_installer_<tool>` | Allowed by name, for the two roles that hold the installer. |
@@ -483,8 +490,9 @@ read of a skill file work; the `kiln-harness-tuner-*` skills are found; and the
 gateway answers through the rendered MCP config.
 
 Every session also runs with `--format json`, `--pure` (no external
-plugins) and `--auto` (approve what the rules do not deny, so a session
-never waits on a question nobody can answer). The effort is `--variant`,
+plugins), `--auto` (approve what the rules do not deny, so a session
+never waits on a question nobody can answer) and `--dir <workspace>`. Do not
+put any of these in `--agent-cli`: OpenCode then gets them twice. The effort is `--variant`,
 `high` by default; OpenCode ignores a variant the model does not have.
 
 Against section 6:
@@ -505,8 +513,14 @@ What else differs:
 - **Errors.** A failed session exits non-zero and prints an `error` event;
   that event is classified, as for Codex.
 - **Transcripts** are copied, redacted, from `opencode export <session id>`.
+  The export writes to a file, not to a pipe. Through a pipe, OpenCode exits
+  before the pipe drains, and an export longer than 64 KiB is cut off.
 - **Instructions and skills.** OpenCode finds `.agents/skills` and
   `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
   the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy
   of its `AGENTS.md`. OpenCode also loads the user's own skills, as Claude
-  Code does.
+  Code does. OpenCode takes its project folder from the `PWD` variable, not
+  from the working directory of its process. So every session gets its
+  workspace twice: as `--dir <workspace>`, as Codex gets `-C`, and as
+  `PWD`. With the `PWD` of the folder that `harness-tuner` was started in
+  and no `--dir`, a session finds none of the tuner's skills.

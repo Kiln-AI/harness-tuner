@@ -45,6 +45,7 @@ from kiln_harness_tuner.onboarding.flow import START_QUESTION, prepare_start
 from kiln_harness_tuner.tui import widgets
 from kiln_harness_tuner.tui.app import TunerApp
 from kiln_harness_tuner.tui.bridge import CancellableRunner
+from kiln_harness_tuner.tui.model.state import ItemKey
 from kiln_harness_tuner.tui.screens.prompts import ActionMenu, Picker, TextAnswer
 from kiln_harness_tuner.tui.theme import DARK, LIGHT
 
@@ -84,6 +85,17 @@ async def press(app: TunerApp, pilot: Pilot[Any], keys: tuple[str, ...]) -> None
         await pilot.pause()
 
 
+def item_key(run: sample_run.Run, item_id: str) -> ItemKey:
+    """The key of the newest item with this id."""
+    waves = run.model.waves
+    index = max(
+        n
+        for n, wave in enumerate(waves)
+        if any(i.item_id == item_id for i in wave.items)
+    )
+    return (index, item_id)
+
+
 async def run_shot(
     name: str,
     title: str,
@@ -93,7 +105,10 @@ async def run_shot(
     theme: str = DARK,
     keys: tuple[str, ...] = (),
     ended: bool = False,
+    details: str | None = None,
 ) -> Path:
+    """`details` opens that item's details panel, as a click on its card
+    does."""
     async with on_screen(run, size=size, theme=theme) as (harness, pilot):
         app = harness.app
         if ended:
@@ -102,6 +117,8 @@ async def run_shot(
             await until(pilot, lambda: (app.drain(), app.phase == "done")[1])
             await harness.shown(pilot)
         await settle(pilot)
+        if details is not None:
+            app.show_item(item_key(run, details))
         await press(app, pilot, keys)
         await settle(pilot)
         return save(app, name, title)
@@ -206,7 +223,18 @@ async def startup_shots() -> list[Path]:
         paths.append(
             save(app, "startup-text-answer-dark-210x62", "Start-up · Text answer")
         )
-    # The summary and "Start the run?".
+    # The guidance question, with its hint of one example per line.
+    guidance = list(ANSWERED)
+    at = guidance.index("--guidance")
+    del guidance[at : at + 2]
+    async with start_up(one_project_routes(), [*EVERY_FLAG, *guidance]) as (
+        app,
+        pilot,
+    ):
+        await prompted(pilot, TextAnswer)
+        await settle(pilot)
+        paths.append(save(app, "startup-guidance-dark-210x62", "Start-up · Guidance"))
+    # The summary and "Start tuning?".
     async with start_up(one_project_routes(), [*EVERY_FLAG, *ANSWERED]) as (
         app,
         pilot,
@@ -237,6 +265,42 @@ async def main() -> None:
             "Run · Stop dialog",
             sample_run.running(),
             {"keys": ("q",)},
+        ),
+        (
+            "run-details-fix-dark-210x62",
+            "Run · Details of a fix",
+            sample_run.running(),
+            {"details": "w4-1"},
+        ),
+        (
+            "run-details-merge-dark-210x62",
+            "Run · Details of a merge",
+            sample_run.running(),
+            {"details": "w4-4"},
+        ),
+        (
+            "run-details-probe-dark-210x62",
+            "Run · Details of a probe",
+            sample_run.running(),
+            {"details": "w4-5"},
+        ),
+        (
+            "run-details-val-dark-210x62",
+            "Run · Details of a promoted fix, with val results",
+            sample_run.planning(),
+            {"details": "w4-2"},
+        ),
+        (
+            "run-details-measure-dark-210x62",
+            "Run · Details of an issue measurement, over Done",
+            sample_run.done(),
+            {"ended": True, "details": "w5-2"},
+        ),
+        (
+            "run-picker-dark-210x62",
+            "Run · Experiment picker",
+            sample_run.running(),
+            {"keys": ("e",)},
         ),
         (
             "run-running-light-210x62",

@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/ocmgJF-4xRE"><img width="420" alt="Kiln Harness Tuner: watch the demo" src="https://github.com/user-attachments/assets/1edd32c9-dd09-421e-bb23-b3dec18d3d92" /></a>
+  <a href="https://youtu.be/UJfpzHJc0PQ"><img width="420" alt="Kiln Harness Tuner: watch the demo" src="https://github.com/user-attachments/assets/1edd32c9-dd09-421e-bb23-b3dec18d3d92" /></a>
 </p>
 
 **A real production agent, after tuning:** 2.5x fewer failures, 6x cheaper, 2x lower latency. Measured on held-out data, on a smaller model. It's a multi-turn agent with over 200 tools.
@@ -33,7 +33,7 @@ Most optimizers tune the prompt. Harness Tuner tunes everything around the model
 
 - **Tools.** The biggest win we see. Your tools probably wrap APIs written for code, not for agents. It rewrites them for the agent: smaller responses, better descriptions, no repeated calls. When a script should do the job, it writes a new code tool.
 - **Prompts and skills.** It cuts contradictions, adds the requirements nobody wrote down, and moves long instructions into skills that load only when needed.
-- **Model and settings.** It searches models and providers, then tunes thinking level, temperature and the rest for the one it picks.
+- **Model and settings.** It tunes thinking level, temperature and the rest. It keeps your model by default. Allow other models at start-up, or optimize for speed or cost, and it also searches models and providers.
 - **RAG, fine-tunes and sub-agents.** It attaches, swaps or drops the ones in your project.
 
 It tries different methods, not just different words: one big prompt or skills, RAG or a skill, many small tools or one general one.
@@ -55,15 +55,13 @@ It tries different methods, not just different words: one big prompt or skills, 
 
 ## Optimize the demo project
 
-Downloads a small moderation task into a new folder, adds it to Kiln, and tunes it: 624 labelled forum posts, and an eval. The baseline prompt doesn't know the forum's house rules, so there's plenty to find and fix.
+Copies a small moderation task, which ships with the tuner, into a new folder, adds it to Kiln, and tunes it: 624 labelled forum posts, and an eval. The baseline prompt doesn't know the forum's house rules, so there's plenty to find and fix.
 
-> Requires adding an OpenRouter API key to Kiln. The harness-tuner run will costs about $2.
+> Requires adding an OpenRouter API key to Kiln. The harness-tuner run will cost about $2.
 
 ```
 uv tool install harness-tuner
-harness-tuner --demo-project \
-    --guidance "Improve the moderation decisions. Keep the output format." \
-    --timeout-mins 120 --budget-usd 20
+harness-tuner --demo
 ```
 
 ## Quickstart
@@ -75,7 +73,7 @@ harness-tuner
 
 It walks you through the rest: starting [Kiln](https://github.com/Kiln-AI/Kiln) (or getting it from [kiln.tech](https://kiln.tech)), then picking the project and task to tune. Your agent needs to be a task in Kiln, with evals. Kiln can walk you through creating both.
 
-It works in waves until the budget or the clock runs out, then writes a report and prints where it is. Details: [docs/your-own-task.md](docs/your-own-task.md).
+It works in waves until the budget or the clock runs out, wraps up, then writes a report and prints where it is. Details: [docs/your-own-task.md](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/your-own-task.md).
 
 ## What you need
 
@@ -85,9 +83,9 @@ It works in waves until the budget or the clock runs out, then writes a report a
 - **Your model provider keys,** stored in Kiln. Used for running the agent being tuned, and evals.
 - **[uv](https://docs.astral.sh/uv/),** to install it.
 
-Missing something? [docs/install.md](docs/install.md) has a check and a fix for each requirement.
+Missing something? [docs/install.md](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/install.md) has a check and a fix for each requirement.
 
-Harness Tuner is free and open source, but it needs LLM API calls. See [docs/costs.md](docs/costs.md) for details.
+Harness Tuner is free and open source, but it needs LLM API calls. See [docs/costs.md](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/costs.md) for details.
 
 ## Works with Kiln and Seahaven
 
@@ -166,7 +164,7 @@ The tuner's agents only ever see the train split. Val is used only to decide whi
 <details>
 <summary><b>What about new model releases?</b></summary>
 
-Run the tuner again with the new model available. It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
+Run the tuner again and pick the new model at start-up (or allow any model). It checks the new model against every eval, re-tunes the harness for it if needed, and builds on everything it learned in earlier runs. Upgrading becomes a routine run, not a project.
 
 </details>
 
@@ -177,7 +175,7 @@ Harness Tuner runs on [Kiln](https://github.com/Kiln-AI/Kiln), our free app. Kil
 
 - **Evals:** creating and running them ([Kiln evals](https://kiln.tech/features/evals)).
 - **Experiment tracking:** the provenance of every experiment: what it changed, and which experiments it came from.
-- **Views of the results:** a Compare view to compare experiments on evals, cost and speed, and an Experiment Lineage view to see how the tuning progressed.
+- **Views of the results:** a Compare view to compare experiments on evals, cost and speed, and an Experiment Graph view to see how the tuning progressed.
 - **Harness history:** every experiment's harness is kept, for future experiments and comparisons.
 
 </details>
@@ -185,7 +183,7 @@ Harness Tuner runs on [Kiln](https://github.com/Kiln-AI/Kiln), our free app. Kil
 <details>
 <summary><b>What does a run cost, and how long does it take?</b></summary>
 
-It depends on the scope of the project. A small agent with a small eval can cost a few dollars. A large agent with hundreds of tools can cost several hundred. You set a budget and a time limit, and it stops starting new work when either runs out.
+It depends on the scope of the project. A small agent with a small eval can cost a few dollars. A large agent with hundreds of tools can cost several hundred. You set a budget for the model calls through Kiln (your agent CLI's own usage is not counted) and a time limit, and it stops starting new work when either runs out.
 
 Harness Tuner does several things to keep costs down:
 
@@ -193,30 +191,30 @@ Harness Tuner does several things to keep costs down:
 - **No wasted runs:** if your evals can't detect a real win, it says so before spending anything.
 - **Subscription agents:** the tuner's own agents run on your existing Claude Code, Codex or OpenCode subscription. It uses some of your quota, but that's usually much cheaper than per-token billing.
 
-Evals need direct API access and can't run on a coding agent subscription, so their tokens bill to your provider keys in Kiln. Details: [docs/costs.md](docs/costs.md).
+Evals need direct API access and can't run on a coding agent subscription, so their tokens bill to your provider keys in Kiln. Details: [docs/costs.md](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/costs.md).
 
 </details>
 
 ## Docs
 
-- [How it works](docs/how-it-works.md): the whole loop, with a diagram.
-- [Install](docs/install.md): every requirement, with a check and a fix for each.
-- [Concepts](docs/concepts.md): waves, experiments, splits and the promotion gate. Read it before your first run's report.
-- [Your own task](docs/your-own-task.md): what your task needs, and how the first run starts.
-- [CLI reference](docs/cli.md): every command and flag.
-- [Objectives and model policy](docs/objectives.md): what to optimize, and which models it may use.
-- [Costs](docs/costs.md): estimate a run before you start it.
-- [Limitations](docs/limitations.md): what it doesn't do. Read it before planning a long run.
-- [Architecture](docs/architecture.md): the wave loop, the gate, measurement, memory and the sandbox.
-- [Agents](docs/agents.md): the eleven agent roles and what each one does.
-- [Agent CLIs](docs/agent-cli.md): how it runs on Claude Code, Codex and OpenCode.
+- [How it works](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/how-it-works.md): the whole loop, with a diagram.
+- [Install](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/install.md): every requirement, with a check and a fix for each.
+- [Concepts](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/concepts.md): waves, experiments, splits and the promotion gate. Read it before your first run's report.
+- [Your own task](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/your-own-task.md): what your task needs, and how the first run starts.
+- [CLI reference](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/cli.md): every command and flag.
+- [Objectives and models](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/objectives.md): what to optimize, and which models it may use.
+- [Costs](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/costs.md): estimate a run before you start it.
+- [Limitations](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/limitations.md): what it doesn't do. Read it before planning a long run.
+- [Architecture](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/architecture.md): the wave loop, the gate, measurement, memory and the sandbox.
+- [Agents](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/agents.md): the eleven agent roles and what each one does.
+- [Agent CLIs](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/agent-cli.md): how it runs on Claude Code, Codex and OpenCode.
 
 ## Contributing
 
-See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/Kiln-AI/harness-tuner/blob/main/.github/CONTRIBUTING.md).
 
 ## License
 
-Harness Tuner is [MIT licensed](LICENSE).
+Harness Tuner is [MIT licensed](https://github.com/Kiln-AI/harness-tuner/blob/main/LICENSE).
 
 The Kiln name and logos are trademarks of Chesterfield Laboratories Inc.

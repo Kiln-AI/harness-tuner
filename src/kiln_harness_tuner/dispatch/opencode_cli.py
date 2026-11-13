@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -90,6 +91,19 @@ def path_patterns(path: Path, worktree: Path | None) -> list[str]:
     return [f"{relative}/**", f"{path.as_posix()}/**"]
 
 
+def tool_output_patterns(worktree: Path | None, environ: dict[str, str]) -> list[str]:
+    """The rule patterns for the files OpenCode writes when it truncates a
+    tool's output (`<XDG data>/opencode/tool-output/tool_<id>`): the
+    truncated answer names one, and the agent reads the rest from it.
+
+    Only `tool_*` files match, not the folder: the agent cannot list it, so
+    it opens only a file whose name it was given. OpenCode's own defaults
+    allow this folder; the `"*": "deny"` read rule takes that away."""
+    data = environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    folder = Path(data) / "opencode" / "tool-output"
+    return [p.removesuffix("/**") + "/tool_*" for p in path_patterns(folder, worktree)]
+
+
 def opencode_config(
     *,
     workspace: Path,
@@ -100,6 +114,7 @@ def opencode_config(
     mcp_tools: list[str],
     max_turns: int | None,
     read_dirs: list[Path] | None = None,
+    environ: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """One session's OpenCode config. `tools=False`: every tool denied.
     `read_dirs`: more folders `read` may open — the gateway's trace folder
@@ -110,6 +125,9 @@ def opencode_config(
         ws = path_patterns(workspace, worktree)
         skills = path_patterns(skills_dir, worktree)
         extra = [p for d in read_dirs or [] for p in path_patterns(d, worktree)]
+        extra += tool_output_patterns(
+            worktree, os.environ if environ is None else environ
+        )
         # `.agents/skills` in the workspace is a link to the agents folder,
         # which every later session and every run on this version reads.
         # If OpenCode checks a rule against the path as written rather than
@@ -322,6 +340,11 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
             # session never waits on a question nobody can answer.
             "--pure",
             "--auto",
+            # The workspace, named: OpenCode finds `.agents/skills` and
+            # `AGENTS.md` in its project folder, which it otherwise takes
+            # from `PWD` (the runner sets that too). As Codex's `-C`.
+            "--dir",
+            str(self._workspace(label)),
             "--variant",
             self._effort_for(agent),
         ]
@@ -338,25 +361,34 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
         return read_opencode_output(stdout)
 
     def _transcript_source(self, session_id: str) -> Path | None:
-        """`opencode export <id>` into the run directory; None on failure."""
+        """`opencode export <id>` into the run directory; None on failure.
+
+        Its stdout goes straight to a file. Through a pipe, OpenCode exits
+        before the pipe drains, and an export longer than the pipe buffer
+        (64 KiB) is cut off there."""
         dest = self._session_root() / "opencode" / f"export-{session_id}.json"
+        part = dest.with_name(dest.name + ".part")
+        dest.parent.mkdir(parents=True, exist_ok=True)
         try:
-            proc = subprocess.run(
-                [self._opencode_bin, "export", session_id],
-                capture_output=True,
-                text=True,
-                timeout=EXPORT_TIMEOUT_SECS,
-                env=child_env()[0],
-                check=False,
-            )
+            with part.open("w") as out:
+                proc = subprocess.run(
+                    [self._opencode_bin, "export", session_id],
+                    stdout=out,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=EXPORT_TIMEOUT_SECS,
+                    env=child_env()[0],
+                    check=False,
+                )
         except (OSError, subprocess.TimeoutExpired) as exc:
             logger.warning("opencode export %s failed: %s", session_id, exc)
+            part.unlink(missing_ok=True)
             return None
-        if proc.returncode != 0 or not proc.stdout.strip():
+        if proc.returncode != 0 or not part.read_text().strip():
             logger.warning("opencode export %s exited %d", session_id, proc.returncode)
+            part.unlink(missing_ok=True)
             return None
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(proc.stdout)
+        part.replace(dest)
         return dest
 
     def _recover_timed_out_usage(

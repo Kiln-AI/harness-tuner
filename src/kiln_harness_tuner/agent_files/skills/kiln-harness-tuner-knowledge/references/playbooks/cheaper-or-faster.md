@@ -1,7 +1,7 @@
 ---
 title: Cheaper or faster
 description: The user wants the agent to cost less or answer sooner, with quality held - each step is marked cheaper, faster or both, because the two goals do not always agree.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: goal
 applies_to: all
 ---
@@ -59,7 +59,8 @@ screening rounds of the planner's skill.
    the answer,
    [state the output contract](../techniques/state-the-output-contract.md).
 6. **Cheaper, often faster.** A smaller model of the class, with the
-   harness adapted to it, when the guidance allows a model change:
+   harness adapted to it, when the model is a lever (`allowed_models`
+   lists another model):
    [model swap inside a class](../techniques/model-swap-inside-a-class.md).
    For a task with a classifier shape:
    [decision model for a classifier](../techniques/decision-model-for-a-classifier.md).

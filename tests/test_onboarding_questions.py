@@ -15,11 +15,20 @@ from kiln_harness_tuner.dispatch.claude_cli import AGENT_MODEL
 from kiln_harness_tuner.onboarding.agent_models import CLAUDE_MODELS, CODEX_MODELS
 from kiln_harness_tuner.onboarding.demo import DEMO_GUIDANCE
 from kiln_harness_tuner.onboarding.errors import GoBack, OnboardingStopped
+from kiln_harness_tuner.onboarding.models import (
+    BASELINE_NOTE,
+    BASELINE_UNMARKED,
+    NAME_WIDTH,
+    offered_models,
+    pick_options,
+    picked_pairs,
+)
 from kiln_harness_tuner.onboarding.questions import (
     AGENT_KINDS,
     BUDGET_ERROR,
     COUNT_ERROR,
     DURATION_ERROR,
+    EFFORT_ERROR,
     FRACTION_ERROR,
     MIN_TIME_LIMIT_MINS,
     MODEL_ERROR,
@@ -47,15 +56,16 @@ from kiln_harness_tuner.onboarding.questions import (
     parse_count,
     parse_duration,
     parse_fraction,
+    swap_note,
 )
 from kiln_harness_tuner.onboarding.summary import parser_defaults
-from kiln_harness_tuner.orchestrator import MIN_WAVE_START_SECS
 
 DEFAULTS = parser_defaults(build_parser().option_dests)
 EVERY_DEST = frozenset().union(*(question.dests for question in QUESTIONS))
 ADVANCED_DESTS = frozenset().union(*(q.dests for q in QUESTIONS if q.advanced))
 CORE_QUESTIONS = [
     "What should the tuner improve?",
+    "Which models may the tuner use?",
     "Guidance for the tuner's planner (optional)",
     "Which agent CLI should run the tuner's agents?",
     "Model for the agents",
@@ -64,11 +74,10 @@ CORE_QUESTIONS = [
     "Time limit (1h, 24h, 45m)",
 ]
 ADVANCED_PROMPT = (
-    "Advanced options: any model · 4 evals and 4 agents at once"
+    "Advanced options: 4 evals and 4 agents at once"
     " · no minimum effect · no noise check"
 )
 ADVANCED_QUESTIONS = [
-    "Model policy file",
     "Smallest improvement worth acting on",
     "Eval jobs at once",
     "Agent sessions at once",
@@ -146,9 +155,9 @@ def test_parse_budget_refuses(text):
         ("12h", 720),
         ("1.5h", 90),
         (" 3H ", 180),
-        ("30", 30),
-        ("29.5", 30),  # whole minutes, to the nearest
-        ("30.4", 30),
+        ("10", 10),
+        ("9.5", 10),  # whole minutes, to the nearest
+        ("10.4", 10),
         ("0.5h", 30),
         ("2 h", 120),
     ],
@@ -165,25 +174,19 @@ def test_parse_duration_refuses(text):
         parse_duration(text)
 
 
-@pytest.mark.parametrize("text", ["1", "20m", "29", "29.4", "0.1h", ".45h"])
-def test_parse_duration_refuses_under_30_minutes(text):
+@pytest.mark.parametrize("text", ["1", "5m", "9", "9.4", "0.1h", ".15h"])
+def test_parse_duration_refuses_under_10_minutes(text):
     with pytest.raises(ValueError) as refused:
         parse_duration(text)
     assert str(refused.value) == TIME_LIMIT_ERROR
 
 
 def test_the_time_limit_minimum_says_why():
-    assert MIN_TIME_LIMIT_MINS == 30
-    assert check_time_limit(30) == 30
+    assert MIN_TIME_LIMIT_MINS == 10
+    assert check_time_limit(10) == 10
     with pytest.raises(ValueError):
-        check_time_limit(29)
-    # The words match the loop's own floor to start a wave.
-    assert MIN_WAVE_START_SECS == 15 * 60
-    assert TIME_LIMIT_ERROR == (
-        "Enter at least 30 minutes. Below that the run can end before its"
-        " first wave: setup takes a few minutes, and no wave starts with less"
-        " than 15 minutes left"
-    )
+        check_time_limit(9)
+    assert TIME_LIMIT_ERROR == "Enter at least 10 minutes: setup alone takes a few"
 
 
 @pytest.mark.parametrize(("text", "value"), [("0.1", 0.1), ("1", 1.0), (" .5 ", 0.5)])
@@ -260,6 +263,17 @@ def test_the_agent_clis_match_the_dispatchers():
     assert claude.default_model == AGENT_MODEL
 
 
+def test_a_hint_says_what_a_blank_model_does_only_when_it_is_the_cli_s_own():
+    # A blank model leaves the model option out. The dispatcher then passes
+    # its pinned default, or nothing, so the CLI's own default applies.
+    for agent in AGENT_KINDS:
+        dispatcher, _bin = DISPATCHERS[agent.kind]
+        own = dispatcher.DEFAULT_MODEL is None and not dispatcher.MODEL_DEFAULTS
+        said = f"Blank uses {agent.name}'s default model." in agent.model_hint
+        assert said is own, agent.kind
+        assert "Enter" not in agent.model_hint
+
+
 def test_the_objectives_match_the_flags_choices():
     assert tuple(OBJECTIVES) == CLI_OBJECTIVES
 
@@ -321,6 +335,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
     terminal = ScriptedTerminal(
         [
             "speed",
+            "any",
             "Keep it short.",
             "opencode",
             "zai/glm",
@@ -334,6 +349,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
     assert terminal.questions == [*CORE_QUESTIONS, ADVANCED_PROMPT]
     assert terminal.step_lines() == [
         "Improve: Speed",
+        "Models: any model Kiln offers",
         'Guidance: "Keep it short."',
         "Agents: OpenCode (opencode run) · zai/glm · effort max",
         "Budget: no cap",
@@ -342,6 +358,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
     ]
     assert got == answers(
         objective="speed",
+        models="any",
         guidance="Keep it short.",
         agent_cli="opencode run -m zai/glm --variant max",
         budget_usd=None,
@@ -350,6 +367,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
     # Each question pre-filled with the default the flag has.
     assert [asked.default for asked in terminal.asked[:-1]] == [
         "quality",
+        "any",  # the objective's default, Speed's
         "",
         "claude",
         "",  # OpenCode's own default model
@@ -362,7 +380,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
 
 def test_the_objective_rows_and_the_hints():
     terminal = ScriptedTerminal(
-        ["quality", "", "claude", "opus", "high", "50", "12h", "enter"]
+        ["quality", "keep", "", "claude", "opus", "high", "50", "12h", "enter"]
     )
     ask_all(answers(), context(terminal), given=frozenset())
     assert [option.label for option in terminal.options[0]] == [
@@ -374,34 +392,52 @@ def test_the_objective_rows_and_the_hints():
     assert hints == [
         "One objective per run. Speed and cost only promote a change that keeps"
         " quality equal or better.",
-        "What to try first and what not to touch, in your own words. For example:"
-        ' "Keep the output format. Don\'t switch models." Enter to skip.',
+        "Recommended for Quality: keep the task's model, and the tuner spends the"
+        " run on the harness around it. Which other model it tries is its own"
+        " judgment, so to try others, pick a few strong ones and say in the"
+        " guidance how to try them.",
+        "These instructions guide the tuner when it plans new experiments. Some"
+        " examples:\n"
+        " · Where to focus: \"Start with the Correctness eval. It's our biggest"
+        ' quality gap."\n'
+        ' · Trade-offs: "Between options of equal quality, prefer the cheaper'
+        ' one."\n'
+        ' · Ideas to try: "Try a skill with worked examples for the edge cases."\n'
+        ' · The model: "Raise the thinking level only for the hard cases."\n'
+        ' · What not to touch: "Don\'t change the temperature."\n'
+        ' · Directives: "Keep every answer under 100 words."\n'
+        "Mix any of these, or write your own: the list is not complete. Optional."
+        " Blank means no guidance.",
         "The tuner's own agents (planner, builders, reviewers) run through this CLI"
         " and are billed to its account, not to your Kiln provider keys.",
-        "Other to type a model name: an alias or a full name.",
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Opus, Fable, etc). Other to type a model"
+        " name: an alias or a full name.",
         "How much each agent reasons before it answers.",
         "The most this run may spend on the task's model calls, in USD. The"
         " tuner's agents run on your agent CLI's account and are not counted."
         " No wave starts past it. Type none for no cap.",
-        "At least 30m. Plan on 1h or more for more than one wave. No wave"
-        " starts after the limit, and work still running at it is cancelled.",
+        "At least 10m. The limit is approximate: no new wave starts after it, but"
+        " the wave in flight and one wrap-up wave finish, so the run can end"
+        " later.",
     ]
-    assert [option.label for option in terminal.options[1]] == [
+    assert [option.label for option in terminal.options[2]] == [
         "Claude Code: claude -p",
         "Codex: codex exec",
         "OpenCode: opencode run",
     ]
-    assert terminal.step_lines()[2] == "Agents: Claude Code (claude -p) · opus"
+    assert terminal.step_lines()[3] == "Agents: Claude Code (claude -p) · opus"
 
 
 @pytest.mark.parametrize(
     ("name", "typed", "asked"),
     [
         ("objective", ["cost"], CORE_QUESTIONS[:1]),
-        ("guidance", ["x"], CORE_QUESTIONS[1:2]),
-        ("agents", ["codex", "", "high"], CORE_QUESTIONS[2:5]),
-        ("budget", ["9"], CORE_QUESTIONS[5:6]),
-        ("time", ["45"], CORE_QUESTIONS[6:7]),
+        ("models", ["any"], CORE_QUESTIONS[1:2]),
+        ("guidance", ["x"], CORE_QUESTIONS[2:3]),
+        ("agents", ["codex", "", "high"], CORE_QUESTIONS[3:6]),
+        ("budget", ["9"], CORE_QUESTIONS[6:7]),
+        ("time", ["45"], CORE_QUESTIONS[7:8]),
     ],
 )
 def test_only_the_question_no_flag_answered_is_asked(name, typed, asked):
@@ -513,8 +549,10 @@ def test_opencode_has_no_list_so_its_model_is_typed():
     assert (model.kind, model.default, model.hint) == (
         "text",
         "",
-        "Enter uses OpenCode's own default model. A model is PROVIDER/MODEL, for"
-        " example zai-coding-plan/glm-5.3-flash. `opencode models` lists them.",
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Fable, Opus, Astra, etc). Models are"
+        " PROVIDER/MODEL, for example zai-coding-plan/glm-5.3-flash."
+        " `opencode models` lists them. Blank uses OpenCode's default model.",
     )
     # Enter on the default leaves the model out of the command.
     assert got.agent_cli == "opencode run"
@@ -528,7 +566,11 @@ def test_claude_code_models_are_picked_from_its_list():
     assert model.offered == (*(m.name for m in CLAUDE_MODELS), " other")
     assert "fable" in model.offered
     assert model.default == "opus"
-    assert model.hint == "Other to type a model name: an alias or a full name."
+    assert model.hint == (
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Opus, Fable, etc). Other to type a model"
+        " name: an alias or a full name."
+    )
     assert [o.label for o in terminal.options[-2]][-1] == "Other…"
     assert got.agent_cli == "claude -p --model fable"
 
@@ -540,8 +582,9 @@ def test_codex_models_are_picked_from_its_list():
     assert model.offered == ("", *(m.name for m in CODEX_MODELS), " other")
     assert model.default == ""
     assert model.hint == (
-        "Other to type a model name. All of Codex's models:"
-        " https://developers.openai.com/codex/models"
+        "Which model will be used to plan and implement tuning experiments. We"
+        " suggest frontier quality (Astra, Terra, etc). Other to type a model"
+        " name. All of Codex's models: https://developers.openai.com/codex/models"
     )
     rows = terminal.options[-2]
     assert (rows[0].label, rows[0].description) == (
@@ -568,11 +611,22 @@ def test_other_asks_for_a_typed_name():
         "Thinking level for the agents",
     ]
     assert terminal.asked_about("Model name for the agents").hint == (
-        "Enter uses Codex's own default model. For example gpt-6.1-sol. The"
+        "Blank uses Codex's default model. For example gpt-6.1-sol. The"
         " models: https://developers.openai.com/codex/models"
     )
     assert typed.refusals == [MODEL_ERROR]
     assert got.agent_cli == "codex exec -m gpt-7-preview"
+
+
+def test_claude_code_s_typed_name_does_not_say_what_a_blank_does():
+    # A blank Claude Code model is the dispatcher's pinned opus, not Claude
+    # Code's own default. The hint also does not name the field's value.
+    terminal = ScriptedTerminal(["claude", " other", "claude-opus-5-5", "high"])
+    got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
+    assert terminal.asked_about("Model name for the agents").hint == (
+        "An alias, such as sonnet, or a full model name, such as claude-opus-5-5."
+    )
+    assert got.agent_cli == "claude -p --model claude-opus-5-5"
 
 
 def test_asked_again_a_model_not_in_the_list_starts_on_other():
@@ -628,18 +682,28 @@ def test_high_leaves_the_level_out_of_the_command():
 
 
 def test_other_types_a_level():
-    terminal = ScriptedTerminal(["codex", "", " other", Typed("very high", "ultra")])
+    typed = Typed("very high", "", "ultra")
+    terminal = ScriptedTerminal(["codex", "", " other", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
-    assert terminal.questions[-1] == "Thinking level name for the agents"
+    level = terminal.asked_about("Thinking level name for the agents")
+    # A blank level is refused, so the hint says nothing about a blank.
+    assert typed.refusals == [EFFORT_ERROR] * 2
+    assert level.hint == "A level name the model takes."
     assert got.agent_cli == "codex exec -c model_reasoning_effort=ultra"
 
 
 def test_opencode_types_its_variant():
-    terminal = ScriptedTerminal(["opencode", "zai/glm", "max"])
+    typed = Typed("", "max")
+    terminal = ScriptedTerminal(["opencode", "zai/glm", typed])
     got = ask_all(answers(), context(terminal), given=AGENTS_ONLY)
     level = terminal.asked_about("Thinking level for the agents")
     assert (level.kind, level.default) == ("text", "high")
-    assert "--variant" in level.hint
+    # The hint does not name the field's value, which Esc back can change.
+    assert typed.refusals == [EFFORT_ERROR]
+    assert level.hint == (
+        "OpenCode's level is its --variant, whose names depend on the model,"
+        " such as high or max. A model ignores a variant it doesn't have."
+    )
     assert got.agent_cli == "opencode run -m zai/glm --variant max"
 
 
@@ -677,15 +741,16 @@ def test_a_time_limit_is_typed_in_minutes_or_hours():
     assert terminal.step_lines() == ["Time: 2 hours"]
 
 
-def test_a_time_limit_under_30_minutes_is_refused():
-    typed = Typed("5m", "30m")
+def test_a_time_limit_under_10_minutes_is_refused():
+    typed = Typed("5m", "10m")
     terminal = ScriptedTerminal([typed])
     got = ask_all(answers(), context(terminal), given=EVERY_DEST - {"timeout_mins"})
     assert typed.refusals == [TIME_LIMIT_ERROR]
-    assert got.timeout_mins == 30
+    assert got.timeout_mins == 10
     assert terminal.asked[0].hint == (
-        "At least 30m. Plan on 1h or more for more than one wave. No wave"
-        " starts after the limit, and work still running at it is cancelled."
+        "At least 10m. The limit is approximate: no new wave starts after it, but"
+        " the wave in flight and one wrap-up wave finish, so the run can end"
+        " later."
     )
 
 
@@ -699,56 +764,49 @@ def test_keep_leaves_the_advanced_options_as_they_are():
     got = ask_all(answers(noise_check=2), context(terminal), given=CORE_DESTS)
     assert got == answers(noise_check=2)
     assert terminal.questions == [
-        "Advanced options: any model · 4 evals and 4 agents at once"
+        "Advanced options: 4 evals and 4 agents at once"
         " · no minimum effect · noise check on 2 items per eval"
     ]
     assert terminal.step_lines() == ["Advanced: noise check on 2 items per eval"]
 
 
-def test_customize_asks_each_advanced_question_with_its_value(tmp_path):
-    policy = tmp_path / "policy.json"
-    policy.write_text('{"allow": [{"provider": "openai", "model": "*"}]}')
-    terminal = ScriptedTerminal(["c", str(policy), "0.25", "2", "0", "10"])
+def test_customize_asks_each_advanced_question_with_its_value():
+    terminal = ScriptedTerminal(["c", "0.25", "2", "0", "10"])
     got = ask_all(answers(), context(terminal), given=CORE_DESTS)
     assert terminal.questions == [ADVANCED_PROMPT, *ADVANCED_QUESTIONS]
-    assert [asked.default for asked in terminal.asked[1:]] == ["", "", "4", "4", "0"]
-    assert (got.model_policy, got.min_effect, got.noise_check) == (
-        str(policy),
-        0.25,
-        10,
-    )
+    assert [asked.default for asked in terminal.asked[1:]] == ["", "4", "4", "0"]
+    assert (got.min_effect, got.noise_check) == (0.25, 10)
     assert (got.max_concurrent_evals, got.max_concurrent_agents) == (2, 0)
     assert terminal.step_lines() == [
-        f"Advanced: model policy {policy} · 2 evals at once"
-        " · any number of agents at once · minimum effect 25%"
-        " · noise check on 10 items per eval"
+        "Advanced: 2 evals at once · any number of agents at once"
+        " · minimum effect 25% · noise check on 10 items per eval"
     ]
 
 
+def test_the_minimum_hint_says_what_a_blank_answer_does():
+    # Prefilled or not, a blank answer sets none: the hint says so.
+    terminal = ScriptedTerminal(["c", "", "4", "4", "0"])
+    got = ask_all(answers(min_effect=0.2), context(terminal), given=CORE_DESTS)
+    effect = terminal.asked[1]
+    assert effect.default == "0.2"
+    assert effect.hint.endswith(
+        " Optional. Blank means no minimum, and the run does not stop for it."
+    )
+    assert got.min_effect is None
+
+
 def test_customize_skips_the_values_flags_gave():
-    terminal = ScriptedTerminal(["c", "", "3", "3"])
-    given = CORE_DESTS | {"model_policy", "noise_check"}
+    terminal = ScriptedTerminal(["c", "3", "3"])
+    given = CORE_DESTS | {"min_effect", "noise_check"}
     got = ask_all(answers(noise_check=5), context(terminal), given=given)
-    assert terminal.questions[1:] == ADVANCED_QUESTIONS[1:4]
+    assert terminal.questions[1:] == ADVANCED_QUESTIONS[1:3]
     assert got.noise_check == 5
     assert got.min_effect is None
 
 
-def test_a_bad_policy_file_is_refused_with_the_loaders_message(tmp_path):
-    bad = tmp_path / "bad.json"
-    bad.write_text("{not json")
-    typed = Typed(str(bad), str(tmp_path / "missing.json"), "")
-    terminal = ScriptedTerminal(["c", typed, "", "4", "4", "0"])
-    got = ask_all(answers(), context(terminal), given=CORE_DESTS)
-    bad_json, missing = typed.refusals
-    assert bad_json.startswith(f"--model-policy: {bad} is not valid JSON")
-    assert missing.startswith("--model-policy: cannot read")
-    assert got.model_policy is None
-
-
 def test_invalid_advanced_values_are_refused():
     effect, evals = Typed("2", "x", ""), Typed("-1", "many", "3")
-    terminal = ScriptedTerminal(["c", "", effect, evals, "4", "0"])
+    terminal = ScriptedTerminal(["c", effect, evals, "4", "0"])
     got = ask_all(answers(), context(terminal), given=CORE_DESTS)
     assert effect.refusals == [FRACTION_ERROR] * 2
     assert evals.refusals == [COUNT_ERROR] * 2
@@ -760,15 +818,204 @@ def test_the_advanced_lines():
         "Advanced options: "
     )
     assert advanced_changes(answers(), DEFAULTS) == "defaults"
-    changed = answers(model_policy="./policy.json", max_concurrent_evals=2)
-    assert advanced_changes(changed, DEFAULTS) == (
-        "model policy ./policy.json · 2 evals at once"
-    )
+    changed = answers(max_concurrent_evals=2)
+    assert advanced_changes(changed, DEFAULTS) == "2 evals at once"
     one = answers(max_concurrent_evals=1, max_concurrent_agents=0, min_effect=0.1)
     assert advanced_values(one) == (
-        "any model · 1 eval and any number of agents at once"
-        " · minimum effect 10% · no noise check"
+        "1 eval and any number of agents at once · minimum effect 10% · no noise check"
     )
+
+
+# ---- which models ----
+
+MODELS_ONLY = EVERY_DEST - {"models", "model_policy"}
+BASELINE_PAIR = ("fireworks_ai", "glm_5")
+OFFERED = [
+    {
+        "provider_id": "fireworks_ai",
+        "provider_name": "Fireworks AI",
+        "models": [{"id": "glm_5", "name": "GLM 5"}, {"id": "kimi_k3", "name": "K3"}],
+    },
+    {
+        "provider_id": "openai",
+        "provider_name": "OpenAI",
+        "models": [{"id": "gpt_6", "name": "GPT 6"}],
+    },
+]
+
+
+def models_context(terminal, tmp_path, offered=OFFERED):
+    return dataclasses.replace(
+        context(terminal),
+        baseline_model="glm_5 on Fireworks AI",
+        baseline_pair=BASELINE_PAIR,
+        offered=lambda: offered,
+        policy_dir=tmp_path / "policies",
+    )
+
+
+def test_the_models_default_follows_the_objective(tmp_path):
+    terminal = ScriptedTerminal(["keep", "any"])
+    got = ask_all(answers(), models_context(terminal, tmp_path), given=MODELS_ONLY)
+    assert (got.models, got.model_policy) == ("keep", None)
+    got = ask_all(
+        answers(objective="cost"),
+        models_context(terminal, tmp_path),
+        given=MODELS_ONLY,
+    )
+    assert (got.models, got.model_policy) == ("any", None)
+    keep, cost = terminal.asked
+    assert (keep.default, cost.default) == ("keep", "any")
+    assert keep.hint.startswith("Recommended for Quality: keep the task's model,")
+    assert cost.hint == (
+        "Recommended for Cost: any model Kiln offers. Another model is the first"
+        " lever for cost, and a change wins only if quality holds."
+    )
+    # The objective's default row says it is recommended; no other row does.
+    quality_rows, cost_rows = (
+        [o.label for o in options] for options in terminal.options
+    )
+    assert [r for r in quality_rows if r.endswith(" (recommended)")] == [
+        "Keep the task's model (recommended)"
+    ]
+    assert [r for r in cost_rows if r.endswith(" (recommended)")] == [
+        "Any model Kiln offers (recommended)"
+    ]
+    assert terminal.step_lines() == [
+        "Models: keep the task's model (glm_5 on Fireworks AI)",
+        "Models: any model Kiln offers",
+    ]
+
+
+def test_the_guidance_hint_follows_the_models_answer(tmp_path):
+    # Asked after Models, the guidance hint's model example fits the answer.
+    given = EVERY_DEST - {"models", "model_policy", "guidance"}
+    keep = '"Raise the thinking level only for the hard cases."'
+    others = (
+        '"Try DeepSeek first. Move on to the more expensive models only if it'
+        ' gets stuck."'
+    )
+    for typed, example in (
+        (["keep"], keep),
+        (["any"], others),
+        (["pick", [BASELINE_PAIR, ("openai", "gpt_6")]], others),
+        # A pick of the task's own model alone keeps it: no other model.
+        (["pick", [BASELINE_PAIR]], keep),
+    ):
+        terminal = ScriptedTerminal([*typed, ""])
+        ask_all(answers(), models_context(terminal, tmp_path), given=given)
+        guidance = terminal.asked_about("Guidance for the tuner's planner (optional)")
+        assert example in (guidance.hint or "")
+        assert terminal.questions[0] == "Which models may the tuner use?"
+
+
+def test_any_model_warns_that_the_spend_can_go_up(tmp_path):
+    terminal = ScriptedTerminal(["any"])
+    ask_all(answers(), models_context(terminal, tmp_path), given=MODELS_ONLY)
+    rows = {option.value: option for option in terminal.options[0]}
+    assert list(rows) == ["keep", "any", "pick", "file"]
+    assert rows["keep"].columns == ("glm_5 on Fireworks AI",)
+    assert "more expensive model" in (rows["any"].description or "")
+    assert "spend" in (rows["any"].description or "")
+    assert (rows["any"].description or "").endswith(swap_note("quality"))
+
+
+def test_picked_models_become_a_policy_file(tmp_path):
+    picked = [BASELINE_PAIR, ("openai", "gpt_6")]
+    terminal = ScriptedTerminal(["pick", picked])
+    got = ask_all(answers(), models_context(terminal, tmp_path), given=MODELS_ONLY)
+    multi = terminal.asked[1]
+    assert (multi.kind, multi.question) == (
+        "pick_many",
+        "Pick the models the tuner may use",
+    )
+    # The baseline's model starts marked, with its note and a warning for
+    # when it is unmarked; the providers are the facets.
+    assert multi.default == (BASELINE_PAIR,)
+    assert terminal.options[1][0].description == BASELINE_NOTE
+    assert terminal.warnings[-1] == {BASELINE_PAIR: BASELINE_UNMARKED}
+    # The hint says when the tuner swaps, and where to steer it.
+    assert multi.hint.endswith(swap_note("quality"))
+    assert "can help the eval scores" in swap_note("quality")
+    assert [o.group for o in terminal.options[1]] == [
+        "Fireworks AI",
+        "Fireworks AI",
+        "OpenAI",
+    ]
+    # The provider is a column too: the All facet mixes them.
+    assert terminal.options[1][2].columns == ("OpenAI", "gpt_6")
+    assert got.models is None
+    policy = load_model_policy(got.model_policy)
+    assert policy is not None
+    assert policy.refusal(*BASELINE_PAIR) is None
+    assert policy.refusal("openai", "gpt_6") is None
+    assert policy.refusal("fireworks_ai", "kimi_k3") is not None
+    assert terminal.step_lines() == ["Models: 2 models picked: glm_5, gpt_6"]
+    # Asked again, the picker starts from the pick, and a new file is kept.
+    first = got.model_policy
+    terminal = ScriptedTerminal(["pick", [("fireworks_ai", "kimi_k3")]])
+    again = ask_one("models", got, models_context(terminal, tmp_path))
+    assert terminal.asked[0].default == "pick"
+    assert terminal.asked[1].default == tuple(picked)
+    assert again.model_policy != first
+    # The task's own model unmarked: the policy leaves it out, as asked.
+    assert picked_pairs(again.model_policy) == [("fireworks_ai", "kimi_k3")]
+
+
+def test_a_long_picker_row_is_cut_but_never_its_id():
+    long_name = "Qwen 3 VL Instruct 235B / 22B Active (Vision-Language)"
+    offered = offered_models(
+        [
+            {
+                "provider_id": "vertex",
+                "provider_name": "Gemini Enterprise Agent Platform",
+                "models": [{"id": "qwen_3_vl_instruct_235b_a22b", "name": long_name}],
+            }
+        ]
+    )
+    (row,) = pick_options(offered)
+    assert row.label == long_name[: NAME_WIDTH - 1] + "…"
+    assert row.columns == ("Gemini Enterprise Age…", "qwen_3_vl_instruct_235b_a22b")
+    assert row.group == "Gemini Enterprise Agent Platform"
+
+
+def test_esc_in_the_picker_asks_which_models_again(tmp_path):
+    terminal = ScriptedTerminal(["pick", GoBack(), "keep"])
+    got = ask_all(answers(), models_context(terminal, tmp_path), given=MODELS_ONLY)
+    assert terminal.questions == [
+        "Which models may the tuner use?",
+        "Pick the models the tuner may use",
+        "Which models may the tuner use?",
+    ]
+    assert got.models == "keep"
+    assert not (tmp_path / "policies").exists()
+
+
+def test_with_no_models_offered_the_picker_is_not_shown(tmp_path):
+    terminal = ScriptedTerminal(["pick", "keep"])
+    context_ = models_context(terminal, tmp_path, offered=[])
+    got = ask_all(answers(), context_, given=MODELS_ONLY)
+    assert terminal.questions == ["Which models may the tuner use?"] * 2
+    assert terminal.err == [
+        "Kiln offers no models: add a provider key in Kiln's settings."
+    ]
+    assert got.models == "keep"
+
+
+def test_a_policy_file_is_loaded_at_once(tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    good = tmp_path / "policy.json"
+    good.write_text('{"allow": [{"provider": "openai", "model": "*"}]}')
+    typed = Typed("", str(bad), str(tmp_path / "missing.json"), str(good))
+    terminal = ScriptedTerminal(["file", typed])
+    got = ask_all(answers(), models_context(terminal, tmp_path), given=MODELS_ONLY)
+    blank, bad_json, missing = typed.refusals
+    assert blank == "Give the file's path, or press Esc to choose again."
+    assert bad_json.startswith(f"--model-policy: {bad} is not valid JSON")
+    assert missing.startswith("--model-policy: cannot read")
+    assert (got.models, got.model_policy) == (None, str(good))
+    assert terminal.step_lines() == [f"Models: policy {good}"]
 
 
 # ---- asking one again ----
@@ -809,11 +1056,11 @@ def test_ask_one_of_an_advanced_question_prints_the_advanced_line():
 def test_changeable_lists_the_questions_no_flag_answered_in_order():
     names = [q.name for q in changeable({"objective", "noise_check", "kiln_host"})]
     assert names == [
+        "models",
         "guidance",
         "agents",
         "budget",
         "time",
-        "model_policy",
         "min_effect",
         "max_concurrent_evals",
         "max_concurrent_agents",
@@ -828,26 +1075,31 @@ CORE_ONLY = ADVANCED_DESTS  # every advanced question answered by a flag
 
 def test_esc_asks_the_question_before_again_pre_filled_and_takes_its_line():
     terminal = ScriptedTerminal(
-        ["speed", "Keep it short.", ESC, "Shorter.", "claude", "opus", "high"]
-        + ["50", "12h"]
+        ["speed", "any", "Keep it short.", ESC, "Shorter.", "claude", "opus"]
+        + ["high", "50", "12h"]
     )
     got = ask_all(answers(), context(terminal), given=CORE_ONLY)
-    assert terminal.questions[:4] == [
+    assert terminal.questions[:5] == [
         CORE_QUESTIONS[0],
         CORE_QUESTIONS[1],
         CORE_QUESTIONS[2],
-        CORE_QUESTIONS[1],
+        CORE_QUESTIONS[3],
+        CORE_QUESTIONS[2],
     ]
-    assert terminal.asked[3].default == "Keep it short."
+    assert terminal.asked[4].default == "Keep it short."
     assert got.guidance == "Shorter."
     # The first Guidance line went with the Esc.
-    assert terminal.step_lines()[:2] == ["Improve: Speed", 'Guidance: "Shorter."']
-    assert len(terminal.step_lines()) == 5
+    assert terminal.step_lines()[:3] == [
+        "Improve: Speed",
+        "Models: any model Kiln offers",
+        'Guidance: "Shorter."',
+    ]
+    assert len(terminal.step_lines()) == 6
 
 
 def test_the_first_question_does_not_offer_esc():
-    terminal = ScriptedTerminal(["speed", ESC, "cost", "", "claude", "opus", "high"])
-    terminal.answers += ["50", "12h"]
+    terminal = ScriptedTerminal(["speed", ESC, "cost", "any", "", "claude", "opus"])
+    terminal.answers += ["high", "50", "12h"]
     got = ask_all(answers(), context(terminal), given=CORE_ONLY)
     assert [asked.back for asked in terminal.asked[:4]] == [False, True, False, True]
     # Asked again at the first question, pre-filled with its answer.
@@ -859,7 +1111,8 @@ def test_the_first_question_does_not_offer_esc():
 
 def test_every_question_after_the_first_offers_esc():
     terminal = ScriptedTerminal(
-        ["speed", "", "claude", "opus", "high", "50", "12h", "c", "", "", "4", "4", "0"]
+        ["speed", "any", "", "claude", "opus", "high", "50", "12h", "c", "", "4"]
+        + ["4", "0"]
     )
     ask_all(answers(), context(terminal), given=frozenset())
     assert [asked.back for asked in terminal.asked] == [False] + [True] * 12
@@ -899,14 +1152,14 @@ def test_esc_at_the_first_advanced_question_asks_the_menu_again():
 
 
 def test_esc_at_an_advanced_question_asks_the_one_before_it_again():
-    terminal = ScriptedTerminal(["c", "", "0.25", ESC, "0.5", "4", "4", "0"])
+    terminal = ScriptedTerminal(["c", "0.25", ESC, "0.5", "4", "4", "0"])
     got = ask_all(answers(), context(terminal), given=CORE_DESTS)
     assert terminal.questions == [
         ADVANCED_PROMPT,
-        *ADVANCED_QUESTIONS[:3],
-        *ADVANCED_QUESTIONS[1:],
+        *ADVANCED_QUESTIONS[:2],
+        *ADVANCED_QUESTIONS,
     ]
-    assert terminal.asked_about(ADVANCED_QUESTIONS[1]).default == "0.25"
+    assert terminal.asked_about(ADVANCED_QUESTIONS[0]).default == "0.25"
     assert got.min_effect == 0.5
     assert terminal.step_lines() == ["Advanced: minimum effect 50%"]
 
@@ -915,7 +1168,7 @@ def test_esc_at_the_first_core_question_after_customize_steps_back_over_all():
     # Esc from the last advanced question back to the time limit, one step
     # at a time: no Advanced line is left from the first pass.
     terminal = ScriptedTerminal(
-        ["3h", "c", "", "", "4", "4", ESC, ESC, ESC, ESC, ESC, ESC, "5h", "enter"]
+        ["3h", "c", "", "4", "4", ESC, ESC, ESC, ESC, ESC, "5h", "enter"]
     )
     got = ask_all(answers(), context(terminal), given=CORE_DESTS - {"timeout_mins"})
     assert terminal.questions[-2:] == ["Time limit (1h, 24h, 45m)", ADVANCED_PROMPT]
@@ -971,9 +1224,9 @@ def test_with_one_cli_esc_at_the_model_asks_the_question_before_again():
     given = EVERY_DEST - {"agent_cli", "guidance"}
     got = ask_all(answers(), context(terminal, which=installed("claude")), given=given)
     assert terminal.questions == [
-        CORE_QUESTIONS[1],
+        CORE_QUESTIONS[2],
         "Model for the agents",
-        CORE_QUESTIONS[1],
+        CORE_QUESTIONS[2],
         "Model for the agents",
         "Thinking level for the agents",
     ]

@@ -1,8 +1,8 @@
-# Objectives and model policy
+# Objectives and models
 
-Two flags set what a run improves and which models it may use:
-`--objective` and `--model-policy`. [cli.md](cli.md) lists every flag, with
-its default.
+Three flags set what a run improves and which models it may use:
+`--objective`, and `--models` or `--model-policy`. [cli.md](cli.md) lists
+every flag, with its default.
 
 ## What to optimize: `--objective`
 
@@ -11,7 +11,7 @@ promotion gate decides on val.
 
 | Objective | The goal | What it holds fixed | A candidate is promoted when, on val |
 |---|---|---|---|
-| `quality` (default) | Higher eval scores. | Every eval: no eval may go down beyond doubt. Latency and cost are reported, not held. | No eval goes down beyond doubt, and at least one eval it targets goes up beyond doubt. |
+| `quality` (default) | Higher eval scores. | Every eval: no eval may go down beyond doubt. Latency and cost are reported, not held. | No eval goes down beyond doubt, and at least one eval it targets goes up beyond doubt. With one candidate, code promotes on this rule. A nominal rise, two or more candidates, or integrity flags go to the promotion agent. A candidate with an eval down beyond doubt is never promoted. |
 | `speed` | Lower latency per request. | Quality: equal or better. Cost is reported, not held. | It is clearly faster (a sign test on paired requests, a median ratio below 1, no significant p90 regression), and quality is equal or better. |
 | `cost` | Lower provider cost per request. | Quality: equal or better. Latency is reported, not held. | It is clearly cheaper, by the same test, and quality is equal or better. |
 
@@ -21,8 +21,10 @@ single eval down by more than max(1, round(0.10 × its items)) items.
 
 - **`quality`** works on issues: one failure class of one eval. The planner
   builds a fix for an issue, such as a prompt change, a skill, a tool or a
-  model change, and the fix must show on the items the baseline fails. When no
-  eval can measure an issue, the report names it, so that you can create the
+  provider parameter, and the fix must show on the items the baseline fails.
+  By default the task keeps its model
+  ([below](#which-models-a-run-may-use)). When no eval can
+  measure an issue, the report names it, so that you can create the
   eval in the Kiln app. The loop builds that eval itself only with
   `--experimental-eval-building`, which is experimental and off by default.
 - **`speed`** measures the sum of the LLM call latencies of one task run. A
@@ -39,16 +41,83 @@ single eval down by more than max(1, round(0.10 × its items)) items.
 Under every objective, each experiment also reports its latency and cost
 against its parent, read from the stored runs at no extra cost. So when
 latency is the goal, use `--objective speed`, and when cost is the goal, use
-`--objective cost`. To keep costly models out, use `--model-policy`.
+`--objective cost`. To choose the models the task may use, see
+[below](#which-models-a-run-may-use).
 [how-it-works.md](how-it-works.md#the-objectives) has the stop rules and the
 promotion rules in full, and [architecture.md](architecture.md) section 16
 has the method.
 
-## Which models a run may use: `--model-policy`
+## Which models a run may use
 
-By default the planner may move the task to any model Kiln offers. A model
-policy limits that. It is a JSON file of `allow`, `deny` and `exceptions`
-rules over Kiln's (provider, model) ids, with `*` wildcards.
+You choose the models the task may use at start-up. The choice is enforced
+in code: the planner sees only the allowed models, and the code refuses a
+run config on any other model before it is built, measured or promoted.
+
+| Choice | Flag | What the task may use |
+|---|---|---|
+| Keep the task's model | `--models keep` | The baseline's model and provider only (`model_name` and `model_provider_name`). The default under `quality`. |
+| Any model Kiln offers | `--models any` | Every model on the providers that have a key in Kiln. The default under `speed` and `cost`. |
+| Pick models | `--model-policy <file>` | The models you picked. The guided start writes the policy file for you. |
+| A policy file | `--model-policy <file>` | The models the file allows. |
+
+`--models` and `--model-policy` are alternatives: give one of them. With
+neither, the objective sets the default. The guided start marks that default
+as recommended.
+
+Under `quality`, keep is recommended. Which other model the planner tries is
+its own judgment, so a run on many models can spend its time on a weak one.
+To try other models, pick a few strong ones, and say in the guidance how to
+try them.
+
+Under every choice the planner may change all the other parts of the run
+config. That includes the provider parameters: the thinking level, the
+temperature and `top_p`. Guidance can still forbid a swap ("Do not change
+the model"), but guidance cannot allow a model that the choice does not
+allow.
+
+**`--models any` can cost more.** The tuner may move the task to a more
+expensive model. The cost per request can go up, and so can the run's
+spend. Under `quality` the promotion gate checks the evals only, so a more
+expensive model that scores better can become the new baseline. To keep
+costly models out, pick the models, or use a policy file. To set the order
+in which the tuner tries them, say it in the guidance, for example "Try
+DeepSeek first. Move on to the more expensive models only if it gets
+stuck." The planner follows the guidance, but code does not hold the cost.
+
+### Keep the task's model: `--models keep`
+
+At start-up, once the baseline is known, the run makes a policy of the
+baseline's one (provider, model) pair. It writes the policy to the run
+folder, where the code that checks run configs reads it. So "keep the
+model" is enforced by the same checks as a policy file. The model preflight
+then tests the baseline's model only.
+
+### Pick models, in the guided start
+
+The guided start's Models question offers the four choices. **Pick
+models** shows the models of the providers that have a key in Kiln:
+
+- Type to filter the list. Tab and Shift+Tab show one provider at a time.
+- Space marks or unmarks a model. The task's own model starts marked.
+- You can unmark the task's own model, to make every experiment move to a
+  marked model. The picker shows a warning while it is unmarked. The run
+  still measures the task's model as its baseline.
+- Enter accepts. You can mark at most 12 models: the model preflight tests
+  12 models.
+
+The tuner tries a marked model when it judges that the model can help the
+objective, and keeps it only if it wins. The next question, the guidance,
+can say how to try the models (section 4 of
+[your-own-task.md](your-own-task.md#4-writing-the-guidance)).
+
+The start writes the policy to the state folder's `policies/` folder, as
+`picked-<date>-<time>.json`, with one exception for each model. The rerun
+command passes it with `--model-policy`.
+
+## A model policy file: `--model-policy`
+
+The policy is a JSON file of `allow`, `deny` and `exceptions` rules over
+Kiln's (provider, model) ids, with `*` wildcards.
 
 ### The file format
 
@@ -135,9 +204,11 @@ that no rule names, such as `ollama`, is refused, because nothing allows it.
   ([install.md](install.md) section 5).
 - **Every allowed model is tested at start-up.** One short call goes to the
   baseline's model and to each allowed model the planner may pick (at most
-  12). A model that fails is left out of the run. `--skip-model-preflight`
-  skips this.
-- **A guided start can set it too**, in its advanced options. The file is
+  12), with one retry on a transient error. With more than 12 allowed, only
+  the pairs a rule names exactly are tested. A model that fails hard is left
+  out of the run; any other failure leaves it untested, with a warning.
+  `--skip-model-preflight` skips this.
+- **A guided start can set it too**, at its Models question. The file is
   loaded at once, so a bad file shows the loader's message under the field.
   A policy set there gets the API-key check again, for the providers it
   names.

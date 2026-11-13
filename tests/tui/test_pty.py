@@ -45,12 +45,12 @@ def test_ctrl_c_then_stop_the_run_exits_130(tmp_path):
         # Ctrl+C: a key, not a signal, in raw mode.
         (tmp_path / "started", b"\x03"),
         # The dialog is drawn once it is mounted, with the focus on "Keep
-        # running": Tab moves it to "Stop the run", and Enter presses it.
-        (b"Stop the run?", b"\t\r"),
+        # tuning": Tab moves it to "Stop tuning", and Enter presses it.
+        (b"Stop tuning?", b"\t\r"),
     ]
     result = start(tmp_path, "wait", steps)
     assert result.exit_code == 130
-    assert "Stop the run?" in result.in_app()
+    assert "Stop tuning?" in result.in_app()
     assert "harness-tuner: interrupted (SIGINT)" in result.after_app()
 
 
@@ -75,12 +75,17 @@ def test_the_closing_block_prints_after_the_app_in_the_scrollback(tmp_path):
     assert result.exit_code == 0
     after = scrollback(result.after_app())
     report = tmp_path / "report.md"
+    # On a terminal the report's path is a link (OSC 8).
+    linked = f"\x1b]8;;{report.as_uri()}\x1b\\{report}\x1b]8;;\x1b\\"
     expected = [
         SUMMARY,
         RERUN,
         "exit: time_limit — total",
-        f"report: {report}",
+        f"report: {linked}",
         f"Run folder: {tmp_path / 'run'}",
+        "Next steps",
+        " · Visualize Experiment Graph in Kiln: \x1b]8;;http",
+        f" · Read Tuning Report: {linked}",
         f"harness-tuner: run finished — report: {report}",
     ]
     places = [after.index(text) for text in expected]
@@ -89,21 +94,21 @@ def test_the_closing_block_prints_after_the_app_in_the_scrollback(tmp_path):
 
 
 def test_main_on_a_terminal_asks_in_the_app_and_x_exits_1(tmp_path):
-    result = start(tmp_path, "ask", [(b"Start the run?", b"x")])
+    result = start(tmp_path, "ask", [(b"Start tuning?", b"x")])
     assert result.exit_code == 1
-    assert "s) Start the run" in result.in_app()
+    assert "s) Start tuning" in result.in_app()
     assert "harness-tuner: stopped." in result.after_app()
     assert not (tmp_path / "started").exists()
 
 
 def test_main_on_a_terminal_stops_at_a_question_on_ctrl_c_with_130(tmp_path):
-    result = start(tmp_path, "ask", [(b"Start the run?", b"\x03")])
+    result = start(tmp_path, "ask", [(b"Start tuning?", b"\x03")])
     assert result.exit_code == 130
     assert "harness-tuner: stopped." in result.after_app()
 
 
 def test_main_on_a_terminal_starts_the_run_from_the_app(tmp_path):
-    steps = [(b"Start the run?", b"s"), *CLOSE_ON_DONE]
+    steps = [(b"Start tuning?", b"s"), *CLOSE_ON_DONE]
     result = start(tmp_path, "ask", steps)
     assert result.exit_code == 0
     after = scrollback(result.after_app())

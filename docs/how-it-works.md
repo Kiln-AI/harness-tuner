@@ -32,12 +32,15 @@ alone.
 |---|---|---|
 | The task | `--project-id`, `--task-id`, `--project-path` | The Kiln task. Its default run config is the first baseline. |
 | The objective | `--objective quality\|speed\|cost` | What the loop improves. One objective per run. The default is `quality`. |
-| The model policy | `--model-policy PATH` | A JSON **file** of allowed and denied (provider, model) pairs, with `*` wildcards. Code applies it to every run config that an agent makes or drives. [examples/model-policy.json](../examples/model-policy.json) shows the shape. |
+| The models | `--models keep\|any` or `--model-policy PATH` | Which models the task may use. `keep` (the default under `quality`): the baseline's model only. `any` (the default under `speed` and `cost`): every model Kiln offers. A policy **file**: the (provider, model) pairs it allows, with `*` wildcards. Code applies the choice to every run config that an agent makes or drives. [objectives.md](objectives.md#which-models-a-run-may-use) |
 | The guidance | `--guidance TEXT` | Free text for the planner: what to try first, what not to try. |
 | The limits | `--budget-usd`, `--timeout-mins` | The money and the time for the run. Code checks them at each wave boundary. |
 | Parallelism | `--max-concurrent-evals`, `--max-concurrent-agents` | How many eval jobs and agent sessions run at the same time. |
 
-The model policy keeps expensive models out. Every experiment reports its
+A model or provider swap is a lever only when the models choice allows a
+model other than the baseline's. `--models any` may move the task to a more
+expensive model; pick the models, or use a policy file, to keep expensive
+models out. Every experiment reports its
 latency and cost per request against its parent, read from the stored runs, at
 no extra cost. Use `--objective speed` or `--objective cost` when latency or
 cost is the goal.
@@ -49,7 +52,7 @@ The eval inputs of the task have three split tags.
 | Split | Who reads it | What it is for |
 |---|---|---|
 | `train` | Agents, through the loop gateway, and the measurement code | All design, screening and experiment measurement. |
-| `val` | Code at the promotion gate only | The confirmation of a winner before it becomes the baseline. |
+| `val` | The promotion gate (code and the promotion agent), and the report writer at the end | The confirmation of a winner before it becomes the baseline. |
 | `test` | Nothing in the loop | Your own final check, after the run. |
 
 The gateway refuses every agent request for an item that is not in train. So an
@@ -69,9 +72,9 @@ parts.
 ```mermaid
 flowchart TD
     A[Preflight: agent lane works] --> B[Setup: one issue per eval]
-    B --> C[Baseline: stored train scores; timing on 30 items under speed or cost]
+    B --> C[Baseline: train scores, stored or measured; timing on 30 items under speed or cost]
     C --> D[Detectability check, optional noise check]
-    D --> E[Wave 0: probes]
+    D --> E[Recon probes]
     E --> F{"Objective is speed or cost?"}
     F -- yes --> G[Opening screen: lower thinking levels]
     F -- no --> S
@@ -99,7 +102,8 @@ flowchart TD
    gateway.
 2. **Setup.** Code makes one *issue* memory record for each eval. An issue is
    one thing that the task gets wrong. It is the target of quality work.
-3. **The baseline.** Code reuses the baseline's stored train scores. Under
+3. **The baseline.** Code reuses the baseline's stored train scores, and
+   measures the train items that have none. Under
    `speed` and `cost` it also drives the baseline on 30 train items to get its
    latency and cost.
 4. **The baseline audit.** Code searches the baseline's own prompt, skills and
@@ -110,11 +114,13 @@ flowchart TD
    evals can show a significant win at all. A significant win needs at least 6
    items fixed in one direction. When the baseline fails only 2 items of an
    eval, that eval cannot show a quality win. Under `quality`, the check stops
-   the run when no eval can show a win.
+   the run when no eval's val split is large enough to show a significant win
+   (or, with `--min-effect`, that change). Few baseline failures give a
+   warning, not a stop.
 6. **The noise check** (`--noise-check N`, optional and paid). Code drives the
    baseline again on N train items for each eval and counts how often the same
    config gets a different result.
-7. **Wave 0: probes.** Short yes/no questions about the baseline. For example:
+7. **Recon probes** (wave 0 in the wave log). Short yes/no questions about the baseline. For example:
    "Does the model call an attached tool under this output mode?" A probe drives
    about 3 items and reads the traces. It writes no experiment record.
 8. **The opening screen** (`speed` and `cost` only). One screening round of the
@@ -137,8 +143,7 @@ flowchart TD
 
    A review that fails, or that `--no-baseline-review` turns off, does not
    stop the run: the planner still gets the code detections. No review runs
-   on the wrap-up wave, or when too little time is left for a review and a
-   wave.
+   on the wrap-up wave.
 2. **Plan.** The planner agent reads memory: the issues (the smell issues
    too), the earlier results, the dead ends, the lessons and the open
    questions. It also gets the code detections. It reads the **knowledge
@@ -150,14 +155,15 @@ flowchart TD
 3. **Screen** (optional, at most 4 rounds in a wave). A screen is a cheap test
    of variants that need no build: a model, a provider, a thinking level,
    sampling settings or an output mode. Code puts all the candidates of the
-   round through the same small train sample, in up to 3 chunks, and checks
+   round through the same small train sample, in 3 chunks by default, and checks
    the stop rules after each chunk. The planner then gets a table of the
    survivors and plans again.
 4. **The wave items**, in parallel. The main kind of item is the
    **experiment**:
-   1. A build agent makes one new run config, for example a model swap, a
-      prompt edit or a tool or skill change. It reads the technique that the
-      planner named, in the knowledge system. It stamps the provenance and
+   1. A build agent makes one new run config, for example a prompt edit, a
+      tool or skill change, a thinking level, or a model swap where one is
+      allowed. It reads the technique that the planner named, in the
+      knowledge system. It stamps the provenance and
       smoke-tests the config. It stops before any result exists.
    2. Two text checks run before any money is spent on measurement:
       - The **generality check** looks for text that copies train items, first
@@ -230,18 +236,21 @@ the setup steps and the opening screen.
 
 The run stops when:
 
-- the time or the budget is used (near the limit, the last wave is a wrap-up
-  wave);
+- the time or the budget is used. After the time limit, the wave in flight
+  finishes, then one wrap-up wave merges the pooled wins. Near the budget,
+  the last wave is a wrap-up wave;
 - the planner says that nothing is left to try (`loop_exit`), or returns an
   empty plan;
 - two waves in a row fail (the tripwire);
 - an agent provider reports a quota or authentication error.
 
-Then a report agent writes the round report from the run's records, and code
-saves it to `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md`
-by default. Code adds tables to it, among them the smells of each baseline:
-the code detections and the review's findings. The run prints the path when
-it ends. The state folder holds all
+Then a report agent writes the round report from the run's records. After a
+quota or auth error, or a crash after the first wave, code writes a shorter
+fallback report with no agent; an interrupt writes none. Code adds tables to
+each report, among them the smells of each baseline: the code detections and
+the review's findings. Code saves the report to
+`~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md` by default.
+The run prints the path when it ends. The state folder holds all
 of a run's files
 ([install.md](install.md#where-the-tuner-keeps-its-files)).
 
@@ -258,6 +267,12 @@ The goal is higher eval scores.
   (experimental, off by default), an eval-build item makes the eval first.
   The eval is frozen before the fix is built, so the fix cannot shape its
   own test.
+- **What the planner may change.** Everything in the run config. The
+  provider parameters (thinking level, temperature, `top_p`) are levers.
+  The model and the provider (`model_name`, `model_provider_name`) stay as
+  they are under the default, `--models keep`. With `--models any`, or a
+  model policy that allows another model, a model or provider swap is a
+  lever too.
 - **Which train items are judged first.** The items that the baseline fails
   on the target evals (up to 8), then a few that it passes (up to 4) as
   guards, then the rest of the split. A fix must show on the failures first.

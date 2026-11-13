@@ -80,9 +80,11 @@ rendered into a loop session.
 
 ## 3. The wave loop
 
-`orchestrate()` in [`orchestrator.py`](../src/kiln_harness_tuner/orchestrator.py). It
-always exits through a report: a clean exit gets the agent-written one, and
-every failure path gets a code-rendered fallback built from `RunStatus`.
+`orchestrate()` in [`orchestrator.py`](../src/kiln_harness_tuner/orchestrator.py). A
+clean exit gets the agent-written report. A quota or auth stop, and a fatal
+error after the first wave started, get a code-rendered fallback built from
+`RunStatus`. An interrupt (Ctrl-C), or a fatal error before wave 1, writes no
+report.
 
 ### 3.1 Pre-flight
 
@@ -198,7 +200,8 @@ Then:
 13. **The noise check**, only with `--noise-check N`
     (`run_noise_check`). Paid, estimated before it spends. Section 5.2.
 14. **The reconnaissance battery.** Wave 0. Skipped with `--no-recon`.
-    Shaped by the baseline and the objective (`probes.recon_items`). Its
+    Shaped by the baseline's tools, skills and output mode
+    (`probes.recon_items`). Its
     drives take the same route as the timing drives: one-item train eval
     jobs on a task that needs them.
 15. **The opening screen**, under `speed` and `cost` only
@@ -210,10 +213,9 @@ Then:
 
 Per wave, in order:
 
-1. **Three clock checks.** Past the deadline, exit. Less than
-   `MIN_WAVE_START_SECS` left, exit — under that floor a wave cannot finish,
-   and paying for a plan whose arms are cancelled on arrival is worse than
-   stopping. Otherwise compute `should_wrap`.
+1. **The clock check.** Before the time limit, the wave is a normal wave.
+   At or past it, the wave is the wrap-up, and it is the last wave (section
+   3.3).
 2. **The budget check.** First the ledger is reconciled with the records
    this run created (`kiln_harness_tuner.reconcile`; [costs.md](costs.md)), so
    the check reads the true spend. With a budget (any `--budget-usd` but
@@ -221,7 +223,7 @@ Per wave, in order:
    `budget_exhausted`; within one mean wave's cost of it, this wave is the
    wrap-up. This check is a wave boundary and nothing else — **a wave already
    running is never killed for the budget**, so the wave that crosses the
-   ceiling runs to completion and is paid for. The clock does not work this way
+   ceiling runs to completion and is paid for. The clock works the same way
    (section 3.3).
 3. **Read the baseline**, fresh, because the previous wave's promotion moved
    it. The planner receives the run-config id, and no val number of the
@@ -231,12 +233,10 @@ Per wave, in order:
    when the run config differs from the one last reviewed. The smell
    detectors in code run first, then one `baseline_review` session, and
    code writes one `smell` issue for each finding (section 18). No session
-   runs with `--no-baseline-review`, on a wrap-up wave, or when less than
-   `MIN_WAVE_START_SECS` plus the review's timeout is left; the detectors
-   still run. It never raises, apart from a quota error. After a review,
-   the wave-start clock checks run again before the plan. The wave's cycle
-   time starts at the end of the review. So the review does not add to the
-   projected length of a wave.
+   runs with `--no-baseline-review` or on a wrap-up wave; the detectors
+   still run. It never raises, apart from a quota error. The review is part
+   of the wave: the clock is not checked again after it, so a review that
+   ends past the time limit is still followed by this wave's plan.
 5. **Plan.** One `batch_plan` dispatch. Its input carries the present
    baseline's detections (`BatchPlanInput.detections`), and it reads the
    `smell` issues from memory with the other issues. A hard failure exits the run
@@ -268,8 +268,8 @@ Per wave, in order:
    `--max-concurrent-agents` and `--max-concurrent-evals`.
 9. **The tripwire.** Section 10.
 10. **The promotion gate.** Section 9. It runs over what completed even when
-   the wave tripped or the deadline hit, so a measured winner is never
-   stranded.
+   the wave tripped, or the time limit passed during the wave, so a measured
+   winner is never stranded.
 11. **Exit, or carry one thing forward.** The planner's own
    `rejected_summary` is the single piece of in-context state that crosses a
    wave boundary; everything else the next planner reads from memory.
@@ -277,27 +277,46 @@ Per wave, in order:
 Exit reasons, each as the code names it: `timeout`, `budget_exhausted`,
 `planner_failed`, `empty_plan`, the planner's own `loop_exit`, `tripwire`,
 `wrap_up`, `quota_exhausted` (a classified quota or auth error from an agent
-session), `interrupted` (Ctrl-C) and `fatal:<ExceptionClass>`.
+session, an eval job or a drive), `interrupted` (Ctrl-C) and `fatal:<ExceptionClass>`.
 
 ### 3.3 The clock
 
-`--timeout-mins` sets a monotonic deadline. Three rules govern it:
+`--timeout-mins` sets a monotonic time limit. The loop checks it at wave
+boundaries only. Three rules govern it:
 
-- **Hard.** No wave — the wrap-up included — ever *starts* past the deadline.
-  That is a statement about *starting*, and it is the only one: unlike the
-  budget check in section 3.2, the deadline reaches inside a running wave. The grace
-  rule below is what it does there.
-- **A floor.** `MIN_WAVE_START_SECS` below the deadline, the loop goes straight
-  to the report.
-- **A grace.** At the deadline, an item already *analyzing* is given
-  `ANALYSIS_GRACE_SECS` to finish. Its build and its drives are already paid
-  for, and the analysis is the one session that turns them into a stored
-  verdict. Every other in-flight item is cancelled at once.
+- **Before the limit**, every wave is a normal wave. The loop does not
+  predict when to wrap up: nobody can say beforehand how long a wave takes,
+  and a guess either wastes the time that is left or stops a wave early.
+- **At the limit**, no new normal wave starts. The wave in flight is not
+  cancelled. Its items run to their end (build, measurement, analysis), and
+  its promotion gate on val runs too.
+- **After the limit**, exactly one wrap-up wave runs (`should_wrap_up:
+  true`). Its job is to merge the pooled unpromoted wins. When nothing is
+  pooled, the planner returns `loop_exit` and the run goes to the report.
+  After the wrap-up wave, the run goes to the report. The exit reason is
+  `timeout`, and its detail names the last normal wave:
+  `finished wave 3, then the wrap-up`, or
+  `finished wave 3; no wrap-up: nothing to merge`
+  (`orchestrator.time_limit_detail`).
 
-`should_wrap` fires when the remaining time is under the larger of
-`WRAP_UP_WINDOW_SECS` and the run's own mean wave time so far. The planner is
-handed the conclusion — `should_wrap_up: bool` — never the clock. Budget
-arithmetic belongs in code, not in an agent reading a minutes number.
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
+
+The limit stops new work. It does not stop work that has started. The budget
+is different: it stays a hard ceiling (section 3.2). When the budget ends the
+run first, the budget's own wrap-up wave is the last (exit `wrap_up`), or the
+run exits `budget_exhausted`. A signal and a fatal error also stop the run at
+once.
+
+The planner is handed the conclusion — `should_wrap_up: bool` — never the
+clock. Budget arithmetic belongs in code, not in an agent reading a minutes
+number.
 
 ## 4. One item's path
 
@@ -577,7 +596,7 @@ it.
 | Actor | `baseline` record | `val` record |
 |---|---|---|
 | `select_baseline` (code) | read — passes the run-config id onward, never metrics | — |
-| the planner, the builder, the analyst, the eval builder, the prober, the baseline reviewer | **none** | **none** |
+| the planner, the builder, the analyst, the eval builder, the prober, the baseline reviewer | **none** (by instruction: the gateway does not hide this record) | **none** (the gateway hides it) |
 | the promotion gate (agent + code apply) | read and write | read and write |
 | the report writer | read | read, and its numbers are labelled val-grade |
 
@@ -759,7 +778,8 @@ it would be refused. Four rules keep the state readable:
 
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
-only. Lifecycle writes are code's alone.
+only. Lifecycle writes are code's alone by contract: the gateway enforces
+the two scopes and refuses the `val` tag, and does not check the record kind.
 
 ## 9. The promotion gate
 
@@ -819,9 +839,13 @@ successful on train.
    output-shape flags, the (c) write-action flags, the `integrity_review`
    findings and every val number are computed from val traces. They go to
    the wave log, the val summary and the promotion agent, and never to `BatchPlanInput.gate_blocks` or to the record.
-3. **The decision.** With one candidate, a code rule decides. With two or more,
-   one `promote_best` dispatch ranks them. `--gate-agent always` dispatches the
-   agent either way.
+3. **The decision.** Under quality, with one candidate, a code rule
+   (`decide_single_candidate`) decides. When it cannot decide, or its winner
+   carries integrity flags, one `promote_best` session decides. With two or
+   more candidates, one `promote_best` dispatch ranks them. Under speed and
+   cost, `decide_speed_gate` decides in code whatever the number of
+   candidates (section 16), and a winner with integrity flags goes to
+   `promote_best`. `--gate-agent always` dispatches the agent every time.
 4. **The apply — code, strict order.** The `baseline` record first, then the
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
@@ -866,7 +890,8 @@ resubmit them unchanged once the question is answered.
 
 **The tripwire.** More than half a wave's items ending `failed_infra` with the
 same error class marks the wave aborted, notes the incomplete experiment
-records, and backs off `TRIPWIRE_BACKOFF_SECS` once. Two consecutive tripwires
+records, and backs off `TRIPWIRE_BACKOFF_SECS` once (not after the time limit:
+the wrap-up wave starts at once). Two consecutive tripwires
 end the run — *after* the promotion gate has run over what completed.
 Items that completed keep their results and their honest status; only the
 memory overview gets the abandoned stamp.
@@ -907,8 +932,8 @@ way.
     SIGTERM, SIGHUP and SIGINT itself and passes them on. The app looks up the
     run config names in Kiln on its own loop, at most once every 10 seconds.
     When it closes, it prints a plain closing block: the start's summary and
-    rerun command, the exit line, Best Confirmed, the report and the run
-    folder, built by the same code as the plain lines.
+    rerun command, the exit line, Best Confirmed, the report, the run
+    folder and the next steps, built by the same code as the plain lines.
   - **`PlainUi`** (`ui.py`): plain timestamped lines, for `--no-progress`, a
     CI log, and every run with no terminal. The plain path never imports
     Textual.
@@ -991,6 +1016,13 @@ state folder and the scratch tree. The read-only roles (`READ_ONLY_ROLES` in
 `dispatch/claude_cli.py`: the promotion agent and the report writer, which
 hold val data, the two reviewers, and the baseline reviewer) run under it,
 and get no scratch directory.
+
+Every settings file also sets `"verbose": false`. With verbose on,
+`claude -p --output-format json` prints a list of events in place of one
+result object. A `--settings` file overrides the user's and the project's
+Claude Code settings, so a `"verbose": true` there has no effect on a loop
+session. A `--verbose` in the CLI options still wins, so the dispatcher also
+reads a list: it takes the last `"type": "result"` event.
 
 1. **File writes.** One path-scoped allow rule for the run's scratch tree, and
    an explicit deny over the Kiln project tree. The session's working directory
@@ -1082,7 +1114,8 @@ and get no scratch directory.
      fields only; Kiln's raw responses are never forwarded, and a field
      Kiln adds cannot pass.
    - **Typed, validated writes.** Run configs are checked against
-     `--model-policy`; a drive (`run_task`) runs a saved config on ONE train
+     the run's model policy (`--model-policy`, or the `--models keep` pin;
+     section 17); a drive (`run_task`) runs a saved config on ONE train
      item and takes the input from the item, never from the agent — on a
      multi-turn or world task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
@@ -1193,7 +1226,7 @@ src/kiln_harness_tuner/
   reconcile.py      the spend ledger checked against this run's records
   objective.py      the quality, speed and cost objectives
   levers.py         the check that a declared lever took effect
-  integrity.py      the integrity review at the promotion gate
+  integrity.py      the reward-hacking code checks at the promotion gate
   orchestrator.py   the wave loop, the promotion gate, the tripwire, the
                     janitor, the budget
   items.py          one plan item from planned to measured
@@ -1231,8 +1264,11 @@ src/kiln_harness_tuner/
   smells/           smell detection: the detection model, the detectors
                     and their registry, the thresholds, and the step that
                     runs the detectors and the baseline reviewer
-  onboarding/       the start before the run: the checks, the guided
-                    questions, the summary
+  onboarding/       the start before a run: the Kiln and task checks, the
+                    API-key check, the guided questions (the agents' model
+                    list in agent_models.py, the Models question and its
+                    picked policy in models.py), the summary and the rerun
+                    command
   agents/           one prompt template per agent role
   agent_files/      the agents' skills and instructions (package data),
                     installed per agent CLI into the state folder; the
@@ -1247,15 +1283,17 @@ src/kiln_harness_tuner/
                     and the trace files it writes (trace_files.py)
   skill_installer/  the MCP server that installs a skill bundle atomically
   tui/              the terminal app (Textual): the entry (entry.py), the
-                    app and its threads, the start-up and run screens, the
-                    widgets and the stylesheet (tuner.tcss, package data),
-                    and the run model (model/, pure Python)
+                    app and its threads, the screens (screens/: start-up,
+                    the start-up prompts, run, the details panel and its
+                    picker, the stop dialog, the modal base), the widgets and the stylesheet
+                    (tuner.tcss, package data), and the run model (model/,
+                    pure Python, details.py for the panel)
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 tests/              the offline suite
   tui/              the app's tests: the model, pilot tests of each screen,
                     the entry, and pseudo-terminal tests (marked slow)
   packaging/        the CI smoke test of the installed wheel, and the
-                    fake claude it runs with
+                    fake claude and fake Kiln it runs with
 specs/              the project specs, and backlog.md: the known gaps and
                     the pending ideas of the knowledge system
 .agents/skills/     the skills for coding agents that work on this
@@ -1285,7 +1323,7 @@ transcripts. No live server, no model spend, so it runs on every change.
 Tiers: the statistics assembly and the baseline-if-needed tree against a fake
 client; the memory formats string-asserted, because they *are* contracts;
 whole waves against scripted agent results — promotion, head-to-head, tripwire,
-deadline into wrap-up, janitor, `loop_exit`; the dispatcher's plumbing against
+time limit into wrap-up, janitor, `loop_exit`; the dispatcher's plumbing against
 recorded `claude -p` output, which covers prompt rendering, the fenced-JSON
 extraction, the repair retry and usage parsing.
 
@@ -1316,10 +1354,13 @@ stylesheet included. It installs the wheel as a uv tool with a temporary
 `HOME`, and runs the commands from an empty folder. It imports the terminal
 app on the tool's interpreter and checks that the app's stylesheet is a file
 of the installed package. Then it makes a run with a fake `claude` on `PATH`
-(`tests/packaging/fake_claude.py`) and no Kiln server. The run installs the
-agent files, passes the agent CLI check, takes the lock, renders the configs
-and checks the splits. The fake starts the gateway from the rendered config
-and calls `ping`, and the run stops at the pre-flight. The script then checks
+(`tests/packaging/fake_claude.py`) and a fake Kiln
+(`tests/packaging/fake_kiln_server.py`) that answers the start-up reads from
+the run's copy of the demo project. The run installs the agent files, passes
+the agent CLI check, takes the lock, renders the configs and checks the
+splits. The fake claude starts the gateway from the rendered config and calls
+`ping`, which reaches the fake Kiln. The run stops with exit code 1 at its
+first write to Kiln, which the fake refuses. The script then checks
 that the state is in the state folder, that the sessions ran in the agents
 folder, that the gateway runs on the tool's interpreter, and that nothing was
 written to the current folder, `HOME` or the checkout. It makes the run with
@@ -1854,7 +1895,26 @@ over (Kiln provider id, Kiln model id), as `fnmatch` globs;
 [`model_policy.py`](../src/kiln_harness_tuner/model_policy.py) decides a pair in this
 order: an **exception** (one exact pair, no wildcards) allows it; a **deny**
 match refuses it; an **allow** match allows it; anything else is refused. No
-policy means every model is allowed.
+policy (`--models any`) means every model is allowed.
+
+**`--models` and the policy.** Without `--model-policy`, `--models` says
+which models the task may use (`model_policy.resolve_models`): `keep`, the
+default under `--objective quality`, or `any`, the default under `speed`
+and `cost`. `any` is no policy. `keep` becomes a policy at start-up:
+`orchestrator.pin_baseline_model` reads the baseline's (provider, model),
+once the baseline record is known and before the model preflight, and
+sets `Ctx.model_policy` to one exception for that pair
+(`model_policy.keep_policy`). It writes the same policy to
+`runs/<run_id>/model_policy.json`, so the gateway enforces it like a policy
+file. A baseline whose pair cannot be read pins nothing; the planner still
+gets the baseline's model alone (`_allowed_models`). The guided start's
+picker writes a policy of exceptions to the state folder's `policies/`
+(`onboarding.models`) and passes it as `--model-policy`.
+
+So a model or provider swap is a lever exactly when the policy allows a
+model other than the baseline's. The planner skill says so, and the
+thinking level, the temperature and `top_p` stay levers under every
+choice.
 
 It is enforced at every place a run config comes into being or is used:
 
@@ -2013,9 +2073,9 @@ them.
 Code checks each finding's smell id against the smell documents, merges
 two findings of one smell, keeps at most `REVIEW_MAX_FINDINGS` (15), and
 writes one `smell` issue for each (section 8). The review is recorded with
-one of four statuses: `done`; `skipped` (a wrap-up wave, too little time,
-or memory already holds this run config's smell issues); `failed` (the
-session gave no result, or the step raised); `off` (`--no-baseline-review`).
+one of four statuses: `done`; `skipped` (a wrap-up wave, or memory already
+holds this run config's smell issues); `failed` (the session gave no
+result, or the step raised); `off` (`--no-baseline-review`).
 The run goes on in every case. The planner reads the detections in its
 input and the smell issues in memory, and the report's `## Smells` section
 shows both (section 11).

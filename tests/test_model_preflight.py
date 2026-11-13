@@ -13,8 +13,9 @@ from test_orchestrator import seed_active_eval, seed_baseline
 from test_speed_objective import _project
 
 from kiln_harness_tuner.analysis import ModelPolicyRefused
+from kiln_harness_tuner.gateway.server import load_policy
 from kiln_harness_tuner.kiln import KilnAPIError, KilnTransportError
-from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.model_policy import ModelPolicy, keep_policy
 from kiln_harness_tuner.model_preflight import (
     MAX_CHECKED_MODELS,
     MODEL_PREFLIGHT_RUN_TAG,
@@ -23,7 +24,12 @@ from kiln_harness_tuner.model_preflight import (
     models_to_check,
     run_model_preflight,
 )
-from kiln_harness_tuner.orchestrator import _allowed_models, orchestrate, require_policy
+from kiln_harness_tuner.orchestrator import (
+    _allowed_models,
+    orchestrate,
+    pin_baseline_model,
+    require_policy,
+)
 from kiln_harness_tuner.report import render_model_preflight_appendix
 from kiln_harness_tuner.schemas import ScreenCandidate, lane_for_source
 from kiln_harness_tuner.viability import _make_candidate_rc
@@ -431,10 +437,15 @@ async def test_measurement_refuses_an_rc_on_a_flagged_model(tmp_path):
 
 def test_the_model_set():
     offered = _offered((BASE, {}), (SMALL, {}), (LARGE, {}))
-    # No policy under quality: the planner gets no model list.
-    assert models_to_check(BASE, None, "quality", offered) == ([BASE], 0)
+    # `--models keep` with nothing pinned: the baseline's model alone.
+    assert models_to_check(BASE, None, offered, keep_model=True) == ([BASE], 0)
+    # `--models any`: every offered model.
+    assert models_to_check(BASE, None, offered) == ([BASE, SMALL, LARGE], 0)
+    # `--models keep`, pinned: the policy of the baseline's one pair.
+    pinned = ModelPolicy.from_json(keep_policy(*BASE))
+    assert models_to_check(BASE, pinned, offered) == ([BASE], 0)
     policy = ModelPolicy.from_json(POLICY)
-    assert models_to_check(BASE, policy, "quality", offered) == (
+    assert models_to_check(BASE, policy, offered) == (
         [BASE, SMALL, LARGE],
         0,
     )
@@ -444,7 +455,7 @@ def test_the_model_set():
         (SMALL, {}),
         (LARGE, {}),
     )
-    pairs, untested = models_to_check(BASE, policy, "quality", many)
+    pairs, untested = models_to_check(BASE, policy, many)
     assert pairs == [BASE, SMALL, LARGE]
     assert untested == MAX_CHECKED_MODELS + 1
 
@@ -516,12 +527,42 @@ def test_the_cli_flag_turns_the_preflight_off(tmp_path):
     )
 
 
-async def test_without_a_policy_the_planner_gets_the_baselines_model(tmp_path):
-    # Under `quality` with no policy the full list is not sent, but the list
-    # is never empty: the planner plans arms only on listed models, and an
-    # empty list read as "no arm at all" ended a run after one wave.
+async def test_keep_pins_the_baselines_model_in_code(tmp_path):
+    # `--models keep` becomes the policy of the baseline's one pair, for the
+    # planner, the measurement checks and (in the run directory) the gateway.
     ctx = _ctx(tmp_path, policy=None)
+    ctx.keep_model, ctx.run_dir = True, tmp_path
+    await pin_baseline_model(ctx, "rc_base")
+    assert ctx.model_policy is not None
+    assert ctx.model_policy.refusal(*BASE) is None
+    assert ctx.model_policy.refusal(*SMALL) is not None
+    gateway = load_policy(tmp_path)
+    assert gateway is not None
+    assert gateway.refusal(*BASE) is None
+    assert gateway.refusal(*SMALL) is not None
+    rows = await _allowed_models(ctx, "rc_base")
+    assert [(r["provider"], r["model"]) for r in rows] == [BASE]
+    assert rows[0]["thinking_levels"] == ["low", "high"]
+
+
+async def test_keep_with_an_unreadable_baseline_still_lists_its_model(tmp_path):
+    # Nothing is pinned, but the list is never empty: the planner plans arms
+    # only on listed models, and an empty list read as "no arm at all" ended
+    # a run after one wave.
+    ctx = _ctx(tmp_path, policy=None)
+    ctx.keep_model, ctx.run_dir = True, tmp_path
+    await pin_baseline_model(ctx, "rc_missing")
+    assert ctx.model_policy is None
+    assert not (tmp_path / "model_policy.json").exists()
     rows = await _allowed_models(ctx, "rc_base")
     assert [(r["provider"], r["model"]) for r in rows] == [BASE]
     # A baseline that cannot be read leaves the list empty rather than failing.
     assert await _allowed_models(ctx, "rc_missing") == []
+
+
+async def test_any_lists_every_offered_model(tmp_path):
+    ctx = _ctx(tmp_path, policy=None)
+    await pin_baseline_model(ctx, "rc_base")  # not keep: nothing pinned
+    assert ctx.model_policy is None
+    rows = await _allowed_models(ctx, "rc_base")
+    assert [(r["provider"], r["model"]) for r in rows] == [BASE, SMALL, LARGE]

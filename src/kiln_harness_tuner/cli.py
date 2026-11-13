@@ -19,6 +19,7 @@ import contextlib
 import fcntl
 import json
 import logging
+import math
 import os
 import shutil
 import signal
@@ -29,6 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Literal, Protocol, TextIO
+from urllib.parse import urlsplit
 
 from rich.console import Console
 
@@ -82,7 +84,12 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError
-from kiln_harness_tuner.model_policy import ModelPolicy, ModelPolicyError
+from kiln_harness_tuner.model_policy import (
+    MODEL_CHOICES,
+    ModelPolicy,
+    ModelPolicyError,
+    resolve_models,
+)
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import (
     OnboardingError,
@@ -101,6 +108,7 @@ from kiln_harness_tuner.onboarding.questions import (
     check_time_limit,
     number_text,
     parse_budget,
+    parse_count,
     parse_fraction,
 )
 from kiln_harness_tuner.onboarding.summary import OptionInfo
@@ -268,9 +276,9 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--project-path",
-        help="on-disk Kiln project dir (for agents exploring .kiln files);"
-        " default: the folder Kiln has for the project. When given, it must be"
-        " that folder",
+        help="the on-disk Kiln project folder (default: the folder Kiln has"
+        " for the project). When given, it must be that folder. Only the"
+        " tuner's own code reads it: the agents' read fence denies it",
     )
     parser.add_argument(
         "--project-id",
@@ -296,6 +304,7 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--kiln-host",
+        type=_kiln_host,
         default=DEFAULT_KILN_HOST,
         help=f"running Kiln app (default {DEFAULT_KILN_HOST})",
     )
@@ -308,8 +317,10 @@ def build_parser() -> _Parser:
         "--timeout-mins",
         type=_timeout_mins,
         default=DEFAULT_TIMEOUT_MINS,
-        help="time budget in minutes, wave-boundary checked, at least"
-        f" {MIN_TIME_LIMIT_MINS} (default {DEFAULT_TIMEOUT_MINS}, 12 hours)",
+        help="time limit in minutes, at least"
+        f" {MIN_TIME_LIMIT_MINS}: no new wave starts after it; the wave in"
+        " flight finishes, then one wrap-up wave, so the run can end later"
+        f" (default {DEFAULT_TIMEOUT_MINS}, 12 hours)",
     )
     parser.add_argument(
         "--no-progress",
@@ -328,14 +339,14 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--coverage-floor",
-        type=float,
+        type=_coverage_floor,
         default=DEFAULT_COVERAGE_FLOOR,
         help="promotion-gate val coverage floor: a candidate whose fills sit"
         f" below this is ineligible this wave (default {DEFAULT_COVERAGE_FLOOR})",
     )
     parser.add_argument(
         "--max-concurrent-evals",
-        type=int,
+        type=_count,
         default=DEFAULT_MAX_CONCURRENT_EVALS,
         help="max eval jobs in flight at once, run-wide — the rate-limit"
         f" knob (default {DEFAULT_MAX_CONCURRENT_EVALS}; 0 = unlimited)",
@@ -354,9 +365,9 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--max-concurrent-agents",
-        type=int,
+        type=_count,
         default=DEFAULT_MAX_CONCURRENT_AGENTS,
-        help="max `claude -p` sessions in flight at once"
+        help="max agent sessions in flight at once"
         f" (default {DEFAULT_MAX_CONCURRENT_AGENTS}; 0 = unlimited)",
     )
     parser.add_argument(
@@ -365,11 +376,11 @@ def build_parser() -> _Parser:
         default=[],
         metavar="ROLE=MODEL",
         help="per-role model override, e.g. --agent-model describe_eval=haiku"
-        f" (repeatable; default {AGENT_MODEL}"
+        " (repeatable; default: the model in --agent-cli, else under claude -p"
+        f" {AGENT_MODEL}"
         + "".join(f", {r} {m}" for r, m in sorted(AGENT_MODEL_DEFAULTS.items()))
-        + "; roles: "
-        + ", ".join(sorted(AGENT_TIMEOUTS_SECS))
-        + ")",
+        + ", and the CLI's own default under codex exec and opencode run;"
+        " roles: " + ", ".join(sorted(AGENT_TIMEOUTS_SECS)) + ")",
     )
     parser.add_argument(
         "--agent-effort",
@@ -377,7 +388,8 @@ def build_parser() -> _Parser:
         default=[],
         metavar="ROLE=EFFORT",
         help="per-role reasoning-effort override, e.g."
-        " --agent-effort report_writer=medium (repeatable)",
+        " --agent-effort report_writer=medium (repeatable; default: the effort"
+        " in --agent-cli, else high; the roles are those of --agent-model)",
     )
     parser.add_argument(
         "--no-baseline-audit",
@@ -407,25 +419,29 @@ def build_parser() -> _Parser:
         "--no-recon",
         action="store_true",
         help="skip the setup reconnaissance battery (the code probes on the"
-        " baseline — tool call, skill read, alternate output mode, thinking,"
-        " json validity, output on the longest inputs — run as wave 0 before"
+        " baseline — tool call, skill read, alternate output mode,"
+        " json validity, output on the longest inputs — run before"
         " the first plan)",
     )
     parser.add_argument(
         "--gate-agent",
         choices=("auto", "always"),
         default="auto",
-        help="who decides a one-candidate promotion gate: auto = the code rule"
-        " (the promote agent is dispatched only to rank two or more"
-        " candidates), always = dispatch the agent for every gate",
+        help="who decides a promotion gate: auto = a code rule where one"
+        " applies (under quality, one candidate; under speed and cost, any"
+        " number), and the promote agent for the rest: two or more quality"
+        " candidates, an undecided rule, or a winner with integrity flags;"
+        " always = dispatch the agent for every gate",
     )
     parser.add_argument(
         "--max-turns",
-        type=int,
+        type=_positive_int,
         default=None,
-        help="opt-in hard turn cap per agent session (default: uncapped —"
-        " the per-role wall-clock timeouts bound runaways; long sessions in"
-        " the trace corpus were productive, not loops)",
+        metavar="N",
+        help="a hard turn cap for each agent session, at least 1 (default: no"
+        " cap; the per-role time limits stop a session that does not end)."
+        " No effect under codex exec; under opencode run it is the build"
+        " agent's steps cap",
     )
     parser.add_argument(
         "--objective",
@@ -433,8 +449,11 @@ def build_parser() -> _Parser:
         default="quality",
         help="what the loop optimises: quality = the eval scores (default);"
         " speed = per-request wall-clock latency, promoted only when clearly"
-        " faster on val (paired, median and p90) with no eval regressed"
-        " significantly",
+        " faster on val (paired, median and p90) with quality equal or better"
+        " (no eval down significantly, net items over all evals at zero or"
+        " above, no eval down past its loss cap); cost = per-request provider"
+        " cost, by the same rule."
+        " The objective also sets the default of --models",
     )
     parser.add_argument(
         "--min-effect",
@@ -443,8 +462,9 @@ def build_parser() -> _Parser:
         metavar="FRACTION",
         help="the smallest improvement you would act on, as a share of an"
         " eval's items (0.1 = 10%%). The pre-run check then says per eval"
-        " whether the best case can show it, and refuses the run when no"
-        " eval that can drive a promotion can show it on val",
+        " whether the best case can show it, and, under --objective quality,"
+        " refuses the run when no eval that can drive a promotion can show"
+        " it on val",
     )
     parser.add_argument(
         "--allow-underpowered",
@@ -455,12 +475,23 @@ def build_parser() -> _Parser:
     )
     parser.add_argument(
         "--noise-check",
-        type=_positive_int,
+        type=_count,
         default=0,
         metavar="N",
         help="before wave 1, re-drive and re-judge the baseline on N train"
         " items per eval and report how often the same config scores"
-        " differently (paid, estimated before it spends; default off)",
+        " differently (paid, estimated before it spends; default 0, off)",
+    )
+    parser.add_argument(
+        "--models",
+        choices=MODEL_CHOICES,
+        default=None,
+        help="which models the task may use: keep = the baseline's model and"
+        " provider only (thinking level, temperature and top_p may still"
+        " change); any = every model Kiln offers on the providers that have a"
+        " key, which may pick more expensive models and raise the spend."
+        " Default: keep under --objective quality, any under speed and cost."
+        " Enforced in code. Not with --model-policy",
     )
     parser.add_argument(
         "--model-policy",
@@ -468,8 +499,9 @@ def build_parser() -> _Parser:
         metavar="PATH",
         help="JSON file of allowed/denied (provider, model) pairs for the task's"
         " run configs, enforced on every run config an agent creates and"
-        " before any rc is measured or promoted (default: no policy — every"
-        " model allowed). See examples/model-policy.json",
+        " before any rc is measured or promoted: the task may move to the"
+        " models it allows, under every objective. In place of --models."
+        " See examples/model-policy.json",
     )
     parser.add_argument(
         "--skip-model-preflight",
@@ -498,12 +530,29 @@ OBJECTIVES = ("quality", "speed", "cost")
 def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """The rules between flags that argparse can't state. Each failure is an
     argparse error: usage, the message, exit 2."""
+    if args.models is not None and args.model_policy is not None:
+        parser.error(
+            "--models and --model-policy both say which models the task may"
+            " use: give one of them"
+        )
     project_flags = (args.project_id, args.task_id, args.project_path)
     if args.demo_project and any(flag is not None for flag in project_flags):
         parser.error(
             "--demo-project makes its own project:"
             " drop --project-id, --task-id and --project-path"
         )
+    # Before the start: a bad agent command or role is a typing error, so it
+    # stops at once, not after every question and every Kiln check. `_run`
+    # checks the same again, on the answers that the start gives.
+    try:
+        parse_agent_cli(args.agent_cli)
+    except ValueError as exc:
+        parser.error(f"--agent-cli: {exc}")
+    try:
+        parse_role_overrides(args.agent_model, "--agent-model")
+        parse_role_overrides(args.agent_effort, "--agent-effort")
+    except ConfigRenderError as exc:
+        parser.error(str(exc))
 
 
 def _budget(text: str) -> float | None:
@@ -539,8 +588,43 @@ def _fraction(text: str) -> float:
         raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
 
+def _kiln_host(text: str) -> str:
+    """`--kiln-host`: a whole http or https URL. Without the scheme, the Kiln
+    check says that Kiln is not running, and that is not the problem."""
+    host = text.strip()
+    url = urlsplit(host)
+    if url.scheme not in ("http", "https") or not url.netloc:
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: give the whole URL, like {DEFAULT_KILN_HOST}"
+        )
+    return host
+
+
+def _coverage_floor(text: str) -> float:
+    """`--coverage-floor`: a share of the val items, from 0 to 1."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = math.nan
+    if not 0.0 <= value <= 1.0:  # false for nan too
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: enter a share from 0 to 1, like 0.95"
+        )
+    return value
+
+
+def _count(text: str) -> int:
+    """`--max-concurrent-evals`, `--max-concurrent-agents` and
+    `--noise-check`: 0 or more, as the start's questions take them. 0 is no
+    limit for the first two, and off for the noise check."""
+    try:
+        return parse_count(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
 def _positive_int(text: str) -> int:
-    """`--noise-check`: at least one item."""
+    """`--max-turns`: at least 1."""
     try:
         value = int(text)
     except ValueError:
@@ -600,7 +684,7 @@ def load_model_policy(path: str | None) -> ModelPolicy | None:
         raise ConfigRenderError(
             f"--model-policy: {exc}.\n"
             "fix: correct the file (examples/model-policy.json shows the shape),"
-            " or drop --model-policy to allow every model."
+            " or drop --model-policy to run with no policy."
         ) from exc
 
 
@@ -978,6 +1062,11 @@ def render_run_configs(
         # can call its own gateway operations and nothing else. Exit code 2
         # blocks the call and hands the message to the model.
         "hooks": hook("none"),
+        # `claude -p --output-format json` prints one result object only
+        # when verbose is off. A `"verbose": true` in the user's or the
+        # project's Claude Code settings makes it print a list of events.
+        # This file is the `--settings` layer, which overrides both.
+        "verbose": False,
     }
     settings_path = run_dir / "settings.json"
     settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
@@ -1042,6 +1131,7 @@ def build_ctx(
     reference_check: str = "warn",
     objective: str = "quality",
     model_policy: ModelPolicy | None = None,
+    keep_model: bool = False,
     agent_cli: AgentCli | None = None,
     min_effect: float | None = None,
     allow_underpowered: bool = False,
@@ -1095,6 +1185,7 @@ def build_ctx(
         opening_screen=True,
         objective=objective,
         model_policy=model_policy,
+        keep_model=keep_model,
         # A tree the read fence denies: `runs/` is denied except this run's
         # scratch, so `runs/.quarantine/` is unreadable to every agent.
         quarantine_root=state.quarantine(target.project_id, target.task_id),
@@ -1368,6 +1459,8 @@ async def _run(
                 reference_check=args.reference_check,
                 objective=args.objective,
                 model_policy=policy,
+                keep_model=policy is None
+                and resolve_models(args.models, args.objective) == "keep",
                 agent_cli=agent_cli,
                 min_effect=args.min_effect,
                 allow_underpowered=args.allow_underpowered,

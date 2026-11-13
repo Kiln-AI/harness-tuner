@@ -188,6 +188,19 @@ class TestTheCheck:
         assert "--strict-mcp-config" in call.argv
         assert "--mcp-config" not in call.argv
 
+    async def test_an_answer_in_a_verbose_event_list_passes(self):
+        # With verbose on, `claude -p --output-format json` prints a list of
+        # events. The check reads the last result event.
+        events = [
+            {"type": "system", "subtype": "init", "session_id": "s"},
+            {"type": "assistant", "message": {"content": []}, "session_id": "s"},
+            json.loads(claude_answer(CLI_CHECK_WORD)) | {"type": "result"},
+        ]
+        runner = FakeRunner(script=[ok_proc(json.dumps(events))])
+        dispatcher = ClaudeCliDispatcher(TARGET, AGENTS_DIR, runner=runner)
+        usage = await dispatcher.check_cli("claude -p")
+        assert usage.cost_usd == pytest.approx(0.01)
+
     @pytest.mark.parametrize(
         ("outcome", "reason"),
         [

@@ -471,7 +471,14 @@ class PromptCreate(In):
     prompt: str = Field(min_length=1, max_length=100_000)
     chain_of_thought_instructions: str | None = Field(default=None, max_length=20_000)
     description: str | None = Field(default=None, max_length=2000)
-    provenance: dict[str, Any] | None = None
+    provenance: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "notes, derived_from_ids, origin. derived_from_ids names parent "
+            "prompts: the parent run config's prompt id without the 'id::' "
+            "prefix. Kiln refuses a run-config id here."
+        ),
+    )
 
 
 class RunTaskRequest(In):

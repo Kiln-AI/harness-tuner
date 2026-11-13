@@ -1,7 +1,7 @@
 ---
 title: Faster provider for the same model
 description: Serve the same model from another provider - a faster one, or a cheaper one - with the harness unchanged, when the run allows that provider and the goal is latency or cost.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - model
@@ -43,8 +43,8 @@ cost: low
 - [Thinking level ladder](thinking-level-ladder.md), when the same
   provider at a lower level can reach the latency goal.
 - [Model swap inside a class](model-swap-inside-a-class.md), when no
-  provider of this model is fast or cheap enough, and the guidance allows
-  another model.
+  provider of this model is fast or cheap enough, and `allowed_models`
+  lists another model.
 
 ## How
 

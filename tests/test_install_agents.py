@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import importlib.resources
 import json
@@ -117,12 +118,18 @@ def test_the_version_is_the_installed_distributions():
     assert package_version() == importlib.metadata.version("harness-tuner")
 
 
-def test_the_version_falls_back_to_the_packages_own(monkeypatch):
+def test_the_version_has_a_fallback_with_no_distribution(monkeypatch):
     def missing(name):
         raise importlib.metadata.PackageNotFoundError(name)
 
     monkeypatch.setattr(importlib.metadata, "version", missing)
-    assert package_version() == kiln_harness_tuner.__version__
+    try:
+        importlib.reload(kiln_harness_tuner)
+        assert kiln_harness_tuner.__version__ == "0+unknown"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(kiln_harness_tuner)
+    assert kiln_harness_tuner.__version__ == importlib.metadata.version("harness-tuner")
 
 
 # ---- a run's agents folder ----
@@ -400,6 +407,28 @@ def test_a_config_that_is_not_a_json_object_is_refused(tmp_path, source, text):
     with pytest.raises(InstallError, match="JSON"):
         install_into("claude", dest)
     assert (dest / ".mcp.json").read_text() == text
+    # Refused before anything is written: no skills, no settings.
+    assert not (dest / ".claude").exists()
+
+
+def test_a_refused_settings_file_leaves_mcp_json_as_it_was(tmp_path, source):
+    dest = tmp_path / "dest"
+    (dest / ".claude").mkdir(parents=True)
+    (dest / ".claude" / "settings.json").write_text("[]")
+    (dest / ".mcp.json").write_text('{"mcpServers": {}}')
+    with pytest.raises(InstallError, match="settings.json is not a JSON object"):
+        install_into("claude", dest)
+    assert (dest / ".mcp.json").read_text() == '{"mcpServers": {}}'
+    assert not (dest / ".claude" / "skills").exists()
+
+
+def test_a_dest_that_is_a_file_is_an_error_not_a_traceback(tmp_path, capsys):
+    dest = tmp_path / "a-file"
+    dest.write_text("")
+    assert main(["--agent-cli", "codex", "--dest", str(dest)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith(f"harness-tuner-install-agents: cannot install into {dest}")
+    assert "fix: give a folder that you can write to as --dest." in err
 
 
 # ---- the command ----

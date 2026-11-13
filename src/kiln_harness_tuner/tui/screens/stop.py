@@ -5,20 +5,20 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Static
 
 from kiln_harness_tuner.tui.model import words
+from kiln_harness_tuner.tui.screens.modal import CardModal
 from kiln_harness_tuner.tui.widgets import Card
 
 
-class StopDialog(ModalScreen[bool]):
-    """ "Stop the run?" over the dimmed run screen, with what is lost.
-    "Keep running", the safe choice, has the focus. Esc keeps running. The
-    result is True for "Stop the run"."""
+class StopDialog(CardModal[bool]):
+    """ "Stop tuning?" over the dimmed run screen, with what is lost.
+    "Keep tuning", the safe choice, has the focus. Esc, or a click outside
+    the dialog, keeps tuning. The result is True for "Stop tuning"."""
 
     BINDINGS = [
-        Binding("escape", "keep", words.KEEP_RUNNING),
+        Binding("escape", "keep", words.KEEP_TUNING),
         Binding("left", "app.focus_previous", "Move", show=False),
         Binding("right", "app.focus_next", "Move", show=False),
     ]
@@ -31,9 +31,9 @@ class StopDialog(ModalScreen[bool]):
         with Card(title=f"[b]{words.STOP_TITLE}[/]", id="dialog"):
             yield Static(self.message, markup=False, id="dialog-message")
             with Horizontal(id="dialog-buttons"):
-                yield Button(words.KEEP_RUNNING, id="keep", compact=True)
+                yield Button(words.KEEP_TUNING, id="keep", compact=True)
                 yield Button(
-                    words.STOP_THE_RUN, id="stop", compact=True, variant="error"
+                    words.STOP_TUNING, id="stop", compact=True, variant="error"
                 )
         # A modal screen has its own bindings, so it needs its own footer.
         yield Footer()

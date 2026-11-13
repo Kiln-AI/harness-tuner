@@ -23,10 +23,10 @@ in the report's spend appendix.
 | Lane | Wire name in `schemas.py` | What is in it |
 |---|---|---|
 | Claude Code (or Codex, or OpenCode) | `subscription_equivalent` | every agent dispatch the loop makes: planning, building, analysis, promotion, probes, the report. The agents run on the agent CLI's own account. The loop shows their tokens, a rough count, and not their cost. |
-| Kiln | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
+| API keys | `provider` | every eval job: the model under test, the synthetic user on multi-turn tasks, and the judges |
 
 They are separate invoices, on separate accounts. `--budget-usd` is a ceiling on
-the **Kiln lane only**, for every agent CLI. The agent lane is information: the
+the **API keys lane only**, for every agent CLI. The agent lane is information: the
 run screen, the log lines, the report's spend appendix and the error screen
 show the agents' tokens, and the budget does not count them. No figure the
 tuner shows or computes includes a dollar cost for the agents: their `spend`
@@ -105,25 +105,25 @@ estimate and is luck.
 The only price that transfers to your run is one measured on your task, your
 model and your corpus. So make the first run the measurement:
 
-- Bound it with both knobs, and leave headroom for a whole wave. Both have
+- Bound it with both knobs. Both have
   defaults, `--budget-usd 50` and `--timeout-mins 720` (12 hours), which a
   guided start pre-fills as its answers, and `--budget-usd none` runs with no
   cap. For the smoke run, answer or pass the bounds you want it to stay under.
-  The two do not end a run the same way. `--budget-usd` is a pure
-  wave-boundary check: the wave in flight when the ceiling is crossed runs to
-  completion, and you pay for it.
-  `--timeout-mins` is a deadline, and no wave *starts* past it, but at the
-  deadline itself an item that is already *analyzing* is given
-  `ANALYSIS_GRACE_SECS` to finish and **every other in-flight item is cancelled
-  at once**. A cancelled item's build and drives are already paid for and store
-  no verdict, which is the most expensive way for a run to end. A deadline set
-  tight enough to land mid-wave buys nothing.
+  The two do not end a run the same way. `--budget-usd` stops the run at a
+  wave boundary. Inside a wave, the engine caps an arm or a screening
+  candidate whose next chunk would pass the budget, but agent sessions and
+  work outside the engine run to the end, and you pay for them.
+  `--timeout-mins` stops new work, not work in flight: no new wave starts
+  after it, the wave in flight finishes, and then **one wrap-up wave** runs.
+  So the run ends later than the limit, and that last stretch costs money
+  too. To spend less, set a lower `--budget-usd`: it is the hard ceiling.
 - Hold the parallelism down at first. `--max-concurrent-evals` and
   `--max-concurrent-agents` default to 4 each; the loop's own parallelism is
   what manufactures the provider rate limit that then stalls it.
 - Keep the model preflight on — that is, do **not** pass
-  `--skip-model-preflight`. It makes one short test call per model the run
-  may use, before the baseline measurement. A model that has no deployment,
+  `--skip-model-preflight`. It makes one short test call to the baseline's
+  model and to up to 12 other models the run may use, before the baseline
+  measurement. A model that has no deployment,
   or a window smaller than your prompt, is then flagged at start-up, and
   never fails a screening round's eval jobs one by one.
 - Keep the reconnaissance battery on a first run — that is, do **not** pass
@@ -148,7 +148,8 @@ keeping with its conditions written beside it.
 
 Every arm, under every objective, goes through one measurement engine
 (`kiln_harness_tuner.measure`). It judges the arm's targeted train split in chunks,
-the parent's failures and a few passes first, and stops the arm when a
+the parent's failures and a few passes first (under speed and cost, the
+parent's passes first), and stops the arm when a
 stop rule fires. A stopped arm pays only for the chunks it reached; an arm
 that completes pays for every train item, driven and judged, which is by
 far the largest part. Under `--objective speed` or `--objective cost`, the
@@ -159,7 +160,8 @@ clearly slower (costlier) arm stops after its first 15 pairs and is never
 judged. Under those two objectives, at every gate, on val, the baseline
 and every candidate are timed on the sample. All timing drives are subject-model cost only. Under
 `--objective quality`, an arm is not timed and pays none of these drives,
-unless it changes the model, the provider or a sampling parameter: then
+unless it changes the model, the provider, the thinking level,
+`temperature`, `top_p` or the structured output mode: then
 its lever is checked on the timing drives. Its latency and its cost per
 request are read off its stored eval runs at no extra cost. The baseline
 is also timed once per baseline on that sample. Stored val results stay in
@@ -238,7 +240,7 @@ one line prints that estimate, priced from the baseline's own stored rows
 (the median drive and the median judgment per eval). With a budget (any
 `--budget-usd` but `none`), an estimate that does not fit the remaining
 budget skips the check with the reason. What it spent is booked as source
-`noise_check` in the Kiln lane, and it counts against the budget like every
+`noise_check` in the API keys lane, and it counts against the budget like every
 other line.
 
 ## How spend is booked

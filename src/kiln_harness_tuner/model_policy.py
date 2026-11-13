@@ -30,6 +30,12 @@ Globs are `fnmatch` patterns, case-sensitive, over the Kiln provider id
 (`model_provider_name`) and the Kiln model id (`model_name`). No policy means
 every pair is allowed — the behaviour before this module.
 
+Without a policy, `--models` says which models the task may use
+(`resolve_models`). `keep` becomes a policy too, at start-up, once the
+baseline's pair is known (`keep_policy`): one exception, the baseline's
+(provider, model), and nothing else. So "keep the model" is enforced by the
+same checks as a policy file.
+
 Judges are not subject to the policy: an eval config names its model under
 `model_provider`/`model_name` (not `model_provider_name`), evals are frozen,
 and the policy is about the task under optimisation.
@@ -44,7 +50,42 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
+from kiln_harness_tuner.objective import is_efficiency
+
 _WILDCARDS = set("*?[]")
+
+# `--models`: keep = the baseline's (provider, model) only; any = every model
+# Kiln offers. The default follows the objective (`resolve_models`).
+MODEL_CHOICES = ("keep", "any")
+# The most models the start-up model preflight tests; past it, a run's other
+# allowed models go untested (`model_preflight`). The guided start's picker
+# takes at most this many.
+MAX_CHECKED_MODELS = 12
+KEEP_SOURCE = "--models keep"
+
+
+def resolve_models(models: str | None, objective: str) -> str:
+    """`--models` as the run uses it: the flag, else `keep` under the
+    quality objective and `any` under speed and cost, where a model or
+    provider swap is the first lever. A `--model-policy` replaces it."""
+    if models is not None:
+        return models
+    return "any" if is_efficiency(objective) else "keep"
+
+
+def keep_policy(provider: str, model: str) -> dict[str, Any]:
+    """The policy `--models keep` stands for, as JSON: the baseline's one
+    pair, as an exception. Every other pair is refused."""
+    return {
+        "description": (
+            f"Keep the task's model: {provider}/{model} ({KEEP_SOURCE})."
+            " No other model or provider is allowed. Thinking level,"
+            " temperature and top_p may change."
+        ),
+        "exceptions": [
+            {"provider": provider, "model": model, "reason": "the baseline's model"}
+        ],
+    }
 
 
 class ModelPolicyError(ValueError):
@@ -127,6 +168,16 @@ class ModelPolicy:
             ],
             "order": "exceptions, then deny, then allow; anything else is refused",
         }
+
+    @staticmethod
+    def refuse_all(reason: str) -> ModelPolicy:
+        """A policy that refuses every pair and gives `reason` in each
+        refusal. It is not a user policy, so `from_json` does not check it."""
+        return ModelPolicy(
+            allow=(),
+            deny=(Rule("*", "*", reason),),
+            description=f"every model refused: {reason}",
+        )
 
     @staticmethod
     def from_json(data: Any, source: str = "the policy") -> ModelPolicy:

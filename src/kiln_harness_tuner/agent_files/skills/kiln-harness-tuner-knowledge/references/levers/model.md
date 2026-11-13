@@ -1,7 +1,7 @@
 ---
 title: The model and the provider
 description: The model and the provider that a run config names, chosen from what the run's model policy allows. Existing fine-tunes are candidates too.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
   - list_available_models
@@ -45,10 +45,12 @@ Rules of the object:
 
 ## Limits
 
-- **The model is not a lever by default.** The subject model is the
-  environment that the task is tuned for. The planner plans a model swap
-  only when the run's guidance allows it in plain words, or when the
-  objective is `speed` or `cost`.
+- **The model is a lever only when `allowed_models` lists another
+  model.** The owner chooses that list at start-up (`--models keep`,
+  `--models any` or a model policy). When the list holds the baseline's
+  model alone, the subject model is the environment that the task is tuned
+  for, and the planner plans no model swap. Guidance that forbids a model
+  change also excludes it.
 - The tuner does not start a fine-tune. It can choose one that exists,
   when the policy allows `kiln_fine_tune` and the server lists it. A
   fine-tune can be made for another task, or carry its own prompt and

@@ -32,16 +32,14 @@ starts its MCP servers with that interpreter. A cache clean (`uv cache clean`)
 during the run removes them, and the run's later sessions then fail. A
 `uv tool install` has no such window.
 
-**The budget and the clock are checked at wave boundaries, and only the budget
-is purely that.** No wave *starts* past either limit, and a wave already running
-is never killed for the **budget**. The **clock** is not the same at the
-deadline itself: an item that is already analyzing is given
-`ANALYSIS_GRACE_SECS` to finish, and every other in-flight item is cancelled at
-once — its build and drives already paid for, no verdict stored. The wrap-up
-window is the larger of a static reserve and the run's own **mean** wave time so
-far, which is backward-looking: a wave much longer than the mean still runs into
-the deadline and loses its unfinished items there. What the loop guarantees is
-narrower than `--timeout-mins` sounds.
+**The time limit is not a hard stop.** The clock is checked at wave
+boundaries only, and a wave already running is never killed for it. The
+budget stops the run at a wave boundary too; inside a wave, the engine caps
+an arm or a screening candidate whose next chunk would pass the budget. At the time limit no new normal wave starts, but the wave in flight
+finishes (build, measurement, analysis and its promotion gate), and then one
+wrap-up wave runs. A run therefore ends later than `--timeout-mins`, by the
+wave in flight plus the wrap-up. A long wave makes this stretch long. The
+budget is the hard ceiling for money: the run never starts a wave past it.
 
 **Per-eval progress inside one eval job is not live.** The status model and
 the tracker have an `eval_progress` count, and nothing emits one: an eval job
@@ -169,26 +167,32 @@ baseline failure often passes when the same config runs it again.
 **A split of about 150 paired items cannot rule out a drop of a few
 points.** That holds for a full train measurement and for the val gate. For
 example, on 150 paired items, a candidate that fixes 7 items and breaks 14
-is about 4.7 points worse, but a one-sided sign test on those 21 changed
-items gives p of about 0.09: not significantly worse. The loss rule does
-not apply at the val gate. Under speed and cost, read a promotion as "no
-clear loss", never as "no loss".
+is about 4.7 points worse. But the exact two-sided McNemar test on those 21
+changed items gives p of about 0.19: not significantly worse. Under
+`quality`, the train rule and the val gate refuse only a drop beyond doubt.
+So such a candidate can be promoted when an eval it targets goes up beyond
+doubt. Read a quality promotion as "no clear loss", never as "no loss".
+Under `speed` and `cost`, quality must be equal or better: the net items
+over all evals, weighted by eval priority, must be zero or more. So this
+drop of 7 items is refused, unless other evals gain at least as much.
 
-**A small speed gain cannot be shown on 30 pairs.** The sign test needs 20
-or more of 30 pairs faster (one-sided p < 0.05). When the per-pair latency
+**A small speed gain cannot be shown on 30 pairs.** The sign test needs 21
+or more of 30 pairs faster (exact two-sided sign test, p < 0.05). When the per-pair latency
 noise is large next to the gain, a real small speed-up often does not get
 there. Then the `not_better` rule stops it, and the val gate, on 30 val
 pairs, refuses it too. For example, if the log of each pair's latency ratio
 has a standard deviation of 0.3 (an invented figure), a true 10% speed-up
-makes about 64% of the pairs faster and reaches 20 of 30 only about 45% of
-the time; a true 20% speed-up reaches it about 94% of the time. The engine
+makes about 64% of the pairs faster and reaches 21 of 30 only about 31% of
+the time; a true 20% speed-up reaches it about 87% of the time. The engine
 gives no verdict of any kind on fewer than 6 pairs.
 
 **The quality test stops a clearly worse candidate, not a slightly worse
 one.** At alpha 0.05 split over the geometric looks, a candidate with a
 large true loss is usually stopped part way through the split. A candidate
-with a small true loss is usually not stopped. It completes and meets the
-train rule and the val gate, which is where a small loss is refused.
+with a small true loss is usually not stopped, and it completes. Under
+`speed` and `cost`, the train rule and the val gate then refuse it when
+quality is not equal or better. Under `quality`, they refuse only a loss
+beyond doubt, so a small loss on a guard eval can pass both.
 
 **"Lever not applied" reads the evidence a run records.** Thinking is judged
 on two signals — reasoning shown, and output tokens against the parent on
@@ -427,7 +431,8 @@ skill behind it. It covers the six spend lanes and the formulas, and its first r
 matters most here — never scale a cost across models by a list-price ratio.
 
 Two shapes of the bill are worth knowing in advance anyway, without numbers.
-The agent side and the provider side are metered separately and reported as
-separate lanes, and they are not the same order of magnitude. And a reasoning
+The agent side and the provider side are reported in different units: the
+agents in tokens, outside the budget, and the provider calls in dollars,
+which is the budget. And a reasoning
 model bills its reasoning as output, which is why a model that looks cheap per
 list price can be the most expensive lane in a comparison.

@@ -61,7 +61,7 @@ def test_the_model_preflight_step():
     assert steps(run)[-1] == (
         "ok",
         "Models",
-        "2 models the policy allows answered · 1 untested",
+        "2 models the run may use answered · 1 untested",
     )
     checks.append(ModelCheck(provider="x", model="y", outcome="flagged"))
     result = ModelPreflightResult(baseline_rc_id=START_RC, checks=checks)
@@ -191,7 +191,7 @@ def test_a_fatal_cancel_and_a_probe_answer_on_the_outcome():
     run.emit("item_outcome", item_id="r0-1", outcome=outcome)
     assert run.line5("r0-1") == "○ NO · 2 drives"
     assert "r0-1 Does the agent call get_container? NO · 2 drives" in run.log()
-    assert run.line5("r0-2") == "✗ Cut off: the run ended"
+    assert run.line5("r0-2") == "✗ Cut off: tuning ended"
     assert "Cut off after a fatal error: r0-2" in run.log()
     # The recon stretch ends with its last verdict.
     assert run.model.timeline(run.t).segments[-1].kind == "recon"

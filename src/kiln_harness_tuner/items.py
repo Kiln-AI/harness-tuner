@@ -667,10 +667,7 @@ async def _is_model_swap(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
 
 
 def _set_state(ctx: Ctx, item_id: str, state: str) -> None:
-    """One `item_state` event plus the in-memory copy the wave runner reads
-    at the deadline (an ANALYZING item is granted a grace, the rest are
-    cancelled — orchestrator `_run_wave`)."""
-    ctx.item_states[item_id] = state
+    """One `item_state` event."""
     ctx.log.event("item_state", item_id=item_id, state=state)
 
 
@@ -774,7 +771,7 @@ async def _execute_plan_item(
     reused = getattr(item.work, "existing_rc_id", None)
     if reused:
         # The run config already exists (a prior run built and
-        # measured it and lost only the analysis to its deadline) — no build
+        # measured it and lost only the analysis when that run stopped) — no build
         # session, no build spend; the item measures and analyzes it.
         rc = AgentResult[RcBuildResult](
             status="ok",
@@ -1265,7 +1262,7 @@ async def _review_build(
     check does not run.
 
     A `reused` run config (`existing_rc_id`) is checked too: a check cut by
-    a deadline can leave one unchecked. It is never rebuilt — reuse means
+    a stopped run can leave one unchecked. It is never rebuilt — reuse means
     "measure this exact run config", and a rebuild has none of the stored
     rows it was reused for — so a finding ends the item a dead end."""
     copies = await _check_copies(ctx, item, built.rc_id, baseline.rc_id)

@@ -52,7 +52,7 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 | `--task-id` | not set: the only task in the project, or the one you pick from a list | The Kiln task id. Without `--project-id` or `--project-path`, it finds the project that has the task. When several projects have it (copies of the demo share their task id), a guided start asks which. The loop optimizes exactly one task and never touches another. |
 | `--project-path` | not set: the folder Kiln has for the project | The on-disk Kiln project folder. When you give it, it must be the folder Kiln has, after `~` and links are resolved, or the start stops. Given alone, it also finds the project. The orchestrator's code reads it. No agent can: the read fence denies the whole tree, because it holds the eval inputs and results of every split. [your-own-task.md](your-own-task.md) section 1.5. |
 | `--demo-project` | off | Copy the demo project (the moderation task of [examples/moderation](../examples/moderation/README.md)) into a new folder, `~/Kiln Projects/Forum Moderation`, import the copy into Kiln, and run on it. When that folder is taken, the copy goes to `Forum Moderation-1`, then `-2`, and so on. Nothing is overwritten. Each copy has its own project id. A guided start pre-fills the demo's guidance, and prints the command that runs on the same copy again. It cannot be combined with `--project-id`, `--task-id` or `--project-path`: that is a usage error (exit 2). [install.md](install.md#try-the-demo). |
-| `--kiln-host` | `http://localhost:8757` | The running Kiln studio server. Every agent's MCP configuration gets the same host, so the agents and the orchestrator always use one server. |
+| `--kiln-host` | `http://localhost:8757` | The running Kiln studio server, as a whole URL that starts with `http://` or `https://`. A host without it, such as `localhost:8757`, is a usage error (exit 2). Every agent's MCP configuration gets the same host, so the agents and the orchestrator always use one server. |
 
 ### The start and the display
 
@@ -65,16 +65,26 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--objective` | `quality` | What the run optimizes: `quality`, `speed` or `cost`. One objective per run. [objectives.md](objectives.md#what-to-optimize---objective) has what each one holds fixed, and when a candidate is promoted. |
+| `--objective` | `quality` | What the run optimizes: `quality`, `speed` or `cost`. One objective per run. It also sets the default of `--models`. [objectives.md](objectives.md#what-to-optimize---objective) has what each one holds fixed, and when a candidate is promoted. |
 | `--guidance` | empty | Free text for the planner: what to work on, and what not to touch. It goes verbatim to every planner, every wave, and to the promotion gate. [your-own-task.md](your-own-task.md) section 4. |
-| `--model-policy` | not set: every model is allowed | A JSON file of allowed and denied (provider, model) pairs for the task's run configs. [objectives.md](objectives.md#which-models-a-run-may-use---model-policy) has the file format, the rules and an example. |
+| `--models` | not set: `keep` under `quality`, `any` under `speed` and `cost` | Which models the task may use. `keep`: the baseline's model and provider only; the thinking level, the temperature and `top_p` can still change. `any`: every model on the providers that have a key in Kiln, which can move the task to a more expensive model and raise the spend. Enforced in code. Not with `--model-policy`. [objectives.md](objectives.md#which-models-a-run-may-use) |
+| `--model-policy` | not set | A JSON file of allowed and denied (provider, model) pairs for the task's run configs: the task may use the models it allows, under every objective. In place of `--models`. The guided start writes one when you pick models. [objectives.md](objectives.md#a-model-policy-file---model-policy) has the file format, the rules and an example. |
 
 ### Limits
 
 | Flag | Default | What it does |
 |---|---|---|
 | `--budget-usd` | `50` | The cost ceiling for the run, in USD, on the task's model calls. It never counts the agent sessions, which run on the agent CLI's own account: the run shows their tokens for information. No wave starts past it. At the ceiling the run exits, and the wave in flight runs to completion. Within one projected wave of the ceiling, the next wave is the wrap-up. `none` runs with no ceiling. Type a plain number (`--budget-usd 12.50`). The shell expands an unquoted `$12.50` before the CLI sees it, so the CLI gets a different amount. A leading `$` works only in single quotes (`'$12.50'`). |
-| `--timeout-mins` | `720` (12 hours) | The time limit in whole minutes, at least 30. Setup runs before the first wave and takes a few minutes, and no wave starts with less than 15 minutes left (`MIN_WAVE_START_SECS`). Below 30 minutes, the run can end before its first wave, so the start refuses the value. It is a monotonic deadline: no wave starts past it. At the deadline, an item that is already analyzing gets `ANALYSIS_GRACE_SECS` to finish. Every other item in flight is cancelled at once, after its drives are paid for, with no verdict stored. So leave room for a whole wave. |
+| `--timeout-mins` | `720` (12 hours) | The time limit in whole minutes, at least 10. Setup runs before the first wave and takes a few minutes, so the start refuses a shorter limit. The loop checks the limit at wave boundaries. No new wave starts after it. The wave in flight is not cancelled: it finishes, promotion gate included. Then one wrap-up wave merges the pooled wins, and the run writes its report. So the run can end later than this, by the wave in flight plus the wrap-up. |
+
+**The time limit is approximate.** At the limit, no new wave starts. The
+wave in flight is not cancelled: its builds, measurements, analyses and
+promotion gate finish. Then one wrap-up wave merges the pooled wins, and the
+run writes its report. So the run can end later than the limit, by the length
+of one or two waves. How long a wave takes depends on the agent model and on
+the task: the size of the evals, the number of experiments and the speed of
+the task's model. `--budget-usd` stays a hard cap, and Ctrl+C stops the run
+at once.
 
 [costs.md](costs.md) helps you set both limits before you start.
 
@@ -82,22 +92,22 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--agent-cli` | `claude -p` | The agent CLI that every loop session runs, as the whole command that you type, not only its name. Also `codex exec` and `opencode run`, each with its own options, for example `'claude -p --model haiku'` for a cheaper run, `'codex exec -m gpt-6.1-sol'` or `'opencode run -m zai-coding-plan/glm-5.3-flash --variant high'`. The model and the effort in the command are the run-wide defaults under `--agent-model` and `--agent-effort`. The effort is `--effort` for Claude, `-c model_reasoning_effort=…` for Codex (for example `'codex exec -m gpt-6.1-sol -c model_reasoning_effort=xhigh'`) and `--variant` for OpenCode. The CLI must already be signed in: one short test prompt goes through it before the run starts, and a CLI that does not answer stops the start with what it printed. The agents are billed to the CLI's own account, not to your Kiln provider keys. [agent-cli.md](agent-cli.md) section 9. |
-| `--agent-model` | not set: `opus` for each role, and `sonnet` for `generality_review`, under `claude -p` | `ROLE=MODEL`, repeatable. A model for one agent role. A model in `--agent-cli` replaces the per-role defaults. Under `codex exec` and `opencode run` with no model, the CLI uses its own default model. The roles are `analyze_experiment_results`, `baseline_review`, `batch_plan`, `create_experiment_rc`, `describe_eval`, `eval_build`, `generality_review`, `integrity_review`, `preflight`, `probe`, `promote_best` and `report_writer`. An unknown role stops the start. |
-| `--agent-effort` | not set: the effort in `--agent-cli`, else `high` | `ROLE=EFFORT`, repeatable. A reasoning effort for one agent role. The roles are the same as for `--agent-model`, with the same check. Under Claude Code, a level other than `low`, `medium`, `high`, `xhigh` or `max` is refused at start-up. |
-| `--max-concurrent-agents` | `4` | The agent sessions in flight at once. `0` is no limit. The planner is told this number, so it sizes a wave to what can run. |
-| `--max-turns` | not set: no turn cap | A hard turn cap for each agent session. The per-role time limits stop a session that does not end. A cap near the longest session seen cuts off a large healthy session near its end, and the session is then paid for again. Under `codex exec` it has no effect, with a warning. Under `opencode run` it is the build agent's `steps` cap ([agent-cli.md](agent-cli.md) sections 10 and 11). |
+| `--agent-cli` | `claude -p` | The agent CLI that every loop session runs, as the whole command that you type, not only its name. Also `codex exec` and `opencode run`, each with its own options, for example `'claude -p --model haiku'` for a cheaper run, `'codex exec -m gpt-6.1-sol'` or `'opencode run -m zai-coding-plan/glm-5.3-flash --variant high'`. The model and the effort in the command are the run-wide defaults under `--agent-model` and `--agent-effort`. The effort is `--effort` for Claude, `-c model_reasoning_effort=…` for Codex (for example `'codex exec -m gpt-6.1-sol -c model_reasoning_effort=xhigh'`) and `--variant` for OpenCode. A command that the tuner cannot read is a usage error (exit 2) before the start asks anything: an empty command, a CLI other than these three, an option with no value, or a Claude effort that is not a level. The CLI must already be signed in: one short test prompt goes through it before the run starts, and a CLI that does not answer stops the start with what it printed. The agents are billed to the CLI's own account, not to your Kiln provider keys. [agent-cli.md](agent-cli.md) section 9. |
+| `--agent-model` | not set: `opus` for each role, and `sonnet` for `generality_review`, under `claude -p` | `ROLE=MODEL`, repeatable. A model for one agent role. A model in `--agent-cli` replaces the per-role defaults. Under `codex exec` and `opencode run` with no model, the CLI uses its own default model. The roles are `analyze_experiment_results`, `baseline_review`, `batch_plan`, `create_experiment_rc`, `describe_eval`, `eval_build`, `generality_review`, `integrity_review`, `preflight`, `probe`, `promote_best` and `report_writer`. An unknown role, or a value that is not `ROLE=MODEL`, is a usage error (exit 2) before the start asks anything. |
+| `--agent-effort` | not set: the effort in `--agent-cli`, else `high` | `ROLE=EFFORT`, repeatable. A reasoning effort for one agent role. The roles are the same as for `--agent-model`, with the same check. Under Claude Code, a level other than `low`, `medium`, `high`, `xhigh` or `max` is refused when the run starts, before any agent session. This check comes after the start's questions, because a guided start can still change the agent CLI. |
+| `--max-concurrent-agents` | `4` | The agent sessions in flight at once: a whole number, 0 or more. `0` is no limit. The planner is told this number, so it sizes a wave to what can run. |
+| `--max-turns` | not set: no turn cap | A hard turn cap for each agent session: a whole number, at least 1. Claude Code reads `0` as no cap, so the tuner refuses `0` and below. The per-role time limits stop a session that does not end. A cap near the longest session seen cuts off a large healthy session near its end, and the session is then paid for again. Under `codex exec` it has no effect, with a warning. Under `opencode run` it is the build agent's `steps` cap ([agent-cli.md](agent-cli.md) sections 10 and 11). |
 
 ### Measurement and the promotion gate
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--max-concurrent-evals` | `4` | The eval jobs in flight at once, for the whole run. `0` is no limit. This is the rate-limit control: the loop's own parallelism can cause the provider limit that then stops it. |
-| `--coverage-floor` | `0.95` | The promotion gate's val coverage floor. A candidate whose val measurement is less complete than this cannot win the wave, whatever the gate decides. |
-| `--gate-agent` | `auto` | `auto` or `always`. `auto` decides a one-candidate promotion gate by a code rule, and dispatches the agent only to rank two or more candidates. `always` dispatches the agent for every gate. |
-| `--min-effect` | not set: no smallest effect | The smallest improvement you would act on, as a share of an eval's items, above 0 and at most 1 (`0.1` is 10%). The detectability check (free) then says for each eval whether the best case can show that change on train and on val. The best case is the significance floor of 6 items over the split. The check stops the run when no eval that can drive a promotion can show the change on val. [your-own-task.md](your-own-task.md) section 1.4. |
+| `--max-concurrent-evals` | `4` | The eval jobs in flight at once, for the whole run: a whole number, 0 or more. `0` is no limit. This is the rate-limit control: the loop's own parallelism can cause the provider limit that then stops it. |
+| `--coverage-floor` | `0.95` | The promotion gate's val coverage floor, a share from 0 to 1. A candidate whose val measurement is less complete than this cannot win the wave, whatever the gate decides. |
+| `--gate-agent` | `auto` | `auto` or `always`. `auto` lets a code rule decide where one applies: one candidate under `quality`, any number of candidates under `speed` and `cost`. The agent decides the rest: two or more `quality` candidates, a rule that cannot decide, or a winner with integrity flags. `always` dispatches the agent for every gate. |
+| `--min-effect` | not set: no smallest effect | The smallest improvement you would act on, as a share of an eval's items, above 0 and at most 1 (`0.1` is 10%). The detectability check (free) then says for each eval whether the best case can show that change on train and on val. The best case is the significance floor of 6 items over the split. Under `quality`, the check stops the run when no eval that can drive a promotion can show the change on val. [your-own-task.md](your-own-task.md) section 1.4. |
 | `--allow-underpowered` | off | Run even when the detectability check stops the run because no eval can show a significant val win. The refusal still prints, and it goes in the report's Detectability appendix. The promotion agent then weighs nominal val wins. |
-| `--noise-check` | `0` (off) | `N`, at least 1. Before wave 1, drive the baseline again on N train items for each eval, and judge the stored outputs again, then report how often each score changed. The drives use a clone of the baseline run config, so Kiln's item cache does not answer. The judging uses a copy of each V2 judge config, never the default. It is paid: an estimate prints first, the cost goes to the budget, and the check is skipped when the estimate does not fit `--budget-usd`. [architecture.md](architecture.md) section 5.2, [costs.md](costs.md). |
+| `--noise-check` | `0` (off) | `N`, a whole number, 0 or more. `0` is off. Before wave 1, drive the baseline again on N train items for each eval, and judge the stored outputs again, then report how often each score changed. The drives use a clone of the baseline run config, so Kiln's item cache does not answer. The judging uses a copy of each V2 judge config, never the default. It is paid: an estimate prints first, the cost goes to the budget, and the check is skipped when the estimate does not fit `--budget-usd`. [architecture.md](architecture.md) section 5.2, [costs.md](costs.md). |
 
 ### Checks that you can turn off
 
@@ -162,7 +172,10 @@ run start, and replaces it when its files differ from the package's
   left alone.
 - `.mcp.json` and `.claude/settings.json` are merged into what is there.
   Other servers and settings are kept. A file there that is not a JSON object
-  stops the command, with exit 1, and the file is not changed.
+  stops the command, with exit 1. The command reads both files first, so
+  then it writes nothing: no skill and no file.
+- A `--dest` that is a file, or a folder that you cannot write to, stops the
+  command with exit 1 and a message.
 - It writes no instructions file (`CLAUDE.md`, `AGENTS.md`). The loop agents'
   instructions describe the loop, and are no use in another project.
 - It prints one line for each agent CLI, with the folders it wrote, such as

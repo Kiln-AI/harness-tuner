@@ -41,15 +41,15 @@ going looking.
 - Spend dimensions: `spend_by_lane` (lane → total) and `spend_by_source`
   (source → lane → $). Two lanes, and **call them by their display names**,
   which is what the code-computed appendix's columns say: `provider` =
-  **Kiln** — the provider tokens Kiln burns on the drives and eval jobs this
-  run triggered (subject `task_run_usage` + judge `eval_usage`), real money
-  today, and the only spend in the budget; `subscription_equivalent` = the
-  agent lane, named for the agent CLI (**Claude Code**, **Codex** or
+  **API keys** — the provider tokens Kiln burns on the drives and eval jobs
+  this run triggered (subject `task_run_usage` + judge `eval_usage`), real
+  money today, and the only spend in the budget; `subscription_equivalent` =
+  the agent lane, named for the agent CLI (**Claude Code**, **Codex** or
   **OpenCode**) — the agent sessions, on the agent CLI's own account. State
   the agent lane in tokens only: `agent_tokens` and `agent_tokens_by_source`,
   a rough count. Never state it in dollars: no dollar figure in `RunStatus`
-  includes the agents. Each item's `spend_by_lane` carries the Kiln money for
-  that item alone.
+  includes the agents. Each item's `spend_by_lane` carries the API keys money
+  for that item alone.
 - The run's own clock: `elapsed_secs` (how long the run ran),
   `timeout_mins` (its budget, `None` if it had none) and
   `time_remaining_secs` (meaningful only when `time_remaining_known`).
@@ -163,14 +163,17 @@ going looking.
   candidates and what each one lost, and say that the owner can accept a
   trade-off that the rules refused. It is train-side screening evidence,
   not a val result.
-- `exit_reason` vocabulary: `wrap_up` (normal, budget-driven) · `loop_exit`
-  reasons from the planner (out of experiments / plateau) · `empty_plan` ·
-  `timeout` (hard deadline — flag any unmerged pooled wins: they persist,
-  merge-eligible next run; any stamped `— REJECTED AT VAL` only as
-  ingredients of a different combination, never re-run as-is) · `tripwire`
-  (infra broke — say which class) · `planner_failed`.
-- `exit_detail`, when it is set, says why a `timeout` exit came: how much
-  time was left, under the minimum to start a wave. Give it with the exit.
+- `exit_reason` vocabulary: `timeout` (normal: the time limit passed, the
+  wave in flight finished, then one wrap-up wave ran — flag any unmerged
+  pooled wins: they persist, merge-eligible next run; any stamped `—
+  REJECTED AT VAL` only as ingredients of a different combination, never
+  re-run as-is) · `wrap_up` (budget-driven: the budget had room for one
+  more wave only) · `budget_exhausted` · `loop_exit` reasons from the
+  planner (out of experiments / plateau) · `empty_plan` · `tripwire` (infra
+  broke — say which class) · `planner_failed`.
+- `exit_detail`, when it is set, says how a `timeout` exit ended: the last
+  normal wave, then the wrap-up, or no wrap-up because nothing was pooled
+  to merge. Give it with the exit.
 
 ## Report template
 
@@ -224,7 +227,7 @@ deliberate) · still open, worth the next run.>
 it gates, re-ask condition.>
 
 ## Spend
-<narrate: both lanes named with what they mean (Kiln $ = real money today,
+<narrate: both lanes named with what they mean (API keys $ = real money today,
 and the only spend the budget counts; the agent lane = the agents' tokens,
 `agent_tokens`, a rough count on the agent CLI's own account, never in the
 budget — name it in tokens, not dollars),

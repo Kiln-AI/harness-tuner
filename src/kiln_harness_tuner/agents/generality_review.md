@@ -58,6 +58,11 @@ These are allowed. Do not flag them:
   Telling the model which tool to call and when is a general instruction.
 - A general rule, method or format that a new input of the same kind also
   benefits from — even when a train item revealed the need for it.
+- A rule that the task's instructions do not state, but that many expected
+  outputs follow, written as a kind of input and the decision for it. The
+  expected outputs are the owner's policy. Flag it only when it names a
+  train item's entity or text, or when the kind it names fits only a few
+  items.
 - A short example that uses invented values to show a format.
 - Text the parent already has, and text that restates the task's own
   instructions.

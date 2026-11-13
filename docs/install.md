@@ -303,7 +303,7 @@ can, the title reads `This Kiln is too old for the tuner`.
 **When it passes**, one step line says so, and the start goes on:
 
 ```
-✓ Kiln      1.2.0 at http://localhost:8757
+✓ Kiln      1.3.0 at http://localhost:8757
 ```
 
 Without a version to show, it reads `running at http://localhost:8757`. When
@@ -340,11 +340,13 @@ only job is to call the gateway's `ping` operation. A failure there is fatal,
 and its message names the rendered MCP config file, the host it is using, and
 this document.
 
-**If the server is older than v1.3**, the check above passes, because `/ping`
-exists. A run passes its start-up checks too: the agent CLI check and the
-gateway `ping` pre-flight each run one short agent session, and you pay for
-them. Then the first memory read of setup gets HTTP 404, and the run stops
-with exit status 1:
+**If the server is older than v1.3**, `curl …/ping` passes, because `/ping`
+exists. The start-up check of Kiln's API list then stops the start with the
+`too old for the tuner` card above. The start goes past an old server only
+when that API list can't be read: the check warns and goes on. Then the agent
+CLI check and the gateway `ping` pre-flight each run one short agent session,
+and you pay for them. The first memory read of setup gets HTTP 404, and the
+run stops with exit status 1:
 
 ```
 harness-tuner: GET /api/projects/<project-id>/memories -> HTTP 404: …
@@ -469,8 +471,8 @@ When `--agent-cli` isn't given, a guided start asks which agent CLI runs the
 tuner's agents ([your-own-task.md](your-own-task.md) section 5). It lists
 Claude Code (`claude`), Codex (`codex`) and OpenCode (`opencode`), and shows a
 CLI it can't find on `PATH` dimmed, as `not installed`, which can't be picked.
-With only one installed, that one is used without the question (its model is
-still asked), and the step line says so:
+With only one installed, that one is used without the question (its model and
+thinking level are still asked), and the step line says so:
 
 ```
 ✓ Agents    Claude Code (claude -p) · opus · the only agent CLI installed
@@ -520,7 +522,8 @@ will call:
   inputs on disk. Nothing else in those files is read.
 - **Each provider the model policy names exactly**, in an allow rule or an
   exception: the policy of `--model-policy`, or the one a guided start's
-  advanced options set. A rule whose provider is `*` names none.
+  Models question sets (a picked list or a file). A rule whose provider is
+  `*` names none.
 
 Providers that take no key are not checked: `ollama`, `docker_model_runner`,
 `openai_compatible`, `kiln_custom_registry` and `kiln_fine_tune`. The model
@@ -682,7 +685,7 @@ answer, and shows a summary before it starts the run
 
 - **Esc goes back one step** at each of these questions but the first. The
   question before it is asked again, pre-filled with your answer, and the
-  step line of that answer goes. At `Start the run?`, Esc asks the last
+  step line of that answer goes. At `Start tuning?`, Esc asks the last
   question again. The footer shows `esc Back` only where Esc goes back. The
   project and task pickers and the `What next?` menus do not go back.
 - In a picker with filter text, Esc first clears the filter, and the footer
@@ -786,13 +789,14 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ prompt, model, tools, skills and settings around it.             │
 ╰───────────────────────────────────────────────────────── v0.1.0 ─╯
 
-✓ Kiln      1.2.0 at http://localhost:8757
+✓ Kiln      1.3.0 at http://localhost:8757
 ✓ Demo      ~/Kiln Projects/Forum Moderation, imported as project 731954460212
 ✓ Project   Forum Moderation (731954460212)
 ✓ Task      Forum Moderation (424242783061)
 ✓ Ready     1 run config · 1 eval the tuner can measure
 ✓ API keys  OpenRouter
 ✓ Improve   Quality
+✓ Models    keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)
 ✓ Guidance  "Improve the moderation decisions. Keep the output format."
 ✓ Agents    Claude Code (claude -p) · opus
 ✓ Budget    $50.00
@@ -803,9 +807,10 @@ questions. With each pre-filled answer accepted, the app shows this:
 │ Task         Forum Moderation (424242783061) in project Forum Moderation (731954460212) │
 │ Starts from  run config "Baseline": deepseek_4_1_flash_1017 on OpenRouter               │
 │ Improve      Quality                                                                    │
+│ Models       keep the task's model (deepseek_4_1_flash_1017 on OpenRouter)              │
 │ Guidance     "Improve the moderation decisions. Keep the output format."                │
 │ Agents       Claude Code (claude -p) · opus                                             │
-│ Limits       $50.00 on the task's model calls · 12 hours                                │
+│ Limits       $50.00 on the task's model calls · about 12 hours                          │
 │ Advanced     defaults                                                                   │
 │                                                                                         │
 │ To run this again with the same answers and no questions:                               │
@@ -813,14 +818,15 @@ questions. With each pre-filled answer accepted, the app shows this:
 │   --project-id 731954460212 --task-id 424242783061 \                                    │
 │   --project-path '/Users/you/Kiln Projects/Forum Moderation' \                          │
 │   --objective quality \                                                                 │
+│   --models keep \                                                                       │
 │   --guidance 'Improve the moderation decisions. Keep the output format.' \              │
 │   --agent-cli 'claude -p' \                                                             │
 │   --budget-usd 50 --timeout-mins 720 \                                                  │
 │   --no-interaction                                                                      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────╯
 
-Start the run?
- s) Start the run
+Start tuning?
+ s) Start tuning
  e) Change an answer
  x) Exit
 ```
@@ -885,6 +891,8 @@ already there.
   reports/kiln-harness-tuner-<run_id>.md   the run reports
   agents/<cli>/<version>/              the skills and instructions this
                                        agent CLI's sessions read
+  policies/picked-<date>-<time>.json   the model policies the guided
+                                       start's Pick models writes
 ```
 
 A run prints where its files are. With plain log lines, it prints this line
@@ -908,7 +916,7 @@ harness-tuner: run finished — report: /home/you/.kiln_ai/harness_tuner/reports
 When a run stops after its folder exists, it names that folder. On an error,
 the error screen shows `Run folder: <run folder>`, and `Report: <path>` when
 the error exit wrote a fallback report ([Guided or not](#guided-or-not)). On
-a stop (Ctrl-C, "Stop the run" in the app, SIGTERM or SIGHUP) it prints
+a stop (Ctrl-C, "Stop tuning" in the app, SIGTERM or SIGHUP) it prints
 `harness-tuner: run folder: <run folder>`. That folder's
 `kiln-harness-tuner.log` holds the details. The run log also holds anything
 that was written to stdout or stderr while the app was open.

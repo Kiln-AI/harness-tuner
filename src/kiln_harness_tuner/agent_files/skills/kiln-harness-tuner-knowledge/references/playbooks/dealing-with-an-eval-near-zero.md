@@ -1,7 +1,7 @@
 ---
 title: Dealing with an eval near zero
 description: The baseline passes almost no item of an eval. Read the raw outputs - a format or protocol failure can be fixed, a capability floor cannot, and a stronger model gives a signal.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: eval
 applies_to: all
 ---
@@ -42,9 +42,10 @@ pass rate of about 20%, with room to rise, is a useful start.
    fails right answers):
    [dealing with a saturated eval](dealing-with-a-saturated-eval.md), which
    gives how to read the fires.
-4. A capability floor, when the model is a lever (the guidance allows a
-   model change, or the objective is speed or cost): a stronger model of
-   the class, to get a signal, then lock it and tune the harness:
+4. A capability floor, when the model is a lever (`allowed_models` lists
+   another model, and the guidance does not forbid a model change): a
+   stronger model of the class, to get a signal, then lock it and tune the
+   harness:
    [model swap inside a class](../techniques/model-swap-inside-a-class.md).
 5. A capability floor where some items fail because the model does not
    think the problem through: one rung more thinking, on those items

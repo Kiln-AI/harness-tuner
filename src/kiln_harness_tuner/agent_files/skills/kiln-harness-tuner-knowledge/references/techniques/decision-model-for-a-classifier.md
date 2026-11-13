@@ -1,7 +1,7 @@
 ---
 title: Decision model for a classifier
 description: Run a classifier-shaped task on a decision model - a fast, cheap model that returns a prediction from a fixed set, not text - when cost or latency matters.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - model
@@ -21,7 +21,7 @@ cost: medium
   schema whose fields each take a small closed set of values (an enum, a
   yes or no, a small integer scale, a number from 0 to 1).
 - The objective is cost or latency, or the task runs at a high volume, and
-  the guidance allows a model change.
+  the guidance does not forbid a model change.
 - A decision model is in the run's list of allowed models.
 
 A decision model reads its input like a language model. It does not write

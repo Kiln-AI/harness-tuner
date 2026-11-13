@@ -420,26 +420,18 @@ def slow_review(clock: Clock, secs: float):
     return review
 
 
-async def test_no_planner_starts_when_the_review_leaves_too_little_time():
+async def test_a_review_past_the_time_limit_still_leads_to_the_plan():
     clock = Clock()
     ctx = reviewing_ctx(clock=clock)
-    # The run has 180 minutes; the review leaves 10.
-    ctx.dispatch.queue("baseline_review", slow_review(clock, 170 * 60))
-    assert await orchestrate(ctx, "g", timeout_mins=180) == "timeout"
-    assert ctx.dispatch.calls_to("batch_plan") == []
-    (exit_event,) = events(ctx, "exit")
-    assert exit_event["detail"].startswith("10m00s left after the baseline review")
-
-
-async def test_a_review_that_leaves_wrap_up_time_makes_the_wave_the_wrap_up():
-    clock = Clock()
-    ctx = reviewing_ctx(clock=clock)
-    # 20 minutes left: above the floor, inside the wrap-up window.
-    ctx.dispatch.queue("baseline_review", slow_review(clock, 160 * 60))
+    # The run has 180 minutes; the review ends 10 minutes after the limit.
+    # The limit is checked at wave boundaries only, and the review is part
+    # of wave 1, so wave 1 is a normal wave.
+    ctx.dispatch.queue("baseline_review", slow_review(clock, 190 * 60))
     ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
-    await orchestrate(ctx, "g", timeout_mins=180)
+    assert await orchestrate(ctx, "g", timeout_mins=180) == "done"
     (plan_input,) = ctx.dispatch.calls_to("batch_plan")
-    assert plan_input.should_wrap_up is True
+    assert plan_input.should_wrap_up is False
+    assert [d.detector for d in plan_input.detections] == ["long_prompt"]
 
 
 async def test_a_review_that_hits_its_time_cap_is_not_tried_again():
@@ -458,7 +450,7 @@ async def test_a_review_that_hits_its_time_cap_is_not_tried_again():
     (review,) = ctx.baseline_reviews
     assert review.status == "failed"
     assert review.reason.startswith("the review did not run (failed_infra timeout:")
-    # Time allows a wave, so the planner still runs.
+    # The planner of the wave still runs.
     assert len(ctx.dispatch.calls_to("batch_plan")) == 1
 
 
@@ -469,8 +461,8 @@ async def test_a_wrap_up_wave_after_a_promotion_pays_for_no_review():
     _promotion_scenario(ctx)
 
     def late_decision(_req):
-        # The promotion lands with 25 minutes left: wave 2 is the wrap-up.
-        clock.now = 180 * 60 - 25 * 60
+        # The promotion lands after the time limit: wave 2 is the wrap-up.
+        clock.now = 180 * 60 + 60
         return decision("rc_cand")
 
     ctx.dispatch.queue("promote_best", late_decision)
@@ -495,37 +487,17 @@ async def test_a_wrap_up_wave_after_a_promotion_pays_for_no_review():
     ]
 
 
-async def test_no_review_runs_when_a_review_and_a_wave_do_not_fit():
-    # 33 minutes: more than the wrap-up window, less than the floor to
-    # start a wave plus the review's timeout.
+async def test_a_short_run_still_reviews_its_baseline():
+    # No time check skips the review: before the time limit, every wave is
+    # a normal wave, and its planner reads the review.
     ctx = reviewing_ctx()
     ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
-    await orchestrate(ctx, "g", timeout_mins=33)
-    assert ctx.dispatch.calls_to("baseline_review") == []
+    await orchestrate(ctx, "g", timeout_mins=5)
+    assert len(ctx.dispatch.calls_to("baseline_review")) == 1
     (review,) = ctx.baseline_reviews
-    assert (review.status, review.reason) == ("skipped", "too little time")
+    assert review.status == "done"
     (plan_input,) = ctx.dispatch.calls_to("batch_plan")
     assert plan_input.should_wrap_up is False
-    assert [d.detector for d in plan_input.detections] == ["long_prompt"]
-    assert "phase_start baseline_review" not in order(ctx)
-
-
-async def test_the_wave_cycle_is_measured_from_after_the_review():
-    clock = Clock()
-    ctx = make_ctx(clock=clock)
-    ctx.baseline_review = True
-    _promotion_scenario(ctx)
-    ctx.dispatch.queue("promote_best", decision("rc_cand"))
-    # Wave 1's review takes 7000 s and the wave itself none. At wave 2,
-    # 3800 s are left: a projected wave of 7000 s would make it the wrap-up.
-    ctx.dispatch.queue(
-        "baseline_review",
-        slow_review(clock, 7000),
-        ok(BaselineReviewResult()),
-    )
-    await orchestrate(ctx, "g", timeout_mins=180)
-    plans = ctx.dispatch.calls_to("batch_plan")
-    assert [p.should_wrap_up for p in plans] == [False, False]
 
 
 # ---- the trace sample ----

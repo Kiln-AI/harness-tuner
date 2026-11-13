@@ -29,11 +29,20 @@ from kiln_harness_tuner.schemas import (
     NoiseCheckResult,
     ProbeResult,
     PromotionDecision,
+    RcChange,
     ScreenResult,
     spend_lane_labels,
 )
 from kiln_harness_tuner.status import exit_detail, spend_split
-from kiln_harness_tuner.tui.model import cards, links, log, results, timeline, words
+from kiln_harness_tuner.tui.model import (
+    cards,
+    details,
+    links,
+    log,
+    results,
+    timeline,
+    words,
+)
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.names import RcNames
 from kiln_harness_tuner.tui.model.state import (
@@ -45,14 +54,17 @@ from kiln_harness_tuner.tui.model.state import (
     ClockView,
     Concern,
     ConcernKey,
+    DetailsView,
     ExperimentsView,
     GateModel,
     GaugeView,
     GoalView,
+    ItemKey,
     ItemModel,
     Line,
     LogLine,
     Mode,
+    PickerGroup,
     PlanKind,
     PlanStep,
     ResultsView,
@@ -255,7 +267,18 @@ class RunModel:
     # ---- what the other modules read ----
 
     def item(self, item_id: object) -> ItemModel | None:
+        """The newest item with this id: the one the loop's events name."""
         return self.items.get(str(item_id)) if item_id else None
+
+    def item_at(self, key: ItemKey) -> ItemModel | None:
+        """The item at `key`, whatever items came after it with its id."""
+        index, item_id = key
+        if not 0 <= index < len(self.waves):
+            return None
+        return next(
+            (item for item in self.waves[index].items if item.item_id == item_id),
+            None,
+        )
 
     def wave(self, number: int) -> WaveModel | None:
         return next((w for w in reversed(self.waves) if w.wave == number), None)
@@ -294,6 +317,11 @@ class RunModel:
 
     def rc_label(self, rc_id: str) -> str:
         return self.names.label(rc_id, self.rc_items.get(rc_id))
+
+    def who(self, rc_id: str) -> str:
+        """A run config by the item that built it in this run, else by its
+        name."""
+        return self.rc_items.get(rc_id) or self.rc_label(rc_id)
 
     def parent_label(self, wave: int | None = None) -> str:
         """The baseline a wave branches from: "start", or its name."""
@@ -428,6 +456,12 @@ class RunModel:
 
     def experiments(self, now: float) -> ExperimentsView:
         return cards.experiments_view(self, now)
+
+    def details(self, key: ItemKey, now: float) -> DetailsView | None:
+        return details.details_view(self, key, now)
+
+    def picker(self) -> tuple[PickerGroup, ...]:
+        return details.picker_view(self)
 
     def compare_url(self) -> str:
         info = self.info
@@ -833,6 +867,7 @@ class RunModel:
                 wave=wave,
                 kind=_text(entry.get("kind")),
                 details=entry,
+                wave_index=len(self.waves),
                 state_since=s.mono,
             )
             for entry in entries
@@ -904,6 +939,8 @@ class RunModel:
                 self._say(s, "warn", log.rebuilding(item.item_id, item.finding))
             # The checks of the new build report their own findings.
             item.finding = None
+        if item.started_at is None and state != "planned":
+            item.started_at = s.mono
         item.state = state
         item.state_since = s.mono
 
@@ -915,6 +952,9 @@ class RunModel:
     def _on_item_change(self, s: Stamped, f: Mapping[str, Any]) -> None:
         change = f.get("change")
         item = self.item(f.get("item_id"))
+        built = _valid(RcChange, change)
+        if item is not None and built is not None:
+            item.change = built
         if item is not None and isinstance(change, Mapping) and change.get("summary"):
             self._say(s, "built", log.built(item.item_id, _text(change["summary"])))
 
@@ -956,7 +996,11 @@ class RunModel:
             if step is not None:
                 step.candidates += 1
             return
-        self._see_rc(self.item(f.get("item_id")), f.get("rc_id"))
+        item = self.item(f.get("item_id"))
+        self._see_rc(item, f.get("rc_id"))
+        cap = _number(f.get("usd"))
+        if item is not None and cap is not None:
+            item.cap_usd = cap
 
     def _on_measure_chunk(self, s: Stamped, f: Mapping[str, Any]) -> None:
         if f.get("item_id") is None:
@@ -973,6 +1017,11 @@ class RunModel:
         planned = _whole(f.get("planned"))
         if planned:
             item.planned = planned
+        cap, spent = _number(f.get("cap_usd")), _number(f.get("spend_usd"))
+        if cap is not None:
+            item.cap_usd = cap
+        if spent is not None:
+            item.measure_spend_usd = spent
         cells = _list(f.get("cells"))
         for cell in cells:
             if isinstance(cell, (list, tuple)) and len(cell) == 4:
@@ -1000,6 +1049,7 @@ class RunModel:
         for row in rows:
             self._add_concern(row.eval_id, row.score_key, row)
         parent = _text(f.get("parent_rc_id"))
+        item.parent_rc_id = parent or item.parent_rc_id
         if parent and parent == self.start_rc:
             # Start's rating, cost and latency come from the first arm that
             # measured them against Start (16.6); its pass rates from setup.
@@ -1055,6 +1105,11 @@ class RunModel:
         if item is None or not isinstance(outcome, ItemOutcome):
             return
         item.outcome = outcome
+        item.landed_at = s.mono
+        measurement = outcome.measurement
+        if measurement is not None and measurement.budget_usd is not None:
+            item.cap_usd = measurement.budget_usd
+            item.measure_spend_usd = measurement.spend_usd
         self._see_rc(item, outcome.rc_id)
         if outcome.probe is not None and item.probe is None:
             item.probe = outcome.probe
@@ -1067,25 +1122,20 @@ class RunModel:
             self.log.append(log.verdict_line(s.wall, verdict, text))
         self._check_wave_landed(s.mono)
 
-    def _cut_off(self, s: Stamped, f: Mapping[str, Any], fatal: bool) -> None:
+    def _cut_off(self, s: Stamped, f: Mapping[str, Any]) -> None:
         ids = []
         for item_id in _texts(f.get("item_ids")):
             item = self.item(item_id)
             if item is not None and not item.landed:
                 item.cut_off = True
+                item.landed_at = s.mono
                 ids.append(item_id)
         if ids:
-            self._say(s, "stop", log.cut_off(ids, fatal))
+            self._say(s, "stop", log.cut_off(ids))
         self._check_wave_landed(s.mono)
 
-    def _on_deadline_cancel(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._cut_off(s, f, fatal=False)
-
     def _on_fatal_cancel(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._cut_off(s, f, fatal=True)
-
-    def _on_deadline_grace(self, s: Stamped, f: Mapping[str, Any]) -> None:
-        self._say(s, "warn", log.grace(_texts(f.get("item_ids")), f.get("grace_secs")))
+        self._cut_off(s, f)
 
     def _on_spend(self, s: Stamped, f: Mapping[str, Any]) -> None:
         # The tracker folds the run's money; an item's own spend is kept on
@@ -1145,6 +1195,11 @@ class RunModel:
         ]
         if gate is not None:
             gate.tables = tables
+            found = self.wave(gate.wave)
+            by_rc = {table.rc_id: table for table in tables}
+            for item in found.items if found else []:
+                if item.rc_id in by_rc:
+                    item.val_table = by_rc[item.rc_id]
         for table in tables:
             for row in table.per_eval:
                 self._add_concern(row.eval_id, row.score_key, row)
@@ -1180,7 +1235,7 @@ class RunModel:
             item.gate = "refused"
         if rc:
             self.refused.add(rc)
-        self._say(s, "stop", log.blocked(self._who(rc), reasons, before_gate=True))
+        self._say(s, "stop", log.blocked(self.who(rc), reasons, before_gate=True))
 
     def _on_promotion_skipped(self, s: Stamped, f: Mapping[str, Any]) -> None:
         reason = _text(f.get("reason"))
@@ -1197,9 +1252,6 @@ class RunModel:
     def _on_rejection_recorded(self, s: Stamped, f: Mapping[str, Any]) -> None:
         if f.get("rc_id"):
             self.rejected.add(str(f["rc_id"]))
-
-    def _who(self, rc: str) -> str:
-        return self.rc_items.get(rc) or self.rc_label(rc)
 
     def _gate_ended(self, s: Stamped) -> None:
         """The gate's results, settled once it has closed: a `promotion`
@@ -1275,12 +1327,21 @@ class RunModel:
             # written, and the candidates stay pooled.
             item.gate = "pooled"
         else:
-            item.gate = "rejected"
+            # Judged and not promoted. With a winner, another candidate
+            # was picked: this one may have beaten the incumbent too.
             if rc:
                 self.rejected.add(rc)
             concern, val = self._val_change(gate, item)
             train = self._train_change(item)
-            self._say(s, "stop", log.rejected(who, concern, train, val))
+            if gate.promoted:
+                item.gate = "not_selected"
+                item.gate_winner = self.who(gate.promoted)
+                verdict = words.not_selected(item.gate_winner)
+                text = log.not_selected(who, item.gate_winner, concern, train, val)
+                self.log.append(log.verdict_line(s.wall, verdict, text))
+            else:
+                item.gate = "rejected"
+                self._say(s, "stop", log.rejected(who, concern, train, val))
 
     def _headline_concern(self, item: ItemModel) -> Concern | None:
         """What a gate line reports: the objective's own measure under speed
