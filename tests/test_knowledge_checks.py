@@ -8,7 +8,7 @@ asserts that the check reports exactly the rule it breaks, and nothing else.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -284,7 +284,6 @@ def test_check_takes_a_one_shot_iterable(tree):
             " traces show.",
             "description: Short.",
         ),
-        ("reviewed: 2026-01-01", f"reviewed: {date.today() + timedelta(days=2)}"),
         ("kind: failure", "kind: wish"),
         ("applies_to:\n  - tools\n  - single_turn\n", "applies_to: []\n"),
         ("title: One playbook", "title: [unclosed"),
@@ -300,7 +299,6 @@ def test_check_takes_a_one_shot_iterable(tree):
         "long-title",
         "pipe-in-description",
         "short-description",
-        "future-review",
         "bad-kind",
         "empty-applies-to",
         "bad-yaml",
@@ -316,6 +314,23 @@ def test_front_matter_is_reported(tree, old, new):
     # smell that links it.
     [problem] = _only(tree, "front-matter")
     assert problem.path == "playbooks/p-one.md"
+
+
+@pytest.mark.parametrize(
+    ("today", "rules"),
+    [
+        (date(2026, 3, 2), set()),
+        (date(2026, 3, 1), set()),
+        (date(2026, 2, 28), {"front-matter"}),
+    ],
+    ids=["same-day", "one-day-ahead", "two-days-ahead"],
+)
+def test_a_review_date_may_be_one_day_after_today(tree, monkeypatch, today, rules):
+    """A document dated "today" east of UTC is one day ahead of the UTC
+    date, and passes everywhere."""
+    tree.edit("playbooks/p-one.md", "reviewed: 2026-01-01", "reviewed: 2026-03-02")
+    monkeypatch.setattr("kiln_harness_tuner.knowledge.schema.utc_today", lambda: today)
+    assert tree.rules() == rules
 
 
 def test_a_title_on_two_lines_is_reported(tree):
@@ -401,8 +416,63 @@ def test_an_empty_section_is_reported(tree):
     assert "'Limits' is empty" in problem.message
 
 
+@pytest.mark.parametrize(
+    "comment",
+    ["<!-- fill me -->", "<!-- one -->\n<!--\ntwo\n-->"],
+    ids=["one-line", "several"],
+)
+def test_a_section_that_holds_only_a_comment_is_reported(tree, comment):
+    tree.edit("levers/prompt.md", "## Limits\n\nNone.\n", f"## Limits\n\n{comment}\n")
+    [problem] = _only(tree, "sections")
+    assert "'Limits' is empty" in problem.message
+
+
+def test_a_section_with_a_comment_and_text_is_accepted(tree):
+    tree.edit("levers/prompt.md", "None.\n", "<!-- a note -->\nNone.\n")
+    assert tree.problems() == []
+
+
 def test_other_sections_can_follow_the_required_ones(tree):
     tree.write("levers/prompt.md", LEVER + "\n## Notes\n\nMore.\n")
+    assert tree.problems() == []
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    [
+        ("levers/prompt.md", "## Limits\n\nNone.", "## Limits\n\n{{TEXT}}"),
+        ("levers/prompt.md", "title: The prompt", 'title: "{{TITLE}}"'),
+        ("levers/prompt.md", "# The prompt\n", "# {{TITLE}}\n"),
+        ("analyzer.md", "Hand-written text.", "Hand-written {{TEXT}}."),
+        ("techniques/t-one.md", "Read a trace.", "Read [{{X}}](t-one/recipe.md)."),
+    ],
+    ids=["section", "title", "heading", "entry-file", "in-a-link"],
+)
+def test_placeholder_is_reported(tree, path, old, new):
+    if path.startswith("techniques/"):
+        tree.write("techniques/t-one/recipe.md", "# Recipe\n\nMore detail.\n")
+    tree.edit(path, old, new)
+    [problem] = _only(tree, "placeholder")
+    assert problem.path == path
+    assert "{{" in problem.message
+
+
+def test_a_placeholder_in_a_sub_file_is_reported(tree):
+    tree.write("techniques/t-one/recipe.md", "# Recipe\n\n{{TEXT}}\n")
+    tree.edit(
+        "techniques/t-one.md", "Read a trace.", "See [the recipe](t-one/recipe.md)."
+    )
+    [problem] = _only(tree, "placeholder")
+    assert problem.path == "techniques/t-one/recipe.md"
+    assert problem.message.startswith("line 3 ")
+
+
+def test_a_placeholder_inside_a_fence_is_accepted(tree):
+    tree.edit(
+        "levers/prompt.md",
+        "## See also\n\nNone.",
+        "## See also\n\nNone.\n\n```\ntitle: {{TITLE}}\n```",
+    )
     assert tree.problems() == []
 
 

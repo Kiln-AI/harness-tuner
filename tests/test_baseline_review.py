@@ -12,7 +12,8 @@ from fake_kiln import make_eval, make_run
 from test_orchestrator import _promotion_scenario, decision, seed_baseline
 from test_smells import baseline_row, events
 
-from kiln_harness_tuner.memory_schema import IssueState
+from kiln_harness_tuner.kiln import KilnAPIError
+from kiln_harness_tuner.memory_schema import IssueState, set_state_prefix
 from kiln_harness_tuner.orchestrator import orchestrate
 from kiln_harness_tuner.provider_errors import ProviderQuotaError
 from kiln_harness_tuner.report import (
@@ -204,6 +205,25 @@ async def test_a_second_review_of_the_same_baseline_writes_nothing():
     assert len(smell_memories(ctx.kiln)) == 1
 
 
+@pytest.mark.parametrize("state", [IssueState.FIXED, IssueState.WONT_FIX])
+async def test_a_baseline_whose_smell_issue_is_closed_is_not_reviewed_again(state):
+    ctx = reviewing_ctx()
+    ctx.dispatch.queue(
+        "baseline_review", ok(BaselineReviewResult(findings=[finding()]))
+    )
+    await ensure_baseline_reviewed(ctx, BaselineRef(rc_id="rc_base"))
+    (memory,) = smell_memories(ctx.kiln)
+    memory["overview"] = set_state_prefix(memory["overview"], state)
+    resumed = make_ctx(kiln=ctx.kiln)
+    resumed.baseline_review = True
+    await ensure_baseline_reviewed(resumed, BaselineRef(rc_id="rc_base"))
+    assert resumed.dispatch.calls_to("baseline_review") == []
+    (review,) = resumed.baseline_reviews
+    assert (review.status, review.reason) == ("skipped", "already reviewed")
+    assert review.issue_ids == [memory["id"]]
+    assert len(smell_memories(ctx.kiln)) == 1
+
+
 async def test_the_review_runs_again_after_a_promotion():
     ctx = make_ctx()
     ctx.baseline_review = True
@@ -354,6 +374,47 @@ async def test_a_failed_write_keeps_the_other_findings():
     assert failed["smell"] == "fixed-call-chain"
 
 
+async def test_a_memory_list_that_raises_fails_the_review(monkeypatch):
+    ctx = reviewing_ctx()
+
+    async def broken(_rc_id):
+        raise KilnAPIError("GET", "/api/projects/p1/memories", 500, "down")
+
+    monkeypatch.setattr(ctx.memory, "find_smell_issues", broken)
+    await ensure_baseline_reviewed(ctx, BaselineRef(rc_id="rc_base"))
+    assert ctx.dispatch.calls_to("baseline_review") == []
+    (review,) = ctx.baseline_reviews
+    assert review.status == "failed"
+    assert review.reason.startswith("KilnAPIError: ")
+    assert smell_memories(ctx.kiln) == []
+    # The code detections are kept for the planner.
+    assert [d.detector for d in ctx.detections] == ["long_prompt"]
+
+
+async def test_a_quota_error_while_writing_a_smell_issue_is_raised(monkeypatch):
+    ctx = reviewing_ctx()
+    written: list[str] = []
+
+    async def quota(one, _rc_id, *, title=None):
+        written.append(one.smell)
+        raise ProviderQuotaError(
+            ErrorInfo(error_class="quota_exhausted", detail="out of credits")
+        )
+
+    monkeypatch.setattr(ctx.memory, "record_smell", quota)
+    second = finding("tool-search", "The agent calls tool_search first.")
+    ctx.dispatch.queue(
+        "baseline_review", ok(BaselineReviewResult(findings=[finding(), second]))
+    )
+    with pytest.raises(ProviderQuotaError):
+        await ensure_baseline_reviewed(ctx, BaselineRef(rc_id="rc_base"))
+    # The first write stops the loop: the next finding is not tried.
+    assert written == ["fixed-call-chain"]
+    assert ctx.baseline_reviews == []
+    assert events(ctx, "smell_issue_write_failed") == []
+    assert order(ctx).count("phase_end baseline_review") == 1
+
+
 async def test_two_findings_of_one_smell_are_merged():
     ctx = reviewing_ctx()
     again = SmellFinding(
@@ -438,22 +499,35 @@ async def test_a_review_past_the_time_limit_still_leads_to_the_plan():
     assert [d.detector for d in plan_input.detections] == ["long_prompt"]
 
 
-async def test_a_review_that_hits_its_time_cap_is_not_tried_again():
+@pytest.mark.parametrize(
+    ("error_class", "detail"),
+    [
+        ("timeout", "the session hit its 20-minute cap"),
+        ("parse_failure", "the in-session repair gave no valid result"),
+    ],
+)
+async def test_a_review_that_ends_on_a_terminal_error_is_not_tried_again(
+    error_class, detail
+):
+    """A session that hit its time cap, or whose in-session repair already
+    ran, is not tried again: the review sits before the planner."""
     clock = Clock()
     ctx = reviewing_ctx(clock=clock)
 
-    def capped(_req):
+    def ended(_req):
         clock.now += 20 * 60
-        return infra("timeout", "the session hit its 20-minute cap")
+        return infra(error_class, detail)
 
-    ctx.dispatch.queue("baseline_review", capped, ok(BaselineReviewResult()))
+    ctx.dispatch.queue("baseline_review", ended, ok(BaselineReviewResult()))
     ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
     assert await orchestrate(ctx, "g", timeout_mins=180) == "done"
     assert len(ctx.dispatch.calls_to("baseline_review")) == 1
     assert events(ctx, "dispatch_retry") == []
     (review,) = ctx.baseline_reviews
     assert review.status == "failed"
-    assert review.reason.startswith("the review did not run (failed_infra timeout:")
+    assert review.reason == (
+        f"the review did not run (failed_infra {error_class}: {detail})"
+    )
     # The planner of the wave still runs.
     assert len(ctx.dispatch.calls_to("batch_plan")) == 1
 

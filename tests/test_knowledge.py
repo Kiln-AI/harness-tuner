@@ -200,12 +200,13 @@ def test_spending_the_budget_names_real_planner_input_fields():
 
 
 # Each role that reads the knowledge, by its prompt template, and the entry
-# file that the template names. The baseline reviewer comes in a later phase.
+# file that the template names.
 ROLE_ENTRY_FILES = {
     "batch_plan": "planner.md",
     "create_experiment_rc": "builder.md",
     "analyze_experiment_results": "analyzer.md",
     "report_writer": "report.md",
+    "baseline_review": "smells.md",
 }
 
 

@@ -28,6 +28,7 @@ from kiln_harness_tuner.memory import (
 from kiln_harness_tuner.memory_schema import (
     CONTENT_MAX_CHARS,
     HISTORY_TRUNCATION_MARKER,
+    ISSUE_TERMINAL_STATES,
     OVERVIEW_MAX_CHARS,
     SETUP_DELIMITER,
     SETUP_HEAD_LINE_MAX_CHARS,
@@ -72,6 +73,7 @@ from kiln_harness_tuner.schemas import (
     RcChange,
     ResidualGateResult,
     ResidualItem,
+    SmellFinding,
     WinRef,
 )
 from kiln_harness_tuner.setup import EvalView, SpecView
@@ -1542,6 +1544,138 @@ async def test_link_eval_appends_line():
     assert kiln.memories[issue]["content"] == (
         "seen in trace 42\n- eval: eval_9 (built 07-22, reproduced)"
     )
+
+
+# ---- smell issues ----
+#
+# The two branches pinned here, by the owner's decision: `record_smell`
+# deduplicates only against an issue that is not closed (the smell came back
+# after a fix), and `find_smell_issues` counts an issue in any state as "this
+# baseline was already reviewed".
+
+SMELL = SmellFinding(
+    smell="fixed-call-chain",
+    evidence="Each of the 4 sampled traces calls search, then fetch.",
+    where=["t1", "search"],
+    confidence="High: every sampled trace shows it.",
+)
+SMELL_TAGS = ["issue", "p1", "smell", "smell_fixed-call-chain", "audited_rc_rc_base"]
+OPEN_STATES = sorted(set(IssueState) - ISSUE_TERMINAL_STATES)
+CLOSED_STATES = sorted(ISSUE_TERMINAL_STATES)
+
+
+async def smell_issue(
+    kiln: FakeKiln,
+    state: IssueState = IssueState.OPEN,
+    finding: SmellFinding = SMELL,
+    rc_id: str = "rc_base",
+) -> str:
+    """A smell issue that `record_smell` wrote, moved to `state`."""
+    issue = await make_writer(kiln).record_smell(finding, rc_id)
+    record = kiln.memories[issue]
+    record["overview"] = set_state_prefix(record["overview"], state)
+    return issue
+
+
+async def test_record_smell_writes_one_issue_with_its_tags_content_and_overview():
+    kiln = FakeKiln()
+    issue = await make_writer(kiln).record_smell(
+        SMELL, "rc_base", title="Fixed call chain"
+    )
+    record = kiln.memories[issue]
+    assert record["scope"] == "task::t1"
+    assert record["tags"] == SMELL_TAGS
+    assert record["overview"] == (
+        "issue: Fixed call chain — Each of the 4 sampled traces calls search,"
+        " then fetch."
+    )
+    assert record["content"].splitlines() == [
+        "Each of the 4 sampled traces calls search, then fetch.",
+        "where: t1, search",
+        "confidence: High: every sampled trace shows it.",
+        "This is the smell `fixed-call-chain`. Its document gives the remedies.",
+    ]
+
+
+async def test_record_smell_names_the_smell_by_its_id_with_no_title():
+    kiln = FakeKiln()
+    finding = SMELL.model_copy(update={"where": []})
+    issue = await make_writer(kiln).record_smell(finding, "rc_base")
+    record = kiln.memories[issue]
+    assert record["overview"].startswith("issue: fixed-call-chain — Each of")
+    assert record["content"].splitlines()[1] == "where: -"
+
+
+@pytest.mark.parametrize("state", OPEN_STATES)
+async def test_record_smell_returns_the_issue_that_is_not_closed(state):
+    kiln = FakeKiln()
+    issue = await smell_issue(kiln, state)
+    posts = len(kiln.memory_posts)
+    assert await make_writer(kiln).record_smell(SMELL, "rc_base") == issue
+    assert len(kiln.memory_posts) == posts
+
+
+@pytest.mark.parametrize("state", CLOSED_STATES)
+async def test_record_smell_writes_a_new_issue_when_the_match_is_closed(state):
+    """The smell came back after the issue was closed."""
+    kiln = FakeKiln()
+    closed = await smell_issue(kiln, state)
+    issue = await make_writer(kiln).record_smell(SMELL, "rc_base")
+    assert issue != closed
+    assert kiln.memories[issue]["tags"] == SMELL_TAGS
+    assert issue_state(kiln.memories[issue]["overview"]) == IssueState.OPEN
+    assert issue_state(kiln.memories[closed]["overview"]) == state
+
+
+async def test_find_smell_issues_returns_the_issues_in_every_state():
+    kiln = FakeKiln()
+    issues = {
+        state: await smell_issue(
+            kiln, state, SMELL.model_copy(update={"smell": f"smell-{n}"})
+        )
+        for n, state in enumerate(IssueState)
+    }
+    assert len(set(issues.values())) == len(IssueState)
+    found = await make_writer(kiln).find_smell_issues("rc_base")
+    assert {view.id: view.state for view in found} == {
+        issue: state for state, issue in issues.items()
+    }
+    assert all(view.content for view in found)
+
+
+@pytest.mark.parametrize("state", CLOSED_STATES)
+async def test_a_closed_smell_issue_still_counts_as_reviewed(state):
+    """A resumed lineage whose smell issues are all closed is not reviewed
+    again. So on the review path the dedup of `record_smell` is only a
+    guard: the review merges two findings of one smell before it writes."""
+    kiln = FakeKiln()
+    closed = await smell_issue(kiln, state)
+    found = await make_writer(kiln).find_smell_issues("rc_base")
+    assert [view.id for view in found] == [closed]
+
+
+async def test_another_run_config_and_a_baseline_audit_issue_do_not_match():
+    kiln = FakeKiln()
+    writer = make_writer(kiln)
+    elsewhere = await smell_issue(kiln, rc_id="rc_other")
+    audit = await writer.record_baseline_audit("rc_base", ["a train item"])
+    judge_copy = await writer.record_baseline_judge_copy("rc_base", ["an eval"])
+    assert "audited_rc_rc_base" in kiln.memories[audit]["tags"]
+    assert await writer.find_smell_issues("rc_base") == []
+    issue = await writer.record_smell(SMELL, "rc_base")
+    assert issue not in {elsewhere, audit, judge_copy}
+    assert [view.id for view in await writer.find_smell_issues("rc_base")] == [issue]
+    assert [view.id for view in await writer.find_smell_issues("rc_other")] == [
+        elsewhere
+    ]
+
+
+async def test_another_smell_on_the_same_run_config_does_not_match():
+    kiln = FakeKiln()
+    other = await smell_issue(kiln, finding=SMELL.model_copy(update={"smell": "x"}))
+    issue = await make_writer(kiln).record_smell(SMELL, "rc_base")
+    assert issue != other
+    assert kiln.memories[issue]["tags"] == SMELL_TAGS
 
 
 # ---- open unknowns ----

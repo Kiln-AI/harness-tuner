@@ -62,7 +62,7 @@ type, in the order given. Other H2 sections can follow the required ones.
 |---|---|---|
 | `title` | string | 3 to 60 characters, one line |
 | `description` | string | 40 to 200 characters, one line. It is the text of the index row, so it must let an agent decide whether to open the file. |
-| `reviewed` | date | `YYYY-MM-DD`. Not in the future. |
+| `reviewed` | date | `YYYY-MM-DD`. Not after the UTC date plus one day, so a document dated "today" in any time zone passes. |
 
 ### 3.2 Task shapes
 
@@ -378,7 +378,8 @@ smell id.
 | `front-matter` | Front matter is present, parses, and fits the model |
 | `encoding` | The file is UTF-8 text (load records it, and reads nothing else of the file) |
 | `id` | The file name fits the id pattern |
-| `sections` | The required sections are present, in order, and not empty |
+| `sections` | The required sections are present, in order, and not empty. An HTML comment is not content. |
+| `placeholder` | No `{{` (template text) outside a fence, the front matter included |
 | `size` | The file is inside its size limit |
 | `shape` | Each `applies_to` value is in `TASK_SHAPES` |
 | `link` | Each internal link resolves |

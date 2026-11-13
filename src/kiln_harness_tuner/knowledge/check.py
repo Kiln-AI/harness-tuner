@@ -18,7 +18,12 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 from kiln_harness_tuner.knowledge.index import read_block, render_blocks
-from kiln_harness_tuner.knowledge.load import Document, KnowledgeBase, Link
+from kiln_harness_tuner.knowledge.load import (
+    Document,
+    KnowledgeBase,
+    Link,
+    fence_marked,
+)
 from kiln_harness_tuner.knowledge.schema import (
     COMPONENT_DIRS,
     ENTRY_BLOCKS,
@@ -43,6 +48,9 @@ PRIOR_ITEM_RE = re.compile(r"^- ", re.MULTILINE)
 PRIOR_SOURCE_RE = re.compile(
     r"Source:\s*(" + "|".join(re.escape(s) for s in PRIOR_SOURCES) + r")\b"
 )
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+# The maintenance templates mark each value to fill in as `{{NAME}}`.
+PLACEHOLDER_RE = re.compile(r"\{\{[^{}\n]*(?:\}\})?")
 
 
 class _Context:
@@ -122,11 +130,28 @@ def _sections(ctx: _Context, *_: object) -> Iterable[Problem]:
             )
             continue
         for section in doc.sections[: len(required)]:
-            if not section.text:
+            # A template puts a comment in each section for its author.
+            if not HTML_COMMENT_RE.sub("", section.text).strip():
                 yield Problem(
                     "sections",
                     doc.path.as_posix(),
                     f"the section {section.heading!r} is empty",
+                )
+
+
+def _placeholder(ctx: _Context, *_: object) -> Iterable[Problem]:
+    """A `{{` outside a fence is template text that the author did not
+    replace. The front matter is read too, so a template title is found."""
+    for doc in ctx.kb.documents:
+        for number, (line, fenced) in enumerate(fence_marked(doc.text), 1):
+            if fenced:
+                continue
+            for placeholder in PLACEHOLDER_RE.findall(line):
+                yield Problem(
+                    "placeholder",
+                    doc.path.as_posix(),
+                    f"line {number} holds the template text {placeholder!r};"
+                    " replace it",
                 )
 
 
@@ -478,6 +503,7 @@ RULES: tuple[Rule, ...] = (
     _front_matter,
     _id,
     _sections,
+    _placeholder,
     _size,
     _shape,
     _link,
