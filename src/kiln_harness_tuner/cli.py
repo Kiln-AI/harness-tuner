@@ -1055,6 +1055,11 @@ def render_run_configs(
         # can call its own gateway operations and nothing else. Exit code 2
         # blocks the call and hands the message to the model.
         "hooks": hook("none"),
+        # `claude -p --output-format json` prints one result object only
+        # when verbose is off. A `"verbose": true` in the user's or the
+        # project's Claude Code settings makes it print a list of events.
+        # This file is the `--settings` layer, which overrides both.
+        "verbose": False,
     }
     settings_path = run_dir / "settings.json"
     settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")

@@ -985,6 +985,13 @@ state folder and the scratch tree. The read-only roles (`READ_ONLY_ROLES` in
 hold val data, and the two reviewers) run under it, and get no scratch
 directory.
 
+Every settings file also sets `"verbose": false`. With verbose on,
+`claude -p --output-format json` prints a list of events in place of one
+result object. A `--settings` file overrides the user's and the project's
+Claude Code settings, so a `"verbose": true` there has no effect on a loop
+session. A `--verbose` in the CLI options still wins, so the dispatcher also
+reads a list: it takes the last `"type": "result"` event.
+
 1. **File writes.** One path-scoped allow rule for the run's scratch tree, and
    an explicit deny over the Kiln project tree. The session's working directory
    is the agents folder (`<state>/agents/claude/<version>/`), which Claude Code

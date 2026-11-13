@@ -1369,6 +1369,19 @@ class TestRenderRunConfigs:
             run = run_dir.resolve()
             assert any(str(run / "train_set.json") in r for r in rules), role
 
+    def test_every_settings_file_switches_verbose_off(self, tmp_path):
+        # A `"verbose": true` in the user's or the project's Claude Code
+        # settings makes `claude -p --output-format json` print a list of
+        # events. The `--settings` file overrides it.
+        from kiln_harness_tuner.gateway.ops import ROLE_OPS
+
+        (_, _s), run_dir = self.make(tmp_path)
+        names = ["settings.json", "settings.readonly.json"]
+        names += [f"settings.{role}.json" for role in ROLE_OPS]
+        for name in names:
+            settings = json.loads((run_dir / name).read_text())
+            assert settings["verbose"] is False, name
+
     def test_readonly_settings_grant_no_write(self, tmp_path):
         # The val readers run under their own read-only files.
         (_, settings_path), run_dir = self.make(tmp_path)
