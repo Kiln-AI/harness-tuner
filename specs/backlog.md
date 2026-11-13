@@ -806,3 +806,13 @@ a skill, a tool's response. The agent then follows one at random. The remedy can
 
 A new project. After recon and the design review, ask the owner what only the owner can decide, such
 as which of two conflicting requirements wins. Each question offers options, plus "other" as text.
+
+### A repeat measurement the planner can ask for
+
+- Kind: code
+- Where: tuner, knowledge
+- Depends on: None
+- Source: [repeat-measurement](projects/repeat-measurement/project_overview.md)
+
+A planner item, or a flag on `remeasure`, that drives and judges an existing run config again on
+train items. Today only `--noise-check` repeats a measurement, one time, before wave 1.
