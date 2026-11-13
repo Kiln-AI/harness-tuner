@@ -51,17 +51,34 @@ going looking.
    skill"). The same holds for the parent's tools: re-describe, wrap,
    consolidate or drop them on the new config. A new description is a new
    tool: a clone of a code tool with the new `tool_description`, or a
-   wrapper of any tool. `run_config_properties` are immutable
-   post-create (`PATCH` silently drops them — known bug): compose the whole
+   wrapper of any tool. When the arm attaches a tool or a skill to a
+   parent whose `structured_output_mode` sends the schema as a tool
+   (`function_calling`, `function_calling_weak`, or `default` outside
+   Ollama and Docker Model Runner), Kiln refuses every call: set the mode
+   on the same config by the fallback of the knowledge lever
+   `levers/model.md` (step 4), and list it in `change`. The lever
+   `levers/output_mode.md` gives the modes. `run_config_properties` are
+   immutable post-create (`PATCH` silently drops them — known bug): compose the whole
    config in one `POST`; a mistake means another new config, noted in
    `build_notes`.
 
    A **`params` arm** is the smallest build there is: one `POST` of a run
    config identical to the parent except the named provider parameter(s),
    no new prompt, skill or tool. Its `change` block lists the one parameter
-   and its old and new values, and everything else under `unchanged`. The
-   model and provider stay as the parent has them unless the item names a
-   new model. The gateway refuses a model the run does not allow
+   and its old and new values, and everything else under `unchanged`. An
+   **`output_mode` arm** is built the same way, with only
+   `structured_output_mode` changed. The model and provider stay as the
+   parent has them unless the item names a new model. A new model takes
+   its own default `structured_output_mode` (`list_available_models` gives
+   it; keep the parent's when it is absent, `default` or `unknown`), unless
+   the item tests the output mode. In both cases, list the mode change in
+   `change`. On a run config that attaches a tool or a skill, Kiln refuses
+   `function_calling`, `function_calling_weak`, and `default` outside
+   Ollama and Docker Model Runner: every call fails. When the new model's
+   default is one of them, use `json_schema` if you know the model supports
+   it (a probe, an earlier screen), else `json_instruction_and_object`.
+   Invalid output or failed runs just after a swap point first to a wrong
+   mode, not to a weaker model. The gateway refuses a model the run does not allow
    (`create_run_config` answers "… is outside the model policy"): then
    return `failed_expected` naming the refusal, and do not try another
    model.
@@ -302,7 +319,7 @@ levers) ·
 `kiln-harness-tuner-gateway` (every Kiln operation your role has) ·
 `kiln-task-setup` (the run-config/prompt/skill build procedure + known bugs) ·
 `kiln-harness-tuner-code-tool-authoring` (new_tool lever) ·
-`kiln-harness-tuner-batch-selection/references/lever-ladder.md` (the failure class → lever
-table the planner chose your item from, and what "bake it into code" means
-per wrapper) · `memory` (discovery-write conventions) ·
+`kiln-harness-tuner-knowledge` (its `references/builder.md` lists each
+technique and each lever: how to build the technique on your item, and how
+to check that it took effect) · `memory` (discovery-write conventions) ·
 `kiln-harness-tuner-experiment-analysis` (who reads your build after measurement).

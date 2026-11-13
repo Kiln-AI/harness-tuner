@@ -60,8 +60,8 @@ invocation. The shape that works is a short body mapping 6–8 topic files.
 
 ### When the model is lost in a long prompt or one big skill
 
-The lever ladder's row for this: the FIRST arm is structural, not a
-rewrite of the text.
+The knowledge skill's playbook for this failure (lost in long
+instructions) makes the FIRST arm structural, not a rewrite of the text.
 
 1. Cut the long text into topics — one `references/<topic>.md` per
    coherent subject, each self-contained (a reader who opens only that file
@@ -76,7 +76,10 @@ rewrite of the text.
    first, then look up the case"): it changes the model's call order and can
    break a criterion the bundle was not aimed at. State what each file covers;
    let the task decide the order.
-5. Measure the bundle against EVERY active eval, not only its target.
+5. The bundle is measured on its target evals, like every arm (the
+   planner's lean-target default). When it fixes its target, the val gate
+   measures every eval before a promotion. Step 4 lowers the risk to the
+   other evals.
 
 **Lint before install, for free.** `install_skill_bundle` validates the
 whole bundle and returns every error at once with nothing written; a

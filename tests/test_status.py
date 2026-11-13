@@ -345,6 +345,7 @@ LANELESS_SOURCES = [
     ("analyze_experiment_results", "subscription_equivalent"),
     ("promote_best", "subscription_equivalent"),
     ("report_writer", "subscription_equivalent"),
+    ("baseline_review", "subscription_equivalent"),
     ("eval_jobs", "provider"),
     ("val_pass", "provider"),
 ]

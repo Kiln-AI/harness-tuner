@@ -21,7 +21,12 @@ from fake_dispatcher import infra, ok
 from fake_kiln import make_eval, make_job_error, make_run, make_run_config, make_score
 
 from kiln_harness_tuner.kiln import KilnAPIError
-from kiln_harness_tuner.memory_schema import VAL_STATS_OVERVIEW, VAL_STATS_TAG
+from kiln_harness_tuner.memory_schema import (
+    VAL_STATS_OVERVIEW,
+    VAL_STATS_TAG,
+    ValRejection,
+    ValRejectionKind,
+)
 from kiln_harness_tuner.orchestrator import (
     SpendMeter,
     _active_evals,
@@ -29,15 +34,18 @@ from kiln_harness_tuner.orchestrator import (
     _run_wave,
     orchestrate,
     time_limit_detail,
+    val_rejection_reason,
 )
 from kiln_harness_tuner.schemas import (
     BaselineRef,
+    CandidateValTable,
     EvalBuildReport,
     EvalTarget,
     ExperimentItem,
     IngredientOutcome,
     MergeWork,
     OpenUnknown,
+    PerEvalResult,
     PromotionDecision,
     RcBuildResult,
     RegressedIssue,
@@ -821,10 +829,138 @@ async def test_a_winner_that_was_not_a_candidate_is_never_promoted():
 
 # ---- val-gate rejection writeback ----
 
-REJECTED_LINE = (
-    "- rejected at the val gate 07-22 vs baseline rc_base — did not beat it; "
-    "details in the run report."
+REJECTED_HEAD = "- rejected at the val gate 07-22 vs baseline rc_base — "
+# `seed_val` leaves the candidate flat on val: no targeted eval improved.
+NO_GAIN_LINE = REJECTED_HEAD + "no gain at val: no targeted eval improved."
+
+
+def _val_row(
+    eval_id: str,
+    delta: float,
+    *,
+    ci: tuple[float, float] | None = None,
+    significant: bool = False,
+) -> PerEvalResult:
+    return PerEvalResult(
+        eval_id=eval_id,
+        score_key="s",
+        split="val",
+        baseline_rc_id="rc_base",
+        compared_to="prior_baseline",
+        n_items=20,
+        delta=delta,
+        p_value=None,
+        significant=significant,
+        ci_low=ci[0] if ci else None,
+        ci_high=ci[1] if ci else None,
+        fail_to_pass=None,
+        pass_to_fail=None,
+        spend_usd=0.0,
+    )
+
+
+def _val_table(*rows: PerEvalResult, ineligible: bool = False) -> CandidateValTable:
+    return CandidateValTable(
+        rc_id="rc_c",
+        experiment_memory_id="mem_c",
+        per_eval=list(rows),
+        ineligible=ineligible,
+    )
+
+
+_DOWN = (-0.4, -0.1)  # a CI entirely below zero: down beyond doubt
+_UP = (0.1, 0.4)  # a CI entirely above zero: up beyond doubt
+_STRADDLE = (-0.1, 0.3)
+
+
+@pytest.mark.parametrize(
+    ("table", "judge_gain", "expected"),
+    [
+        # D1: a guard and the target both dropped beyond doubt, named with
+        # no label, each eval once however many score rows it has.
+        (
+            _val_table(
+                _val_row("e_t", -0.2, ci=_DOWN),
+                _val_row("e_g", -0.2, ci=_DOWN),
+                _val_row("e_g", -0.3, ci=_DOWN),
+                _val_row("e_ok", 0.1, ci=_STRADDLE),
+            ),
+            True,
+            ValRejection(
+                ValRejectionKind.EVAL_DROPPED, dropped_eval_ids=("e_t", "e_g")
+            ),
+        ),
+        # D1 wins over a target gain beyond doubt, and holds on an
+        # incomplete table and under an efficiency objective: a measured
+        # drop is a fact.
+        (
+            _val_table(
+                _val_row("e_t", 0.3, ci=_UP, significant=True),
+                _val_row("e_g", -0.2, ci=_DOWN),
+                ineligible=True,
+            ),
+            False,
+            ValRejection(ValRejectionKind.EVAL_DROPPED, dropped_eval_ids=("e_g",)),
+        ),
+        # D2: no targeted row improved at all; a guard gain does not count.
+        (
+            _val_table(
+                _val_row("e_t", 0.0, ci=_STRADDLE),
+                _val_row("e_g", 0.2, ci=_UP, significant=True),
+            ),
+            True,
+            ValRejection(ValRejectionKind.NO_GAIN),
+        ),
+        # D3: the target improved, not beyond doubt.
+        (
+            _val_table(_val_row("e_t", 0.1, ci=_STRADDLE)),
+            True,
+            ValRejection(ValRejectionKind.GAIN_NOT_CLEAR),
+        ),
+        # A target gain beyond doubt and no drop: the table does not say
+        # why the gate passed it over.
+        (
+            _val_table(_val_row("e_t", 0.2, ci=_UP)),
+            True,
+            ValRejection(ValRejectionKind.NOT_PROMOTED),
+        ),
+        # Neutral when the gain kinds do not apply: an efficiency
+        # objective, a hole in the table, the target not compared.
+        (
+            _val_table(_val_row("e_t", 0.0)),
+            False,
+            ValRejection(ValRejectionKind.NOT_PROMOTED),
+        ),
+        (
+            _val_table(_val_row("e_t", 0.0), ineligible=True),
+            True,
+            ValRejection(ValRejectionKind.NOT_PROMOTED),
+        ),
+        (
+            _val_table(_val_row("e_g", 0.0)),
+            True,
+            ValRejection(ValRejectionKind.NOT_PROMOTED),
+        ),
+        (None, True, ValRejection(ValRejectionKind.NOT_PROMOTED)),
+    ],
 )
+def test_val_rejection_reason_reads_the_candidates_own_table(
+    table, judge_gain, expected
+):
+    reason = val_rejection_reason(table, ["e_t"], judge_gain=judge_gain)
+    assert reason == expected
+
+
+def test_val_rejection_reason_with_no_declared_target_reads_every_row():
+    # As in `decide_single_candidate`: no target means every row is one.
+    table = _val_table(_val_row("e_1", -0.2, ci=_DOWN), _val_row("e_2", 0.0))
+    assert val_rejection_reason(table, [], judge_gain=True) == ValRejection(
+        ValRejectionKind.EVAL_DROPPED, dropped_eval_ids=("e_1",)
+    )
+    flat = _val_table(_val_row("e_1", 0.0), _val_row("e_2", -0.1, ci=_STRADDLE))
+    assert val_rejection_reason(flat, [], judge_gain=True) == ValRejection(
+        ValRejectionKind.NO_GAIN
+    )
 
 
 def _experiment_memories(kiln) -> list[dict]:
@@ -845,7 +981,7 @@ async def test_zero_winner_gate_stamps_every_candidate():
     assert len(records) == 2
     for record in records:
         assert record["overview"].endswith(" — REJECTED AT VAL 07-22")
-        assert record["content"].endswith(REJECTED_LINE)
+        assert record["content"].endswith(NO_GAIN_LINE)
         assert "— PROMOTED" not in record["overview"]
     # Zero winners writes neither promotion record: the `baseline` pointer
     # does not move, and no `val` stats line is added.
@@ -854,6 +990,7 @@ async def test_zero_winner_gate_stamps_every_candidate():
     recorded = [f for k, f in ctx.log.events if k == "rejection_recorded"]
     assert sorted(f["rc_id"] for f in recorded) == ["rc_w1-1", "rc_w1-2"]
     assert {f["exp_mem_id"] for f in recorded} == {r["id"] for r in records}
+    assert {f["reason"] for f in recorded} == {"no gain"}
 
 
 async def test_gate_losers_are_stamped_after_the_winner_applies():
@@ -871,8 +1008,15 @@ async def test_gate_losers_are_stamped_after_the_winner_applies():
     rejected = [r for r in records if "— REJECTED AT VAL 07-22" in r["overview"]]
     assert len(promoted) == 1
     assert len(rejected) == 1
-    assert REJECTED_LINE not in promoted[0]["content"]
-    assert rejected[0]["content"].endswith(REJECTED_LINE)
+    assert REJECTED_HEAD not in promoted[0]["content"]
+    # Passed over for the winner, not beaten by the baseline: the line says
+    # so, and never "did not beat it".
+    assert rejected[0]["content"].endswith(
+        REJECTED_HEAD + "passed over: not promoted; rc rc_w1-1 was promoted instead."
+    )
+    assert "did not beat it" not in rejected[0]["content"]
+    (recorded,) = [f for k, f in ctx.log.events if k == "rejection_recorded"]
+    assert recorded["reason"] == "passed over"
     # The loser's issue record still gets no writes (train verdicts
     # stand, the win stays merge-eligible as a re-designed experiment).
     assert not ctx.kiln.memories["issue_2"]["overview"].startswith("FIXED: ")
@@ -922,7 +1066,7 @@ async def test_a_candidate_that_never_reached_the_gate_is_not_stamped():
     assert len(gated) == 1
     (never_gated,) = [r for r in records if r["id"] != gated[0]["id"]]
     assert never_gated["overview"].endswith("— FAILED (infra: parse_failure)")
-    assert REJECTED_LINE not in (never_gated["content"] or "")
+    assert REJECTED_HEAD not in (never_gated["content"] or "")
     recorded = [f for k, f in ctx.log.events if k == "rejection_recorded"]
     assert [f["rc_id"] for f in recorded] == ["rc_w1-1"]
 
@@ -1039,7 +1183,7 @@ async def test_half_written_rejection_is_not_claimed_as_recorded():
     assert not [k for k, _ in ctx.log.events if k == "rejection_recorded"]
     record = ctx.kiln.memories[_SCENARIO_EXP_MEM]
     assert record["overview"].endswith(" — REJECTED AT VAL 07-22")  # stamp landed
-    assert REJECTED_LINE not in (record["content"] or "")  # note did not
+    assert REJECTED_HEAD not in (record["content"] or "")  # note did not
 
 
 # ---- tripwire ----
@@ -2636,8 +2780,16 @@ async def test_code_rule_rejects_on_a_regression_beyond_doubt():
     (promo,) = [f for k, f in ctx.log.events if k == "promotion"]
     assert promo["winner_rc_id"] is None
     assert "regressed beyond doubt" in promo["rationale"]
-    # A real val loss is stamped, like an agent rejection.
+    # A real val loss is stamped, like an agent rejection, and its line
+    # names the eval that dropped — no number, and no issue write: the
+    # baseline did not change.
     assert "rejection_recorded" in [k for k, _ in ctx.log.events]
+    record = next(iter(_experiment_memories(ctx.kiln)))
+    assert record["content"].endswith(
+        "— an eval dropped at val: down beyond doubt on eval eval_1."
+    )
+    assert ctx.kiln.memories["issue_1"]["overview"] == "issue body for issue_1"
+    assert not [k for k, _ in ctx.log.events if k == "issue_regressed"]
 
 
 async def test_code_rule_blocks_an_ineligible_candidate_and_stamps_nothing():

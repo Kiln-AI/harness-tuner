@@ -23,12 +23,13 @@ commands. This check reads every document a user or a contributor meets.
 
 from __future__ import annotations
 
-import os
 import re
 import tomllib
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 import pytest
+
+from kiln_harness_tuner.knowledge.load import resolve_link
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_ROOT = REPO_ROOT / "docs"
@@ -49,6 +50,18 @@ ROOT_DOCS = (
     "CLAUDE.md",
     "src/kiln_harness_tuner/agent_files/AGENTS.md",
 )
+
+
+# The maintenance skill of the knowledge system, and the backlog it adds to.
+# Globbed, because a template or a reference file added to the skill is a
+# document a coding agent follows.
+MAINTENANCE_GLOB = ".agents/skills/knowledge-maintenance/**/*.md"
+BACKLOG = "specs/backlog.md"
+
+# A template links documents of a knowledge tree by a placeholder id, such as
+# `../levers/{{LEVER_ID}}.md`. Such a link names no file until an author fills
+# it, and the template test (`test_knowledge.py`) checks the filled document.
+PLACEHOLDER = "{{"
 
 
 # The user-facing documents outside the link-checked set. The retired-form
@@ -87,9 +100,15 @@ def doc_files() -> list[Path]:
     return sorted(DOCS_ROOT.rglob("*.md"))
 
 
+def maintenance_files() -> list[Path]:
+    """The maintenance skill and the backlog."""
+    return sorted(REPO_ROOT.glob(MAINTENANCE_GLOB)) + [REPO_ROOT / BACKLOG]
+
+
 def linked_files() -> list[Path]:
-    """Every document whose links are checked: the tree, plus ROOT_DOCS."""
-    return [REPO_ROOT / name for name in ROOT_DOCS] + doc_files()
+    """Every document whose links are checked: the tree, plus ROOT_DOCS, the
+    maintenance skill and the backlog."""
+    return [REPO_ROOT / name for name in ROOT_DOCS] + maintenance_files() + doc_files()
 
 
 def user_docs() -> list[Path]:
@@ -130,6 +149,13 @@ def test_the_root_documents_are_link_checked():
     )
     for name in ROOT_DOCS:
         assert (REPO_ROOT / name).is_file(), f"{name} does not exist"
+    for name in (
+        ".agents/skills/knowledge-maintenance/SKILL.md",
+        ".agents/skills/knowledge-maintenance/templates/technique.md",
+        BACKLOG,
+    ):
+        assert (REPO_ROOT / name).is_file(), f"{name} does not exist"
+        assert (REPO_ROOT / name).resolve() in checked, f"{name} is not link-checked"
 
 
 def resolves_inside_the_repository(base: Path, target: str) -> bool:
@@ -148,26 +174,13 @@ def resolves_inside_the_repository(base: Path, target: str) -> bool:
     And a target that climbs OUT of the repository resolves here and exists
     for nobody else. A `../..` link to a file next to the checkout works for
     its author and for no other reader."""
-    current = base.resolve()
-    for part in PurePosixPath(target).parts:
-        if part == ".":
-            continue
-        if part == "..":
-            current = current.parent
-            continue
-        if part.startswith("/"):
-            return False  # an absolute link cannot resolve from a document
-        try:
-            names = os.listdir(current)
-        except OSError:
-            return False
-        if part not in names:
-            return False
-        current = current / part
-    return current.is_relative_to(REPO_ROOT)
+    # The knowledge checks resolve their links with the same rule.
+    return resolve_link(base, target, REPO_ROOT) is not None
 
 
-@pytest.mark.parametrize("path", linked_files(), ids=lambda p: p.name)
+@pytest.mark.parametrize(
+    "path", linked_files(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
+)
 def test_every_internal_link_resolves(path: Path):
     """Relative links point at files that exist, spelled as they are on disk.
 
@@ -177,6 +190,8 @@ def test_every_internal_link_resolves(path: Path):
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         for target in LINK_RE.findall(line):
             if target.startswith(EXTERNAL_PREFIXES) or target.startswith("#"):
+                continue
+            if PLACEHOLDER in target:
                 continue
             bare = target.split("#", 1)[0]
             if not resolves_inside_the_repository(path.parent, bare):
@@ -235,3 +250,92 @@ def test_install_doc_lists_every_console_script():
     count, names = lines[0]
     assert names.split(", ") == sorted(scripts)
     assert int(count) == len(scripts)
+
+
+# The role table of `docs/agents.md`: a row's first cell is the role in
+# backticks. Its first line says how many roles there are, in words.
+AGENTS_DOC = DOCS_ROOT / "agents.md"
+ROLE_ROW_RE = re.compile(r"^\| `([a-z_]+)`", re.MULTILINE)
+ROLE_SECTION_RE = re.compile(r"^## `([a-z_]+)`$", re.MULTILINE)
+COUNT_WORDS = (
+    "zero one two three four five six seven eight nine ten eleven twelve"
+    " thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
+).split()
+
+
+def agent_roles() -> set[str]:
+    """The roles the dispatcher can run: the keys of its timeout table, less
+    the lane check, which is not a role."""
+    from kiln_harness_tuner.dispatch.claude_cli import AGENT_TIMEOUTS_SECS
+
+    return set(AGENT_TIMEOUTS_SECS) - {"preflight"}
+
+
+def test_every_role_has_a_row_and_a_section_in_agents_md():
+    """`docs/agents.md` is where a reader whose run went wrong looks for the
+    agent to blame. When the code dispatches a role that the page leaves
+    out, that reader cannot find the role. Only the role table counts: the
+    entry-file table under it cannot satisfy the check."""
+    text = AGENTS_DOC.read_text(encoding="utf-8")
+    head = text.split("\n## ", 1)[0]
+    role_table = head.split("\n| Agent |", 1)[1].split("\n\n", 1)[0]
+    rows = set(ROLE_ROW_RE.findall(role_table))
+    sections = set(ROLE_SECTION_RE.findall(text))
+    roles = agent_roles()
+    assert rows == roles, (
+        f"role table of docs/agents.md: missing {sorted(roles - rows)},"
+        f" unknown {sorted(rows - roles)}"
+    )
+    assert sections == roles, (
+        f"role sections of docs/agents.md: missing {sorted(roles - sections)},"
+        f" unknown {sorted(sections - roles)}"
+    )
+    first_line = text.splitlines()[2]
+    word = COUNT_WORDS[len(roles)].capitalize()
+    assert first_line.startswith(f"{word} agent roles."), (
+        f"docs/agents.md says {first_line.split('.')[0]!r}; the code has"
+        f" {len(roles)} roles"
+    )
+
+
+# The two layout blocks: the root `AGENTS.md` (`## Layout`) and
+# `docs/architecture.md` section 13. Each names a package directory as an
+# indented `<name>/` at the start of a line.
+LAYOUT_BLOCKS = {
+    "AGENTS.md": "## Layout",
+    "docs/architecture.md": "## 13. Layout",
+}
+PACKAGE_ROOT = REPO_ROOT / "src" / "kiln_harness_tuner"
+
+
+def layout_block(name: str) -> str:
+    """The first fenced block after the layout heading of `name`, up to
+    `src/kiln_api_mcp/`, so that a line under `tests/` (such as `tui/`)
+    does not count."""
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+    after = text.split(f"\n{LAYOUT_BLOCKS[name]}\n", 1)[1]
+    return after.split("```", 2)[1].split("\nsrc/kiln_api_mcp/", 1)[0]
+
+
+def package_directories() -> list[str]:
+    return sorted(
+        p.name
+        for p in PACKAGE_ROOT.iterdir()
+        if p.is_dir() and not p.name.startswith(("__", "."))
+    )
+
+
+@pytest.mark.parametrize("name", sorted(LAYOUT_BLOCKS))
+def test_each_package_directory_is_in_the_layout_block(name: str):
+    """A layout block that leaves out a package makes a contributor look for
+    it by hand. A contributor who adds a package then sees no line to
+    follow. Each directory of `src/kiln_harness_tuner/` has a line in both
+    blocks."""
+    assert len(package_directories()) >= 8, package_directories()
+    block = layout_block(name)
+    missing = [
+        d
+        for d in package_directories()
+        if not re.search(rf"^ +{re.escape(d)}/ ", block, re.MULTILINE)
+    ]
+    assert not missing, f"{name}: the layout block has no line for {missing}"

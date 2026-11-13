@@ -4,6 +4,7 @@ spec 4 and 7.6)."""
 from model_events import START_NAME, START_RC, Run, fix, probe, row, table, val_row
 
 from kiln_harness_tuner.schemas import (
+    BaselineReview,
     ItemOutcome,
     ModelCheck,
     ModelPreflightResult,
@@ -115,6 +116,51 @@ def test_skipped_recon_and_the_opening_screen():
     assert (segment.kind, segment.wave) == ("screen", 0)
     run.emit("opening_screen_skipped", reason="no lower thinking level")
     assert steps(run)[-1] == ("skip", "Screen", "skipped: no lower thinking level")
+
+
+def test_the_design_review_step_and_its_log_lines():
+    run = Run().start()
+    run.emit("phase_start", name="baseline_review", label="")
+    view = run.model.experiments(run.at(1).t)
+    assert plain(view.header) == " Starting · the design review"
+    assert steps(run)[-1] == (
+        "busy",
+        "Design review",
+        "checking the agent's design · 1m00s",
+    )
+    done = BaselineReview(rc_id=START_RC, status="done", findings=[])
+    line = "Design review complete: nothing flagged."
+    run.emit("baseline_review", review=done, flagged=[], line=line)
+    assert steps(run)[-1] == ("ok", "Design review", "nothing flagged")
+    # The Starting checklist also writes the result to the log.
+    assert run.log()[-1] == line
+    # The count is the smells flagged by the review and the code detections.
+    flagged = ["very-long-prompt", "fixed-call-chain"]
+    run.emit("baseline_review", review=done, flagged=flagged, line="")
+    assert steps(run)[-1] == ("ok", "Design review", "2 flagged")
+    # An event with no `flagged` list counts the review's findings.
+    run.emit("baseline_review", review=done, line="")
+    assert steps(run)[-1] == ("ok", "Design review", "nothing flagged")
+    failed = done.model_copy(update={"status": "failed", "reason": "timeout"})
+    run.emit(
+        "baseline_review",
+        review=failed.model_dump(),
+        line="Design review failed: timeout.",
+    )
+    assert steps(run)[-1] == ("warn", "Design review", "failed: timeout")
+    assert run.model.log[-1].glyph == "!"
+    off = done.model_copy(update={"status": "off", "reason": "turned off"})
+    run.emit("baseline_review", review=off, line="Design review skipped: turned off.")
+    assert steps(run)[-1] == ("skip", "Design review", "skipped: turned off")
+    assert run.log()[-1] == "Design review skipped: turned off."
+    # After a promotion the run is past the checklist: log lines only.
+    run.emit("phase_start", name="planning", wave=2, label="Planning wave 2…")
+    run.emit("phase_start", name="baseline_review", label="")
+    assert run.log()[-1] == "Design review: checking the agent's design"
+    after = "Design review complete: 1 possible issue flagged (very long prompt)."
+    run.emit("baseline_review", review=done, flagged=flagged[:1], line=after)
+    assert steps(run)[-1] == ("skip", "Design review", "skipped: turned off")
+    assert run.log()[-1] == after
 
 
 def test_busy_steps_fail_when_the_run_ends():

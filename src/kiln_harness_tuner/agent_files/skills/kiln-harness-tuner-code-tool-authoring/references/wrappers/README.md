@@ -1,7 +1,8 @@
 # Wrapper templates — bake the fix into the tool
 
-Eight code-tool templates, one per mechanical failure class in the lever
-ladder (`kiln-harness-tuner-batch-selection/references/lever-ladder.md`). Each is a
+Eight code-tool templates, one per mechanical failure class. The
+`kiln-harness-tuner-knowledge` skill says when each one applies: its
+wrapper techniques name these templates. Each is a
 complete `run()` module you copy into a `POST /code_tools` payload after
 three edits: rename `call_subject_api` to the wrapped tool's real
 function name, match its real parameter schema (read it from the
@@ -21,7 +22,7 @@ with `test_code_tool` (reads only, or a nonexistent id).
 | A list result floods the context | `preview_and_cap.py` | Returns `total`, the first N rows projected to the fields the task needs, and how to get more |
 | Resolve-then-fetch idiom the model gets wrong | `composite_resolve_fetch.py` | One call: search, disambiguate, fetch |
 | Raw 4xx bodies the model cannot act on | `actionable_errors.py` | Rewrites 400/404/405/422/429 into "what to do": valid values, nearest matches, "GET takes no body", "wait N s" |
-| Instruction text is not read at the moment it matters (the model speaks before or with a tool call) | `context_on_tool_surface.py` | A context tool whose DESCRIPTION is read at the pre-tool decision point and whose RESPONSE carries a directive for the post-tool reply |
+| A rule for a call or for the reply after it sits in the prompt, and the model breaks it before, with or after a tool call | `context_on_tool_surface.py` | A context tool whose DESCRIPTION carries the rule (when to call it, how the reply uses its result) and whose RESPONSE `notes` field states the tool's own status: derived facts, a fixable error, or how the tool works — never an order |
 | A read scenario produces a spurious write | `readonly_guard.py` | A read-only variant of a read-write tool; rejects every non-GET with the name of the write tool |
 
 ## Rules that apply to all of them

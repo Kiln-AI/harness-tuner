@@ -23,16 +23,8 @@ nothing in the clone. A run checks its agents folder against
 `src/kiln_harness_tuner/agent_files/` at every start, so the next run picks up
 a skill you edit.
 
-To use the skills in your own agent CLI while you work here:
-
-```
-uv run harness-tuner-install-agents --agent-cli claude --dest .
-```
-
-`--agent-cli codex` or `opencode` installs into `.agents/skills/` instead.
-Every output (`/.claude/skills/`, `/.claude/settings.json`, `/.mcp.json`,
-`/.agents/`) is git-ignored. The root `AGENTS.md` (loaded by `CLAUDE.md`) is
-the contributor guide for agent sessions in this repository.
+The root `AGENTS.md` (loaded by `CLAUDE.md`) is the contributor guide for
+agent sessions in this repository.
 
 ## Running the checks
 
@@ -71,6 +63,8 @@ src/kiln_harness_tuner/  the orchestrator: CLI, wave loop, measurement, memory
                          shipped as package data
   dispatch/              the agent CLIs: claude -p, codex exec, opencode run
   gateway/               the loop gateway: the only way loop agents reach Kiln
+  knowledge/             the knowledge system's code: load, check, index
+  smells/                the smell detectors and the design review step
   tui/                   the terminal app (Textual) of an interactive run
 src/kiln_api_mcp/        the call_kiln_api MCP server, for interactive sessions
 docs/                    the reference documentation
@@ -88,9 +82,16 @@ full.
 - Write tests with the code. The suite stays offline: use the fakes in
   `tests/`, not a live server or a model.
 - **Loop agents read `src/kiln_harness_tuner/agent_files/AGENTS.md` and every
-  skill in `agent_files/skills/`.** Do not put measured results, lever advice
-  or the outcome of an earlier run in them. An agent that reads the answer
+  skill in `agent_files/skills/`.** Nothing measured on the run's own target,
+  or on the moderation example, goes in them. An agent that reads the answer
   invalidates the measurement it is asked to make.
+- **General knowledge goes in the knowledge system**, the skill
+  `agent_files/skills/kiln-harness-tuner-knowledge/`: field knowledge, public
+  sources, our own synthetic experiments and anonymised cases from other
+  projects. Change it with the
+  [maintenance skill](../.agents/skills/knowledge-maintenance/SKILL.md). A
+  person approves a case study before it is committed, unless it is clearly
+  public.
 - **Write documentation in Simplified Technical English** (ASD-STE100): short
   sentences, one idea each, no metaphor. Describe what the code does now. Do
   not add dated change notes.

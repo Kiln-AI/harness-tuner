@@ -12,6 +12,7 @@ from datetime import datetime
 
 from kiln_harness_tuner.tui.model.state import (
     SPIN,
+    CheckStatus,
     ConcernKind,
     GoalRow,
     Line,
@@ -434,6 +435,7 @@ DETECTION_STEP = "Detection"
 NOISE_STEP = "Noise"
 RECON_STEP = "Recon"
 SCREEN_STEP = "Screen"
+REVIEW_STEP = "Design review"
 PLANNER_STEP = "Planner"
 PROBES_STEP = "Probes"
 # What the Starting header says while a step runs.
@@ -447,6 +449,7 @@ STEP_ACTIVITY = {
     NOISE_STEP: "the noise check",
     RECON_STEP: "recon",
     SCREEN_STEP: "the opening screen",
+    REVIEW_STEP: "the design review",
 }
 
 
@@ -501,6 +504,21 @@ def models_text(checked: int, flagged: int, untested: int) -> str:
 
 def skipped(why: str) -> str:
     return f"skipped: {why}"
+
+
+REVIEW_BUSY = "checking the agent's design"
+REVIEW_AFTER_PROMOTION = "Design review: checking the agent's design"
+
+
+def review_step(status: str, flagged: int, reason: str) -> tuple[CheckStatus, str]:
+    """The Design review step, from the review's status and the count of
+    smells it flagged: a review that did not run does not stop the run, so
+    it is a skip or a warning."""
+    if status == "done":
+        return "ok", f"{flagged} flagged" if flagged else "nothing flagged"
+    if status == "failed":
+        return "warn", f"failed: {reason}"
+    return "skip", skipped(reason)
 
 
 def detection_ok(floor: int, scores: int) -> str:

@@ -77,8 +77,9 @@ flowchart TD
     D --> E[Recon probes]
     E --> F{"Objective is speed or cost?"}
     F -- yes --> G[Opening screen: lower thinking levels]
-    F -- no --> H
-    G --> H[Wave: the planner reads memory and plans]
+    F -- no --> S
+    G --> S["Design review, once for each baseline: code detectors, then a review session"]
+    S --> H[Wave: the planner reads memory and plans]
     H --> I{"Plan asks for a screen?"}
     I -- yes --> J["Screening round: timing pairs, judged items, stop rules"]
     J --> H
@@ -91,7 +92,7 @@ flowchart TD
     N --> Q{"Time, budget or ideas left?"}
     O --> Q
     P --> Q
-    Q -- yes --> H
+    Q -- yes --> S
     Q -- no --> R[Report]
 ```
 
@@ -127,20 +128,46 @@ flowchart TD
 
 ### 2. A wave
 
-1. **Plan.** The planner agent reads memory: the issues, the earlier results,
-   the dead ends, the lessons and the open questions. It returns a batch of
-   work. It can ask for a screen or for probes first.
-2. **Screen** (optional, at most 4 rounds in a wave). A screen is a cheap test
+1. **Design review**, once for each baseline: at the first wave, and at
+   the wave after a promotion. It looks for smells. A smell is a possible
+   issue in the design of the agent, such as a very long prompt or a tool
+   that returns very large results. It is true whether an eval passes or
+   fails.
+   1. The **smell detectors** in code read the baseline's prompt, skills and
+      tool definitions, and state facts: for example, "The system prompt
+      has 240,000 characters. The reference is 200,000." They cost nothing.
+   2. One **design review** session reads the smell documents, the
+      baseline's harness and a fixed sample of its train traces. It names
+      the smells that it finds, with evidence, and says whether each code
+      detection holds. It reads train only, and writes nothing. Code writes
+      one `smell` issue for each finding.
+
+   A review that fails, or that `--no-design-review` turns off, does not
+   stop the run: the planner still gets the code detections. No review runs
+   on the wrap-up wave. The run's log gives the result, for example
+   "Design review complete: 2 possible issues flagged (very long prompt,
+   fixed call chain)." The report's `## Design review` section gives the
+   details.
+2. **Plan.** The planner agent reads memory: the issues (the smell issues
+   too), the earlier results, the dead ends, the lessons and the open
+   questions. It also gets the code detections. It reads the **knowledge
+   system**, a skill of general knowledge about what to try: each smell
+   document links its remedies, and a playbook gives, for one class of
+   failure or one goal, an ordered list of techniques, each with its
+   condition. It returns a batch of work. It can ask for a screen or for
+   probes first.
+3. **Screen** (optional, at most 4 rounds in a wave). A screen is a cheap test
    of variants that need no build: a model, a provider, a thinking level,
    sampling settings or an output mode. Code puts all the candidates of the
    round through the same small train sample, in 3 chunks by default, and checks
    the stop rules after each chunk. The planner then gets a table of the
    survivors and plans again.
-3. **The wave items**, in parallel. The main kind of item is the
+4. **The wave items**, in parallel. The main kind of item is the
    **experiment**:
    1. A build agent makes one new run config, for example a prompt edit, a
       tool or skill change, a thinking level, or a model swap where one is
-      allowed. It stamps the provenance and
+      allowed. It reads the technique that the planner named, in the
+      knowledge system. It stamps the provenance and
       smoke-tests the config. It stops before any result exists.
    2. Two text checks run before any money is spent on measurement:
       - The **generality check** looks for text that copies train items, first
@@ -164,7 +191,7 @@ flowchart TD
    `--experimental-eval-building` turns it on. While it is off, code drops a
    planned eval build before its wave runs, and the report names the issue
    so that you can create its eval in the Kiln app.
-4. **The promotion gate.** For each successful experiment that the planner
+5. **The promotion gate.** For each successful experiment that the planner
    marked as a promotion candidate:
    1. Code runs the candidate and the baseline on **every val item** of every
       active eval, with the same judge. Under `speed` and `cost` it also times
@@ -178,7 +205,13 @@ flowchart TD
       the planner.
    3. The objective's rule decides (see the sections below). The winner becomes
       the new baseline. The other candidates are stamped `— REJECTED AT VAL`.
-5. **The next wave** starts from the baseline, which can now be new.
+      Code adds one line with the reason and no numbers: passed over (another
+      candidate won), an eval dropped beyond doubt (named), no gain on the
+      target, a gain on the target that is not beyond doubt, or "not promoted
+      at val" when code cannot tell. A candidate blocked in step 2 keeps its
+      block line instead.
+6. **The next wave** starts from the baseline, which can now be new. A new
+   baseline gets its own smell step.
 
 ### 3. How a measurement works
 
@@ -222,9 +255,11 @@ The run stops when:
 
 Then a report agent writes the round report from the run's records. After a
 quota or auth error, or a crash after the first wave, code writes a shorter
-fallback report with no agent; an interrupt writes none. Code saves the
-report to `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md`
-by default. The run prints the path when it ends. The state folder holds all
+fallback report with no agent; an interrupt writes none. Code adds tables to
+each report, among them the smells of each baseline: the code detections and
+the review's findings. Code saves the report to
+`~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md` by default.
+The run prints the path when it ends. The state folder holds all
 of a run's files
 ([install.md](install.md#where-the-tuner-keeps-its-files)).
 
@@ -318,10 +353,9 @@ same way as `speed`, with cost in place of latency.
   `speed`.
 - **Promotion.** The same two conditions as `speed`, with "clearly cheaper"
   in place of "clearly faster". The cheapest candidate that meets both wins.
-- **What to expect.** A lower thinking level is often faster but not
-  significantly cheaper, so a cost run drops it. A cheaper model usually loses
-  some quality. The levers that keep quality are fewer tokens: fewer turns, a
-  smaller prompt and fewer attached tools and skills.
+- **What to expect.** A cheaper model usually loses some quality. The levers
+  that keep quality are fewer tokens: fewer turns, a smaller prompt and fewer
+  attached tools and skills.
 
 ## What the loop does not do
 

@@ -294,9 +294,7 @@ class TestActionableErrors:
 
 
 class TestContextOnToolSurface:
-    def test_response_carries_the_directive_for_whatever_context_returns(
-        self, load, monkeypatch
-    ):
+    def test_notes_state_facts_for_whatever_context_returns(self, load, monkeypatch):
         mod, tools = load("context_on_tool_surface", {})
         # The shipped `_context()` is a placeholder the builder must replace.
         assert "<REPLACE" in mod.run()["user"]["display_name"]
@@ -304,8 +302,16 @@ class TestContextOnToolSurface:
             mod, "_context", lambda: {"id": "u1", "display_name": "Det. Quen"}
         )
         out = mod.run()
-        assert out["directive"].startswith("Address the user as Det. Quen")
+        assert out["notes"] == "signed-in user: Det. Quen; `now` is UTC"
+        assert "directive" not in out
         assert tools.calls == []  # no nested calls; allowlist stays empty
+
+    def test_a_missing_name_is_stated_as_a_fact(self, load, monkeypatch):
+        mod, _ = load("context_on_tool_surface", {})
+        monkeypatch.setattr(mod, "_context", lambda: {"id": "u1"})
+        assert mod.run()["notes"] == (
+            "no display name on record for user u1; `now` is UTC"
+        )
 
 
 class TestReadonlyGuard:

@@ -1,0 +1,652 @@
+---
+status: complete
+---
+
+# Functional Spec: Biological Bootloader
+
+Inputs: [project_overview.md](./project_overview.md),
+[knowledge_system_design.md](./knowledge_system_design.md) (the owner's full
+notes on the component design),
+[the research summary](./research/harness-optimization/summary.md) and
+[kiln_gaps.md](./kiln_gaps.md).
+
+## 1. Purpose
+
+Harness Tuner's loop works. Its weak point is the quality of its hypotheses:
+which experiments the planner proposes, and in which order. This project
+builds the **knowledge system** that improves those hypotheses, and the means
+to keep that system correct as it grows.
+
+**This project is groundwork, not completion.** It delivers a structure that
+lets the team add knowledge in a systematic way, a small set of real content
+that proves the structure, and lists of what comes next. V1 may not be a
+large improvement to the tuner. It is the base for later improvement.
+
+### 1.1 Goals
+
+1. A knowledge system made of components (levers, techniques,
+   playbooks, smells) that the planner and the experiment builder read.
+2. A design in which a new technique is one file plus a few edits.
+3. A maintenance skill for the coding agents that work on this repository.
+   It is the way to add to the knowledge system, change it and audit it:
+   it gives the agent the templates, the placement rules and the checks, so
+   that each change keeps the system's quality.
+4. Automated tests that keep the structure correct.
+5. Smell detection with a clear order: a pluggable framework for smell
+   detectors in code, with three detectors, and a new agent that reviews the
+   baseline at the start of a run.
+6. A backlog: one document, with a fixed format, that tracks the known gaps
+   and the pending ideas. A to-do list is part of a system that can be
+   maintained.
+
+### 1.2 Not in this project
+
+- **Gateway and API work.** No new gateway operation. Things the tuner
+  cannot change today (RAG, sub-agents, worlds and others) get an entry in
+  the backlog, not a lever document.
+- **Model and provider tools.** A separate project:
+  [model-provider-info](../model-provider-info/project_overview.md).
+- **Any change to the promotion gate**, the tie rule included. A separate
+  project: [tie-promotion](../tie-promotion/project_overview.md). See
+  section 8.
+- **Proof that the knowledge improves convergence.** The chief scientist
+  tests V1 after this project. This project makes that test possible.
+- **The casebook.** It starts in parallel, outside this repository.
+- **The collection of user restrictions** (overview section 8). A separate
+  project.
+- **Complete coverage.** V1 coverage is decided in its own phase
+  (section 14).
+
+## 2. Terms
+
+| Term | Meaning |
+|---|---|
+| Knowledge system | The whole set of documents, indexes and lists in this spec. |
+| Component | One document of a fixed type: lever, technique, playbook or smell. |
+| Lever | One thing in a harness that the tuner can change, and how the tuner creates and changes it. (The owner's notes call this a "capability".) |
+| Technique | A guide to one specific optimisation. It can be a set of changes. |
+| Playbook | Guidance on how to solve one problem or reach one goal: a user goal, a class of failure seen in eval traces, a problem with an eval, or the order of work. It links to techniques. |
+| Smell | An issue in the design of the agent. Its document says how to recognise and diagnose it, and links to the playbooks and techniques that fix it. |
+| Prior | One real case in which a technique was used. |
+| Backlog | The one document that lists the known gaps and the ideas that are not written yet. |
+| Smell detector | Code that checks a run's harness or traces for one smell. |
+| Detection | What a smell detector reports: a statement of fact about this run. |
+| Issue | The tuner's existing memory record for a problem found in this run. A smell that is found in a run is recorded as an issue. |
+| Maintenance skill | The skill a coding agent uses to add to, change and audit the knowledge system. |
+| Baseline reviewer | The new agent that reviews the baseline for smells (section 12.2). |
+| Planner | The batch-selection agent. |
+| Builder | The experiment-build agent. |
+
+**The names lever and technique.** The code already says "lever"
+(`levers.py`, `lever_attempts`, the lever ladder). It also has a field named
+`technique` on each experiment (`prompt`, `skill`, `tool_config`, `new_tool`
+and others). That field names the kind of surface an experiment changes, so
+it is a **lever kind**, not a technique in the sense of this spec.
+
+- The component is named **lever**, to agree with the code.
+- A lever document is named after the lever: `prompt`, `skill` and so on.
+  Those are the names the planner writes in the `technique` field.
+- Each technique document states the levers it uses, by those names, so
+  that the count in `lever_attempts` and the documents use the same words.
+- This project does not change the code field. The rename goes in the
+  backlog.
+
+## 3. Readers
+
+| Reader | Reads | Entry point |
+|---|---|---|
+| Baseline reviewer | Smells. It is the main reader of the smell documents: it reads them, then looks for each one in the agent. | Its own entry file |
+| Planner | Smells, playbooks and techniques | Its own entry file |
+| Builder | Techniques and levers | Its own entry file |
+| Analyzer | The playbooks for failure patterns, so that it can name the pattern it sees in a candidate's traces | Its own entry file |
+| Report writer | Playbooks, techniques and priors, where they help it explain the run | Its own entry file |
+| Promoter, probe, reviewers, eval roles | Nothing from the knowledge system | — |
+| Coding agents and people who maintain the system | Everything, plus the maintenance skill | The maintenance skill |
+
+The probe answers one yes/no question that the planner asks. It does not
+look for problems, so it does not read the smells.
+
+- Each reading role has its own first file. The index and the
+  progressive-disclosure path of each entry file fit that role. The planner
+  starts from goals and situations. The builder starts from the technique
+  named on its work item.
+- The role's prompt template tells the agent to load its entry file. The
+  system does not depend on the agent deciding to open a skill. (The
+  research found that agents often do not open a skill by themselves.)
+- A role does not need the other role's entry file to do its work.
+
+## 4. Components
+
+The architecture step locks the exact schema of each component. This section
+states what each one must hold.
+
+### 4.1 Common to every component
+
+- A title and a one-line description. Both have length limits.
+- A **last-reviewed date**.
+- **Applies to** (techniques, playbooks and smells): the task shapes it fits.
+  The shapes are facts about the task: single-turn or multi-turn, structured
+  output or free text, classifier-shaped, with or without tools. The
+  architecture fixes the list. A generated index can filter by shape, so
+  that an agent reads less.
+- Text that follows the content rules in section 6.
+- A location and a file name that follow one fixed convention. **The path
+  gives the component type.** The file does not repeat it.
+- A path from an entry file (section 5).
+- **Sub-files, when it needs them.** A component can have its own reference
+  files, in a directory beside it with the same name without `.md`. Example:
+  a technique for agent-friendly API documents can carry reference files.
+  The primary document is responsible for the disclosure of its sub-files
+  and for the links to them.
+
+### 4.2 Lever
+
+A lever is one thing in a harness that the tuner can change: for example
+the system prompt, skills, code tools, the model, the thinking level.
+
+It must hold:
+
+- what the lever is;
+- how the tuner creates and changes it: the gateway operations, the rules of
+  the object (for example "a skill is immutable; a change is a new version"),
+  and the limits;
+- links to the existing how-to material (for example the code-tool authoring
+  skill), without a copy of it.
+
+It must not hold when or why to use the lever. That belongs to techniques,
+playbooks and smells.
+
+A lever document exists only for something the tuner can change today.
+
+### 4.3 Technique
+
+A technique is a guide to one specific optimisation. One lever can have
+several techniques. One technique can use several levers, and can be a set
+of changes: for example one general API tool together with the skill that
+describes the API. There is no primary change and companion change. The
+technique is the whole set.
+
+It must hold:
+
+- **When to use**: the design patterns, goals and failure modes that suggest
+  it.
+- **When not to use.**
+- **Alternatives**: links to other techniques, each with the condition under
+  which it is the better choice.
+- **Status**: active or dormant. A dormant technique stays in the system
+  but is not suggested.
+- **How**: the recipe, with examples where we have them. It links to the
+  levers it uses.
+- **A cheap check that it took effect**: how to tell, before the evals are
+  paid for, that the change reached the agent and did what it was built to
+  do (for example a probe, or a count in a few traces).
+- **Budget information**: whether it is expensive or cheap, and whether to
+  leave it out on a small budget (section 7).
+- **If it does not move the evals**: one of "keep it, it is a better
+  design", "it must move an eval", or "it depends", with the conditions
+  (section 8).
+- **Priors**: a list of real cases (section 4.6). The list can be empty.
+- **Confidence**: a statement in text, with its conditions, for the
+  technique as a whole. A reader must be able to tell an idea that one
+  person proposed from a result seen many times. Confidence is text, not an
+  enum.
+- The levers it uses.
+
+A technique that is out of fashion stays. Its status and its "when to use"
+change, and so does each playbook or smell that suggests it.
+
+### 4.4 Playbook
+
+A playbook says how to solve one problem or reach one goal. Its title
+names the problem, and the solution where that helps. There is **one
+playbook for each problem**: a new problem is a new file, not a new row in
+a shared table.
+
+Each playbook states its kind. The kind is used only to group the indexes,
+so that each reader sees the playbooks it needs.
+
+| Kind | What it is | Examples |
+|---|---|---|
+| Goal | What the user wants | "Much cheaper", "open models on-prem" |
+| Order of work | How to plan a run | The default order; how to spend the budget |
+| Failure pattern | A class of failure seen in the traces of eval items | "The output contract is not met", "tool calls are malformed" |
+| Eval problem | The measurement is the problem | "A saturated eval", "train wins that validation keeps rejecting" |
+| Design | The response to a smell that needs more than one technique | "Fit the tool layer to the agent" |
+
+It must hold:
+
+- **the situation**: the goal, or how to recognise the problem. For a
+  failure pattern, this is what the trace shows and where;
+- an ordered set of things to try, each a link to a technique with the
+  condition under which it applies;
+- what to do first, and what not to do yet;
+- how the order changes with the budget, if it does.
+
+The failure patterns are the knowledge that the lever ladder holds today
+(section 9). The loop already finds failures in eval traces and records
+them as issues. A playbook of this kind adds no new record: it says what to
+try for an issue of that class.
+
+Playbooks hold the opinions about order. There are fewer playbooks than
+techniques. A small group owns them, by informal agreement.
+
+### 4.5 Smell
+
+A smell is an issue in the **design of the agent**. It is true of the agent
+whether an eval passes or fails. Examples: a very long prompt, tool search,
+a tool that returns a very large result, a fixed chain of calls that passes
+an id along.
+
+A smell can be seen in the harness, or in how the agent runs (for example
+the size of a tool result in a trace). What makes a problem a smell is that
+it is a property of the design. A reason why one eval item failed is not a
+smell: that is a failure pattern, and a playbook covers it (section 4.4).
+
+A smell is its own component type because of its reader and its purpose.
+The baseline reviewer reads the smell documents and then looks for each
+smell in the agent. So the main content of a smell document is **how to
+recognise and diagnose it**. The fix is elsewhere: the document links to
+playbooks and techniques.
+
+It must hold:
+
+- **What it is**: one paragraph.
+- **How to recognise it**: the signs in the harness, and the signs in how
+  the agent runs.
+- **How to confirm it**: what to check before it is reported, and what
+  looks like this smell and is not.
+- **Who can detect it**: a smell detector in code (section 12.3), an agent
+  that reviews the design, or both. If a code detector exists, the smell
+  names it.
+- **What it blocks**: what is not worth an experiment until this is fixed,
+  if anything.
+- **Remedies. Required, at least one.** Each is a link to a playbook or to a
+  technique, with the condition under which it applies. A test fails for a
+  smell with no remedy, so every smell that the tuner detects leads towards
+  a solution.
+
+When a smell is found in a run, it is recorded in the way the tuner records
+a problem today: as an issue, which names the smell.
+
+### 4.6 Priors
+
+- A prior is one sample, not a universal lesson. The text must say so.
+- A prior gives enough detail to inform when, how and at what scale: the
+  shape of the agent, what was tried, what happened.
+- A prior never names a client and never holds client data.
+- **Approval rule.** A person must approve a prior or case study before it
+  is committed, unless it is clearly public information. A result can be
+  sensitive even when no entity is named. Approval at pull-request review is
+  too late: it comes before the commit.
+- A prior never comes from the run's own target or from the moderation demo
+  (section 6).
+- Separate, longer prior documents (the "P3" idea) are not in V1. The
+  schema must allow a prior to link to one later.
+
+### 4.7 Other content
+
+The four components are not the whole system. Process guidance, tips and
+the two guides in section 10 also have a place. The architecture gives each
+one a location and a path from an entry file.
+
+### 4.8 The backlog
+
+- **One document.** It is the one place to debate the next change with the
+  highest leverage.
+- It holds two kinds of entry:
+  - **a gap**: something Kiln or the tuner cannot do yet (for example the
+    tuner cannot create a sub-agent);
+  - **a pending idea**: a technique, playbook, smell, lever or detector that
+    is not written yet.
+- **A fixed format** for each entry: a title, the kind, one or two lines, a
+  source if there is one, and what it depends on.
+- An entry needs no debate to be added. Its rank does.
+- Loop agents do not read the backlog. It is in the repository, outside the
+  files that loop agents load.
+- `kiln_gaps.md` in this spec folder is the first source of the gap entries.
+
+## 5. Navigation
+
+- **Generated indexes.** Code builds each index from the component files. A
+  person does not edit an index. A test fails when an index is out of date.
+- **The planner's entry file** lists every smell and every playbook, each
+  with its one-line description and a link. The playbooks are grouped by
+  kind. The planner reaches a technique through a
+  playbook, because a choice by goal is better than a choice by name.
+- **The builder's entry file** lets the builder reach the technique on its
+  work item directly, and from there the levers.
+- **The baseline reviewer's entry file** lists every smell, with how to
+  recognise it in one line and a link to the detail.
+- **The analyzer's entry file** lists the playbooks for failure patterns.
+- **A technique index** exists for one case only: the user's free-form
+  guidance names a technique ("try a sub-agent for X"). The index carries
+  the instruction "prefer a playbook; use this index only when the user
+  names a technique".
+- **Every file is reachable** from an entry file through links. A test
+  proves it.
+- **The path is short.** The research found that deep disclosure trees
+  lower accuracy. The target is: entry file, then smell or playbook, then
+  technique, then lever, with no level that only routes. The architecture sets the
+  limit and a test enforces it.
+- **Size limits.** Each component type has a maximum length. A document over
+  the limit must be split. The architecture sets the numbers.
+
+## 6. Content rules
+
+These rules apply to every document that a loop agent reads. The maintenance
+skill enforces them, and the tests check what a test can check.
+
+1. **Documents are ideas to try.** No document states a rule of the form
+   "you must do X". A document says what to try, in what order, and under
+   which conditions. The reader fits each suggestion to its agent's goal,
+   tools and task. A measured result outranks a document only when it is
+   clearly past the noise (the stop rules, the val gate). The safety and
+   integrity rules of the lever documents are the exception: they are hard
+   limits that no measurement overrides. A tie can be settled from the
+   knowledge, or from intuition.
+2. **State conditions, not defaults.** The research found a measured case
+   where each "almost always" claim loses. A recommendation states the
+   condition under which it holds.
+3. **State confidence** (section 4.3).
+4. **Date the guidance.** This field changes each month.
+5. **The cost of learning against the cost of maintenance.** A large base
+   of facts is hard to maintain. A fact about one model, or about one point
+   in time, goes out of date quickly. If the loop learns a lesson easily,
+   let it learn it. Example: a provider rejects a non-default temperature,
+   and one failed call shows it. If a lesson is expensive to learn, save
+   it. Be careful with anything that has a high maintenance cost and is
+   likely to go out of date.
+6. **Nothing from the target.** No measurement, lever advice or lesson that
+   comes from the run's own target or from the moderation demo. This is the
+   existing rule, and it stays.
+7. **General knowledge and other projects are allowed.** Field knowledge,
+   public sources, our own synthetic experiments and anonymised cases from
+   other projects are allowed, under the approval rule in section 4.5. This
+   replaces the present rule that bans all lever advice and all measured
+   numbers from `agent_files/`. Section 13 has the new wording for
+   `AGENTS.md`.
+8. **Simplified Technical English**, as for the rest of the repository.
+9. **Do not copy how-to material.** Link to the lever or to the
+   existing authoring skill.
+
+## 7. Budget
+
+- Budget awareness is knowledge. This project does not change how the loop
+  computes or enforces a budget.
+- Each technique states its cost class and whether it fits a small budget.
+- Each playbook states how its order changes with the budget, if it does.
+- One playbook covers the order of work by budget size: for example, on a
+  small budget pick a reasonable model and start; on a large
+  budget a model scan first, and a settings scan last, become reasonable.
+- The planner must be able to read the run's budget and the cost of the
+  evals. If its input does not carry these today, that is a finding for the
+  architecture step, not a silent assumption.
+
+## 8. A change that does not move the evals
+
+- Each technique states what to do when it does not move an eval
+  (section 4.3).
+- **The promotion gate does not change in this project.** A candidate
+  becomes the baseline only when held-out data confirms it.
+- So in V1 this guidance is knowledge only. The planner can use it to decide
+  whether an arm is worth a slot, and the report can state it. It cannot
+  promote a "better design, same eval" change.
+- The rule "knowledge settles a tie, never a loss", with its stretch goal
+  (a difference inside the variance), is a separate project:
+  [tie-promotion](../tie-promotion/project_overview.md). The architecture
+  step found it too large for this one. The backlog has the entry.
+
+## 9. The existing lever ladder
+
+The planner's skill has a file named the lever ladder
+(`kiln-harness-tuner-batch-selection/references/lever-ladder.md`). It is a
+table from a class of failure, as seen in a trace, to what to try first,
+what to try next and what not to try. It is the tuner's guidance today on
+what to try. It was written before this project.
+
+- The name and the one-table form are not kept. The content is.
+- **Each row becomes one playbook of the kind "failure pattern".** The
+  row's "try first" and "then" become the ordered steps, each a link to a
+  technique. Its "do not" becomes "What not to do yet".
+- The fixes that the rows name become techniques.
+- After the move there is one source of truth. The old file is removed, and
+  the planner's skill links to the new entry file.
+- The process rules that go with the ladder (name the decision point; after
+  two failed text arms, change the surface class) stay with the planner's
+  process, or become a playbook. The V1 coverage document says which.
+- The ladder's present evidence rule ("cite nothing: no measured number, no
+  model name") is replaced by the rules in section 6.
+- No guidance is lost in the move. The V1 coverage document lists each part
+  of the ladder and where it goes.
+
+## 10. The maintenance skill
+
+**Reader.** A coding agent that edits the knowledge system, and the person
+who directs it. Loop agents never read it.
+
+**Reach.** It must work for any coding agent. `AGENTS.md` points to it. If
+one agent CLI needs a special location, Claude Code is the one to support
+first.
+
+**Requests it must handle:**
+
+| Request | What the skill makes the agent do |
+|---|---|
+| "Read this post and add this approach" | Find the right component type and level. Check for an existing technique that covers it. Add or extend. |
+| "We learned a lesson, record this" | Add a prior to the right technique, under the approval rule. Change the confidence text if the lesson justifies it. |
+| Add a technique, playbook, smell or lever | Start from the template. Fill every required part. Add the links. Rebuild the indexes. Run the tests. |
+| Add an idea or a gap for later | Add an entry to the backlog, in the fixed format. |
+| A technique went out of fashion | Change its "when to use" and each playbook that suggests it. Do not delete it. |
+| Audit | Check documents against the schema and the content rules, and report. |
+
+**Rules it enforces:**
+
+- **Right level.** A new item does not go to the top level because it is
+  new. The skill gives the test for each level.
+- **No silent removal.** An older approach is not deleted or rewritten to
+  make room for a new one.
+- **Conflict is a decision.** When new guidance conflicts with existing
+  guidance, the agent stops and asks the person: deprecate the old one, or
+  state when to use each. The decision is recorded in the documents.
+- **Approval before commit** for a prior that is not clearly public.
+- **Playbooks are owned.** A change to a playbook needs the owners. A change
+  to a technique, a smell or a lever does not. The ownership is informal: there
+  is no CODEOWNERS file.
+- **Run the generator and the tests.** Each change ends with the indexes
+  rebuilt and the tests passed.
+- **Reasons stay with rules.** The research found that an instruction file
+  grows without limit unless the reason is written next to each rule.
+
+**It also holds** the templates and the writing guide for each component
+type, and the guide for an agent that audits a component.
+
+## 11. Automated tests
+
+The tests are part of the offline suite. They need no server and no model.
+
+- Each component has its required front matter, with valid values.
+- Each component has its required sections, in order.
+- The title and the descriptions are present and inside their length
+  limits.
+- Each document is inside its size limit.
+- Each link resolves.
+- Each file is reachable from an entry file, inside the depth limit.
+- Each generated index matches the files.
+- Each playbook links to techniques that exist.
+- Each lever names gateway operations that exist.
+- Each lever that a technique names has a lever document.
+- Each smell has at least one remedy, and each remedy link resolves.
+- Each smell that names a code detector names one that exists, and each
+  code detector names a smell that exists.
+- Each "applies to" value is in the fixed list of task shapes.
+- The backlog has the required format.
+
+A test cannot check the content rules that need judgement (conditions,
+confidence, the approval rule). The maintenance skill's audit covers those.
+
+## 12. Smell detection
+
+### 12.1 The order
+
+A smell is an issue in the design of the agent (section 4.5). Today no step
+of a run reviews that design. This project adds two steps before the planner
+plans:
+
+| When | Who | What it finds |
+|---|---|---|
+| Start of run. Again after each promotion. | Smell detectors in code (12.3) | Smells that code can see in the harness, and in the baseline's stored train traces |
+| After the detectors | The baseline reviewer, a new agent (12.2) | Smells that need a reader |
+
+The failures of eval items are not part of this. The loop finds them today,
+records them as issues, and the planner and the analyzer work on them. The
+detectability check and the noise check also stay as they are. They are not
+smell detectors.
+
+### 12.2 The baseline reviewer
+
+A new loop agent. Its one job is to review the design of the existing agent
+before the tuner changes it.
+
+- **When it runs.** Once at the start of a run, after the code detectors and
+  before wave 1. Once more after each promotion, because a new baseline can
+  remove a smell or add one.
+- **What it reads.** The smell documents. The baseline's harness (prompt,
+  skills, tools, model and settings). A sample of the baseline's train
+  traces, to see how the agent runs: which tools it calls, in what order,
+  and what comes back. The detections from the code detectors. It reads
+  train records only. It never reads val or test.
+- **What it does not read for.** It does not diagnose why an eval item
+  failed. That stays with the planner and the analyzer.
+- **What it returns.** For each smell it finds: the smell, the evidence
+  (which part of the harness, which traces), and how sure it is. Each
+  becomes an issue that names the smell. It also confirms or rejects each
+  code detection where reading is needed to tell.
+- **What it does not do.** It does not plan experiments, build anything or
+  measure anything. It states facts and names smells. The planner decides
+  what to do.
+- **Why a new agent.** To review a design and to choose experiments are
+  different jobs, and the planner already has a large skill. The review is
+  needed once for each baseline, not once for each wave. It is one session
+  on the agent CLI's own account, with no eval spend.
+- **What it needs.** A prompt template, a skill with its entry file, a
+  dispatch step, the gateway operations for its role, a place in the run
+  report, and tests. The architecture defines each one.
+- **A run without it.** If the review fails or is turned off, the run goes
+  on with the code detections only, and the report says so.
+- This work is a later phase of the implementation plan.
+
+### 12.3 Smell detectors in code
+
+Some smells can be found by code. That is a fact about how a smell is
+detected. It is not a different kind of thing, and it has no other name.
+
+- **A pluggable framework.** A smell detector is a small unit of code with a
+  fixed interface. A new detector is one file plus a registration. It needs
+  no change to the loop.
+- **One detector, one smell.** Each detector belongs to one smell, and the
+  smell document names it (section 4.5).
+- **Input.** The baseline run config and the objects it attaches (prompt,
+  skills, tools, model). The framework must also allow a detector that reads
+  traces in bulk, although V1 has no such detector.
+- **Output.** For each detection: a statement of fact with its numbers, the
+  reference value it was compared with and the source of that value, and
+  the smell it is evidence of. The smell gives the remedies. A detection
+  states a fact. It does not state a verdict. (The analysis code has a "no
+  verdict labels" rule, and the detections must agree with it.)
+- **Delivery.** The baseline reviewer and the planner get the detections
+  before wave 1, with the results of the setup reconnaissance. The run
+  report lists them.
+- **A detection does not block the run.** The smell and its playbook say
+  what to do first.
+- **Detectors in V1:**
+  - **Very long prompt.** The system prompt is over a size limit.
+  - **Very long tool description.**
+  - **Very long skill description.**
+  - **Very old model** moves to the backlog. It needs model data.
+  - A very long tool name and a very long skill name are not detectors.
+    Kiln limits both names to 64 characters, so neither can occur.
+- **Thresholds** are named values in one place, each with its source. The
+  research found no measured optimum, only the product limits of agent
+  vendors. Each threshold is therefore a default that can change.
+- **The backlog** holds the detectors for later (a very old model, large
+  tool results, long tool descriptions, an almost empty skill, too many
+  skills, too many tools, repeated calls and others).
+- This work is a later phase of the implementation plan.
+
+## 13. Other deliverables
+
+### 13.1 Model and provider tools
+
+Moved to a separate project:
+[model-provider-info](../model-provider-info/project_overview.md). The
+backlog has the entry. In this project, the guidance about how to choose a
+model (lock a model class, tune, scan again) is knowledge, and goes in
+playbooks and techniques.
+
+### 13.2 The `AGENTS.md` working rule
+
+The present rule says that lever advice, measured numbers and what worked in
+an earlier run never go in `agent_files/`. The new rule:
+
+- Nothing measured on the run's own target, and nothing from the moderation
+  demo, goes in the files that loop agents load. This is unchanged.
+- General field knowledge, public sources, our own synthetic experiments and
+  anonymised cases from other projects are allowed in the knowledge system.
+- A person approves a case study or a prior before it is committed, unless
+  it is clearly public information.
+- The knowledge system is edited through the maintenance skill.
+
+## 14. V1 content
+
+**The V1 coverage phase** comes after the architecture and before the
+implementation plan. It decides which components V1 contains and what goes
+in the backlog. The owner supplies a separate research report at the
+start of that phase. The report seeds the lists. It is not committed.
+
+What this spec fixes now:
+
+- **Levers:** one document for each thing the tuner changes today:
+  the system prompt, skills, code tools and tool wrappers, tool attachment,
+  the model and provider, and the model settings (thinking level, sampling
+  settings). Nothing for what the tuner cannot reach. Input transforms and
+  the structured-output mode go in the backlog.
+- **Playbooks and techniques:** at least everything the lever ladder holds
+  today (section 9), and enough new ones to exercise each kind of playbook
+  and each part of the technique schema. The coverage phase names them.
+- **The backlog:** seeded from the overview, the owner's notes, the
+  research and `kiln_gaps.md`.
+
+## 15. Acceptance
+
+1. A coding agent with the maintenance skill adds a new technique from a
+   short description. The result passes the tests, and the change is one new
+   file plus index and link edits.
+2. The same agent, given guidance that conflicts with an existing technique,
+   stops and asks for the decision.
+3. The planner's template loads the planner's entry file, and the builder's
+   template loads the builder's. The old lever ladder file is gone, and each
+   of its rows has a place in the new system.
+4. Each structural rule in section 11 has a test. A deliberate violation of
+   each rule fails its test.
+5. A run on the demo project shows the detection in the planner's input and
+   in the report, when the baseline has a very long prompt.
+6. A run dispatches the baseline reviewer before wave 1 and after a
+   promotion. The smells it finds are issues that name the smell, and the
+   planner's next plan can read them. A run in which the review fails goes
+   on and reports it.
+7. `AGENTS.md` has the new rule.
+8. The repository checks pass: `pytest`, `ruff check`, `ruff format --check`.
+
+## 16. Open questions
+
+None. Decisions made in review:
+
+- The components are lever, technique, playbook and smell (section 2).
+- A smell is an issue in the design of the agent. A class of failure seen
+  in eval traces is a playbook, not a smell (sections 4.4 and 4.5).
+- A new agent, the baseline reviewer, is in this project (section 12.2).
+- Playbook ownership is informal (section 10).
+- The model and provider tools are a separate project (section 13.1).
+- Input transforms and the structured-output mode go in the backlog
+  (section 14).
+- The tie rule is a separate project (section 8).

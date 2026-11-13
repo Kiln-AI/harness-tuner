@@ -91,9 +91,10 @@ line-length = 88
 # `runs/**` (a relative pattern), not the bare name `runs`: ruff matches a
 # single-segment pattern against the BASENAME at any depth, so `runs` would
 # also drop a future `tests/runs/` out of lint and format.
-# `src/kiln_harness_tuner/agent_files/skills/**` (and its copies that
-# `harness-tuner-install-agents --dest .` installs, `.agents/skills/**` and
-# `.claude/skills/**`) is agent-facing text, not
+# `src/kiln_harness_tuner/agent_files/skills/**` (and a copy that
+# `harness-tuner-install-agents --dest .` installs in `.claude/skills/**`),
+# and `.agents/skills/**` (the tracked maintenance skill of the knowledge
+# system), are agent-facing text, not
 # package source: prose the agents read, plus wrapper templates they copy
 # verbatim into Kiln code tools. ruff formats Python fenced in Markdown, so
 # linting this tree would rewrite what the agents read. The templates are

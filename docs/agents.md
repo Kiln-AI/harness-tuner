@@ -1,6 +1,6 @@
 # The agents
 
-Ten agent roles. Each is one agent-CLI session (`claude -p` by default, or
+Eleven agent roles. Each is one agent-CLI session (`claude -p` by default, or
 the CLI `--agent-cli` names), dispatched fresh, given a
 code-assembled input, and required to return one typed object. None of them
 holds context from a previous session: durable state lives in Kiln memory
@@ -28,12 +28,13 @@ role's hard rules, and injects the input as JSON.
 | `report_writer` | `kiln-harness-tuner-report` | 15 min | nothing — code renders a fallback report |
 | `integrity_review` | none; no tools | 10 min | nothing — a failed review is itself a flag |
 | `generality_review` | none; no tools | 10 min | nothing — the item is measured, and its record says the check did not run |
+| `baseline_review` | `kiln-harness-tuner-baseline-review` | 20 min | nothing — the run goes on with the code detections, and the report says the review did not run |
 
 The caps are `AGENT_TIMEOUTS_SECS` in
 [`dispatch/claude_cli.py`](../src/kiln_harness_tuner/dispatch/claude_cli.py). One more
 entry, `preflight`, is the lane check rather than an agent role.
 
-The other six skills belong to no single agent section above.
+The other seven skills belong to no single agent section above.
 `kiln-harness-tuner-gateway` (the gateway operations) and `memory` (the record
 conventions) are cross-referenced by several roles; loop agents do not load
 the `kiln-api` REST reference. `experiment-costing` is the **planner's**:
@@ -41,6 +42,22 @@ it weighs what a wave will cost before committing to it, and no other role
 decides to spend. `kiln-task-setup` (run-config and prompt composition) and
 `kiln-harness-tuner-code-tool-authoring` are the **builder's**, loaded when the item's
 lever calls for them.
+
+`kiln-harness-tuner-knowledge` is the **knowledge system**: what to try when
+the loop tunes a harness, as general knowledge that comes from no run's
+target ([architecture.md](architecture.md) section 18). It has one entry
+file for each role that reads it, and each of those templates names its
+entry file, so that no role depends on a decision to open a skill:
+
+| Role | Entry file in `references/` | What it lists |
+|---|---|---|
+| `batch_plan` | `planner.md` | every smell, and every playbook by kind |
+| `create_experiment_rc` | `builder.md` | every active technique, and every lever |
+| `analyze_experiment_results` | `analyzer.md` | the playbooks for failure patterns |
+| `report_writer` | `report.md` | the smells, playbooks and techniques that can explain a run |
+| `baseline_review` | `smells.md` | every smell, with who can detect it |
+
+The other roles read nothing from it.
 
 ---
 
@@ -144,13 +161,20 @@ It also gets `train_detectability` — per active (eval,
 score), the baseline's train items with room to improve and the fewest wins
 a significant result needs — and, with `--noise-check`, `train_noise`. Both
 are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
+`detections` are the facts that the smell detectors in code found in the
+present baseline's harness (the `baseline_review` section below): each names a
+smell document and states a number and the reference it was compared with,
+never a verdict.
 `eval_building` says if the plan may build a new eval: `false` unless the
 run has `--experimental-eval-building`. While it is `false`, the template
 and the skill tell the planner to give each fix arm an eval that exists,
 and to plan no item that builds an eval.
 
 Everything else it reads for itself: issues, dead ends, experiment verdicts and
-open constraints, plus the baseline run config's own artifact.
+open constraints, plus the baseline run config's own artifact. The issues
+include the `smell` issues that code wrote from the baseline reviewer's
+findings; each names its smell and the run config it was found in (the
+`audited_rc_<rc>` tag), and is bound to no eval.
 
 **Must return** `BatchPlan` — `items`, a `rejected_summary` that carries
 repeat-deferral counts forward, `open_questions`, and optionally `probe_phase`,
@@ -162,8 +186,9 @@ plan carries probes only.
 
 **Skill:** `kiln-harness-tuner-batch-selection` — candidate generation, value and cost
 weighing, batch cohesion, eval economics and detectability, anti-starvation,
-merge timing, the wrap-up wave, and the lever ladder in
-`references/lever-ladder.md`.
+merge timing and the wrap-up wave. What to try for each smell, failure and
+goal is in the knowledge skill, `kiln-harness-tuner-knowledge`: the
+template names its entry file, `references/planner.md`.
 
 **Blame.** The most consequential agent in the loop, and the one whose failures
 are least obvious. A plan that spends every slot on one surface; a plan that
@@ -240,6 +265,9 @@ item again without the flagged text, with each rule in its own words.
 **Skill:** `kiln-harness-tuner-experiment-build`, plus `references/merging.md` for a
 merge item, `references/skill-authoring.md` for a skill lever, and
 `kiln-harness-tuner-code-tool-authoring` for a new tool or a tool wrapper.
+The template also names `references/builder.md` of the knowledge skill:
+from there the builder opens the technique that the planner named in the
+hypothesis, and the levers that the technique uses.
 
 **Blame.** An arm that measures something other than its hypothesis. The usual
 shapes: a change that carried a second change with it, so the verdict cannot be
@@ -278,7 +306,9 @@ context.
 
 **Skill:** `kiln-harness-tuner-experiment-analysis` — reading delta / n / p / interval
 rows, the caution and power judgment, weighing measurement holes, reading a
-screen-out row correctly, merge attribution, and the frozen formats.
+screen-out row correctly, merge attribution, and the frozen formats. The
+template also names `references/analyzer.md` of the knowledge skill, so
+that the analyst can name the failure pattern that the traces show.
 
 **Blame.** A verdict that does not match its own numbers. Two shapes to look
 for: a well-powered null read as a failure of the lever rather than as a signal
@@ -347,7 +377,12 @@ points at these tables and does not restate them.
 It may read exit-time memory, including both val-carrying records, and it must
 label their numbers val-grade.
 
-**Skill:** `kiln-harness-tuner-report`.
+Code also appends the `## Design review` section: the code detections and the
+baseline reviewer's findings for each baseline of the run
+([architecture.md](architecture.md) section 11).
+
+**Skill:** `kiln-harness-tuner-report`. Where the knowledge helps it explain
+the run, the template names `references/report.md` of the knowledge skill.
 
 **Blame.** Least costly to get wrong: a hard failure still ships a report, code
 rendered from `RunStatus`. The failure that matters is a report that restates
@@ -459,6 +494,81 @@ again — the arm. On a reused run config it costs the arm at once.
 
 ---
 
+## `baseline_review`
+
+The run's displays, the report and the flag call this step the **design
+review**.
+
+**Dispatched** once for each baseline, at the top of a wave, before the
+planner: at wave 1, and on the wave after a promotion, because a new
+baseline can remove a smell or add one (`smells.ensure_baseline_reviewed`;
+[architecture.md](architecture.md) section 18). The smell detectors in code
+run first, and their detections are in the input. No session is
+dispatched, and the review is recorded with its reason, when:
+
+- `--no-design-review` turns it off (`off`);
+- the wave is the wrap-up wave, the last one (`skipped`): no later wave
+  would use the review;
+- memory already holds `smell` issues of this run config, from an earlier
+  run on the same baseline (`skipped`, "already reviewed").
+
+The detectors run in each of these cases.
+
+**Given** `BaselineReviewInput`: the baseline run config id; `detections`,
+the facts that the detectors found; `samples`, for each active eval up to 4
+of the baseline's stored train items and 20 in all, taken in the order of
+the train set and never chosen by score; and `known_smells`, the id of each
+smell document. Everything else it reads for itself, through its gateway
+operations: the run config, its prompt, its skills, its tools and their
+definitions, and the train traces of the samples (and more, when a smell
+needs more evidence).
+
+**Must return** `BaselineReviewResult`:
+
+- `findings`, one `SmellFinding` for each smell that the evidence shows:
+  the smell id, the `evidence` with counts, `where` it was seen (train item
+  ids, tool names, `prompt`, skill names) and the `confidence` in words. A
+  finding states no fix: the smell document links to the remedies, and the
+  planner chooses.
+- `detection_checks`, one `DetectionCheck` for each detection: `holds` is
+  true, false, or null when reading cannot tell, with a one-sentence note.
+- `notes`, a design issue that fits no smell.
+
+**Code writes the issues.** The role has no write of any kind. Code checks
+each smell id against the smell documents of the knowledge skill and drops
+a finding with an unknown id (event `smell_unknown`). It merges two
+findings of one smell and keeps at most 15. Then it writes one `smell`
+issue for each finding (`memory.record_smell`): tags `issue`, `p1`,
+`smell`, `smell_<id>` and `audited_rc_<rc>`, bound to no eval, so that the
+planner can plan a fix arm on it. An open issue of the same smell and run
+config is not written twice. A write that fails keeps the other issues,
+and the review's reason names it. The review gets one retry, and none after
+a time-out or a result that cannot be read, because it sits before the
+planner on the run's clock.
+
+**What it reads, and what it does not.** Its gateway operations are reads
+only, on train records only: it is not a val reader. It reads train traces
+as files, like the planner. It does not get `get_train_expected` or
+`get_task_run`: an expected output serves only to judge whether an answer
+is right, and the reviewer must not judge that, or diagnose why an eval
+item failed. It runs under the read-only settings, with the trace-folder
+read rule of the trace readers. That rule also lets it read the `_expected/`
+files that the `get_train_expected` calls of other roles write in the trace
+folder. Its skill forbids them; no settings rule denies them.
+
+**Skill:** `kiln-harness-tuner-baseline-review`. The template names
+`references/smells.md` of the knowledge skill.
+
+**Blame.** A missed smell is one design issue that the planner does not
+read about. The code detections and the failures still reach it. A false finding costs one `smell` issue,
+which the planner reads as evidence, not as a verdict, and which an arm
+must still measure. A review that fails, or does not run, costs nothing
+but the review: the run goes on with the code detections, and the report
+states why. The report's `## Design review` section shows each finding with its
+issue id, and the reviewer's reading of each detection.
+
+---
+
 ## What every agent is forbidden
 
 Parts of this list appear in five templates (`batch_plan`, `eval_build`,
@@ -483,9 +593,9 @@ template carries every line.
 - **Traces are files.** `get_train_results`, `get_task_run`
   and `run_task` write each train trace to a file in the run's
   `scratch/traces/` and answer with its path and a one-line summary. The
-  planner, the builder, the probe, the analyst and the eval builder `Grep`
-  those files for the failure and `Read` a line range (under OpenCode,
-  `Read` only); a cost question
+  planner, the builder, the probe, the analyst, the eval builder and the
+  baseline reviewer `Grep` those files and `Read` a line range (under
+  OpenCode, `Read` only); a cost question
   starts from the run config's `_stats.md`. No answer is over 40,000
   characters: lists come in pages, and any other large answer in pieces
   (`get_answer_part`).
@@ -498,9 +608,9 @@ template carries every line.
 
 The memory scopes, train-only reads, validated writes and (with
 `--model-policy` or `--models keep`) the models an arm may use are enforced by the gateway in
-code ([architecture.md](architecture.md) section 12). The promotion agent
-and the report writer have read operations only. The others hold on the
-skills alone.
+code ([architecture.md](architecture.md) section 12). The promotion agent,
+the report writer and the baseline reviewer have read operations only. The
+others hold on the skills alone.
 
 ## Per-role model and effort
 

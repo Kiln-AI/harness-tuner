@@ -52,6 +52,9 @@ class AgentDispatcher(Protocol):
     async def generality_review(
         self, req: GeneralityReviewInput
     ) -> AgentResult[GeneralityReviewResult]: ...
+    async def baseline_review(
+        self, req: BaselineReviewInput
+    ) -> AgentResult[BaselineReviewResult]: ...
 ```
 
 `preflight` runs once per run, before any paid work, and proves the agents'
@@ -283,7 +286,7 @@ worth, so the decision is informed.
 
 The short version:
 
-1. Implement the eleven methods (ten roles and `preflight`), and the
+1. Implement the twelve methods (eleven roles and `preflight`), and the
    start-up check `check_cli`. `cli.py` also reads the class attributes
    `CLI_NAME` and `HAS_MAX_TURNS`, and its `DISPATCHERS` table types every
    adapter as a `ClaudeCliDispatcher`, so a new one subclasses it. Return `AgentResult[T]` with a validated `data`
@@ -382,7 +385,7 @@ Codex home:
 |---|---|
 | `":root" = "deny"` | The whole disk is unreadable and unwritable. |
 | `":minimal" = "read"` | The platform paths common tools need. |
-| `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the read-only roles (`READ_ONLY_ROLES`: the val readers and the two reviewers). |
+| `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the read-only roles (`READ_ONLY_ROLES`: the val readers, the two reviewers and the baseline reviewer). |
 | the agents folder's `.agents/skills` = `"read"` | The skills, and nothing else of the state folder. |
 | the run folder's `scratch/traces` = `"read"` | The gateway's trace folder, for the roles that read traces (`TRACE_READER_ROLES`) only. |
 | `network.enabled = false` | No network for any command: no `curl` to the Kiln server. |
@@ -467,7 +470,7 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 |---|---|
 | `"*": "deny"` | Every tool is denied, so the shell, web fetch, web search, grep, glob, sub-agents and the rest are not in the session at all. |
 | `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces. Also allowed for the `tool_*` files in OpenCode's own `tool-output` folder (`<XDG data>/opencode/tool-output`): when OpenCode cuts a long tool answer, it puts the rest there and names the file. The agent cannot list that folder. Denied everywhere else. |
-| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers and the two reviewers). |
+| `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers, the two reviewers and the baseline reviewer). |
 | `external_directory` | Denied, except the workspace, the skills, the `tool_*` files in OpenCode's `tool-output` folder and, for the roles that read traces, the trace folder. |
 | `skill` | Allowed, so the skills load as they do under Claude Code. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |

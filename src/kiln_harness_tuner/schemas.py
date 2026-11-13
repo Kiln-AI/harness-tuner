@@ -125,6 +125,7 @@ CLAUDE_CODE_SPEND_SOURCES = frozenset(
         "report_writer",
         "integrity_review",
         "generality_review",
+        "baseline_review",
     }
 )
 
@@ -205,7 +206,7 @@ class FixWork(BaseModel):
     #   experiment record names it on its `rc:` line). Set → no build session
     #   and no build spend; the item measures and analyzes that rc. The arm
     #   still opens its own experiment record, marked `reused rc:` so the
-    #   lever ladder does not count it as a second attempt.
+    #   `lever_attempts` count does not take it as a second attempt.
     existing_rc_id: str | None = None
     # The eval-input ids (train lane) this fix is built to flip —
     #   the baseline's failing items whose traces the hypothesis explains.
@@ -219,7 +220,7 @@ class FixWork(BaseModel):
     #   possible win, not for confidence in it (a progressive-disclosure
     #   skill in place of a 52 KB prompt, a pipeline, a new surface). The
     #   planner skill reserves one slot per wave for it and forbids deferring
-    #   the same idea more than once; the lever ladder's "two text arms then
+    #   the same idea more than once; the planner's "two text arms then
     #   change surface" rule does not count it. Recorded on the experiment
     #   memory so the analyzer reads it as a high-variance prior.
     wildcard: bool = False
@@ -1749,6 +1750,87 @@ class MeasurementPrices(BaseModel):
     rule: str = ""
 
 
+class Detection(BaseModel):
+    """One fact that a smell detector in code found about the baseline
+    (`kiln_harness_tuner.smells`). It states the fact and its numbers, never
+    a verdict: `smell` names a smell document of the knowledge skill, and
+    that document gives the remedies. No val: a detector reads the harness
+    and stored train rows only, so a detection can go to an agent."""
+
+    smell: str  # the id of a smell document
+    detector: str  # the id of the detector
+    scope: Literal["harness", "train"]
+    fact: str = Field(max_length=300)  # one sentence with its numbers
+    value: float | None = None
+    reference: float | None = None  # what the value was compared with
+    reference_source: str = ""  # where the reference comes from
+    eval_id: str | None = None  # when the fact is about one eval
+
+
+class SmellFinding(BaseModel):
+    """One smell that the baseline reviewer names in the design of the
+    baseline: what it saw and where. It states no fix: the smell document
+    gives the remedies, and the planner chooses."""
+
+    smell: str  # the id of a smell document
+    evidence: str = Field(max_length=900)  # what was seen
+    # Where it was seen: train item ids, tool names, "prompt", skill names.
+    where: list[str] = Field(default=[], max_length=12)
+    confidence: str = Field(max_length=300)  # how sure, in words
+
+
+class DetectionCheck(BaseModel):
+    """The baseline reviewer's reading of one code detection."""
+
+    smell: str
+    detector: str
+    holds: bool | None  # None: reading could not tell
+    note: str = ""
+
+
+class TraceSample(BaseModel):
+    """The train items of one eval whose stored baseline traces the reviewer
+    starts from. Code chooses them by the order of the train set, never by
+    whether an item passed."""
+
+    eval_id: str
+    item_ids: list[str]
+
+
+class BaselineReviewInput(BaseModel):
+    """The baseline reviewer's input (`smells.run.ensure_baseline_reviewed`).
+    Train only: the samples name stored train rows, and the detections read
+    the harness."""
+
+    baseline: BaselineRef
+    detections: list[Detection]
+    samples: list[TraceSample]
+    known_smells: list[str]  # the ids of every smell document
+
+
+class BaselineReviewResult(BaseModel):
+    findings: list[SmellFinding] = []
+    detection_checks: list[DetectionCheck] = []
+    notes: str = ""  # a design issue that fits no smell, in a few lines
+
+
+class BaselineReview(BaseModel):
+    """What the run keeps about one review of one baseline, for the report.
+    `detection_checks` and `notes` are kept beside the component design's
+    fields, so that the report can show the reviewer's reading of each
+    detection."""
+
+    rc_id: str
+    status: Literal["done", "skipped", "failed", "off"]
+    reason: str = ""  # why it did not run; for `done`, the failed writes
+    findings: list[SmellFinding] = []
+    # `done`: the issue of each finding, in order ("" when its write
+    #   failed). `skipped`: the smell issues already in memory.
+    issue_ids: list[str] = []
+    detection_checks: list[DetectionCheck] = []
+    notes: str = ""
+
+
 class BatchPlanInput(BaseModel):
     guidance: str  # kickoff human guidance, verbatim, every wave
     baseline: BaselineRef
@@ -1843,6 +1925,10 @@ class BatchPlanInput(BaseModel):
     #   dropped from an earlier plan because eval building is off. A dropped
     #   item never ran. Empty when nothing was dropped.
     dropped_eval_items: list[str] = []
+    # What the smell detectors in code found on the PRESENT baseline
+    #   (`smells.run_detectors`), run again after each promotion. Each names
+    #   a smell document of the knowledge skill. Empty when none was found.
+    detections: list[Detection] = []
 
 
 class EvalBuildInput(BaseModel):
@@ -2124,6 +2210,15 @@ class RunStatus(BaseModel):
     eval_building: bool = False
     dropped_eval_items: list[DroppedEvalItem] = []
     issues_without_eval: list[IssueWithoutEval] | None = None
+    # The smell detections of each baseline the run reviewed, by its rc id,
+    #   in review order (`smell_detections` events) — the report's smells
+    #   appendix. A baseline with no detection has an empty list. Keyed by rc,
+    #   not the flat list of the component design, because a `Detection`
+    #   does not name its baseline and the appendix shows each one.
+    detections_by_rc: dict[str, list[Detection]] = {}
+    # Each review of a baseline by the baseline reviewer, in order
+    #   (`baseline_review` events): done, skipped, failed or off.
+    baseline_reviews: list[BaselineReview] = []
 
 
 class ReportInput(BaseModel):

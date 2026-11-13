@@ -13,6 +13,8 @@ from typing import Protocol, runtime_checkable
 from kiln_harness_tuner.schemas import (
     AgentResult,
     AnalysisInput,
+    BaselineReviewInput,
+    BaselineReviewResult,
     BatchPlan,
     BatchPlanInput,
     DescribeEvalInput,
@@ -91,6 +93,15 @@ class AgentDispatcher(Protocol):
         built run config's instructions beside its parent's and names the
         added text that memorises the train set or games the measurement
         (`kiln_harness_tuner.generality`)."""
+        ...
+
+    async def baseline_review(
+        self, req: BaselineReviewInput
+    ) -> AgentResult[BaselineReviewResult]:
+        """Once for each baseline, before the planner plans against it, a
+        read-only session reads the smell documents, the baseline's harness
+        and a sample of its train traces, and names the smells it finds
+        (`smells.run.ensure_baseline_reviewed`). Code writes the issues."""
         ...
 
     # The agent returns markdown; report.py (code) writes the file.
