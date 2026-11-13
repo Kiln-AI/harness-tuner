@@ -40,7 +40,7 @@ _TAG_RE = re.compile(r"[a-z0-9_]{1,40}")
 MIN_LOOSE_KEY = 4
 NO_MODEL_LIST = "Kiln's file has no model_list"
 MODELS_DEV_NOT_AN_OBJECT = "models.dev's file is not an object"
-_SUGGESTED_FOR = ("evals", "data_gen", "doc_extraction", "synthetic_user")
+SUGGESTED_FOR = ("evals", "data_gen", "doc_extraction", "synthetic_user")
 
 
 class _Raw(BaseModel):
@@ -211,7 +211,7 @@ def _entry(item: Any) -> CatalogEntry | None:
         default_thinking_level=raw.default_thinking_level,
         structured_output_mode=raw.structured_output_mode,
         suggested_for=[
-            use for use in _SUGGESTED_FOR if getattr(raw, f"suggested_for_{use}")
+            use for use in SUGGESTED_FOR if getattr(raw, f"suggested_for_{use}")
         ],
         tags=_tags(raw.tags),
     )

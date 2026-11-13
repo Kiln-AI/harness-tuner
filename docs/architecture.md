@@ -1121,8 +1121,10 @@ reads a list: it takes the last `"type": "result"` event.
      job runs split `train` on the eval's train items; memory writes stay in
      the two scopes, and the `val` tag is code's. A new eval
      (`create_eval`) gets splits the gateway assigns; its val and test
-     items are never readable back. There is no operation for settings,
-     providers, deletes, split edits or held-out items.
+     items are never readable back. There is no operation that changes
+     settings or providers, and no operation for deletes, split edits or
+     held-out items. The model operations read the run's model catalogue
+     snapshot (section 17.1).
    - **Traces in files, and a cap on every answer**
      ([`gateway/trace_files.py`](../src/kiln_harness_tuner/gateway/trace_files.py)).
      Claude Code does not give an agent an MCP answer over about 25,000
@@ -1944,6 +1946,79 @@ baseline outside the policy is named once at start-up
 config names its model under different keys, and evals are frozen. The
 planner receives the policy and `allowed_models` — the server's
 `GET /api/available_models`, filtered by it.
+
+### 17.1 The model catalogue
+
+The loop agents choose models and providers. The model catalogue
+([`model_catalog/`](../src/kiln_harness_tuner/model_catalog/)) gives them
+the data to choose with: price, context window, release date, Kiln's notes
+for agents, and tags.
+
+**The two outside hosts.** At the start of each run, after the policy copy
+and before the rendered per-run configuration (section 3.1, step 2),
+`fetch_catalog` gets two public files at the same time:
+
+- Kiln's published model file,
+  `https://remote-config.getkiln.ai/kiln_config_v2.json`: each model, its
+  provider entries, the notes and the tags, and the provider list;
+- models.dev, `https://models.dev/api.json`: the prices, the limits, the
+  release date and other facts of each (provider, model) pair.
+
+Each fetch is a plain GET with a timeout of 10 seconds and no retry. It
+sends nothing about the run, the task or the user. A body over 50 MiB is
+refused. `--no-model-catalog` turns both fetches off. The orchestrator
+makes the two fetches. Agent sessions do not: they read the snapshot.
+
+**The join** (`model_catalog/build.py`) is pure. A bad model or provider
+entry is dropped alone. The price and the limits are matched on the exact
+(provider, model) pair: the provider's models.dev id comes from Kiln's
+provider list, else from a built-in port of the Kiln server's table
+(`model_catalog/providers.py`). The model facts come from the first
+matched entry, in the Kiln server's provider order. When no entry matches,
+the release date has a looser match on the model's name, marked
+`release_date_match: "loose"`.
+
+**The snapshot.** `write_catalog` writes the result to
+`runs/<run_id>/model_catalog.json`. It is in `RUN_DIR_ENTRIES`, so the read
+fence denies it to agents like the other run files (section 12). The
+snapshot does not change during the run, and every agent of the run sees
+the same data. Each gateway process loads it at start
+(`gateway/server.load_state`), as it loads `model_policy.json`. A missing
+or bad snapshot loads as "no snapshot" and never stops the gateway.
+
+**Failures.** A fetch that fails never stops the run. The source is
+recorded as `none` with a reason, and the wave log has one
+`model_catalog_unavailable` event for each source that failed, then always
+one `model_catalog` event with the state of each source and the counts.
+Without models.dev, the catalogue has Kiln's data and null prices. Without
+Kiln's file, there is no catalogue data, and the model operations serve
+the Kiln server's model list only.
+
+**The model operations** (`gateway/model_info.py`, pure) join the snapshot
+with the server's `GET /api/available_models` at each call, and with the
+model policy:
+
+- `list_models`: one row per model, with its provider entries, filters,
+  three sort orders (`featured`, `price`, `newest`) and pages;
+- `get_model_details`: one model, with every provider entry, the notes
+  and the capability flags;
+- `list_providers`: each provider, its status, its count of `ready` pairs,
+  its tags and notes.
+
+Each (provider, model) pair has a status. `ready`: the server offers it
+and the policy allows it. `blocked_by_policy`: the server offers it and the
+policy refuses it. `not_offered`: the provider is connected, but not with
+this model. `not_connected`: the server offers nothing on the provider. A
+pair that only the server knows, such as a fine-tune, is listed with null
+catalogue fields. For a pair that the server offers, the thinking levels,
+the default level and the output mode are the server's (`SERVER_FIELDS`),
+because the probes and the model preflight check against the server. The
+status is information: `create_run_config` refuses a pair that the policy
+refuses, as before. A pair that the server does not offer fails when it
+runs, so the gateway skill tells agents to use `ready` pairs only. The
+three operations go to the planner, the builder and the probe
+(`ROLE_OPS`). Each answer has a `catalog` field that says which sources
+it has.
 
 ## 18. The knowledge system and smell detection
 

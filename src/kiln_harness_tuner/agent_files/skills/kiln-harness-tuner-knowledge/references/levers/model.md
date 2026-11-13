@@ -4,7 +4,9 @@ description: The model and the provider that a run config names, chosen from wha
 reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
-  - list_available_models
+  - list_models
+  - get_model_details
+  - list_providers
   - create_run_config
 ---
 
@@ -22,9 +24,14 @@ lever [params](params.md).
 
 ## How the tuner changes it
 
-1. Read what the run allows: `list_available_models` gives each model and
-   provider that the run's model policy allows, with its thinking levels
-   and its default `structured_output_mode`.
+1. Read what the run allows: `list_models` gives each model with its
+   `ready` provider entries: the pairs that the Kiln server offers and the
+   run's model policy allows. Each row has the list price, the context
+   window, the release date and the tags. `get_model_details` gives one
+   model's notes for agents (`agent_notes`), and per provider entry the
+   capability flags (tool calls, structured output, vision), the thinking
+   levels and the default `structured_output_mode`. `list_providers` gives
+   the notes on each provider, for example data retention or routing.
 2. Change it in one of two ways:
    - **A screening round**: candidates with `overrides` of `model_name`
      and `model_provider_name`, and a thinking level when the new model
@@ -55,12 +62,18 @@ Rules of the object:
   when the policy allows `kiln_fine_tune` and the server lists it. A
   fine-tune can be made for another task, or carry its own prompt and
   output mode: read what it is before you plan it.
-- `list_available_models` does not give the model's capability flags (tool
-  calls, structured output, vision). A probe or one drive shows them.
+- The capability flags, the prices and the notes are Kiln's and
+  models.dev's data. They can be missing or wrong for one pair. A probe or
+  one drive shows what the pair does on the task.
+- `create_run_config` refuses a pair that the policy refuses. Use `ready`
+  pairs only: a pair that the server does not offer fails when it runs. A
+  good model with the status `not_connected` is a finding for the report:
+  the user can connect that provider for the next run.
 
 ## See also
 
 - The `kiln-harness-tuner-batch-selection` skill: when the model is a
   lever, the screening rounds and the speed and cost rules.
-- The `kiln-harness-tuner-gateway` skill: `list_available_models` and the
+- The `kiln-harness-tuner-gateway` skill: `list_models`,
+  `get_model_details`, `list_providers`, the four statuses, and the
   refusal of a run config outside the policy.

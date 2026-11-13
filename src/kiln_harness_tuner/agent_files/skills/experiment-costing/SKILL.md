@@ -141,8 +141,24 @@ the run's own report, and cite that report rather than the bare number.
 ## Measuring the variables (at estimate time, not from memory)
 
 - **Model prices**: from a live model-info lookup, never from memory — prices and
-  provider routings drift. Direct-provider lanes are typically cheaper than
-  aggregator lanes for the same model.
+  provider routings drift. In a Kiln Harness Tuner session the lookup is the
+  gateway's `list_models` (input and output price per entry, and
+  `sort: "price"`) and `get_model_details` (all four prices, cache read and
+  cache write included, per provider entry). The run fetched these prices
+  at its start. A listed price is a **list price**: it does not show the
+  cache hit, the reasoning tokens or a provider's discount. A null price
+  means that models.dev has no price for that pair, or that the run could
+  not fetch models.dev (`catalog.models_dev: "none"`). Call
+  `get_model_details` without `provider`: it gives the model's entries on
+  every provider, also on providers that are not connected. The price on
+  another provider is a **proxy**: often close, but not the price you will
+  pay. Say in your estimate that it is a proxy. A local provider (Ollama,
+  Docker Model Runner) has no per-token price. Do not use another
+  provider's price as a proxy for it. Use the cost that the loop measures.
+  **The price that the loop measures on the task wins** over a listed
+  price and over a proxy.
+  Direct-provider lanes are typically cheaper than aggregator lanes for the
+  same model.
 - **Drive sizes and cache behaviour**: a `custom`-score metric eval over the
   stored traces (`cost_usd`, `cache_hit_rate`, `llm_calls`, `input_tokens`, …)
   re-scores at **$0** and yields the whole per-conversation distribution. The

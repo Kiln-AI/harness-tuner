@@ -156,9 +156,10 @@ A (provider, model) pair has one of four statuses:
 - A pair that the Kiln server offers and the catalogue does not have (a
   fine-tune, a custom model) is listed as `ready` or `blocked_by_policy`,
   with the catalogue fields null.
-- `create_run_config` still refuses every pair that is not `ready`. The
-  status in a tool answer is information. It does not change what an agent
-  can build.
+- `create_run_config` refuses a pair that the policy refuses, as today.
+  The status in a tool answer is information. It does not change what an
+  agent can build. Agents are told to use `ready` pairs only: a pair that
+  the server does not offer fails when it runs.
 - An agent that finds a good model with the status `not_connected` can say
   so in its output, so that the report asks the user to connect that
   provider for the next run. This project does not add a new output field
@@ -360,11 +361,18 @@ overview, section 2.
 
 - `kiln-harness-tuner-gateway/SKILL.md`: a section "Models and providers"
   with the three operations, their arguments and one example each. The row
-  for `list_available_models` goes.
+  for `list_available_models` goes. When an entry has no price or no
+  limits, it tells the agent to call `get_model_details` without
+  `provider`, to use another provider's price for the same model only as a
+  proxy that its notes name as a proxy, that a local provider has no
+  per-token price and gets no proxy, and that the measured price wins.
 - `experiment-costing/SKILL.md`: "from a live model-info lookup" becomes
   true. The text names `list_models` and `get_model_details`. It says that a
   listed price is a list price, and that the price the loop measures on the
-  task wins.
+  task wins. For a null price, it gives the same steps as the gateway
+  skill: `get_model_details` without `provider`, another provider's price
+  as a labelled proxy, no proxy for a local provider, and the measured
+  price wins.
 - The knowledge skill's `builder.md`, `levers/model.md` and
   `levers/params.md`: `list_available_models` becomes `list_models` and
   `get_model_details`. The line in `levers/model.md` that says the tool does

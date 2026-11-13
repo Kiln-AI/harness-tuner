@@ -58,9 +58,9 @@ Dormant techniques are not listed.
 <!-- BEGIN GENERATED: levers -->
 | Lever | Gateway operations | Description |
 |---|---|---|
-| [model](levers/model.md) | `get_run_config`, `list_available_models`, `create_run_config` | The model and the provider that a run config names, chosen from what the run's model policy allows. Existing fine-tunes are candidates too. |
+| [model](levers/model.md) | `get_run_config`, `list_models`, `get_model_details`, `list_providers`, `create_run_config` | The model and the provider that a run config names, chosen from what the run's model policy allows. Existing fine-tunes are candidates too. |
 | [new_tool](levers/new_tool.md) | `list_code_tools`, `get_code_tool`, `get_tool_definition`, `trust_code_tools`, `test_code_tool`, `create_code_tool`, `create_run_config`, `archive_code_tool` | Sandboxed Python code tools for the subject task - a new tool, a clone of a code tool with a new description, or a wrapper of any attached tool. |
-| [params](levers/params.md) | `get_run_config`, `list_available_models`, `create_run_config` | The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round. |
+| [params](levers/params.md) | `get_run_config`, `get_model_details`, `create_run_config` | The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round. |
 | [prompt](levers/prompt.md) | `get_run_config`, `list_prompts`, `get_prompt_text`, `create_prompt`, `create_run_config` | The prompt text that a run config sends to the model, and its chain-of-thought instructions. A change is a new saved prompt and a new run config. |
 | [skill](levers/skill.md) | `list_skills`, `get_skill`, `get_skill_content`, `create_run_config`, `archive_skill` | Skill bundles that a run config attaches as tools - a new skill, a new version of an inherited skill, or a skill attached or dropped on a new run config. |
 | [tool_config](levers/tool_config.md) | `get_run_config`, `list_available_tools`, `get_tool_definition`, `list_code_tools`, `create_run_config` | Which existing tools a run config attaches - code, MCP, built-in, Kiln task and RAG tools - attached or dropped on a new run config, with no new code. |

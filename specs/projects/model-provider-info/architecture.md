@@ -371,7 +371,12 @@ return "not_connected"
 three functions share:
 
 1. A deep copy of each catalogue model, in the catalogue's order.
-2. For each offered pair that matches no entry: when the model is in the
+2. For each offered pair that matches an entry: overlay the server's
+   `SERVER_FIELDS` (`thinking_levels` from `available_thinking_levels`,
+   `default_thinking_level`, `structured_output_mode`) onto the copied
+   entry. The probes and the model preflight check these against the
+   server, and the installed Kiln can run with another remote config. For
+   each offered pair that matches no entry: when the model is in the
    catalogue, add an entry built from the server's dict
    (`_entry_from_server`) to that model. Otherwise collect it.
 3. The collected pairs, grouped by model id, become new `CatalogModel`s
