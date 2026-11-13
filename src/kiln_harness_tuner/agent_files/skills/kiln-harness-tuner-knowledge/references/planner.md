@@ -95,10 +95,10 @@ The measurement is the problem.
 <!-- BEGIN GENERATED: playbooks-eval -->
 | Playbook | Applies to | Description |
 |---|---|---|
-| [dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md) | all | A score moves between repeats with no change to the agent. Repeat before you trust a small difference, and do not let a decision turn on one or two items. |
+| [dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md) | all | A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items. |
 | [dealing-with-a-saturated-eval](playbooks/dealing-with-a-saturated-eval.md) | all | The baseline is at the ceiling of an eval, or the judge's fires are false. Measure the issue on the baseline, judge the fires, then grow or change the eval. No fix arm. |
 | [dealing-with-an-eval-near-zero](playbooks/dealing-with-an-eval-near-zero.md) | all | The baseline passes almost no item of an eval. Read the raw outputs - a format or protocol failure can be fixed, a capability floor cannot, and a stronger model gives a signal. |
-| [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | Arms win on train, and validation rejects them again and again. Look for copied content, stop rules for small groups of failures, run fewer and larger experiments, then change the surface. |
+| [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, or a gain not clear. Only "no gain" shows that the win did not carry. |
 <!-- END GENERATED: playbooks-eval -->
 
 ## Design

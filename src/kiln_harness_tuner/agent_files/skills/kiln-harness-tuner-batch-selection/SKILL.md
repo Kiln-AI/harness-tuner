@@ -1006,6 +1006,32 @@ A win a val gate already passed over — `— REJECTED AT VAL`, no
 same combination that already lost. A genuinely different combination is a
 new experiment with its own record (val-gate carve-out below).
 
+**Read why the gate passed it over.** Code writes one metric-free line on
+the record, `- rejected at the val gate <MM-DD> vs baseline <rc> — <reason>`.
+The reason is one of:
+
+- `passed over: not promoted; rc <id> was promoted instead.` — another
+  candidate won the same gate. The line does not say how this win did on
+  val. It stays an eligible ingredient.
+- `an eval dropped at val: down beyond doubt on eval <id>, …` — the
+  change broke the evals it names. Measure each named eval on train in
+  the next arm that builds on it. When a named eval is one the arm set out
+  to move (its experiment record and your plan say which), the train gain
+  reversed on new items: read it as "no gain".
+- `no gain at val: no targeted eval improved.` — the train win did not
+  carry to new items. Treat it as a weak ingredient.
+- `a gain at val, not clear: a targeted eval improved, but not beyond
+  doubt.` — the val split can be too small to confirm a real gain.
+- `not promoted at val; details in the run report.` — code could not tell
+  the reason.
+
+A record written before these reasons ends `— did not beat it; details in
+the run report.` Its reason is not known. A `— PROMOTED` record with the
+same `<MM-DD>` makes "passed over" likely. A block for copied eval text
+has its own `- blocked at the val gate …` line (Gate blocks). What to try
+for each reason is in `references/playbooks/dealing-with-train-wins-rejected-at-val.md`
+of the `kiln-harness-tuner-knowledge` skill.
+
 - Merge when **several stable wins** have pooled; never while the queue holds
   only marginal wins. Value = overlap-discounted combined gain; cost includes
   the full val pass the winner pays at promotion.

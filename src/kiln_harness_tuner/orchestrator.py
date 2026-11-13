@@ -101,7 +101,12 @@ from kiln_harness_tuner.memory import (
     MemoryWriteRefused,
 )
 from kiln_harness_tuner.memory_feed import MemoryFeed
-from kiln_harness_tuner.memory_schema import RecordKindError, canonical_question
+from kiln_harness_tuner.memory_schema import (
+    RecordKindError,
+    ValRejection,
+    ValRejectionKind,
+    canonical_question,
+)
 from kiln_harness_tuner.model_policy import (
     KEEP_SOURCE,
     ModelPolicy,
@@ -152,6 +157,7 @@ from kiln_harness_tuner.schemas import (
     LeverCost,
     MergeWork,
     OpenUnknown,
+    PerEvalResult,
     ProbeAnswer,
     PromotionDecision,
     PromotionInput,
@@ -1456,11 +1462,11 @@ async def _run_promotion_gate(
                         reasons=["val evidence incomplete — stays pooled"],
                     )
                 judged = [c for c in candidates if c.rc_id not in holed]
-                await _record_rejections(ctx, judged, decision, baseline.rc_id)
+                await _record_rejections(ctx, judged, decision, baseline.rc_id, tables)
                 return decision
             if not await _apply_checked(ctx, decision, candidates, record, tables):
                 return None
-            await _record_rejections(ctx, candidates, decision, baseline.rc_id)
+            await _record_rejections(ctx, candidates, decision, baseline.rc_id, tables)
             return decision
 
     if (
@@ -1509,7 +1515,9 @@ async def _run_promotion_gate(
                 decision=decision,
             )
             if decision.winner_rc_id is None:
-                await _record_rejections(ctx, candidates, decision, baseline.rc_id)
+                await _record_rejections(
+                    ctx, candidates, decision, baseline.rc_id, tables
+                )
                 return decision
             if not await _apply_checked(ctx, decision, candidates, record, tables):
                 return None
@@ -1563,7 +1571,7 @@ async def _run_promotion_gate(
     if decision.winner_rc_id is None:
         # Zero winners is a valid outcome — no promotion writes, but every
         # candidate was still compared and passed over.
-        await _record_rejections(ctx, candidates, decision, baseline.rc_id)
+        await _record_rejections(ctx, candidates, decision, baseline.rc_id, tables)
         return decision
     winner_table = next((t for t in tables if t.rc_id == decision.winner_rc_id), None)
     if winner_table is not None and winner_table.ineligible:
@@ -1610,7 +1618,7 @@ async def _run_promotion_gate(
     # AFTER the apply, and the order matters: a missing rejection stamp is
     # recoverable noise, a missing promotion is not. `baseline` is the
     # PRE-apply rc — what the candidates were actually measured against.
-    await _record_rejections(ctx, candidates, decision, baseline.rc_id)
+    await _record_rejections(ctx, candidates, decision, baseline.rc_id, tables)
     return decision
 
 
@@ -2083,6 +2091,71 @@ def decide_speed_gate(
     )
 
 
+def _targeted_rows(
+    rows: list[PerEvalResult], target_eval_ids: Iterable[str]
+) -> list[PerEvalResult]:
+    """The rows of the evals the experiment set out to move. With no
+    declared target every row is a target."""
+    targets = set(target_eval_ids)
+    return [r for r in rows if r.eval_id in targets] if targets else list(rows)
+
+
+def _proven_regressions(rows: list[PerEvalResult]) -> list[PerEvalResult]:
+    """Rows that went down beyond doubt: the CI lies entirely below zero."""
+    return [r for r in rows if r.ci_high is not None and r.ci_high < 0]
+
+
+def _proven_wins(rows: list[PerEvalResult]) -> list[PerEvalResult]:
+    """Rows that went up beyond doubt: significant, or a CI entirely above
+    zero."""
+    return [
+        r
+        for r in rows
+        if r.delta > 0 and (r.significant or (r.ci_low is not None and r.ci_low > 0))
+    ]
+
+
+def val_rejection_reason(
+    table: CandidateValTable | None,
+    target_eval_ids: Iterable[str],
+    *,
+    judge_gain: bool,
+) -> ValRejection:
+    """Why a gate with NO winner passed this candidate over, read from its
+    own val table with the rules of `decide_single_candidate`. Never a
+    guess: when the table does not show the reason, the kind is
+    NOT_PROMOTED.
+
+    - EVAL_DROPPED: a row, target or guard, went down beyond doubt. A
+      measured row is a fact, so this holds on an incomplete table too.
+      The line names the evals with no target or guard label. Under an
+      efficiency objective the drop is a fact on the record, not
+      necessarily the only reason: the candidate may also not have been
+      clearly faster or cheaper.
+    - NO_GAIN: no targeted row improved at all.
+    - GAIN_NOT_CLEAR: a targeted row improved, none beyond doubt.
+
+    `judge_gain` is False under an efficiency objective: there the target
+    is the speed or the cost, so a quality row's gain says nothing about
+    why the candidate lost. The gain kinds also need a complete table: a
+    hole can hide the target row."""
+    if table is None:
+        return ValRejection(ValRejectionKind.NOT_PROMOTED)
+    rows = table.per_eval
+    dropped = tuple(dict.fromkeys(r.eval_id for r in _proven_regressions(rows)))
+    if dropped:
+        return ValRejection(ValRejectionKind.EVAL_DROPPED, dropped_eval_ids=dropped)
+    targeted = _targeted_rows(rows, target_eval_ids)
+    if not judge_gain or table.ineligible or not targeted:
+        return ValRejection(ValRejectionKind.NOT_PROMOTED)
+    improved = [r for r in targeted if r.delta > 0]
+    if not improved:
+        return ValRejection(ValRejectionKind.NO_GAIN)
+    if not _proven_wins(improved):
+        return ValRejection(ValRejectionKind.GAIN_NOT_CLEAR)
+    return ValRejection(ValRejectionKind.NOT_PROMOTED)
+
+
 def decide_single_candidate(
     table: CandidateValTable,
     issues_by_eval: dict[str, list[str]],
@@ -2118,8 +2191,7 @@ def decide_single_candidate(
     if table.ineligible or not table.per_eval:
         return None
     rows = table.per_eval
-    targets = set(target_eval_ids)
-    targeted = [r for r in rows if r.eval_id in targets] if targets else list(rows)
+    targeted = _targeted_rows(rows, target_eval_ids)
     if not targeted:
         return None  # the target was not compared — nothing to decide on
 
@@ -2135,11 +2207,9 @@ def decide_single_candidate(
         p = f", p={r.p_value:.3g}" if r.p_value is not None else ""
         return f"{label(r)} {r.delta:+.3f} (n={r.n_items}{p}{ci})"
 
-    proven_regressions = [r for r in rows if r.ci_high is not None and r.ci_high < 0]
+    proven_regressions = _proven_regressions(rows)
     improved = [r for r in targeted if r.delta > 0]
-    proven_wins = [
-        r for r in improved if r.significant or (r.ci_low is not None and r.ci_low > 0)
-    ]
+    proven_wins = _proven_wins(improved)
     fell = [r for r in rows if r.delta < 0]
     summary = "; ".join(fmt(r) for r in rows)
     skipped = f" Not compared: {', '.join(table.skipped)}." if table.skipped else ""
@@ -3382,11 +3452,34 @@ async def _rejection_write(
     return True
 
 
+def _rejection_reason(
+    ctx: Ctx,
+    candidate: GateCandidate,
+    decision: PromotionDecision,
+    tables: list[CandidateValTable],
+) -> ValRejection:
+    """The reason on a candidate's rejection line. Callers pass a decision
+    with a winner only after the winner was applied, so the candidates
+    left were passed over for it. With no winner, the candidate's own val
+    table gives the reason (`val_rejection_reason`)."""
+    if decision.winner_rc_id is not None:
+        return ValRejection(
+            ValRejectionKind.PASSED_OVER, promoted_rc_id=decision.winner_rc_id
+        )
+    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
+    return val_rejection_reason(
+        table,
+        _target_eval_ids(candidate),
+        judge_gain=not is_efficiency(ctx.objective),
+    )
+
+
 async def _record_rejections(
     ctx: Ctx,
     candidates: list[GateCandidate],
     decision: PromotionDecision,
     baseline_rc_id: str,
+    tables: list[CandidateValTable],
 ) -> None:
     """Write the val-gate rejection onto every candidate the decision passed
     over — code, never an agent. Covers both gate shapes: with no
@@ -3394,6 +3487,10 @@ async def _record_rejections(
     defensive `_apply_promotion` case) likewise leaves every real candidate
     passed over. Candidates that never reached the gate aren't in this list
     and get nothing.
+
+    The note carries one code-chosen, metric-free reason
+    (`_rejection_reason`). It goes on the candidate's record only: with no
+    winner the baseline did not change, so no issue record is written.
 
     Two writers = 2 GETs + 2 PATCHes per candidate, where the sibling
     `mark_fixed` does overview + content in ONE PATCH. That split is the
@@ -3404,8 +3501,8 @@ async def _record_rejections(
     flaky live, merging them into one `record_rejection` PATCH is the fix."""
     held_on = decision.blocked_on if decision.winner_rc_id is None else None
     # A candidate the integrity check blocked already carries its
-    # stamp and its own block line (`_record_gate_blocks`); "did not beat
-    # it" would be false.
+    # stamp and its own block line (`_record_gate_blocks`), which gives
+    # its reason.
     blocked = {b.rc_id for b in ctx.gate_blocks}
     for outcome in candidates:
         if outcome.rc_id == decision.winner_rc_id or outcome.rc_id in blocked:
@@ -3437,13 +3534,19 @@ async def _record_rejections(
         stamped = await _rejection_write(
             ctx, lambda i=exp_mem_id: ctx.memory.stamp_rejected(i), "stamp", outcome
         )
+        reason = _rejection_reason(ctx, outcome, decision, tables)
         noted = await _rejection_write(
             ctx,
-            lambda i=exp_mem_id: ctx.memory.note_rejection(i, baseline_rc_id),
+            lambda i=exp_mem_id, r=reason: ctx.memory.note_rejection(
+                i, baseline_rc_id, r
+            ),
             "note",
             outcome,
         )
         if stamped and noted:
             ctx.log.event(
-                "rejection_recorded", rc_id=outcome.rc_id, exp_mem_id=exp_mem_id
+                "rejection_recorded",
+                rc_id=outcome.rc_id,
+                exp_mem_id=exp_mem_id,
+                reason=str(reason.kind),
             )

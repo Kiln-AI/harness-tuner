@@ -611,12 +611,17 @@ zero numbers:
 
 1. A regressed issue's status flag — a `FIXED:` issue that repros under the new
    baseline goes back to open with a provenance line.
-2. `— REJECTED AT VAL <date>` on a candidate the gate passed over.
+2. `— REJECTED AT VAL <date>` on a candidate the gate passed over, with one
+   `- rejected at the val gate …` line. Code chooses its reason
+   (`ValRejection`): passed over for the winner, the eval ids that dropped
+   beyond doubt, no targeted gain, a targeted gain not beyond doubt, or "not
+   promoted at val" when code cannot tell. Never a number, an item id, a
+   trace or the promotion agent's prose.
 3. `— PROMOTED <date>` on the winner's experiment record.
 
-Each discloses one bit. The planner may re-target an issue or decline to
-re-submit a run config unchanged; every subsequent measurement is back on
-train.
+Each discloses a status, never a measurement. The planner may re-target an
+issue or decline to re-submit a run config unchanged; every subsequent
+measurement is back on train.
 
 **Enforced in code,** at four layers, so that one gap is not
 a leak:
@@ -828,7 +833,7 @@ successful on train.
    val gate <MM-DD>: …` line with the reasons, and adds the block to
    `BatchPlanInput.gate_blocks` for every later planner of the run and to
    `RunStatus.gate_blocks` for the report. The rejection writer then skips
-   that candidate: "did not beat it" would be false. With the build-time
+   that candidate: its block line gives its reason. With the build-time
    judge-copy check in place, check (a) is the final check, for a candidate
    whose evals changed after its build.
    **Only the val-free part travels.** The planner is a train-side agent,
@@ -850,7 +855,9 @@ successful on train.
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
    winner's `— PROMOTED` stamp, then one `— REJECTED AT VAL` stamp per
-   candidate passed over.
+   candidate passed over, with its reason line. With no winner, the
+   rejection stamps and their reason lines are the only writes: no issue
+   record changes, because the baseline did not change.
 
 Every candidate's table carries `errors` — every hole in its val assembly — and
 `ineligible`. A candidate whose fill failed on either side, or whose coverage

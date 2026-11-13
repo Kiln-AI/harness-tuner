@@ -43,6 +43,8 @@ from kiln_harness_tuner.memory_schema import (
     MemoryRecord,
     MemorySummary,
     SetupHead,
+    ValRejection,
+    ValRejectionKind,
     baseline_rc_tag,
     clamp,
     eval_ids_from_tags,
@@ -938,18 +940,21 @@ async def test_stamp_rejected_is_idempotent():
     assert len([mid for mid, _ in kiln.memory_patches if mid == mem_id]) == 1
 
 
+_PASSED_OVER = ValRejection(ValRejectionKind.PASSED_OVER, promoted_rc_id="rc_win")
+
+
 async def test_note_rejection_frozen_format():
     # Metric-free by construction (F1): no val numbers leave the baseline
-    # record — the line is status intent plus a pointer to the run report.
+    # record — the line is status intent plus the code-chosen reason.
     kiln = FakeKiln()
     writer = make_writer(kiln)
     mem_id = experiment_record(kiln, content="hypothesis: retry-skill for 429s")
-    await writer.note_rejection(mem_id, "rc_base")
+    await writer.note_rejection(mem_id, "rc_base", _PASSED_OVER)
     record = kiln.memories[mem_id]
     assert record["content"] == (
         "hypothesis: retry-skill for 429s\n"
-        "- rejected at the val gate 07-22 vs baseline rc_base — did not beat it; "
-        "details in the run report."
+        "- rejected at the val gate 07-22 vs baseline rc_base — passed over: "
+        "not promoted; rc rc_win was promoted instead."
     )
     assert record["overview"] == "EXP 0722-w1-2: retry-skill — +8.5pp, p=.006"
 
@@ -960,13 +965,28 @@ async def test_note_rejection_is_idempotent():
     kiln = FakeKiln()
     writer = make_writer(kiln)
     mem_id = experiment_record(kiln)
-    await writer.note_rejection(mem_id, "rc_base")
+    await writer.note_rejection(mem_id, "rc_base", _PASSED_OVER)
     writer_next_day = MemoryWriter(
         kiln, project_id="p1", task_id="t1", now=lambda: datetime(2026, 7, 23, 1, 0)
     )
-    await writer_next_day.note_rejection(mem_id, "rc_base")
+    await writer_next_day.note_rejection(mem_id, "rc_base", _PASSED_OVER)
     assert kiln.memories[mem_id]["content"].count("- rejected at the val gate ") == 1
     assert len([mid for mid, _ in kiln.memory_patches if mid == mem_id]) == 1
+
+
+async def test_note_rejection_skips_a_record_with_the_old_line():
+    # A store written before the reasons holds the old line. It still counts
+    # as noted: a later gate pass adds no second line.
+    kiln = FakeKiln()
+    writer = make_writer(kiln)
+    old_line = (
+        "- rejected at the val gate 07-20 vs baseline rc_base — did not beat it; "
+        "details in the run report."
+    )
+    mem_id = experiment_record(kiln, content=f"hypothesis: x\n{old_line}")
+    await writer.note_rejection(mem_id, "rc_base", _PASSED_OVER)
+    assert kiln.memories[mem_id]["content"] == f"hypothesis: x\n{old_line}"
+    assert not [mid for mid, _ in kiln.memory_patches if mid == mem_id]
 
 
 # ---- baseline record ----
