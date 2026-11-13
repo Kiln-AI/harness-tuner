@@ -358,21 +358,23 @@ does not start a fine-tune: an existing one is a model candidate.
 
 ### On-device models
 
-- Kind: technique
+- Kind: playbook
 - Where: knowledge
 - Depends on: None
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md)
+- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md); owner, 2026-11-13
 
-A model that runs on the user's device.
+How to tune an agent whose model must run on end-user devices (laptops, phones): the small models
+that fit, the limits of memory and speed, and the harness changes that help a small model most.
 
 ### On-prem open-weight models
 
-- Kind: technique
+- Kind: playbook
 - Where: knowledge
 - Depends on: None
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md)
+- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md); owner, 2026-11-13
 
-An open-weight model that runs on the user's own servers.
+How to tune an agent whose model must run on the owner's own servers: open-weight models only, often
+with a limit on model size, and the harness changes that help when the best hosted models are out.
 
 ### The conventions that a model was trained on
 
@@ -784,3 +786,23 @@ The baseline reviewer closes a smell issue that a new baseline no longer shows.
 - Source: functional spec 2
 
 The field on each experiment names the kind of surface it changes. That is a lever kind.
+
+### Conflicting requirements
+
+- Kind: smell
+- Where: knowledge
+- Depends on: None
+- Source: owner, 2026-11-13
+
+Two texts that the agent reads ask for things that cannot both hold: the prompt, a tool description,
+a skill, a tool's response. The agent then follows one at random. The remedy can need the owner.
+
+### Questions to the owner before wave 1
+
+- Kind: code
+- Where: tuner
+- Depends on: Conflicting requirements
+- Source: owner, 2026-11-13
+
+A new project. After recon and the design review, ask the owner what only the owner can decide, such
+as which of two conflicting requirements wins. Each question offers options, plus "other" as text.
