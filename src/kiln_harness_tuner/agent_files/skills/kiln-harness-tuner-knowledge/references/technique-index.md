@@ -7,6 +7,10 @@ through a playbook or a smell.
 
 Dormant techniques are not listed.
 
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
+
 <!-- BEGIN GENERATED: techniques -->
 | Technique | Levers | Applies to | Cost | Description |
 |---|---|---|---|---|

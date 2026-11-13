@@ -397,7 +397,7 @@ async def test_retried_attempts_usage_reaches_spend_event():
 # ---- the ladder reports its own attempt count ----
 
 
-async def ladder(*results, backoffs=(30.0, 60.0)) -> tuple[int, list[float]]:
+async def ladder(*results, backoffs=(30.0, 60.0), **kwargs) -> tuple[int, list[float]]:
     """Run the dispatch ladder over a scripted dispatch sequence; return what a
     caller can see of what it spent — the attempt count and the backoffs."""
     queue = list(results)
@@ -410,7 +410,12 @@ async def ladder(*results, backoffs=(30.0, 60.0)) -> tuple[int, list[float]]:
         sleeps.append(secs)
 
     result = await call_with_retries(
-        dispatch, object(), backoffs=backoffs, sleep=sleep, source="describe_eval"
+        dispatch,
+        object(),
+        backoffs=backoffs,
+        sleep=sleep,
+        source="describe_eval",
+        **kwargs,
     )
     return result.attempts, sleeps
 
@@ -442,6 +447,22 @@ async def test_attempts_is_one_for_both_terminal_cases():
     # fatal message got each of them wrong in turn by inferring.
     assert await ladder(expected("cannot read the eval")) == (1, [])
     assert await ladder(infra("parse_failure", "no fenced block")) == (1, [])
+
+
+@pytest.mark.parametrize(
+    ("error_class", "spent"),
+    [
+        ("timeout", (1, [])),
+        ("agent_crash", (1, [])),
+        ("provider_error", (2, [30.0])),
+        # The list replaces the default, and does not add to it.
+        ("parse_failure", (2, [30.0])),
+    ],
+)
+async def test_custom_terminal_errors_stop_only_on_their_classes(error_class, spent):
+    terminal = ("timeout", "agent_crash")
+    result = await ladder(infra(error_class), rc_ok(), terminal_errors=terminal)
+    assert result == spent
 
 
 # ---- measure_issue_baseline — pure code, no dispatch ----

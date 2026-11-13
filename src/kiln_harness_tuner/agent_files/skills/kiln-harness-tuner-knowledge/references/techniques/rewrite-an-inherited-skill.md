@@ -1,7 +1,7 @@
 ---
 title: Rewrite an inherited skill
 description: A new version of a skill that the baseline attaches - split, merged, restructured or scrubbed - attached in place of the old one on a new run config.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - skill
@@ -73,9 +73,10 @@ the skill, and find the read of the new version in each trace.
 
 ## Budget
 
-Medium cost: a bundle to write, and a measurement on every active eval that
-the skill touches. On a small budget, take it when the traces tie the
-failure to the skill's text.
+Medium cost: a bundle to write, and a measurement on its target evals.
+When it fixes its target, the val gate measures every eval before a
+promotion, the evals that the skill touches too. On a small budget, take
+it when the traces tie the failure to the skill's text.
 
 ## If it does not move the evals
 

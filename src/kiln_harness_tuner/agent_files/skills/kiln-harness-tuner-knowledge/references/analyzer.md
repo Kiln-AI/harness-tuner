@@ -9,11 +9,18 @@ Use this file to name the failure pattern that a candidate's traces show.
 2. **Find the playbook whose situation fits** in the table below. Open it
    when the one-line description is not enough. Its "Situation" says what
    the trace shows, and where.
-3. **Name the playbook in your findings**, by its id, with the evidence. When
-   no playbook fits, describe the failure in your own words.
+3. **Name the playbook in your `memory_content`**, by its id, with the
+   evidence: in the interpretation or in the `next:` line. The planner
+   reads `memory_content`. It does not read `findings`. Name the playbook
+   in `findings` too, for the report. When no playbook fits, describe the
+   failure in your own words, in the same places.
 
-You do not plan the next experiment. The planner reads your findings and the
-playbook.
+You do not plan the next experiment. The planner reads your
+`memory_content` and the playbook.
+
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
 
 ## Failure patterns
 
@@ -26,7 +33,7 @@ playbook.
 | [lost-in-long-instructions](playbooks/lost-in-long-instructions.md) | all | The agent misses a part of a long prompt or of a one-file skill. Progressive disclosure when the model reads skills, a prompt structure when it does not. A probe first. |
 | [malformed-tool-calls](playbooks/malformed-tool-calls.md) | tools | The agent calls a tool with the wrong case, the wrong form of an id, a body on a GET, or a misspelled tool name. A wrapper that normalises, errors the agent can act on, a guard at the tool. |
 | [missing-context-the-agent-could-be-given](playbooks/missing-context-the-agent-could-be-given.md) | tools | The agent fails because it did not know a fact that a tool could give it - if it had known that, it would have done the right thing. One tool that loads it, and a prompt line to call it first. |
-| [output-contract-not-met](playbooks/output-contract-not-met.md) | all | The output breaks a format rule that nothing enforces - a closing block, a layout of free text, an escaping rule, or a rule about the content of a field. |
+| [output-contract-not-met](playbooks/output-contract-not-met.md) | all | The output breaks its format - broken JSON or JSON that misses the task's schema, a closing block, a layout of free text, an escaping rule, or the form of a field. |
 | [requirement-missing-from-the-prompt](playbooks/requirement-missing-from-the-prompt.md) | all | The eval checks for something that neither the prompt nor the task instruction asks for. State the requirement in new words - do not copy the eval. |
 | [skill-is-not-read](playbooks/skill-is-not-read.md) | all | The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. The path index in the description, then a prompt rule. |
 | [wrong-scope-or-refusal](playbooks/wrong-scope-or-refusal.md) | all | The agent answers requests outside its scope, or refuses valid ones. A paragraph of decline rules, then a rebalance for the refusals that remain. |

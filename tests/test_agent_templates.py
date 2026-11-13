@@ -21,9 +21,12 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 )
 from kiln_harness_tuner.install_agents import source_dir
 from kiln_harness_tuner.memory_schema import (
+    ValRejection,
+    ValRejectionKind,
     baseline_rc_tag,
     is_rejected_at_val,
     rc_ids_from_tags,
+    rejection_note,
 )
 from kiln_harness_tuner.report import render_spend_header
 from kiln_harness_tuner.schemas import BaselineRef, BatchPlanInput
@@ -279,6 +282,40 @@ def test_merge_eligible_wins_admit_val_rejected_rcs_as_ingredients_only():
     # `MergeWork.wins` needs the rc id from the record's head lines, which an
     # append can clamp away — no guessing an rc when they are gone.
     assert "the rc id is not recoverable from the record" in normalized
+
+
+def _reason_heads() -> list[str]:
+    """Each reason's text as code writes it, cut after its first id: the
+    part a skill or a playbook can quote whatever the ids."""
+    heads = []
+    for kind in ValRejectionKind:
+        reason = ValRejection(kind, promoted_rc_id="<id>", dropped_eval_ids=("<id>",))
+        text = rejection_note("07-22", "rc", reason).split(" — ", 1)[1]
+        heads.append(text.split("<id>", 1)[0] + "<id>" if "<id>" in text else text)
+    return heads
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md",
+        SKILLS_DIR
+        / "kiln-harness-tuner-knowledge"
+        / "references"
+        / "playbooks"
+        / "dealing-with-train-wins-rejected-at-val.md",
+    ],
+    ids=["planner", "playbook"],
+)
+def test_the_val_rejection_readers_quote_every_reason_code_writes(doc):
+    # The reason lines are read by text: a reworded line in code that the
+    # planner's skill and the playbook still quote the old way would leave
+    # the planner unable to tell the cases apart.
+    normalized = _normalized_doc(doc)
+    for head in _reason_heads():
+        assert head in normalized, head
+    # The line written before the reasons, for records in an older store.
+    assert "did not beat it; details in the run report." in normalized
 
 
 def test_rejection_stamp_is_in_the_memory_vocabulary():

@@ -8,7 +8,7 @@ asserts that the check reports exactly the rule it breaks, and nothing else.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -106,6 +106,8 @@ It depends. On the test.
 
 High, in a test.
 """
+
+DORMANT = TECHNIQUE.replace("status: active", "status: dormant")
 
 PLAYBOOK = """\
 ---
@@ -284,7 +286,6 @@ def test_check_takes_a_one_shot_iterable(tree):
             " traces show.",
             "description: Short.",
         ),
-        ("reviewed: 2026-01-01", f"reviewed: {date.today() + timedelta(days=2)}"),
         ("kind: failure", "kind: wish"),
         ("applies_to:\n  - tools\n  - single_turn\n", "applies_to: []\n"),
         ("title: One playbook", "title: [unclosed"),
@@ -300,7 +301,6 @@ def test_check_takes_a_one_shot_iterable(tree):
         "long-title",
         "pipe-in-description",
         "short-description",
-        "future-review",
         "bad-kind",
         "empty-applies-to",
         "bad-yaml",
@@ -316,6 +316,23 @@ def test_front_matter_is_reported(tree, old, new):
     # smell that links it.
     [problem] = _only(tree, "front-matter")
     assert problem.path == "playbooks/p-one.md"
+
+
+@pytest.mark.parametrize(
+    ("today", "rules"),
+    [
+        (date(2026, 3, 2), set()),
+        (date(2026, 3, 1), set()),
+        (date(2026, 2, 28), {"front-matter"}),
+    ],
+    ids=["same-day", "one-day-ahead", "two-days-ahead"],
+)
+def test_a_review_date_may_be_one_day_after_today(tree, monkeypatch, today, rules):
+    """A document dated "today" east of UTC is one day ahead of the UTC
+    date, and passes everywhere."""
+    tree.edit("playbooks/p-one.md", "reviewed: 2026-01-01", "reviewed: 2026-03-02")
+    monkeypatch.setattr("kiln_harness_tuner.knowledge.schema.utc_today", lambda: today)
+    assert tree.rules() == rules
 
 
 def test_a_title_on_two_lines_is_reported(tree):
@@ -401,8 +418,63 @@ def test_an_empty_section_is_reported(tree):
     assert "'Limits' is empty" in problem.message
 
 
+@pytest.mark.parametrize(
+    "comment",
+    ["<!-- fill me -->", "<!-- one -->\n<!--\ntwo\n-->"],
+    ids=["one-line", "several"],
+)
+def test_a_section_that_holds_only_a_comment_is_reported(tree, comment):
+    tree.edit("levers/prompt.md", "## Limits\n\nNone.\n", f"## Limits\n\n{comment}\n")
+    [problem] = _only(tree, "sections")
+    assert "'Limits' is empty" in problem.message
+
+
+def test_a_section_with_a_comment_and_text_is_accepted(tree):
+    tree.edit("levers/prompt.md", "None.\n", "<!-- a note -->\nNone.\n")
+    assert tree.problems() == []
+
+
 def test_other_sections_can_follow_the_required_ones(tree):
     tree.write("levers/prompt.md", LEVER + "\n## Notes\n\nMore.\n")
+    assert tree.problems() == []
+
+
+@pytest.mark.parametrize(
+    ("path", "old", "new"),
+    [
+        ("levers/prompt.md", "## Limits\n\nNone.", "## Limits\n\n{{TEXT}}"),
+        ("levers/prompt.md", "title: The prompt", 'title: "{{TITLE}}"'),
+        ("levers/prompt.md", "# The prompt\n", "# {{TITLE}}\n"),
+        ("analyzer.md", "Hand-written text.", "Hand-written {{TEXT}}."),
+        ("techniques/t-one.md", "Read a trace.", "Read [{{X}}](t-one/recipe.md)."),
+    ],
+    ids=["section", "title", "heading", "entry-file", "in-a-link"],
+)
+def test_placeholder_is_reported(tree, path, old, new):
+    if path.startswith("techniques/"):
+        tree.write("techniques/t-one/recipe.md", "# Recipe\n\nMore detail.\n")
+    tree.edit(path, old, new)
+    [problem] = _only(tree, "placeholder")
+    assert problem.path == path
+    assert "{{" in problem.message
+
+
+def test_a_placeholder_in_a_sub_file_is_reported(tree):
+    tree.write("techniques/t-one/recipe.md", "# Recipe\n\n{{TEXT}}\n")
+    tree.edit(
+        "techniques/t-one.md", "Read a trace.", "See [the recipe](t-one/recipe.md)."
+    )
+    [problem] = _only(tree, "placeholder")
+    assert problem.path == "techniques/t-one/recipe.md"
+    assert problem.message.startswith("line 3 ")
+
+
+def test_a_placeholder_inside_a_fence_is_accepted(tree):
+    tree.edit(
+        "levers/prompt.md",
+        "## See also\n\nNone.",
+        "## See also\n\nNone.\n\n```\ntitle: {{TITLE}}\n```",
+    )
     assert tree.problems() == []
 
 
@@ -479,10 +551,47 @@ def test_a_link_inside_a_fence_is_not_a_link(tree):
 
 
 def test_reachable_is_reported(tree):
+    # An active technique that the index does not list yet, and that nothing
+    # else links.
+    tree.write("techniques/t-new.md", TECHNIQUE)
+    problems = tree.problems(rebuild=False)
+    assert {p.rule for p in problems} == {"index", "reachable"}, problems
+    [problem] = [p for p in problems if p.rule == "reachable"]
+    assert problem.path == "techniques/t-new.md"
+
+
+def test_a_dormant_technique_may_have_no_link(tree):
     # A dormant technique has no index row, and nothing else links it.
-    tree.write("techniques/t-asleep.md", TECHNIQUE.replace("active", "dormant"))
-    [problem] = _only(tree, "reachable")
-    assert problem.path == "techniques/t-asleep.md"
+    tree.write("techniques/t-asleep.md", DORMANT)
+    assert tree.problems() == []
+
+
+def test_the_sub_files_of_a_dormant_technique_are_reachable_through_it(tree):
+    tree.write(
+        "techniques/t-asleep.md",
+        DORMANT.replace("Read a trace.", "See [the recipe](t-asleep/recipe.md)."),
+    )
+    tree.write("techniques/t-asleep/recipe.md", "# Recipe\n\nMore detail.\n")
+    assert tree.problems() == []
+
+
+def test_a_dormant_technique_does_not_make_its_unlinked_sub_file_reachable(tree):
+    tree.write("techniques/t-asleep.md", DORMANT)
+    tree.write("techniques/t-asleep/recipe.md", "# Recipe\n")
+    assert {p.rule for p in tree.problems()} == {"reachable", "subfile"}
+
+
+def test_a_playbook_that_loses_its_dormant_step_is_reported(tree):
+    """Procedure 4.5: the technique goes dormant and the playbook drops it.
+    The technique may stay unlinked; the empty playbook may not."""
+    tree.edit("techniques/t-one.md", "status: active", "status: dormant")
+    tree.edit(
+        "playbooks/p-one.md",
+        "1. [One technique](../techniques/t-one.md), when the test says so.",
+        "Nothing yet.",
+    )
+    [problem] = _only(tree, "playbook-steps")
+    assert problem.path == "playbooks/p-one.md"
 
 
 def test_depth_is_reported(tree):
@@ -493,7 +602,7 @@ def test_depth_is_reported(tree):
         alternatives = f"[next](./{after}.md), when deeper." if after else "None."
         tree.write(
             f"techniques/{this}.md",
-            TECHNIQUE.replace("active", "dormant").replace(
+            DORMANT.replace(
                 "## Alternatives\n\nNone.", f"## Alternatives\n\n{alternatives}"
             ),
         )
@@ -789,7 +898,7 @@ def test_a_heading_inside_a_fence_is_not_a_section(tree):
 
 
 def test_a_dormant_technique_is_left_out_of_the_index(tree):
-    tree.write("techniques/t-asleep.md", TECHNIQUE.replace("active", "dormant"))
+    tree.write("techniques/t-asleep.md", DORMANT)
     blocks = render_blocks(load(tree.root))
     assert "t-asleep" not in blocks[("builder.md", "techniques")]
     assert "t-one" in blocks[("builder.md", "techniques")]

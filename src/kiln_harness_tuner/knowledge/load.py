@@ -191,7 +191,7 @@ def _load_document(root: Path, relative: Path, kind: str) -> Document:
                 Section(heading, "\n".join(lines).strip(), tuple(section_links))
             )
 
-    for line, fenced in _fence_marked(body):
+    for line, fenced in fence_marked(body):
         if fenced:  # text of the section, but never a heading or a link
             lines.append(line)
             continue
@@ -217,7 +217,7 @@ def _load_document(root: Path, relative: Path, kind: str) -> Document:
     )
 
 
-def _fence_marked(text: str) -> list[tuple[str, bool]]:
+def fence_marked(text: str) -> list[tuple[str, bool]]:
     """Each line of `text`, with True when it is part of a fenced block (its
     fence lines included).
 

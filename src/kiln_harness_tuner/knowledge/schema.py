@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -111,6 +111,15 @@ ENTRY_BLOCKS: dict[str, tuple[str, ...]] = {
 }
 
 
+# A `reviewed:` date may be this far after the UTC date. So a document dated
+# "today" in any time zone passes on every machine.
+REVIEWED_TOLERANCE = timedelta(days=1)
+
+
+def utc_today() -> date:
+    return datetime.now(UTC).date()
+
+
 @dataclass(frozen=True)
 class Problem:
     """One broken rule: the rule id, the file relative to `references/`, and
@@ -148,7 +157,7 @@ class CommonMeta(BaseModel):
     @field_validator("reviewed")
     @classmethod
     def _reviewed(cls, value: date) -> date:
-        if value > date.today():
+        if value > utc_today() + REVIEWED_TOLERANCE:
             raise ValueError(f"reviewed {value} is in the future")
         return value
 

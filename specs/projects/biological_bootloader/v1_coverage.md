@@ -190,7 +190,7 @@ One row for each idea of the project overview and the design notes.
 
 | Idea | Overview | Goes to |
 |---|---|---|
-| Experiments decide; guidance is never a "must" | 3 | The content rules; `SKILL.md` |
+| Documents are ideas to try; guidance is never a "must" (hard limits excepted) | 3 | The content rules; `SKILL.md` |
 | A tie can be settled from knowledge | 3 | The content rules. Backlog: Promotion on a tie |
 | Cost of learning against cost of maintenance | 3 | The content rules; the maintenance skill |
 | Classify the agent first: turns, output, others | 4 | V1 `know-the-agent-before-you-plan`; the task shapes |
@@ -252,7 +252,7 @@ One row for each idea of the project overview and the design notes.
 | Tips for a query tool: timestamps, sample queries | 10 | V1 `guide-skill-for-a-tool-set`, in sub-files |
 | The stack rank | 10 | V1 `ordering-work` |
 | Playbook: much cheaper | Notes | V1 `cheaper-or-faster` |
-| Playbook: open models on-prem | Notes | Backlog |
+| Playbook: open models on-prem | Notes | Backlog: On-prem open-weight models |
 | Playbook: an eval near zero | Notes | V1 |
 | Playbook: a saturated eval | Notes | V1 |
 | Playbook: train wins that validation rejects | Notes | V1 |

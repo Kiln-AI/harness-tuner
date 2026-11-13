@@ -95,7 +95,9 @@ not in documents.
 - Depends on: None
 - Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
 
-The lever, and its screen. Kiln has nine modes. The field passes through and cannot be screened.
+The lever document and the screen exist. Missing: code keeps the parent's mode on a model swap
+(no switch to Kiln's default); no signal shows that a mode reached the call; the model list does
+not say which modes a model supports; the setup probe of valid JSON skips some modes.
 
 ### Detectors from the trace counts
 
@@ -403,15 +405,6 @@ Remove the workarounds that an older model needed and the current one does not.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Put a small knowledge source in the prompt, and remove the search tool.
-
-### Playbook: open models on-prem
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md)
-
-Goal: the agent runs on an open model on the user's own servers.
 
 ### Playbook: after a change of model
 
@@ -808,3 +801,13 @@ a skill, a tool's response. The agent then follows one at random. The remedy can
 
 A new project. After recon and the design review, ask the owner what only the owner can decide, such
 as which of two conflicting requirements wins. Each question offers options, plus "other" as text.
+
+### A repeat measurement the planner can ask for
+
+- Kind: code
+- Where: tuner, knowledge
+- Depends on: None
+- Source: [repeat-measurement](projects/repeat-measurement/project_overview.md)
+
+A planner item, or a flag on `remeasure`, that drives and judges an existing run config again on
+train items. Today only `--noise-check` repeats a measurement, one time, before wave 1.

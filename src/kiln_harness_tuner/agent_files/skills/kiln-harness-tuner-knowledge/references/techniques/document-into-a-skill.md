@@ -1,7 +1,7 @@
 ---
 title: Document into a skill
 description: Move a long reference document that sits behind a lookup tool into a skill - a contents body with key terms, one reference file per section - and drop the tool.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - skill
@@ -69,9 +69,11 @@ the dropped tool.
 
 ## Budget
 
-Medium cost: a bundle to write from the document, and a measurement on
-every eval that the document touches. On a small budget, take it when the
-traces show wrong parts read, or many lookup calls for one fact.
+Medium cost: a bundle to write from the document, and a measurement on its
+target evals. When it fixes its target, the val gate measures every eval
+before a promotion, the evals that the document touches too. On a small
+budget, take it when the traces show wrong parts read, or many lookup
+calls for one fact.
 
 ## If it does not move the evals
 

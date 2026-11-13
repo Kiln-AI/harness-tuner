@@ -1,7 +1,7 @@
 ---
 title: The attached tools
 description: Which existing tools a run config attaches - code, MCP, built-in, Kiln task and RAG tools - attached or dropped on a new run config, with no new code.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
   - list_available_tools
@@ -66,6 +66,12 @@ Rules of the object:
   remove it from a wrapper.
 - Never attach a tool that can reach the Kiln server to the subject task.
   It gives the subject model a channel into the Kiln API.
+- When the parent's output mode sends the schema as a tool
+  (`function_calling`, `function_calling_weak`, or `default` outside Ollama
+  and Docker Model Runner), Kiln refuses every call once a tool or a skill
+  is attached. Set the mode on the same run config by the fallback of
+  [model](model.md), step 4, and list it in `change`. The lever
+  [output_mode](output_mode.md) gives the modes.
 
 ## See also
 

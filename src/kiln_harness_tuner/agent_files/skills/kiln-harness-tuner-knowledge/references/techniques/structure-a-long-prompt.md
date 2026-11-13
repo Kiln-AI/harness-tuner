@@ -1,7 +1,7 @@
 ---
 title: Structure a long prompt
 description: Give a long prompt a structure - topics under headings, the must-include parts marked, and a last step that checks each required property before the answer.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - prompt
@@ -69,8 +69,10 @@ rise, the structure did not reach the cause.
 ## Budget
 
 Low cost: one prompt edit, and a probe that costs little. A good first step
-for a long prompt on a task with no tools. Measure it on every eval that the
-prompt covers, because a new order changes what the model reads first.
+for a long prompt on a task with no tools. Measure it on its target evals.
+When it fixes its target, the val gate measures every eval before a
+promotion, the evals that the prompt covers too. That matters here,
+because a new order changes what the model reads first.
 
 ## If it does not move the evals
 

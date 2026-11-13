@@ -1,7 +1,7 @@
 ---
 title: Dealing with a noisy eval
-description: A score moves between repeats with no change to the agent. Repeat before you trust a small difference, and do not let a decision turn on one or two items.
-reviewed: 2026-11-12
+description: A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items.
+reviewed: 2026-11-13
 kind: eval
 applies_to: all
 ---
@@ -25,23 +25,38 @@ difference smaller than the noise is not a result, in either direction.
 
 ## What to try, in order
 
-1. Repeat before you trust a small difference: a remeasure of the arm and
-   of the baseline on the same items. Size each arm so that its predicted
-   effect is larger than the noise:
+1. Read the noise before you plan against the eval. When `train_noise` is
+   in your input, it gives how often the same config scores differently
+   on a sample of train items, and `noise_adjusted_wins` is the bar with
+   that noise counted. When `train_noise` is absent, the noise is not
+   known, and the stop rules use a flip rate of 10%. Say in `rationale`
+   which case applies.
+2. Plan each arm so that its effect can show above the noise. Predict a
+   larger effect and say why, or choose a target eval whose
+   `train_detectability` can show the effect you predict:
    [spending the budget](spending-the-budget.md).
-2. When the judge is the source (it gives different verdicts on the same
+3. Use the val gate as the repeat. The gate measures a candidate again,
+   on val items that the arm was not built on. A train win is a candidate
+   until the gate confirms it. When the gate rejects a win with "a gain
+   at val, not clear", read
+   [train wins rejected at validation](dealing-with-train-wins-rejected-at-val.md).
+4. When the judge is the source (it gives different verdicts on the same
    output, or verdicts that disagree with its reasoning):
    [dealing with a saturated eval](dealing-with-a-saturated-eval.md),
    which gives how to read the fires.
-3. When the agent is the source, and the task needs one stable answer for
+5. When the agent is the source, and the task needs one stable answer for
    one input: one arm on a sampling setting, with the trace-level reason:
    [thinking level ladder](../techniques/thinking-level-ladder.md).
-4. When the items that flip are the ones that carry the decision, choose
+6. When the items that flip are the ones that carry the decision, choose
    the target items from the failures that repeat. A failure that repeats
    is a better target than one that comes and goes.
 
 ## What not to do yet
 
+- Do not plan a repeat of a measured arm. A `remeasure` item fills only
+  the items that have no stored row, so on a fully measured run config it
+  returns the same rows. A duplicate run config built only to run its
+  evals again is not allowed.
 - Do not let a decision turn on one or two items. Two items can flip by
   chance alone.
 - Do not plan many small arms on a noisy eval. Each one ends with no
@@ -51,9 +66,9 @@ difference smaller than the noise is not a result, in either direction.
 
 ## Budget
 
-On a small budget, repeats are expensive, so plan fewer arms and give
-each one enough items. On a large budget, a repeat of the baseline early
-in the run shows the noise before the arms need it.
+On a small budget, an arm that ends with no answer is a large part of the
+spend. Put the arms on the noisy eval after the arms whose effect an eval
+can show. On a large budget, the order matters less.
 
 ## Priors
 

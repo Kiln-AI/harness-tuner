@@ -177,6 +177,17 @@ with `phase: "rescreen"` and every result so far in `screening_results`. At
 most 4 rounds per wave (`screen_rounds_left`); after that the plan must
 carry items.
 
+A candidate that changes the model keeps the parent's
+`structured_output_mode` unless its `overrides` name one. Name the new
+model's default (`get_model_details` gives it; `allowed_models` does
+not), unless the candidate tests the output mode. Leave it out when the
+default is absent, `default` or `unknown`. On a parent that attaches a
+tool or a skill, Kiln refuses `function_calling`, `function_calling_weak`,
+and `default` outside Ollama and Docker Model Runner: every call fails.
+When the new model's default is one of them, name `json_schema` if you
+know the model supports it (a probe, an earlier screen), else
+`json_instruction_and_object`.
+
 ```
 {"items": [], "rejected_summary": "...", "open_questions": [],
  "screen": {
@@ -184,7 +195,8 @@ carry items.
      {"id": "s1-1", "label": "flash low",
       "overrides": {"model_name": "gemini_3_8_flash",
                     "model_provider_name": "gemini_api",
-                    "thinking_level": "low"}},
+                    "thinking_level": "low",
+                    "structured_output_mode": "json_schema"}},
      {"id": "s1-2", "overrides": {"thinking_level": "none"}}],
    "round": 1, "target_evals": null, "mode": "stratified",
    "reason": "every allowed model at its lowest two levels"}}
@@ -423,11 +435,12 @@ on long instructions and on the choice of a tool, and the technique for a
 rewrite of an inherited skill).
 
 **Only config failures become fix arms.** Before you pick a lever, read the
-failure class the analyst named for the failing items (`findings`): a
-config failure gets a lever; an eval-data or judge failure gets
-`measure_issue_baseline` or an `open_questions` entry for the eval's owner,
-never an arm, because no config change fixes an eval; an environment
-failure (a tool server, a provider) and noise get nothing until they recur.
+failure class the analyst named for the failing items (in the
+experiment's memory content): a config failure gets a lever; an eval-data
+or judge failure gets `measure_issue_baseline` or an `open_questions`
+entry for the eval's owner, never an arm, because no config change fixes
+an eval; an environment failure (a tool server, a provider) and noise get
+nothing until they recur.
 
 **The expected outputs are the owner's policy.** The task's instructions
 can be shorter than the rules its expected outputs follow. Then the expected
@@ -447,21 +460,21 @@ input with different expected outputs, or an expected output that the
 instructions forbid. Then name the conflict, and still run the arm for the
 rule that most of the expected outputs follow.
 
-**Name the failure class before the lever**. Read
-`references/planner.md` of the `kiln-harness-tuner-knowledge` skill
-before this step: it lists the smells and the playbooks, grouped by kind,
-and says how to use them. For every issue you consider, read its failing
-items' `findings` for the decision point (before / with / after which tool
-call), take the failure to the playbook whose situation fits, and take the
-first step whose condition holds. The decision point names the surface
-the model reads at that moment: before or with a call, that tool's
-description (a new one is a code-tool clone or a wrapper); after a call,
-the tool's response or the prompt; when a skill is chosen, the skill's
-description. When the failure is mechanical (wrong case, id form,
+**Name the failure class before the lever**. Read `references/planner.md` of
+the `kiln-harness-tuner-knowledge` skill before this step: it lists the
+smells and the playbooks, grouped by kind, and says how to use them. For
+every issue you consider, read the decision point (before / with / after
+which tool call) and the failure pattern that the analyst wrote in the
+content of its experiment memories, take the failure to the playbook whose
+situation fits, and take the first step whose condition holds. The decision
+point names the surface the model reads at that moment: before or with a
+call, that tool's description (a new one is a code-tool clone or a wrapper);
+after a call, the tool's response or the prompt; when a skill is chosen, the
+skill's description. When the failure is mechanical (wrong case, id form,
 pagination, floods, unusable errors, text the model does not read at the
 moment it fails), the first arm is a wrapper or a skill restructure, not a
-prompt line. Your input's `max_concurrent_agents` and `lever_costs` are
-the capacity and cost signals (Step 3).
+prompt line. Your input's `max_concurrent_agents` and `lever_costs` are the
+capacity and cost signals (Step 3).
 
 `lever_attempts` (issue id → technique → arms ever opened on that pair,
 ANY outcome: promoted, refuted, failed on infra) is the count behind the
@@ -501,13 +514,15 @@ more, emit valid JSON, produce output) is a `check` probe that no agent
 runs; only "did the output change in the named way" needs the agent.
 
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
-  new_tool | params | …`), with `needs_eval: true` when the issue has no eval
-  yet and `eval_building` is `true` (otherwise the issue is not a candidate —
+  new_tool | params | output_mode | …`), with `needs_eval: true` when the
+  issue has no eval yet and `eval_building` is `true` (otherwise the issue is not a candidate —
   Hard rules; a `smell`, `baseline_audit` or `baseline_judge_copy` issue is
   planned with `needs_eval: false` and an active eval that the change
   serves). `params` is a run-config-only arm — the model's provider
   parameters (thinking level, temperature, top_p) on a clone of the parent
-  with everything else byte-identical. Parameters are an ordinary lever:
+  with everything else byte-identical. `output_mode` is the same kind of
+  arm for `structured_output_mode` alone (the knowledge lever
+  `levers/output_mode.md`). Parameters are an ordinary lever:
   the kickoff guidance must NAME one to exclude it; "do not
   change the tools/eval/corpus" does not. **Thinking is a ladder**: start from the baseline's level (the minimum viable one)
   and raise it one rung per arm, only once the baseline measurement shows
@@ -736,12 +751,14 @@ forever behind marginal cheap wins.
 **The wildcard slot and the deferral rule.** One slot in
 every wave that has three or more slots goes to the wildcard candidate
 from Step 1, marked `"wildcard": true` on its `FixWork`. It is exempt from
-the "two text arms then change surface" rule (it IS the surface change) and
-from the lean-target default (measure every active eval on it — a big swing
-needs its guards). When its mechanism is unverified, its slot may instead
-hold the `probe` that verifies it, and the wildcard builds next wave on the
-answer. **An idea may be deferred once.** State the deferral in
-`rejected_summary` as `deferred (1st): <idea> — <reason>`; the next wave
+the "two text arms then change surface" rule (it IS the surface change).
+It is NOT exempt from the lean-target default (below): like every arm, it
+measures its target evals and only the couplings it states a reason to
+fear, and the val gate measures the rest. When its mechanism is
+unverified, its slot may instead hold the `probe` that verifies it, and
+the wildcard builds next wave on the answer. **An idea may be deferred
+once.** State the deferral in `rejected_summary` as
+`deferred (1st): <idea> — <reason>`; the next wave
 must probe it or build it, and `deferred (3rd)` is a plan the skill
 forbids — if you cannot build it, write the `dead_end` that says why and
 retire it, or raise the blocker in `open_questions`. Deferral counts carry
@@ -865,10 +882,12 @@ Per experiment item:
 - **FixWork** carries `hypothesis` + `predicted_effect` (required discipline:
   a result you didn't predict is exploration, not an experiment).
   **`technique` is the lever's short name** (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, or a name of a few words): at most
+  `tool_config`, `new_tool`, `params`, `output_mode`, or a name of a few
+  words): at most
   60 characters, one line. It is the id of a lever document of the
   `kiln-harness-tuner-knowledge` skill where one exists (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, `model`), it is the key of
+  `tool_config`, `new_tool`, `params`, `output_mode`, `model`), it is the
+  key of
   `lever_attempts`, and the experiment record's label carries it. Put what
   the build does in the `hypothesis` (the record keeps its first 900
   characters) and in `cohesion_notes`. When the arm applies a technique of
@@ -1005,6 +1024,32 @@ A win a val gate already passed over — `— REJECTED AT VAL`, no
 **re-submission**: never re-propose that rc alone, and never re-propose the
 same combination that already lost. A genuinely different combination is a
 new experiment with its own record (val-gate carve-out below).
+
+**Read why the gate passed it over.** Code writes one metric-free line on
+the record, `- rejected at the val gate <MM-DD> vs baseline <rc> — <reason>`.
+The reason is one of:
+
+- `passed over: not promoted; rc <id> was promoted instead.` — another
+  candidate won the same gate. The line does not say how this win did on
+  val. It stays an eligible ingredient.
+- `an eval dropped at val: down beyond doubt on eval <id>, …` — the
+  change broke the evals it names. Measure each named eval on train in
+  the next arm that builds on it. When a named eval is one the arm set out
+  to move (its experiment record and your plan say which), the train gain
+  reversed on new items: read it as "no gain".
+- `no gain at val: no targeted eval improved.` — the train win did not
+  carry to new items. Treat it as a weak ingredient.
+- `a gain at val, not clear: a targeted eval improved, but not beyond
+  doubt.` — the val split can be too small to confirm a real gain.
+- `not promoted at val; details in the run report.` — code could not tell
+  the reason.
+
+A record written before these reasons ends `— did not beat it; details in
+the run report.` Its reason is not known. A `— PROMOTED` record with the
+same `<MM-DD>` makes "passed over" likely. A block for copied eval text
+has its own `- blocked at the val gate …` line (Gate blocks). What to try
+for each reason is in `references/playbooks/dealing-with-train-wins-rejected-at-val.md`
+of the `kiln-harness-tuner-knowledge` skill.
 
 - Merge when **several stable wins** have pooled; never while the queue holds
   only marginal wins. Value = overlap-discounted combined gain; cost includes

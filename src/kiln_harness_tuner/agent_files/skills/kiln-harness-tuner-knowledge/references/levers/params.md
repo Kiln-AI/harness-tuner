@@ -20,8 +20,10 @@ three of them, in `run_config_properties`:
 - `temperature`: from 0 to 2.
 - `top_p`: from 0 to 1.
 
-The model and the provider are the lever [model](model.md). The prompt,
-the tools and the skills stay as the parent has them.
+The model and the provider are the lever [model](model.md). The output
+mode (`structured_output_mode`) is the lever
+[output_mode](output_mode.md). The prompt, the tools and the skills stay
+as the parent has them.
 
 ## How the tuner changes it
 
@@ -58,8 +60,8 @@ Rules of the object:
 - A provider can refuse a setting. One failed call shows it.
   `get_model_details` gives `takes_temperature` for each provider entry,
   from models.dev: `false` says that the model does not take a temperature.
-- The output mode (`structured_output_mode`) is not part of this lever. It
-  passes through the run config as the parent has it.
+- The output mode is not part of this lever. It has its own lever,
+  [output_mode](output_mode.md).
 - Kiln has no setting for `max_tokens`, a seed, `top_k` or penalties.
 
 ## See also

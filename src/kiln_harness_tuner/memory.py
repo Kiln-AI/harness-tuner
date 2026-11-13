@@ -78,6 +78,7 @@ from kiln_harness_tuner.memory_schema import (
     OpenUnknownContent,
     RecordKind,
     SetupHead,
+    ValRejection,
     baseline_chain,
     baseline_promoted_overview,
     baseline_rc_tag,
@@ -1276,15 +1277,18 @@ class MemoryWriter:
             exp_mem_id, {"content": _append_experiment_content(record.content, line)}
         )
 
-    async def note_rejection(self, exp_mem_id: str, baseline_rc_id: str) -> None:
+    async def note_rejection(
+        self, exp_mem_id: str, baseline_rc_id: str, reason: ValRejection
+    ) -> None:
         """The rejection's content line — frozen format, METRIC-FREE by
-        construction: val numbers stay confined to the `val` record,
-        so this line carries status intent only and points at the run report
-        for the numbers."""
+        construction: val numbers stay confined to the `val` record, so
+        this line carries the code-chosen reason only (`ValRejection`: a
+        kind, rc ids, eval ids). Skipped when a rejection line is already
+        there, an old one without a reason included."""
         record = await self._get_experiment(exp_mem_id)
         if record.rejection_noted:
             return
-        line = rejection_note(self._date(), baseline_rc_id)
+        line = rejection_note(self._date(), baseline_rc_id, reason)
         await self._patch(
             exp_mem_id, {"content": _append_experiment_content(record.content, line)}
         )

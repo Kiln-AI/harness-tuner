@@ -72,9 +72,10 @@ If the request fits none of these, ask the person before you change a file.
 4. If a technique covers it, extend that technique: add to `When to use`,
    `How` or `Priors`.
 5. If none covers it, add a technique (4.3).
-6. Decide if a playbook or a smell must link to it (section 5).
-7. If the new text disagrees with existing text, stop (section 7).
-8. Finish (section 9).
+6. If the source is not public, apply section 8 to the text you add.
+7. Decide if a playbook or a smell must link to it (section 5).
+8. If the new text disagrees with existing text, stop (section 7).
+9. Finish (section 9).
 
 Reason: one approach with two documents gives two answers to one question.
 The search in step 3 prevents a duplicate.
@@ -139,6 +140,11 @@ decide the rank.
 3. Do not delete the file.
 4. Finish (section 9).
 
+A dormant technique can end with no links to it. The index leaves it out,
+and the check allows a dormant technique that nothing links to. Each other
+rule still applies: a playbook that loses its last step, or a smell that
+loses its last remedy, fails the check.
+
 Reason: a dormant technique stays in the system, so a reader can see that it
 was tried and why it is not suggested. A deleted file loses that history.
 
@@ -183,10 +189,17 @@ These rules apply to every document that a loop agent reads. A test checks
 the structure. It cannot check these rules, so you apply them, and the audit
 (section 10) looks for each one.
 
-1. **Experiments decide.** Do not write a rule of the form "you must do X".
-   Say what to try, in what order, and under which conditions. Reason: a
-   measured result on the target is final. A rule that overrides it makes
-   the loop ignore its own evidence.
+1. **Documents are ideas to try.** Do not write a rule of the form "you
+   must do X". Say what to try, in what order, and under which conditions.
+   The reader fits each suggestion to its agent: it knows more about that
+   agent than the document does. A measurement on the target outranks a
+   document only when it is clearly past the noise. The exception is the
+   safety and integrity rules of the lever documents (for example: never
+   attach a tool that can reach the Kiln server). They are hard limits that
+   no measurement overrides. Reason: what works varies from agent to agent,
+   and a rule that overrides a clear result makes the loop ignore its own
+   evidence. The knowledge skill's `SKILL.md` says this to the loop agents,
+   in "How to read these documents".
 2. **State conditions, not defaults.** Each recommendation states the
    condition under which it holds. Reason: the research found a measured
    case where each "almost always" claim loses.
@@ -243,12 +256,17 @@ for the change.
 A prior is one real case in which a technique was used. It is one sample,
 not a universal lesson, and its text says so.
 
-- A prior never names a client, and never holds client data.
-- **Before a prior is committed, a person approves it**, unless it is
+The approval rule applies to a prior, and to any other text that you take
+from a case that is not public: a step in `How`, a condition in
+`When to use`, a case study.
+
+- A prior never names a client, and never holds client data. The same is
+  true for any text from a case that is not public.
+- **Before the text is committed, a person approves it**, unless it is
   clearly public information: a published paper or post, with its link.
-  Show the person the exact text of the prior and ask. Do not commit first
-  and ask at review. Reason: a result can be sensitive when no entity is
-  named, and a pull request review comes after the text is in the history.
+  Show the person the exact text and ask. Do not commit first and ask at
+  review. Reason: a result can be sensitive when no entity is named, and a
+  pull request review comes after the text is in the history.
 - Never add a prior from the run's own target or from the moderation demo
   (content rule 6).
 - Before you write a number from a public source, open the source and check
@@ -267,7 +285,7 @@ Run these commands, in order:
 
 ```
 uv run python -m kiln_harness_tuner.knowledge build
-uv run pytest tests/test_knowledge.py tests/test_knowledge_checks.py tests/test_backlog.py
+uv run pytest
 uv run ruff check
 uv run ruff format --check
 ```
@@ -286,7 +304,8 @@ The audit covers what a test cannot. It changes nothing. It returns a list.
 
 For each document, report each of these, with the file and the line:
 
-- a rule of the form "you must" (content rule 1);
+- a rule of the form "you must" (content rule 1), other than a hard limit
+  of a lever document;
 - a recommendation with no condition (content rule 2);
 - a `Confidence` section that states no basis;
 - a `reviewed` date older than six months;

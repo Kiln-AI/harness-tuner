@@ -205,6 +205,11 @@ flowchart TD
       the planner.
    3. The objective's rule decides (see the sections below). The winner becomes
       the new baseline. The other candidates are stamped `— REJECTED AT VAL`.
+      Code adds one line with the reason and no numbers: passed over (another
+      candidate won), an eval dropped beyond doubt (named), no gain on the
+      target, a gain on the target that is not beyond doubt, or "not promoted
+      at val" when code cannot tell. A candidate blocked in step 2 keeps its
+      block line instead.
 6. **The next wave** starts from the baseline, which can now be new. A new
    baseline gets its own smell step.
 

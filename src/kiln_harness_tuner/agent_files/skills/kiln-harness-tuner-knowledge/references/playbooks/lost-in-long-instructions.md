@@ -1,7 +1,7 @@
 ---
 title: Lost in long instructions
 description: The agent misses a part of a long prompt or of a one-file skill. Progressive disclosure when the model reads skills, a prompt structure when it does not. A probe first.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: failure
 applies_to: all
 ---
@@ -70,8 +70,12 @@ technique document covers it yet.
   mode is a lever of its own, and it can break other items.
 - Do not let a router narrate an order of reads ("load X first"). It
   changes the order of the calls, and that can change items that the arm
-  was not aimed at. Measure a skill bundle against every active eval, not
-  only its target.
+  was not aimed at.
+- Do not measure a skill bundle on every eval before it has fixed its
+  target. Measure its target, and add an eval only when you have a stated
+  reason to expect the bundle to break it. When it fixes its target, the
+  val gate measures every eval before a promotion:
+  [spending the budget](spending-the-budget.md).
 
 ## Budget
 

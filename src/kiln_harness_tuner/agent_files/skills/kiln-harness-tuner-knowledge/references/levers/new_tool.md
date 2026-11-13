@@ -1,7 +1,7 @@
 ---
 title: Code tools
 description: Sandboxed Python code tools for the subject task - a new tool, a clone of a code tool with a new description, or a wrapper of any attached tool.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 gateway_ops:
   - list_code_tools
   - get_code_tool
@@ -74,6 +74,12 @@ Rules of the object:
   searches each build for copies of train content and of eval text.
 - The tool's own description is the one text that the model reads at the
   moment it decides to call the tool.
+- When the parent's output mode sends the schema as a tool
+  (`function_calling`, `function_calling_weak`, or `default` outside Ollama
+  and Docker Model Runner), Kiln refuses every call once a tool or a skill
+  is attached. Set the mode on the same run config by the fallback of
+  [model](model.md), step 4, and list it in `change`. The lever
+  [output_mode](output_mode.md) gives the modes.
 
 ## See also
 

@@ -1,7 +1,7 @@
 ---
 title: The system prompt
 description: The prompt text that a run config sends to the model, and its chain-of-thought instructions. A change is a new saved prompt and a new run config.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
   - list_prompts
@@ -52,6 +52,9 @@ Rules of the object:
 - The prompt is in the context of every call, so each line costs tokens on
   every item. A long prompt has its own smell:
   [very long prompt](../smells/very-long-prompt.md).
+- The input transform (`input_transform`) is out of scope. It is the
+  template that turns the task input into the first user message. No lever
+  covers it: copy it as the parent has it.
 
 ## See also
 

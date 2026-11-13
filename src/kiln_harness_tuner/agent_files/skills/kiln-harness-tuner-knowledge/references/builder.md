@@ -12,9 +12,16 @@ Use this file to build the technique of your work item.
    operations, the rules of the object and the limits.
 3. **Use the check of the technique in your smoke.** A change that did not
    reach the agent is not built.
+4. **Fit the technique to this agent.** Read it for the spirit of its
+   guidance, as [the knowledge skill](../SKILL.md) says in "How to read
+   these documents". The hard limits in the lever documents do not change.
 
 The procedure of your role stays in the `kiln-harness-tuner-experiment-build`
 skill. This file adds what to build, not how a build is done.
+
+The column "Applies to" gives the task shapes a document applies to. A
+document applies only when the task has every shape in its list. `all`
+means that the shape does not matter.
 
 ## Techniques
 
@@ -60,6 +67,7 @@ Dormant techniques are not listed.
 |---|---|---|
 | [model](levers/model.md) | `get_run_config`, `list_models`, `get_model_details`, `list_providers`, `create_run_config` | The model and the provider that a run config names, chosen from what the run's model policy allows. Existing fine-tunes are candidates too. |
 | [new_tool](levers/new_tool.md) | `list_code_tools`, `get_code_tool`, `get_tool_definition`, `trust_code_tools`, `test_code_tool`, `create_code_tool`, `create_run_config`, `archive_code_tool` | Sandboxed Python code tools for the subject task - a new tool, a clone of a code tool with a new description, or a wrapper of any attached tool. |
+| [output_mode](levers/output_mode.md) | `get_run_config`, `get_model_details`, `create_run_config` | How Kiln asks the model for output that matches the task's output schema - the run config's structured_output_mode. A change is a model-level swap. |
 | [params](levers/params.md) | `get_run_config`, `get_model_details`, `create_run_config` | The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round. |
 | [prompt](levers/prompt.md) | `get_run_config`, `list_prompts`, `get_prompt_text`, `create_prompt`, `create_run_config` | The prompt text that a run config sends to the model, and its chain-of-thought instructions. A change is a new saved prompt and a new run config. |
 | [skill](levers/skill.md) | `list_skills`, `get_skill`, `get_skill_content`, `create_run_config`, `archive_skill` | Skill bundles that a run config attaches as tools - a new skill, a new version of an inherited skill, or a skill attached or dropped on a new run config. |

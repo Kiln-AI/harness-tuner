@@ -55,7 +55,8 @@ Layout of a record, by kind:
                  content   <opening (FixOpening | MergeOpening)>
                            + `rc:` / `change:` when the build lands
                            → analyzer body + carried CARRIED_KEYS lines
-                           + `- rejected at the val gate …` after a lost val gate
+                           + `- rejected at the val gate … — <reason>` after a
+                             lost val gate (`ValRejection`)
     constraint   overview  OPEN: <question>          (an open unknown)
                  content   OpenUnknownContent (five lines)
     baseline     tags      baseline · rc_<id>        (the pointer is the tag)
@@ -844,10 +845,11 @@ def ingredient_line(memory_id: str, rc_id: str) -> str:
     return f"- ingredient: {memory_id} (rc {rc_id})"
 
 
-# The val-gate rejection's content line — metric-free, pointing at the run
-# report for the numbers. Its stable head is the skip-if-present
-# key: a PREFIX, because the line carries the date and a crash-retry
-# crossing midnight would otherwise append a second copy.
+# The val-gate rejection's content line — metric-free, with a code-chosen
+# reason (`ValRejection`); the numbers stay in the run report. Its stable
+# head is the skip-if-present key: a PREFIX, because the line carries the
+# date and a crash-retry crossing midnight would otherwise append a second
+# copy. Old lines (`— did not beat it; …`) share the prefix.
 REJECTION_LINE_PREFIX = "- rejected at the val gate "
 # The HELD stamp's content line — same prefix discipline.
 HELD_LINE_PREFIX = "- held at the val gate "
@@ -958,10 +960,63 @@ def experiment_label_prefix(label: str, technique: str) -> str:
     return f"{label} ({technique}): "
 
 
-def rejection_note(date: str, baseline_rc_id: str) -> str:
+class ValRejectionKind(StrEnum):
+    """Why the val gate passed a candidate over. Code chooses the kind from
+    the gate's decision and the candidate's val table; an agent never does.
+    A block by the integrity check and a HELD candidate have lines of their
+    own and are not kinds here."""
+
+    PASSED_OVER = "passed over"  # another candidate won the same gate
+    EVAL_DROPPED = "eval dropped"  # a row went down beyond doubt
+    NO_GAIN = "no gain"  # no targeted row improved at all
+    GAIN_NOT_CLEAR = "gain not clear"  # a target improved, not beyond doubt
+    NOT_PROMOTED = "not promoted"  # code cannot tell the reason
+
+
+@dataclass(frozen=True)
+class ValRejection:
+    """The reason on a rejection line. Metric-free by construction: it
+    holds a kind, rc ids and eval ids, and never a number, an item id, a
+    trace or the promotion agent's prose — the experiment record it goes on
+    is train-readable."""
+
+    kind: ValRejectionKind
+    promoted_rc_id: str | None = None  # PASSED_OVER: the rc the gate promoted
+    dropped_eval_ids: tuple[str, ...] = ()  # EVAL_DROPPED: the evals that
+    #   went down beyond doubt. No target or guard label: the planner also
+    #   lists guards in `evaluation_target`, so code cannot tell them apart
+
+
+def _rejection_reason_text(reason: ValRejection) -> str:
+    kind = reason.kind
+    if kind is ValRejectionKind.PASSED_OVER and reason.promoted_rc_id:
+        return (
+            f"passed over: not promoted; rc {one_line(reason.promoted_rc_id)} "
+            "was promoted instead."
+        )
+    dropped = [one_line(e) for e in reason.dropped_eval_ids]
+    if kind is ValRejectionKind.EVAL_DROPPED and dropped:
+        return (
+            "an eval dropped at val: down beyond doubt on eval "
+            + ", ".join(dropped)
+            + "."
+        )
+    if kind is ValRejectionKind.NO_GAIN:
+        return "no gain at val: no targeted eval improved."
+    if kind is ValRejectionKind.GAIN_NOT_CLEAR:
+        return (
+            "a gain at val, not clear: a targeted eval improved, but not beyond doubt."
+        )
+    return "not promoted at val; details in the run report."
+
+
+def rejection_note(date: str, baseline_rc_id: str, reason: ValRejection) -> str:
+    """The rejection's content line. Records written before the reasons
+    carry `— did not beat it; details in the run report.` after the
+    baseline; `has_rejection_note` reads both, by the prefix."""
     return (
         f"{REJECTION_LINE_PREFIX}{date} vs baseline {baseline_rc_id} "
-        "— did not beat it; details in the run report."
+        f"— {_rejection_reason_text(reason)}"
     )
 
 

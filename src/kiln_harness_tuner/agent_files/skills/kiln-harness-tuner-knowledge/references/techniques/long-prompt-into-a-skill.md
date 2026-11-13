@@ -1,7 +1,7 @@
 ---
 title: Long prompt into a skill
 description: Move the topics of a long prompt into a skill by progressive disclosure - a short prompt, a router body, one reference file per topic, a path index.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - skill
@@ -79,13 +79,14 @@ Smoke on two or three train items that need different topics. In each
 trace, find the read of the right reference file before the answer. When
 the skill is never opened, the change did not reach the agent.
 
-A skill bundle is measured against every active eval, not only its target.
 A router changes the order of the agent's calls, and that can break another
-criterion.
+criterion. Measure the bundle on its target evals, and add an eval only when
+you have a stated reason to expect the bundle to break it. When it fixes its
+target, the val gate measures every eval before a promotion.
 
 ## Budget
 
-Medium cost: a bundle to write, and a measurement on every active eval. On
+Medium cost: a bundle to write, and a measurement on its target evals. On
 a small budget, take it when a smell of a long prompt or a failure pattern
 of lost instructions names it, and after a probe says that the model reads
 skills.

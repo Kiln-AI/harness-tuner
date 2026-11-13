@@ -336,9 +336,13 @@ one a location and a path from an entry file.
 These rules apply to every document that a loop agent reads. The maintenance
 skill enforces them, and the tests check what a test can check.
 
-1. **Experiments decide.** No document states a rule of the form "you must
-   do X". A document says what to try, in what order, and under which
-   conditions. A measured result is final. A tie can be settled from the
+1. **Documents are ideas to try.** No document states a rule of the form
+   "you must do X". A document says what to try, in what order, and under
+   which conditions. The reader fits each suggestion to its agent's goal,
+   tools and task. A measured result outranks a document only when it is
+   clearly past the noise (the stop rules, the val gate). The safety and
+   integrity rules of the lever documents are the exception: they are hard
+   limits that no measurement overrides. A tie can be settled from the
    knowledge, or from intuition.
 2. **State conditions, not defaults.** The research found a measured case
    where each "almost always" claim loses. A recommendation states the

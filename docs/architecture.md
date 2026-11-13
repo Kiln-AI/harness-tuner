@@ -611,12 +611,17 @@ zero numbers:
 
 1. A regressed issue's status flag — a `FIXED:` issue that repros under the new
    baseline goes back to open with a provenance line.
-2. `— REJECTED AT VAL <date>` on a candidate the gate passed over.
+2. `— REJECTED AT VAL <date>` on a candidate the gate passed over, with one
+   `- rejected at the val gate …` line. Code chooses its reason
+   (`ValRejection`): passed over for the winner, the eval ids that dropped
+   beyond doubt, no targeted gain, a targeted gain not beyond doubt, or "not
+   promoted at val" when code cannot tell. Never a number, an item id, a
+   trace or the promotion agent's prose.
 3. `— PROMOTED <date>` on the winner's experiment record.
 
-Each discloses one bit. The planner may re-target an issue or decline to
-re-submit a run config unchanged; every subsequent measurement is back on
-train.
+Each discloses a status, never a measurement. The planner may re-target an
+issue or decline to re-submit a run config unchanged; every subsequent
+measurement is back on train.
 
 **Enforced in code,** at four layers, so that one gap is not
 a leak:
@@ -828,7 +833,7 @@ successful on train.
    val gate <MM-DD>: …` line with the reasons, and adds the block to
    `BatchPlanInput.gate_blocks` for every later planner of the run and to
    `RunStatus.gate_blocks` for the report. The rejection writer then skips
-   that candidate: "did not beat it" would be false. With the build-time
+   that candidate: its block line gives its reason. With the build-time
    judge-copy check in place, check (a) is the final check, for a candidate
    whose evals changed after its build.
    **Only the val-free part travels.** The planner is a train-side agent,
@@ -850,7 +855,9 @@ successful on train.
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
    winner's `— PROMOTED` stamp, then one `— REJECTED AT VAL` stamp per
-   candidate passed over.
+   candidate passed over, with its reason line. With no winner, the
+   rejection stamps and their reason lines are the only writes: no issue
+   record changes, because the baseline did not change.
 
 Every candidate's table carries `errors` — every hole in its val assembly — and
 `ineligible`. A candidate whose fill failed on either side, or whose coverage
@@ -2045,7 +2052,7 @@ matter, and its directory gives its type:
 
 | Type | Directory | What it is |
 |---|---|---|
-| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `model`). |
+| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `output_mode`, `model`). |
 | Technique | `references/techniques/` | One optimisation: when to use it and when not, its alternatives, how, a cheap check that it took effect, its cost, what to do when it does not move an eval, priors and confidence. It names the levers it uses. |
 | Playbook | `references/playbooks/` | How to solve one problem or reach one goal, as an ordered list of techniques, each with its condition. Its kind is `goal`, `order`, `failure`, `eval` or `design`. |
 | Smell | `references/smells/` | An issue in the design of the agent, true whether an eval passes or fails: how to recognise it, how to confirm it, who can detect it, and at least one remedy. |
@@ -2084,15 +2091,16 @@ are held to.
 `schema.py` fixes the task shapes, the required sections of each type, the
 size limits (in characters: a lever 6,000, a technique 12,000, a playbook
 8,000, a smell 4,000, a sub-file 20,000) and the depth limit: every file is
-reachable from an entry file within `MAX_DEPTH` (5) links. Other rules: each
-link resolves inside the skill; each lever names gateway operations that
-exist; each lever a technique names has a document; each playbook step links
-a technique or a playbook; each smell has a remedy; each smell that names a
-code detector names a registered one, and each registered detector names a
-smell that exists; each generated block matches the files; no file is
-outside the layout. The loader never raises for a bad document: each fault
-is a problem with its rule id. At run time the loop uses the loader only to
-check smell ids.
+reachable from an entry file within `MAX_DEPTH` (5) links. A dormant
+technique, and its sub-files, may have no chain of links from an entry file.
+Other rules: each link resolves inside the skill; each lever names gateway
+operations that exist; each lever a technique names has a document; each
+playbook step links a technique or a playbook; each smell has a remedy; each
+smell that names a code detector names a registered one, and each registered
+detector names a smell that exists; each generated block matches the files;
+no file is outside the layout. The loader never raises for a bad document:
+each fault is a problem with its rule id. At run time the loop uses the
+loader only to check smell ids.
 
 ### 18.3 The maintenance skill and the backlog
 

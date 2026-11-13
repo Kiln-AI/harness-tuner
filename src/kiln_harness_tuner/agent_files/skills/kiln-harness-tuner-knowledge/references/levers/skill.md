@@ -1,7 +1,7 @@
 ---
 title: Skills
 description: Skill bundles that a run config attaches as tools - a new skill, a new version of an inherited skill, or a skill attached or dropped on a new run config.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 gateway_ops:
   - list_skills
   - get_skill
@@ -63,6 +63,12 @@ Rules of the object:
   train content.
 - Whether a model opens a skill depends on the model. A probe can answer it
   for this model before a skill arm is measured.
+- When the parent's output mode sends the schema as a tool
+  (`function_calling`, `function_calling_weak`, or `default` outside Ollama
+  and Docker Model Runner), Kiln refuses every call once a tool or a skill
+  is attached. Set the mode on the same run config by the fallback of
+  [model](model.md), step 4, and list it in `change`. The lever
+  [output_mode](output_mode.md) gives the modes.
 
 ## See also
 

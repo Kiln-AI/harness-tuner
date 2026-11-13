@@ -62,7 +62,7 @@ type, in the order given. Other H2 sections can follow the required ones.
 |---|---|---|
 | `title` | string | 3 to 60 characters, one line |
 | `description` | string | 40 to 200 characters, one line. It is the text of the index row, so it must let an agent decide whether to open the file. |
-| `reviewed` | date | `YYYY-MM-DD`. Not in the future. |
+| `reviewed` | date | `YYYY-MM-DD`. Not after the UTC date plus one day, so a document dated "today" in any time zone passes. |
 
 ### 3.2 Task shapes
 
@@ -274,7 +274,10 @@ both.
 - The roots are the five role entry files and `technique-index.md`.
 - A file is reachable when a chain of Markdown links leads to it from a
   root.
-- **Every file** under `references/` must be reachable.
+- **Every file** under `references/` must be reachable, with one exception:
+  a dormant technique may have no inbound link. The index leaves it out, and
+  the maintenance skill removes the links to it when it becomes dormant. Its
+  sub-files are reachable through it.
 - **The depth limit is 5 links** from the nearest root. The longest designed
   chain is: entry file, smell, playbook, technique, lever (4). A sub-file
   adds 1.
@@ -378,11 +381,12 @@ smell id.
 | `front-matter` | Front matter is present, parses, and fits the model |
 | `encoding` | The file is UTF-8 text (load records it, and reads nothing else of the file) |
 | `id` | The file name fits the id pattern |
-| `sections` | The required sections are present, in order, and not empty |
+| `sections` | The required sections are present, in order, and not empty. An HTML comment is not content. |
+| `placeholder` | No `{{` (template text) outside a fence, the front matter included |
 | `size` | The file is inside its size limit |
 | `shape` | Each `applies_to` value is in `TASK_SHAPES` |
 | `link` | Each internal link resolves |
-| `reachable` | Each file is reachable from a root |
+| `reachable` | Each file is reachable from a root, or is a dormant technique or one of its sub-files |
 | `depth` | Each file is inside `MAX_DEPTH` |
 | `technique-lever-ids` | Each value in a technique's `levers` is the id of a lever document |
 | `lever-ops` | Each `gateway_ops` value is a gateway operation |
@@ -475,6 +479,8 @@ mapping, so the two packages do not depend on each other in a circle.
 - `test_a_heading_inside_a_fence_is_not_a_section`
 - `test_a_link_inside_a_fence_is_not_a_link`
 - `test_a_dormant_technique_is_left_out_of_the_index`
+- `test_a_dormant_technique_may_have_no_link`
+- `test_the_sub_files_of_a_dormant_technique_are_reachable_through_it`
 - `test_render_blocks_is_stable`
 - `test_build_rewrites_only_between_the_markers`
 - `test_load_records_a_problem_and_does_not_raise`
