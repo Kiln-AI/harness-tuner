@@ -61,7 +61,8 @@ for an id, a body on GET, one call per page or per item, a list that
 floods the context, an error body the model cannot act on, text the model
 does not read at the moment it matters), reach for a template in
 [references/wrappers/README.md](references/wrappers/README.md) BEFORE any
-prompt edit — the lever ladder's first rule. Eight complete `run()` modules,
+prompt edit — the knowledge skill's playbook "change the surface, not the
+words". Eight complete `run()` modules,
 one per failure class, each tested by `tests/test_wrapper_templates.py`
 against a stub of `kiln.tools`:
 

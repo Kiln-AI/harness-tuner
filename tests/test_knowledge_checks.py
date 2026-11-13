@@ -577,6 +577,29 @@ def test_no_prior_is_accepted(tree):
     assert tree.problems() == []
 
 
+PLAYBOOK_PRIOR = (
+    "\n## Priors\n\n- **A test agent.** One step was tried. It worked.\n"
+    "  Source: public. 2026-01-01.\n"
+)
+
+
+def test_a_playbook_prior_is_accepted(tree):
+    """A playbook has no required `Priors` section, and an optional one after
+    `Budget` in the form of a technique's passes."""
+    tree.edit(
+        "playbooks/p-one.md",
+        "with the budget.\n",
+        "with the budget.\n" + PLAYBOOK_PRIOR,
+    )
+    assert tree.problems() == []
+
+
+def test_playbook_priors_is_reported(tree):
+    bad = PLAYBOOK_PRIOR.replace("Source: public.", "Source: a friend.")
+    tree.edit("playbooks/p-one.md", "with the budget.\n", "with the budget.\n" + bad)
+    _only(tree, "playbook-priors")
+
+
 def test_alternatives_is_reported(tree):
     tree.edit(
         "techniques/t-one.md",

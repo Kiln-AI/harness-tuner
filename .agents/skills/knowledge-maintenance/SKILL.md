@@ -256,6 +256,10 @@ not a universal lesson, and its text says so.
 - The form of a prior is in the `Priors` comment of
   [templates/technique.md](templates/technique.md). Its `Source:` is
   `public`, `own experiment` or `anonymised`. A test checks that value.
+- A prior that is about a problem or an order of work, not one technique,
+  goes on the playbook. A playbook has no `Priors` section in its
+  template: add `## Priors` after `## Budget`, in the same form. The same
+  test checks it.
 
 ## 9. Finish every change
 

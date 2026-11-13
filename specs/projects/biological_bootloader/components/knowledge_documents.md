@@ -178,11 +178,15 @@ Required sections:
 4. `## Budget` — how the order changes with the budget, or the line
    `The order does not change with the budget.`
 
+A playbook can have an optional `## Priors` section after `## Budget`, in
+the form of section 3.7. The V1 coverage document gives some playbooks a
+prior.
+
 Maximum size: 8,000 characters.
 
 Checks on the body: `What to try, in order` has at least one link to a file
 in `techniques/` or `playbooks/`, and each link there points to one of those
-two directories.
+two directories. A `Priors` section, when present, follows section 3.7.
 
 ### 3.6 Smell (`smells/`)
 
@@ -219,7 +223,8 @@ Checks:
 
 ### 3.7 Priors
 
-A prior is one list item in the `Priors` section of a technique:
+A prior is one list item in the `Priors` section of a technique, or of a
+playbook (section 3.5):
 
 ```
 - **<shape of the agent, without a name>.** <what was tried>. <what happened>.
@@ -383,7 +388,8 @@ smell id.
 | `lever-ops` | Each `gateway_ops` value is a gateway operation |
 | `technique-lever-links` | The `How` section links the lever documents of `levers`, and only those |
 | `technique-stance` | `If it does not move the evals` starts with one of the three phrases |
-| `technique-priors` | Each prior has a valid `Source:` |
+| `technique-priors` | Each prior of a technique has a valid `Source:` |
+| `playbook-priors` | Each prior of a playbook, when it has a `Priors` section, has a valid `Source:` |
 | `alternatives` | Each link in `Alternatives` is a technique |
 | `playbook-steps` | `What to try, in order` links at least one technique or playbook, and only those |
 | `smell-remedies` | `Remedies` links at least one playbook or technique, and only those |

@@ -654,7 +654,7 @@ class MemoryWriter:
 
     async def lever_attempts(self) -> dict[str, dict[str, int]]:
         """issue id → technique → number of experiment arms ever opened on
-        that (issue, lever), any outcome (the lever ladder's
+        that (issue, lever), any outcome (the planner's
         "two failed text arms → change surface class" rule needs the count).
         Read off `ExperimentView.issue_id` / `.lever`; a record from before
         those lines existed is skipped, never guessed. Merge arms

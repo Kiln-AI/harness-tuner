@@ -60,8 +60,8 @@ invocation. The shape that works is a short body mapping 6–8 topic files.
 
 ### When the model is lost in a long prompt or one big skill
 
-The lever ladder's row for this: the FIRST arm is structural, not a
-rewrite of the text.
+The knowledge skill's playbook for this failure (lost in long
+instructions) makes the FIRST arm structural, not a rewrite of the text.
 
 1. Cut the long text into topics — one `references/<topic>.md` per
    coherent subject, each self-contained (a reader who opens only that file

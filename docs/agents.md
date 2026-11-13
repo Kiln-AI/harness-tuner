@@ -159,8 +159,9 @@ plan carries probes only.
 
 **Skill:** `kiln-harness-tuner-batch-selection` — candidate generation, value and cost
 weighing, batch cohesion, eval economics and detectability, anti-starvation,
-merge timing, the wrap-up wave, and the lever ladder in
-`references/lever-ladder.md`.
+merge timing and the wrap-up wave. What to try for each smell, failure and
+goal is in the knowledge skill, `kiln-harness-tuner-knowledge`: the
+template names its entry file, `references/planner.md`.
 
 **Blame.** The most consequential agent in the loop, and the one whose failures
 are least obvious. A plan that spends every slot on one surface; a plan that

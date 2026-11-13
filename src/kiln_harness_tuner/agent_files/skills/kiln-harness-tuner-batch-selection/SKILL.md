@@ -1,7 +1,7 @@
 ---
 name: kiln-harness-tuner-batch-selection
 description: |
-  The Kiln Harness Tuner batch-selection (planner) agent's procedure: read memory + the baseline run-config, generate and weigh experiment candidates, assemble one wave's batch, and return a BatchPlan. Load when dispatched as the Kiln Harness Tuner batch-selection agent (template `batch_plan.md` — input is a BatchPlanInput with guidance, baseline rc id, should_wrap_up, eval_sizes, lever_attempts, prior_rejected_summary). Covers candidate generation, value/cost weighing, batch cohesion, eval economics + detectability + anti-starvation, triaging `UNMEASURED:` issues with `measure_issue_baseline` items, merge timing, wrap-up waves, rejected_summary + open_questions conventions, and the baseline-record prohibition.
+  The Kiln Harness Tuner batch-selection (planner) agent's procedure: read memory + the baseline run-config, generate and weigh experiment candidates, assemble one wave's batch, and return a BatchPlan. Load when dispatched as the Kiln Harness Tuner batch-selection agent (template `batch_plan.md` — input is a BatchPlanInput with guidance, baseline rc id, should_wrap_up, eval_sizes, lever_attempts, prior_rejected_summary). Covers candidate generation, value/cost weighing, batch cohesion, eval economics + detectability + anti-starvation, triaging `UNMEASURED:` issues with `measure_issue_baseline` items, merge timing, wrap-up waves, rejected_summary + open_questions conventions, and the baseline-record prohibition. What to try for each smell, failure and goal is in the kiln-harness-tuner-knowledge skill, from its references/planner.md.
 ---
 
 # kiln-harness-tuner-batch-selection
@@ -408,8 +408,9 @@ in the action space**: an arm may rewrite, split, merge, scrub or detach an
 attached skill (as a new version), re-describe (as a code-tool clone or a
 wrapper), wrap, consolidate or drop a tool, change the parameters or the model — not only add text around what
 is there. When the failure traces to an inherited skill or tool, the
-candidate changes THAT, not the prompt (the lever ladder's rows on
-inherited skills and on tool consolidation).
+candidate changes THAT, not the prompt (the knowledge skill's playbooks
+on long instructions and on the choice of a tool, and the technique for a
+rewrite of an inherited skill).
 
 **Only config failures become fix arms.** Before you pick a lever, read the
 failure class the analyst named for the failing items (`findings`): a
@@ -418,18 +419,32 @@ config failure gets a lever; an eval-data or judge failure gets
 never an arm, because no config change fixes an eval; an environment
 failure (a tool server, a provider) and noise get nothing until they recur.
 
-**Name the failure class before the lever**. For every issue
-you consider, read its failing items' `findings` for the decision point
-(before / with / after which tool call) and pick the FIRST lever in that
-row of [references/lever-ladder.md](references/lever-ladder.md). When the
-failure is mechanical (wrong case, id form, pagination, floods, unusable
-errors, text the model does not read at the moment it fails), the first
-arm is a wrapper or a skill restructure, not a prompt line. Your input's
-`max_concurrent_agents` and `lever_costs` are the capacity and cost signals
-(Step 3). `lever_attempts` (issue id → technique → arms ever opened, any outcome) is
-the count behind the ladder's second rule: **after two arms of the same
-text lever on one issue, the next arm changes surface class** (tool or
-skill), or the issue is deferred with the reason.
+**Name the failure class before the lever**. Read
+`references/planner.md` of the `kiln-harness-tuner-knowledge` skill
+before this step: it lists the smells and the playbooks, grouped by kind,
+and says how to use them. For every issue you consider, read its failing
+items' `findings` for the decision point (before / with / after which tool
+call), take the failure to the playbook whose situation fits, and take the
+first step whose condition holds. The decision point names the surface
+the model reads at that moment: before or with a call, that tool's
+description (a new one is a code-tool clone or a wrapper); after a call,
+the tool's response or the prompt; when a skill is chosen, the skill's
+description. When the failure is mechanical (wrong case, id form,
+pagination, floods, unusable errors, text the model does not read at the
+moment it fails), the first arm is a wrapper or a skill restructure, not a
+prompt line. Your input's `max_concurrent_agents` and `lever_costs` are
+the capacity and cost signals (Step 3).
+
+`lever_attempts` (issue id → technique → arms ever opened on that pair,
+ANY outcome: promoted, refuted, failed on infra) is the count behind the
+text-arm rule, so the rule starts from a count, not a memory search. The
+count does not know which arms failed: read the experiment verdicts for
+that. "Text" is the `prompt` technique, and a `skill` arm that only changes
+words (a description, a body): `lever_attempts["<issue>"]["prompt"]` plus
+the skill arms that were text edits is the count. **After two failed arms
+of text on one issue, the next arm changes surface class** (a tool lever,
+or a structural skill change such as a router with `references/` files),
+or the issue is deferred with the reason.
 
 Enumerate deliberately more candidates than will run (≥2× the plausible
 batch), including at least one non-obvious or untried technique class, and
@@ -789,11 +804,16 @@ Per experiment item:
   a result you didn't predict is exploration, not an experiment).
   **`technique` is the lever's short name** (`prompt`, `skill`,
   `tool_config`, `new_tool`, `params`, or a name of a few words): at most
-  60 characters, one line. It is the lever ladder's key, and the experiment
-  record's label carries it. Put what the build does in the `hypothesis`
-  (the record keeps its first 900 characters) and in `cohesion_notes`. Code
-  cuts a longer technique on the record, so the ladder then counts a cut
-  name.
+  60 characters, one line. It is the id of a lever document of the
+  `kiln-harness-tuner-knowledge` skill where one exists (`prompt`, `skill`,
+  `tool_config`, `new_tool`, `params`, `model`), it is the key of
+  `lever_attempts`, and the experiment record's label carries it. Put what
+  the build does in the `hypothesis` (the record keeps its first 900
+  characters) and in `cohesion_notes`. When the arm applies a technique of
+  the knowledge skill, name its file in the hypothesis
+  (`techniques/<id>.md`), so that the builder opens it. Code
+  cuts a longer technique on the record, so `lever_attempts` then counts a
+  cut name.
   `parent_rc_id` is a rare escape hatch (an experiment that must fork a
   specific non-baseline config) — absent means the batch baseline. A forked
   arm's speed and cost are judged against the run's baseline, not against
@@ -899,7 +919,7 @@ target`, no promotion:
   promotion candidate like any fix arm. Never pay a full build, in money and
   in wall clock, to rebuild such an arm. A record with
   no `rc:` line predates this field — treat it as unbuilt. The reuse is marked on the new
-  record (`reused rc:`), so the lever ladder does not count it twice.
+  record (`reused rc:`), so `lever_attempts` does not count it twice.
   **The second use is a HELD candidate**: an experiment record stamped
   `— HELD (constraint <id>) <MM-DD>` was not judged on its numbers — the
   gate escalated on that OPEN constraint. Once the constraint record is
@@ -1011,9 +1031,9 @@ its cost.
 
 `memory` (API + tags — load always) · `kiln-harness-tuner-gateway` (every Kiln operation you have, read
 instead of discovered) ·
-[references/lever-ladder.md](references/lever-ladder.md) (**which lever to
-try first per failure class, with the run evidence — read it in Step 1
-before weighing economics**) · `kiln-harness-tuner-experiment-build`
+`kiln-harness-tuner-knowledge` (**what to try for each smell, failure and
+goal — read its `references/planner.md` before Step 1, before weighing
+economics**) · `kiln-harness-tuner-experiment-build`
 (what builders do with your items) · `kiln-harness-tuner-experiment-analysis` (how verdicts
 you read were written) · `experiment-costing` (cost formulas — load before
 Step 2).

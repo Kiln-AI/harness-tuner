@@ -64,6 +64,9 @@ exceptions.
    plain words.
 5. **Keep the successful result** as the wrapped tool returns it, unless
    another change trims it.
+6. **A transient error** (a timeout, a rate limit) that a trace shows can
+   get a retry inside the wrapper, so the agent does not see it. No
+   template retries yet: add the retry to the copy of the template.
 
 ## Check that it took effect
 

@@ -276,26 +276,41 @@ def _technique_stance(ctx: _Context, *_: object) -> Iterable[Problem]:
             )
 
 
-def _technique_priors(ctx: _Context, *_: object) -> Iterable[Problem]:
-    for doc in ctx.kb.by_kind("techniques"):
+def _priors(ctx: _Context, kind: str, rule: str) -> Iterable[Problem]:
+    """The `Priors` section of each `kind` document is a list of cases, each
+    with a valid `Source:`, or the line `None yet.`. A document with no such
+    section has no problem here: the rule `sections` decides if it needs
+    one."""
+    for doc in ctx.kb.by_kind(kind):
         section = doc.section("Priors")
         if section is None or not section.text or section.text == NO_PRIORS:
             continue
         items = PRIOR_ITEM_RE.split(section.text)
         if items[0].strip():
             yield Problem(
-                "technique-priors",
+                rule,
                 doc.path.as_posix(),
                 f"Priors must be a list of cases, or the line {NO_PRIORS!r}",
             )
         for number, item in enumerate(items[1:], 1):
             if not PRIOR_SOURCE_RE.search(item):
                 yield Problem(
-                    "technique-priors",
+                    rule,
                     doc.path.as_posix(),
                     f"prior {number} has no 'Source:' with one of"
                     f" {list(PRIOR_SOURCES)}",
                 )
+
+
+def _technique_priors(ctx: _Context, *_: object) -> Iterable[Problem]:
+    return _priors(ctx, "techniques", "technique-priors")
+
+
+def _playbook_priors(ctx: _Context, *_: object) -> Iterable[Problem]:
+    # A playbook has no required `Priors` section. The V1 coverage document
+    # gives some playbooks priors, so the optional section after `Budget`
+    # has the form of a technique's.
+    return _priors(ctx, "playbooks", "playbook-priors")
 
 
 def _links_only_to(
@@ -473,6 +488,7 @@ RULES: tuple[Rule, ...] = (
     _technique_lever_links,
     _technique_stance,
     _technique_priors,
+    _playbook_priors,
     _alternatives,
     _playbook_steps,
     _smell_remedies,

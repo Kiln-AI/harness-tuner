@@ -1469,18 +1469,22 @@ def test_the_gateway_rule_does_not_leak_out_of_the_kiln_harness_tuner_lane():
         assert GATEWAY_RULE not in _normalized_skill(skill_dir.name), skill_dir.name
 
 
-def test_planner_skill_names_the_lever_attempts_input_and_the_ladder():
-    skill = (SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md").read_text()
+def test_planner_skill_names_the_lever_attempts_input_and_the_knowledge():
+    skill = _normalized_skill("kiln-harness-tuner-batch-selection")
     assert "`lever_attempts`" in skill
-    assert "references/lever-ladder.md" in skill
     assert set(BatchPlanInput.model_fields) >= {"lever_attempts"}
-    ladder = (
-        SKILLS_DIR
-        / "kiln-harness-tuner-batch-selection"
-        / "references"
-        / "lever-ladder.md"
-    ).read_text()
-    # The second rule is stated on the count the code supplies, with its
+    # The text-arm rule is stated on the count the code supplies, with its
     # limit (any outcome, not "failed") said out loud.
-    assert "ANY outcome" in ladder and "which arms failed" in ladder
-    assert "wrappers/README.md" in ladder
+    assert "ANY outcome" in skill and "which arms failed" in skill
+    # What to try comes from the knowledge skill, which took over the lever
+    # ladder; its lever `new_tool` links the wrapper templates.
+    assert "`kiln-harness-tuner-knowledge`" in skill
+    assert "references/planner.md" in skill
+    new_tool = _normalized_doc(
+        SKILLS_DIR
+        / "kiln-harness-tuner-knowledge"
+        / "references"
+        / "levers"
+        / "new_tool.md"
+    )
+    assert "wrappers/README.md" in new_tool

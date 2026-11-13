@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 from test_knowledge_checks import build_tree
 
-from kiln_harness_tuner.install_agents import AGENT_CLIS, install_for_run
+from kiln_harness_tuner.dispatch.claude_cli import DEFAULT_TEMPLATES_DIR
+from kiln_harness_tuner.install_agents import AGENT_CLIS, install_for_run, source_dir
 from kiln_harness_tuner.knowledge import check, default_root, load, render_blocks
 from kiln_harness_tuner.knowledge.__main__ import code_side
 from kiln_harness_tuner.knowledge.index import read_block
@@ -28,6 +29,7 @@ from kiln_harness_tuner.knowledge.schema import (
     META_MODELS,
     REQUIRED_SECTIONS,
 )
+from kiln_harness_tuner.schemas import BatchPlanInput
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAINTENANCE = REPO_ROOT / ".agents" / "skills" / "knowledge-maintenance"
@@ -113,6 +115,98 @@ def test_the_guide_skill_for_a_tool_set_has_its_sub_files():
         path = folder / f"{name}.md"
         assert path.is_file(), path
         assert path in linked, f"guide-skill-for-a-tool-set.md does not link {name}.md"
+
+
+# V1 coverage, section 4: the twenty-one playbooks, each with its kind.
+V1_PLAYBOOK_KINDS = {
+    "know-the-agent-before-you-plan": "order",
+    "ordering-work": "order",
+    "spending-the-budget": "order",
+    "cheaper-or-faster": "goal",
+    "working-inside-restrictions": "goal",
+    "fit-the-tool-layer-to-the-agent": "design",
+    "requirement-missing-from-the-prompt": "failure",
+    "output-contract-not-met": "failure",
+    "answers-not-grounded": "failure",
+    "wrong-scope-or-refusal": "failure",
+    "missing-context-the-agent-could-be-given": "failure",
+    "failure-at-a-tool-call": "failure",
+    "malformed-tool-calls": "failure",
+    "wrong-tool-chosen": "failure",
+    "skill-is-not-read": "failure",
+    "lost-in-long-instructions": "failure",
+    "change-the-surface-not-the-words": "failure",
+    "dealing-with-a-saturated-eval": "eval",
+    "dealing-with-an-eval-near-zero": "eval",
+    "dealing-with-a-noisy-eval": "eval",
+    "dealing-with-train-wins-rejected-at-val": "eval",
+}
+
+
+@pytest.mark.parametrize("playbook", sorted(V1_PLAYBOOK_KINDS))
+def test_the_v1_playbook_is_present_with_its_kind(playbook):
+    doc = load().get("playbooks", playbook)
+    assert doc is not None, f"playbooks/{playbook}.md is missing"
+    assert doc.meta is not None and doc.meta.kind == V1_PLAYBOOK_KINDS[playbook]
+
+
+def test_spending_the_budget_names_real_planner_input_fields():
+    """The playbook tells the planner which input fields carry the budget,
+    the prices and the noise. A renamed field would send it to nothing."""
+    doc = load().get("playbooks", "spending-the-budget")
+    assert doc is not None
+    situation = doc.section("Situation").text
+    named = set(re.findall(r"^- `([a-z_]+)`", situation, re.MULTILINE))
+    assert len(named) >= 4, named
+    missing = named - set(BatchPlanInput.model_fields)
+    assert not missing, f"not fields of BatchPlanInput: {sorted(missing)}"
+
+
+# Each role that reads the knowledge, by its prompt template, and the entry
+# file that the template names. The baseline reviewer comes in a later phase.
+ROLE_ENTRY_FILES = {
+    "batch_plan": "planner.md",
+    "create_experiment_rc": "builder.md",
+    "analyze_experiment_results": "analyzer.md",
+    "report_writer": "report.md",
+}
+
+
+@pytest.mark.parametrize("template", sorted(ROLE_ENTRY_FILES))
+def test_each_role_template_names_its_entry_file(template):
+    """A loop agent loads a skill because its template says so in plain words,
+    so each reading role is sent to its own entry file, not to SKILL.md."""
+    text = " ".join((DEFAULT_TEMPLATES_DIR / f"{template}.md").read_text().split())
+    entry = ROLE_ENTRY_FILES[template]
+    assert f"`{SKILL_NAME}`" in text, f"{template}.md does not name {SKILL_NAME}"
+    assert f"`references/{entry}`" in text, f"{template}.md does not name {entry}"
+    assert (default_root() / "references" / entry).is_file()
+
+
+LADDER = (
+    source_dir()
+    / "skills"
+    / "kiln-harness-tuner-batch-selection"
+    / "references"
+    / "lever-ladder.md"
+)
+LADDER_NAMES = re.compile(r"lever-ladder\.md|lever\s+ladder", re.IGNORECASE)
+
+
+def test_the_lever_ladder_file_is_gone_and_nothing_names_it():
+    """The knowledge system took over the lever ladder (V1 coverage, section
+    6). One source of truth: no file that an agent, a user or the code reads
+    still sends a reader to the old table."""
+    assert not LADDER.exists()
+    roots = (REPO_ROOT / "src", REPO_ROOT / "docs")
+    naming = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for root in roots
+        for path in sorted(root.rglob("*"))
+        if path.suffix in {".md", ".py"}
+        and LADDER_NAMES.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not naming, naming
 
 
 def test_the_generated_blocks_are_current():

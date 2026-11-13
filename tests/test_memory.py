@@ -590,7 +590,7 @@ async def test_record_verdict_preserves_head_to_head_group_line():
         mem_id, make_verdict_result("hypothesis: x\nnext: rerun")
     )
     stored = kiln.memories[mem_id]["content"]
-    # The issue/technique lines ride along too (lever ladder),
+    # The issue/technique lines ride along too (`lever_attempts`),
     # ahead of the group line, which stays last.
     assert stored == (
         "hypothesis: x\nnext: rerun\nissue: issue_1\ntechnique: prompt\n"
@@ -2546,7 +2546,7 @@ async def test_issues_by_eval_maps_the_binding_tags():
 
 
 async def test_lever_attempts_counts_arms_per_issue_and_technique():
-    """The lever ladder's input: arms ever opened per
+    """The planner's `lever_attempts` input: arms ever opened per
     (issue, technique), any outcome; merges and pre-`issue:` records skipped."""
     kiln = FakeKiln()
     writer = make_writer(kiln)

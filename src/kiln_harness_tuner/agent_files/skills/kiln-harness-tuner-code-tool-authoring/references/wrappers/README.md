@@ -1,7 +1,8 @@
 # Wrapper templates — bake the fix into the tool
 
-Eight code-tool templates, one per mechanical failure class in the lever
-ladder (`kiln-harness-tuner-batch-selection/references/lever-ladder.md`). Each is a
+Eight code-tool templates, one per mechanical failure class. The
+`kiln-harness-tuner-knowledge` skill says when each one applies: its
+wrapper techniques name these templates. Each is a
 complete `run()` module you copy into a `POST /code_tools` payload after
 three edits: rename `call_subject_api` to the wrapped tool's real
 function name, match its real parameter schema (read it from the

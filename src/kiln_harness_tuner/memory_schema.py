@@ -1002,7 +1002,7 @@ def head_value(text: str, limit: int) -> str:
 
 def technique_label(technique: str) -> str:
     """The technique as the record carries it, in the overview label and on
-    the `technique:` line alike — so the lever ladder's two sources agree."""
+    the `technique:` line alike — so the two sources of `lever_attempts` agree."""
     return head_value(technique, TECHNIQUE_MAX_CHARS)
 
 
@@ -1011,8 +1011,8 @@ class FixOpening:
     """The content `open_experiment` writes for a fix arm. The verdict
     REPLACES this block with the analyzer's body, so `record_verdict`
     carries `issue:` / `technique:` / `head_to_head_group:` forward: the
-    lever ladder counts arms per `issue` × `technique`, and the head-to-head
-    group must survive the verdict. Each value is bounded on render (see
+    `lever_attempts` count reads arms per `issue` × `technique`, and the
+    head-to-head group must survive the verdict. Each value is bounded on render (see
     `TECHNIQUE_MAX_CHARS`)."""
 
     hypothesis: str
@@ -1174,7 +1174,7 @@ class ExperimentView:
     rc_id: str | None  # content `rc:` — written when the build lands, so an
     #   abandoned record still names the run config it built
     reused_rc_id: str | None  # content `reused rc:` — this arm measured a
-    #   prior run's build; not a second attempt for the lever ladder
+    #   prior run's build; not a second attempt in `lever_attempts`
     change_summary: str | None  # content `change:` — the build's one-line
     #   human summary of what differs from the parent
     generality: str | None  # content `generality:` — the leak check's
@@ -1250,8 +1250,8 @@ class ExperimentView:
 
     @property
     def lever(self) -> str | None:
-        """The technique this arm attacked its issue with, for the lever
-        ladder's count: the content line, else — for a record from before
+        """The technique this arm attacked its issue with, for the
+        `lever_attempts` count: the content line, else — for a record from before
         that line existed — the overview label, which survives
         only while the arm is RUNNING. Best-effort by design."""
         return self.technique or self.overview_technique

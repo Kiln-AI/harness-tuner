@@ -41,7 +41,7 @@ changes knowledge documents also ends with
 - [x] Phase 4: Techniques, part 2. The fourteen techniques of the groups
   "Tools" and "Model and settings", with their priors, and the sub-files of
   `guide-skill-for-a-tool-set`.
-- [ ] Phase 5: Playbooks, and the move of the lever ladder. The other
+- [x] Phase 5: Playbooks, and the move of the lever ladder. The other
   twenty playbooks. The lever ladder file is removed, and each reference to
   it is changed. The prompt templates of the planner, the builder, the
   analyzer and the report writer name their entry files. The planner's

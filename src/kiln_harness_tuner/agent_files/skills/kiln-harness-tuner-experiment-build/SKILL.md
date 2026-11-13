@@ -293,7 +293,7 @@ levers) ·
 `kiln-harness-tuner-gateway` (every Kiln operation your role has) ·
 `kiln-task-setup` (the run-config/prompt/skill build procedure + known bugs) ·
 `kiln-harness-tuner-code-tool-authoring` (new_tool lever) ·
-`kiln-harness-tuner-batch-selection/references/lever-ladder.md` (the failure class → lever
-table the planner chose your item from, and what "bake it into code" means
-per wrapper) · `memory` (discovery-write conventions) ·
+`kiln-harness-tuner-knowledge` (its `references/builder.md` lists each
+technique and each lever: how to build the technique on your item, and how
+to check that it took effect) · `memory` (discovery-write conventions) ·
 `kiln-harness-tuner-experiment-analysis` (who reads your build after measurement).

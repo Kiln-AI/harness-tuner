@@ -205,7 +205,7 @@ class FixWork(BaseModel):
     #   experiment record names it on its `rc:` line). Set → no build session
     #   and no build spend; the item measures and analyzes that rc. The arm
     #   still opens its own experiment record, marked `reused rc:` so the
-    #   lever ladder does not count it as a second attempt.
+    #   `lever_attempts` count does not take it as a second attempt.
     existing_rc_id: str | None = None
     # The eval-input ids (train lane) this fix is built to flip —
     #   the baseline's failing items whose traces the hypothesis explains.
@@ -219,7 +219,7 @@ class FixWork(BaseModel):
     #   possible win, not for confidence in it (a progressive-disclosure
     #   skill in place of a 52 KB prompt, a pipeline, a new surface). The
     #   planner skill reserves one slot per wave for it and forbids deferring
-    #   the same idea more than once; the lever ladder's "two text arms then
+    #   the same idea more than once; the planner's "two text arms then
     #   change surface" rule does not count it. Recorded on the experiment
     #   memory so the analyzer reads it as a high-variance prior.
     wildcard: bool = False
