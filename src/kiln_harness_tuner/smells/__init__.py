@@ -9,7 +9,7 @@ command line passes `detector_smells()` to the check.
 """
 
 from kiln_harness_tuner.smells.detectors import DETECTORS, detector_smells
-from kiln_harness_tuner.smells.model import Detector, DetectorInputs
+from kiln_harness_tuner.smells.model import Detector, DetectorInputs, ModelFacts
 from kiln_harness_tuner.smells.run import (
     baseline_trace_samples,
     ensure_baseline_reviewed,
@@ -21,6 +21,7 @@ __all__ = [
     "DETECTORS",
     "Detector",
     "DetectorInputs",
+    "ModelFacts",
     "baseline_trace_samples",
     "detector_smells",
     "ensure_baseline_reviewed",

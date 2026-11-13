@@ -151,7 +151,8 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
 
 
 # V1 coverage, section 2: the thirteen smells, each with who detects it, and
-# the code detectors of the three that code detects.
+# the code detectors of the three that code detects. Then the smells added
+# after V1: `old-model` (the model-provider-info project).
 V1_SMELL_DETECTION = {
     "very-long-prompt": ["long_prompt"],
     "one-file-skill-with-many-topics": [],
@@ -166,6 +167,7 @@ V1_SMELL_DETECTION = {
     "document-behind-a-lookup-tool": [],
     "very-long-tool-description": ["long_tool_description"],
     "tools-on-a-live-server": [],
+    "old-model": ["old_model"],
 }
 
 

@@ -45,7 +45,8 @@ for a strong single agent. Tune a critical sub-agent on its own evals, then the 
 - Depends on: None
 - Source: [model-provider-info](projects/model-provider-info/project_overview.md)
 
-The model guide, the provider guide, the "old model" smell and its detector.
+Done in the project model-provider-info: the model catalogue, the gateway operations
+`list_models`, `get_model_details` and `list_providers`, and the "old model" smell and detector.
 
 ### Promotion on a tie
 
@@ -73,8 +74,8 @@ if `skill-into-the-prompt` can save money.
 - Depends on: None
 - Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 4
 
-`get_task` drops `turn_mode`, and `list_available_models` drops the model capability flags. The
-step "know the agent before you plan" needs them.
+`get_task` drops `turn_mode`. The step "know the agent before you plan" needs it. The model
+capability flags are in `get_model_details` (project model-provider-info).
 
 ### RAG
 
@@ -543,9 +544,10 @@ The agent has so many skills that their descriptions crowd its context.
 - Kind: smell
 - Where: knowledge
 - Depends on: Model and provider information
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md); functional spec 12.3
+- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md); functional spec 12.3; [model-provider-info](projects/model-provider-info/functional_spec.md), section 8
 
-The baseline uses a model that is old for its class. Its detector needs model data.
+Done in the project model-provider-info: the smell document `old-model` and the code detector
+`old_model`, which reads the release date from the model catalogue.
 
 ### Smell: a long list of "must" and "never" lines
 

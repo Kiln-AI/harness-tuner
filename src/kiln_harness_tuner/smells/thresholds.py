@@ -33,3 +33,11 @@ LONG_SKILL_DESCRIPTION_CHARS_SOURCE = (
     "the maximum length of a skill description in the Agent Skills"
     " specification (read 2026-11-13)"
 )
+
+OLD_MODEL_MONTHS = 8
+# A house default, set by the project owner on 2026-11-13. No published
+# value. A model line usually has a newer release within this time.
+OLD_MODEL_MONTHS_SOURCE = (
+    "smells.thresholds.OLD_MODEL_MONTHS: a house default, set by the project"
+    " owner on 2026-11-13; no published value is known"
+)

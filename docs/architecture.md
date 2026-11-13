@@ -1984,7 +1984,10 @@ fence denies it to agents like the other run files (section 12). The
 snapshot does not change during the run, and every agent of the run sees
 the same data. Each gateway process loads it at start
 (`gateway/server.load_state`), as it loads `model_policy.json`. A missing
-or bad snapshot loads as "no snapshot" and never stops the gateway.
+or bad snapshot loads as "no snapshot" and never stops the gateway. The
+orchestrator keeps the same catalogue on the run's context
+(`ctx.model_catalog`), and the old-model detector reads the baseline's
+release date from it (section 18.4).
 
 **Failures.** A fetch that fails never stops the run. The source is
 recorded as `none` with a reason, and the wave log has one
@@ -2110,18 +2113,22 @@ agents do not read it.
 
 [`smells/`](../src/kiln_harness_tuner/smells/). A detector is a small pure
 function over `DetectorInputs` (the run config's properties, its prompt,
-skill and code-tool texts, and the definition of each attached tool) that
-returns `Detection`s. One detector belongs to one smell, and the smell
-document names it. A new detector is one file in `smells/detectors/` and one
+skill and code-tool texts, the definition of each attached tool, the
+baseline's model with its release date from the model catalogue, and the
+date the run started) that returns `Detection`s. One detector belongs to
+one smell, and the smell document names it. A new detector is one file in
+`smells/detectors/` and one
 entry in `DETECTORS`. A detector that reads stored train trace stats sets
 `reads_traces`; no detector does yet, so the detectors read only the run
-config, its texts and its tool definitions, and spend nothing.
+config, its texts, its tool definitions and the catalogue snapshot
+(`ctx.model_catalog`, section 17.1), and spend nothing.
 
 | Detector | Smell | Fires when |
 |---|---|---|
 | `long_prompt` | `very-long-prompt` | the prompt is over `LONG_PROMPT_CHARS` (200,000 characters) |
 | `long_tool_description` | `very-long-tool-description` | a tool's description is over `LONG_TOOL_DESCRIPTION_CHARS` (4,096) |
 | `long_skill_description` | `very-long-skill-description` | a skill's description is over `LONG_SKILL_DESCRIPTION_CHARS` (1,024) |
+| `old_model` | `old-model` | the baseline's model was released more than `OLD_MODEL_MONTHS` (8) calendar months before the run started; silent when the catalogue has no release date for it, for example a fine-tune |
 
 The thresholds are in `smells/thresholds.py`, each with its source. No
 measured optimum is known for any of them, so each is a default that can

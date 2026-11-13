@@ -7,6 +7,8 @@ from __future__ import annotations
 import ast
 import inspect
 import re
+from dataclasses import replace
+from datetime import date, datetime
 
 import pytest
 from conftest import make_ctx, make_plan, make_tracker
@@ -14,6 +16,8 @@ from fake_dispatcher import ok
 from fake_kiln import make_eval, make_run
 from test_orchestrator import seed_baseline
 
+from kiln_harness_tuner.model_catalog import Catalog
+from kiln_harness_tuner.model_catalog.schema import CatalogModel
 from kiln_harness_tuner.orchestrator import orchestrate
 from kiln_harness_tuner.prompt_text import RcText, SkillText
 from kiln_harness_tuner.report import render_smells_appendix
@@ -22,6 +26,7 @@ from kiln_harness_tuner.smells import (
     DETECTORS,
     Detector,
     DetectorInputs,
+    ModelFacts,
     detector_smells,
     ensure_detections,
     run_detectors,
@@ -30,10 +35,13 @@ from kiln_harness_tuner.smells import (
 from kiln_harness_tuner.smells.detectors.long_skill_description import (
     skill_description,
 )
+from kiln_harness_tuner.smells.detectors.old_model import add_months, whole_months
 from kiln_harness_tuner.smells.thresholds import (
     LONG_PROMPT_CHARS,
     LONG_SKILL_DESCRIPTION_CHARS,
     LONG_TOOL_DESCRIPTION_CHARS,
+    OLD_MODEL_MONTHS,
+    OLD_MODEL_MONTHS_SOURCE,
 )
 
 BY_ID = {d.id: d for d in DETECTORS}
@@ -139,7 +147,7 @@ def test_a_detector_is_silent_when_the_text_cannot_be_read():
         texts=RcText(prompt=None, skill_ids=("s1",), skills=None),
         tool_definitions=[{"tool_id": "t", "name": "t", "description": None}],
     )
-    assert [d.run(unread) for d in DETECTORS] == [[], [], []]
+    assert [d.run(unread) for d in DETECTORS] == [[] for _ in DETECTORS]
 
 
 def test_skill_description_reads_the_front_matter():
@@ -172,11 +180,16 @@ JUDGEMENT_WORDS = {
 
 
 def test_a_detection_fact_has_no_judgement_word():
-    for detector_id, (make, reference, _) in CASES.items():
-        (detection,) = BY_ID[detector_id].run(make(reference * 3))
+    firing = {
+        detector_id: make(reference * 3)
+        for detector_id, (make, reference, _) in CASES.items()
+    }
+    firing["old_model"] = aged(date(2024, 1, 10), date(2026, 1, 10))
+    for detector_id, given in firing.items():
+        (detection,) = BY_ID[detector_id].run(given)
         words = set(re.findall(r"[a-z]+", detection.fact.lower()))
         assert not words & JUDGEMENT_WORDS, (detector_id, detection.fact)
-    assert set(CASES) == set(BY_ID), "a registered detector has no case here"
+    assert set(firing) == set(BY_ID), "a registered detector has no case here"
 
 
 def test_every_registered_detector_has_a_unique_id():
@@ -199,7 +212,73 @@ def test_every_threshold_has_a_source_comment():
             assert lines[node.end_lineno].lstrip().startswith("#"), target.id
             text = getattr(thresholds, f"{target.id}_SOURCE", "")
             assert isinstance(text, str) and text.strip(), f"{target.id}_SOURCE"
-    assert len(names) == 3
+    assert len(names) == 4
+
+
+# ---- old_model: the release date against the run date ----
+
+
+def aged(
+    released: date | None,
+    run_date: date | None,
+    name: str = "GPT 4o Mini",
+    model: str = "gpt_4o_mini",
+) -> DetectorInputs:
+    return replace(
+        inputs(), model=ModelFacts("openai", model, name, released), run_date=run_date
+    )
+
+
+def old_model(given: DetectorInputs) -> list[Detection]:
+    return BY_ID["old_model"].run(given)
+
+
+def test_old_model_fires_after_eight_months():
+    (detection,) = old_model(aged(date(2025, 1, 10), date(2025, 9, 11)))
+    assert (detection.smell, detection.detector) == ("old-model", "old_model")
+    assert detection.scope == "harness"
+    assert detection.value == 8
+    assert detection.reference == OLD_MODEL_MONTHS == 8
+    assert detection.reference_source == OLD_MODEL_MONTHS_SOURCE
+    assert detection.fact == (
+        "The baseline's model, GPT 4o Mini (gpt_4o_mini), was released on"
+        " 2025-01-10, 8 months before this run. The reference is 8 months."
+    )
+    (later,) = old_model(aged(date(2025, 1, 10), date(2026, 3, 9)))
+    assert later.value == 13
+
+
+def test_old_model_is_silent_at_exactly_eight_months():
+    assert old_model(aged(date(2025, 1, 10), date(2025, 9, 10))) == []
+    assert old_model(aged(date(2025, 1, 10), date(2025, 2, 1))) == []
+
+
+def test_old_model_is_silent_without_a_date():
+    assert old_model(aged(None, date(2026, 1, 1))) == []
+    assert old_model(aged(date(2020, 1, 1), None)) == []
+    assert old_model(replace(inputs(), run_date=date(2026, 1, 1))) == []
+
+
+def test_old_model_clamps_the_day_at_month_end():
+    (detection,) = old_model(aged(date(2025, 5, 31), date(2026, 2, 1)))
+    assert detection.value == 8
+    assert add_months(date(2025, 6, 30), 8) == date(2026, 2, 28)
+    assert add_months(date(2023, 6, 30), 8) == date(2024, 2, 29)
+    assert add_months(date(2025, 11, 15), 2) == date(2026, 1, 15)
+    # 30 June plus 8 months is 28 February: exactly the reference.
+    assert old_model(aged(date(2025, 6, 30), date(2026, 2, 28))) == []
+    (next_day,) = old_model(aged(date(2025, 6, 30), date(2026, 3, 1)))
+    assert next_day.value == 8
+    assert whole_months(date(2025, 5, 31), date(2025, 6, 30)) == 1
+    assert whole_months(date(2025, 5, 31), date(2025, 6, 29)) == 0
+
+
+def test_old_model_cuts_a_long_name():
+    (detection,) = old_model(
+        aged(date(2020, 1, 1), date(2026, 1, 1), name="n" * 200, model="m" * 200)
+    )
+    assert "n" * 80 + " (" + "m" * 80 + ")" in detection.fact
+    assert len(detection.fact) <= 300
 
 
 # ---- run_detectors, with the fake Kiln ----
@@ -502,3 +581,72 @@ async def test_an_eval_whose_train_rows_cannot_be_read_gives_no_trace_stats():
     traced = Detector("traced", "x", record, reads_traces=True)
     await run_detectors(ctx, "rc_base", detectors=(traced,))
     assert seen == [[]]
+
+
+def dated_catalog(model: str, release_date: str | None) -> Catalog:
+    return Catalog(
+        models=[CatalogModel(model=model, name="GPT 4o", release_date=release_date)]
+    )
+
+
+def model_row(model: str = "gpt_4o") -> dict:
+    row = baseline_row("short")
+    row["run_config_properties"].update(model_name=model, model_provider_name="openai")
+    return row
+
+
+async def test_collect_reads_the_release_date_from_the_catalogue():
+    ctx = make_ctx()
+    ctx.kiln.run_configs = [model_row()]
+    ctx.model_catalog = dated_catalog("gpt_4o", "2024-05-13")
+    ctx.run_started_at = datetime(2025, 2, 14, 9, 30)
+    found = await run_detectors(ctx, "rc_base")
+    (detection,) = [d for d in found if d.detector == "old_model"]
+    assert detection.value == 9
+    assert "GPT 4o (gpt_4o), was released on 2024-05-13" in detection.fact
+
+    seen: list[DetectorInputs] = []
+
+    def record(given: DetectorInputs) -> list[Detection]:
+        seen.append(given)
+        return []
+
+    await run_detectors(ctx, "rc_base", detectors=(Detector("r", "x", record),))
+    assert seen[-1].model == ModelFacts("openai", "gpt_4o", "GPT 4o", date(2024, 5, 13))
+    assert seen[-1].run_date == date(2025, 2, 14)
+    # The catalogue is the snapshot: the detector makes no call to Kiln for it.
+    assert not [c for c in ctx.kiln.calls if "available_models" in c[1]]
+
+
+@pytest.mark.parametrize(
+    ("catalog", "model"),
+    [
+        (None, "gpt_4o"),
+        (dated_catalog("gpt_4o", "2024-05-13"), "ft_custom_1"),
+        (dated_catalog("gpt_4o", "not a date"), "gpt_4o"),
+        (dated_catalog("gpt_4o", None), "gpt_4o"),
+    ],
+    ids=["no catalogue", "a model it lacks", "a bad date", "no date"],
+)
+async def test_old_model_is_silent_when_the_catalogue_has_no_date(catalog, model):
+    ctx = make_ctx()
+    ctx.kiln.run_configs = [model_row(model)]
+    ctx.model_catalog = catalog
+    ctx.run_started_at = datetime(2030, 1, 1)
+    found = await run_detectors(ctx, "rc_base")
+    assert not [d for d in found if d.detector == "old_model"]
+
+
+async def test_a_run_config_without_a_model_gives_no_model_facts():
+    seen: list[DetectorInputs] = []
+
+    def record(given: DetectorInputs) -> list[Detection]:
+        seen.append(given)
+        return []
+
+    ctx = make_ctx()
+    ctx.kiln.run_configs = [baseline_row("short")]
+    await run_detectors(ctx, "rc_base", detectors=(Detector("r", "x", record),))
+    (given,) = seen
+    assert given.model is None
+    assert given.run_date is None
