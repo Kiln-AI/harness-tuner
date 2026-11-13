@@ -52,6 +52,7 @@ ITEM_STATE_TEXT = {
 _PHASE_NOUNS = {
     "preflight": "MCP-lane preflight",
     "setup": "setup",
+    "baseline_review": "baseline review",
     "planning": "planning",
     "promotion_gate": "promotion gate",
     "tripwire_backoff": "tripwire backoff",
@@ -318,6 +319,8 @@ SETUP_LINE_EVENTS = frozenset(
         "eval_unloadable",
         # A planned eval build dropped because eval building is off.
         "eval_item_dropped",
+        # Each review of a baseline by the baseline reviewer.
+        "baseline_review",
     }
 )
 

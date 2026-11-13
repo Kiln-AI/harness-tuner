@@ -254,8 +254,10 @@ class TestThePermissions:
             permission = config_of(dispatcher._argv(role, label=role))["permission"]
             assert rule not in permission["read"], role
 
-    @pytest.mark.parametrize("role", ["promote_best", "report_writer"])
-    def test_a_val_reader_may_not_write(self, tmp_path, role):
+    @pytest.mark.parametrize(
+        "role", ["promote_best", "report_writer", "baseline_review"]
+    )
+    def test_a_read_only_role_may_not_write(self, tmp_path, role):
         dispatcher, _ = make(tmp_path, [])
         permission = config_of(dispatcher._argv(role, label=role))["permission"]
         assert permission["edit"] == "deny"

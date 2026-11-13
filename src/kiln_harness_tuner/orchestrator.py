@@ -134,6 +134,7 @@ from kiln_harness_tuner.schemas import (
     SUBSCRIPTION_LANE,
     AgentResult,
     BaselineRef,
+    BaselineReview,
     BatchPlan,
     BatchPlanInput,
     CandidateValTable,
@@ -164,7 +165,7 @@ from kiln_harness_tuner.setup import (
     measurable_evals,
     run_setup,
 )
-from kiln_harness_tuner.smells import ensure_detections
+from kiln_harness_tuner.smells import ensure_baseline_reviewed
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
@@ -191,13 +192,18 @@ WRAP_UP_WINDOW_SECS = 30 * 60
 MIN_WAVE_START_SECS = 15 * 60
 
 
-def wave_floor_detail(left_secs: float, waves_done: int) -> str:
+def wave_floor_detail(
+    left_secs: float, waves_done: int, after: str | None = None
+) -> str:
     """The `exit` event's `detail` when too little time is left to start a
     wave: `3m46s left after setup, under the 15-minute minimum to start a
-    wave`. The run screen, the plain log and the report show it as it is."""
+    wave`. `after` names what took the time when it was not setup or the
+    last wave (the baseline review). The run screen, the plain log and the
+    report show it as it is."""
     secs = max(int(left_secs), 0)
     left = f"{secs // 60}m{secs % 60:02d}s" if secs >= 60 else f"{secs}s"
-    after = "setup" if waves_done < 1 else f"wave {waves_done}"
+    if after is None:
+        after = "setup" if waves_done < 1 else f"wave {waves_done}"
     return (
         f"{left} left after {after}, under the {MIN_WAVE_START_SECS // 60}-minute"
         " minimum to start a wave"
@@ -444,6 +450,36 @@ class Ctx:
     #   they were run on. Run again when a promotion moves the baseline.
     detections: list[Detection] = field(default_factory=list)
     detected_rc_id: str | None = None
+    # The baseline reviewer (`smells.ensure_baseline_reviewed`): once for each
+    #   baseline, after the detectors (cli: on, unless `--no-baseline-review`;
+    #   other tests leave it off). `reviewed_rc_id`: the baseline the step
+    #   last ran on. `baseline_reviews`: each review, for the report.
+    baseline_review: bool = False
+    reviewed_rc_id: str | None = None
+    baseline_reviews: list[BaselineReview] = field(default_factory=list)
+
+
+def _too_late_to_start_a_wave(
+    ctx: Ctx, deadline: float, now: float, waves_done: int, after: str | None = None
+) -> bool:
+    """The checks before a wave starts. True after the `exit` event, when
+    no wave may start now."""
+    if now >= deadline:
+        # HARD stop: no wave — wrap-up included — ever STARTS past the
+        # deadline. The should_wrap buffer IS the reserved room.
+        ctx.log.event("exit", reason="timeout")
+        return True
+    if deadline - now < MIN_WAVE_START_SECS:
+        # Under the floor a wave cannot finish: the planner alone takes
+        # 4-8 minutes. Exit to the report instead of paying for a plan
+        # whose arms are cancelled on arrival.
+        ctx.log.event(
+            "exit",
+            reason="timeout",
+            detail=wave_floor_detail(deadline - now, waves_done, after),
+        )
+        return True
+    return False
 
 
 def should_wrap(
@@ -717,22 +753,8 @@ async def _run_loop(
         # records, so the budget check below reads the true spend.
         reconcile(ctx, when=f"before wave {wave}", quiet=True)
         cycle_started = ctx.clock()
-        if cycle_started >= deadline:
-            # HARD stop: no wave — wrap-up included — ever STARTS past the
-            # deadline. The should_wrap buffer below IS the reserved room.
+        if _too_late_to_start_a_wave(ctx, deadline, cycle_started, wave - 1):
             exit_reason = "timeout"
-            ctx.log.event("exit", reason=exit_reason)
-            break
-        if deadline - cycle_started < MIN_WAVE_START_SECS:
-            # Under the floor a wave cannot finish: the planner alone takes
-            # 4-8 minutes. Exit to the report instead of paying for a plan
-            # whose arms are cancelled on arrival.
-            exit_reason = "timeout"
-            ctx.log.event(
-                "exit",
-                reason=exit_reason,
-                detail=wave_floor_detail(deadline - cycle_started, wave - 1),
-            )
             break
         projected = fmean(wave_cycle_secs) if wave_cycle_secs else None
         wrap_up = should_wrap(deadline, ctx.clock, projected)
@@ -765,9 +787,26 @@ async def _run_loop(
         baseline = BaselineRef(rc_id=ctx.memory.baseline_rc_id(record))
         lineage = ctx.memory.baseline_lineage(record)
         ctx.policy_exempt_rcs.update([baseline.rc_id, *lineage])
-        # The smell detectors, once for each baseline: at wave 1, and on
-        # the wave after a promotion. Free reads; it never raises.
-        await ensure_detections(ctx, baseline)
+        # The smell detectors, then the baseline reviewer, once for each
+        # baseline: at wave 1, and on the wave after a promotion. It never
+        # raises, apart from a quota error.
+        # A wrap-up wave, or one with too little time for a review and a
+        # wave, runs the detectors only: no planner after it would read the
+        # review.
+        if await ensure_baseline_reviewed(
+            ctx, baseline, wrap_up=wrap_up, deadline=deadline
+        ):
+            # The review is a session of minutes. The wave-start checks run
+            # again before the planner, and the wave cycle starts after the
+            # review, so the projected wave length (and so the wrap-up
+            # timing) stays the wave's own.
+            cycle_started = ctx.clock()
+            if _too_late_to_start_a_wave(
+                ctx, deadline, cycle_started, wave - 1, after="the baseline review"
+            ):
+                exit_reason = "timeout"
+                break
+            wrap_up = wrap_up or should_wrap(deadline, ctx.clock, projected)
 
         # The planning dispatch is a full agent session and the run's longest
         # silence (minutes with only the header printed) —

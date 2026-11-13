@@ -22,10 +22,12 @@ from kiln_harness_tuner.memory_schema import (
     BASELINE_AUDIT_TAG,
     BASELINE_JUDGE_COPY_TAG,
     ISSUE_TERMINAL_STATES,
+    SMELL_TAG,
 )
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
+    BaselineReview,
     IssueWithoutEval,
     ItemOutcome,
     ItemStatus,
@@ -756,8 +758,9 @@ async def read_issues_without_eval(
 ) -> list[IssueWithoutEval] | None:
     """The open issues no eval binds, read from memory when the report is
     written, so the report also names the issues this run created. Closed
-    issues are left out, and so are the baseline-audit issues: their own
-    checks measure them (setup skips them for the same reason). None when
+    issues are left out, and so are the baseline-audit issues (their own
+    checks measure them) and the smell issues (they are about the harness);
+    setup skips them for the same reason. None when
     the read fails; the section then uses what the run recorded."""
     try:
         issues = await asyncio.wait_for(
@@ -773,6 +776,7 @@ async def read_issues_without_eval(
         and issue.state not in ISSUE_TERMINAL_STATES
         and BASELINE_AUDIT_TAG not in issue.tags
         and BASELINE_JUDGE_COPY_TAG not in issue.tags
+        and SMELL_TAG not in issue.tags
     ]
 
 
@@ -836,7 +840,7 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
-SMELLS_APPENDIX_HEADING = "## Smells (code-computed)"
+SMELLS_APPENDIX_HEADING = "## Smells"
 
 
 def _number(value: float | None) -> str:
@@ -845,35 +849,97 @@ def _number(value: float | None) -> str:
     return f"{value:,.0f}" if float(value).is_integer() else f"{value:,g}"
 
 
+_HOLDS = {True: "holds", False: "does not hold", None: "could not tell"}
+
+
+def _review_status_line(review: BaselineReview | None) -> str:
+    if review is None:
+        return "Baseline review: not run."
+    if review.status == "done":
+        line = f"Baseline review: done, {len(review.findings)} finding(s)."
+        return line + (f" {_md(review.reason)}." if review.reason else "")
+    line = f"Baseline review: {review.status} ({_md(review.reason)})."
+    if review.status == "skipped" and review.issue_ids:
+        ids = ", ".join(f"`{_md(i)}`" for i in review.issue_ids)
+        line += f" Its smell issues in memory: {ids}."
+    return line
+
+
 def render_smells_appendix(status: RunStatus) -> str:
-    """What the smell detectors in code found on each baseline of the run:
-    one table for each baseline with a detection. A detection is a fact
-    with its reference, and its smell names a document of the knowledge
-    skill, which gives the remedies. Empty string when no baseline has a
-    detection."""
-    found = {rc: rows for rc, rows in status.detections_by_rc.items() if rows}
-    if not found:
+    """The smells of each baseline of the run: the status of its review by
+    the baseline reviewer, the facts that the detectors in code found (with
+    the reviewer's reading of each), and the reviewer's findings, each of
+    which code wrote as a smell issue. A smell names a document of the
+    knowledge skill, which gives the remedies. Empty string when there is
+    nothing to show and every review was done."""
+    reviews = {review.rc_id: review for review in status.baseline_reviews}
+
+    def worth_showing(rc_id: str) -> bool:
+        review = reviews.get(rc_id)
+        return bool(status.detections_by_rc.get(rc_id)) or (
+            review is not None
+            and (review.status != "done" or bool(review.findings or review.notes))
+        )
+
+    shown = [
+        rc_id
+        for rc_id in dict.fromkeys([*status.detections_by_rc, *reviews])
+        if worth_showing(rc_id)
+    ]
+    if not shown:
         return ""
     lines = [
         SMELLS_APPENDIX_HEADING,
         "",
-        "Facts that code found in the design of each baseline. Each smell is"
-        " a document of the knowledge skill, which says how to confirm it and"
-        " gives the remedies. A detection is evidence, not a verdict.",
+        "The smells found in the design of each baseline. Code renders this"
+        " section. The first table holds facts that the detectors in code"
+        " computed; its reviewer column is the baseline reviewer's reading."
+        " The second table is the baseline reviewer's findings, in the"
+        " reviewer's words, which code wrote as smell issues. Each smell is a"
+        " document of the knowledge skill, which says how to confirm it and"
+        " gives the remedies. A smell is evidence, not a verdict.",
     ]
-    for rc_id, rows in found.items():
-        lines += [
-            "",
-            f"Baseline `{rc_id}`:",
-            "",
-            "| smell | fact | reference | source of the reference |",
-            "|---|---|---:|---|",
-        ]
-        lines += [
-            f"| {_md(d.smell)} | {_md(d.fact)} | {_number(d.reference)}"
-            f" | {_md(d.reference_source)} |"
-            for d in rows
-        ]
+    for rc_id in shown:
+        review = reviews.get(rc_id)
+        detections = status.detections_by_rc.get(rc_id, [])
+        lines += ["", f"Baseline `{rc_id}`. {_review_status_line(review)}"]
+        if detections:
+            checks = {
+                (c.smell, c.detector): c
+                for c in (review.detection_checks if review else [])
+            }
+            lines += [
+                "",
+                "| smell | fact | reference | source of the reference | reviewer |",
+                "|---|---|---:|---|---|",
+            ]
+            for d in detections:
+                check = checks.get((d.smell, d.detector))
+                reading = "—"
+                if check is not None:
+                    reading = _HOLDS[check.holds]
+                    if check.note:
+                        reading += f": {_md(check.note)}"
+                lines.append(
+                    f"| {_md(d.smell)} | {_md(d.fact)} | {_number(d.reference)}"
+                    f" | {_md(d.reference_source)} | {reading} |"
+                )
+        if review is not None and review.findings:
+            lines += [
+                "",
+                "| smell | evidence | where | confidence | issue |",
+                "|---|---|---|---|---|",
+            ]
+            for i, finding in enumerate(review.findings):
+                issue_id = review.issue_ids[i] if i < len(review.issue_ids) else ""
+                lines.append(
+                    f"| {_md(finding.smell)} | {_md(finding.evidence)}"
+                    f" | {_md(', '.join(finding.where)) or '—'}"
+                    f" | {_md(finding.confidence)}"
+                    f" | {f'`{issue_id}`' if issue_id else '—'} |"
+                )
+        if review is not None and review.notes.strip():
+            lines += ["", f"Reviewer's notes: {_md(review.notes)}"]
     return "\n".join(lines) + "\n"
 
 

@@ -13,6 +13,8 @@ from typing import Protocol, runtime_checkable
 from kiln_harness_tuner.schemas import (
     AgentResult,
     AnalysisInput,
+    BaselineReviewInput,
+    BaselineReviewResult,
     BatchPlan,
     BatchPlanInput,
     DescribeEvalInput,
@@ -34,6 +36,12 @@ from kiln_harness_tuner.schemas import (
     ReportMarkdown,
     Usage,
 )
+
+# The wall-clock cap of one baseline-review session. Here, not only in a
+# dispatcher's timeout table, because the loop reads it too: it starts no
+# review that would leave too little time for a wave
+# (`smells.run.ensure_baseline_reviewed`).
+BASELINE_REVIEW_TIMEOUT_SECS = 20 * 60
 
 
 @runtime_checkable
@@ -91,6 +99,15 @@ class AgentDispatcher(Protocol):
         built run config's instructions beside its parent's and names the
         added text that memorises the train set or games the measurement
         (`kiln_harness_tuner.generality`)."""
+        ...
+
+    async def baseline_review(
+        self, req: BaselineReviewInput
+    ) -> AgentResult[BaselineReviewResult]:
+        """Once for each baseline, before the planner plans against it, a
+        read-only session reads the smell documents, the baseline's harness
+        and a sample of its train traces, and names the smells it finds
+        (`smells.run.ensure_baseline_reviewed`). Code writes the issues."""
         ...
 
     # The agent returns markdown; report.py (code) writes the file.

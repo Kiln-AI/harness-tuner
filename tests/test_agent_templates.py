@@ -43,6 +43,7 @@ TEMPLATE_SKILLS = {
     "promote_best": "kiln-harness-tuner-promote",
     "report_writer": "kiln-harness-tuner-report",
     "probe": "kiln-harness-tuner-probe",
+    "baseline_review": "kiln-harness-tuner-baseline-review",
 }
 
 

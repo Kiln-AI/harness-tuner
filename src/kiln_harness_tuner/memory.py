@@ -60,6 +60,7 @@ from kiln_harness_tuner.memory_schema import (
     SCREEN_TAG,
     SETUP_DELIMITER,
     SETUP_TAIL_RESERVE_CHARS,
+    SMELL_TAG,
     STAMPABLE_STATES,
     TRUNCATION_MARKER,
     VAL_STATS_OVERVIEW,
@@ -112,6 +113,7 @@ from kiln_harness_tuner.memory_schema import (
     rejection_note,
     render_kv,
     set_state_prefix,
+    smell_tag,
     split_owned,
     state_prefix_run,
     strip_state_suffix,
@@ -137,6 +139,7 @@ from kiln_harness_tuner.schemas import (
     RcChange,
     ResidualGateResult,
     ScreenResult,
+    SmellFinding,
 )
 
 logger = logging.getLogger(__name__)
@@ -1608,6 +1611,54 @@ class MemoryWriter:
                 BASELINE_JUDGE_COPY_TAG,
                 f"{AUDITED_RC_TAG_PREFIX}{rc_id}",
             ],
+        )
+
+    async def find_smell_issues(self, rc_id: str) -> list[IssueView]:
+        """Every smell issue the baseline reviewer's findings wrote for the
+        run config `rc_id`, in any state, hydrated. Not empty means this
+        baseline was already reviewed (a resumed lineage)."""
+        summaries = await self._list(
+            self.task_scope,
+            [RecordKind.ISSUE.value, SMELL_TAG, f"{AUDITED_RC_TAG_PREFIX}{rc_id}"],
+        )
+        records = await self._get_many(s.id for s in summaries)
+        return [IssueView.from_record(r) for r in records]
+
+    async def record_smell(
+        self, finding: SmellFinding, rc_id: str, *, title: str | None = None
+    ) -> str:
+        """POST the issue for one smell that the baseline reviewer found in
+        the run config `rc_id`, and return its memory id. Loop-owned (no
+        setup head) and bound to no eval: a smell is about the harness. When
+        an open issue for the same smell and run config exists, it is
+        returned and nothing is written. `title` is the smell document's
+        title (the id when None): the caller reads the knowledge skill, so
+        that this module does not import it."""
+        tags = [
+            RecordKind.ISSUE.value,
+            priority_tag(DEFAULT_ISSUE_PRIORITY),
+            SMELL_TAG,
+            smell_tag(finding.smell),
+            f"{AUDITED_RC_TAG_PREFIX}{rc_id}",
+        ]
+        for row in await self._list(self.task_scope, tags[:1] + tags[2:]):
+            if issue_state(row.overview) not in ISSUE_TERMINAL_STATES:
+                return row.id
+        evidence = one_line(finding.evidence)
+        content = (
+            f"{evidence}\n"
+            f"where: {', '.join(one_line(w) for w in finding.where) or '-'}\n"
+            f"confidence: {one_line(finding.confidence)}\n"
+            f"This is the smell `{finding.smell}`. Its document gives the remedies."
+        )
+        return await self._post(
+            self._issue_overview(
+                f"{one_line(title or finding.smell)} — {evidence[:120]}",
+                IssueState.OPEN.prefix,
+            ),
+            self.task_scope,
+            content,
+            tags,
         )
 
     async def seed_issue(

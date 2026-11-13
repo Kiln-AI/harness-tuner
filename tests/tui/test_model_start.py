@@ -4,6 +4,7 @@ spec 4 and 7.6)."""
 from model_events import START_NAME, START_RC, Run, fix, probe, row, table, val_row
 
 from kiln_harness_tuner.schemas import (
+    BaselineReview,
     ItemOutcome,
     ModelCheck,
     ModelPreflightResult,
@@ -115,6 +116,36 @@ def test_skipped_recon_and_the_opening_screen():
     assert (segment.kind, segment.wave) == ("screen", 0)
     run.emit("opening_screen_skipped", reason="no lower thinking level")
     assert steps(run)[-1] == ("skip", "Screen", "skipped: no lower thinking level")
+
+
+def test_the_baseline_review_step_and_its_later_log_line():
+    run = Run().start()
+    run.emit("phase_start", name="baseline_review", label="")
+    view = run.model.experiments(run.at(1).t)
+    assert plain(view.header) == " Starting · the baseline review"
+    assert steps(run)[-1] == (
+        "busy",
+        "Baseline review",
+        "reading the baseline's design for smells · 1m00s",
+    )
+    done = BaselineReview(rc_id=START_RC, status="done", findings=[])
+    run.emit("baseline_review", review=done, line="baseline review: rc — 0")
+    assert steps(run)[-1] == ("ok", "Baseline review", "0 smell findings")
+    failed = done.model_copy(update={"status": "failed", "reason": "timeout"})
+    run.emit("baseline_review", review=failed.model_dump(), line="")
+    assert steps(run)[-1] == ("warn", "Baseline review", "failed: timeout")
+    off = done.model_copy(update={"status": "off", "reason": "turned off"})
+    run.emit("baseline_review", review=off, line="")
+    assert steps(run)[-1] == ("skip", "Baseline review", "skipped: turned off")
+    # After a promotion the run is past the checklist: a log line.
+    run.emit("phase_start", name="planning", wave=2, label="Planning wave 2…")
+    run.emit("phase_start", name="baseline_review", label="")
+    assert run.log()[-1] == (
+        "baseline review: reading the new baseline's design for smells"
+    )
+    run.emit("baseline_review", review=done, line="baseline review: rc_b — 0")
+    assert steps(run)[-1] == ("skip", "Baseline review", "skipped: turned off")
+    assert run.log()[-1] == "baseline review: rc_b — 0"
 
 
 def test_busy_steps_fail_when_the_run_ends():

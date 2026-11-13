@@ -29,8 +29,11 @@ When it is `false`: plan no `eval_only` item and no fix with
 are not affected. Code drops an item that builds an
 eval before the wave runs. An issue that no eval measures is not a
 candidate: say so in `rejected_summary`, and the report tells the owner to
-create its eval in the Kiln app. When it is `true`, the skill's rules for
-`eval_only` items and `needs_eval` apply as written.
+create its eval in the Kiln app. A `smell`, `baseline_audit` or
+`baseline_judge_copy` issue is not such an issue: it is about the harness,
+and you plan it on an active eval that the change serves. When it is
+`true`, the skill's rules for `eval_only` items and `needs_eval` apply as
+written.
 
 Your input's `dropped_eval_items` lists each item that code dropped from an
 earlier plan of this run, one line each. A dropped item never ran: do not

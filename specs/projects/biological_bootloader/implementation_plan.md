@@ -51,7 +51,7 @@ changes knowledge documents also ends with
   documents. The `smells` package: the detection model, the three
   detectors, the thresholds, `run_detectors`. The detections in the
   planner's input and in the report. `tests/test_smells.py`.
-- [ ] Phase 7: The baseline reviewer. The role end to end: the prompt
+- [x] Phase 7: The baseline reviewer. The role end to end: the prompt
   template, its skill, the dispatcher method, the gateway role,
   `ensure_baseline_reviewed`, the smell issues in memory, the
   `--no-baseline-review` flag, the report. `tests/test_baseline_review.py`

@@ -960,6 +960,17 @@ class TestGrantedMcpToolsExist:
             assert role not in ROLE_OPS
             assert not (tmp_path / "run" / f"mcp_config.{role}.json").exists()
 
+    def test_the_baseline_reviewer_reads_through_its_gateway_only(self):
+        from kiln_harness_tuner.dispatch.claude_cli import AGENT_TIMEOUTS_SECS
+        from kiln_harness_tuner.gateway.ops import role_tools
+
+        tools = DEFAULT_ALLOWED_TOOLS["baseline_review"]
+        assert set(role_tools("baseline_review")) <= set(tools)
+        assert {"Read", "Grep", "Glob"} <= set(tools)
+        assert not [t for t in tools if t.startswith("mcp__skill_installer__")]
+        assert not [t for t in tools if t.endswith(("memory_create", "run_task"))]
+        assert AGENT_TIMEOUTS_SECS["baseline_review"] == 20 * 60
+
     def test_preflight_has_its_own_list(self):
         # `preflight` must not inherit the shared list: it proves the Kiln
         # lane and must not depend on a server whose first spawn pays an env
@@ -2035,6 +2046,7 @@ class TestReadOnlyRoles:
             "report_writer",
             "integrity_review",
             "generality_review",
+            "baseline_review",
         }
         dispatcher, runner = self._dispatcher(
             tmp_path, [ok_proc(cli_payload(envelope_text(self.PROMO)))]

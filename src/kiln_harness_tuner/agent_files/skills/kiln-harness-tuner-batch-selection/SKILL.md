@@ -81,8 +81,11 @@ going looking.
   Code drops an item that builds an eval before the wave runs. An issue
   that no eval measures is not a candidate while eval building is off: say
   so in `rejected_summary`, and the report tells the owner to create its
-  eval in the Kiln app. Every rule below that plans an `eval_only` item or
-  `needs_eval: true` applies only when `eval_building` is `true`.
+  eval in the Kiln app. A `smell`, `baseline_audit` or
+  `baseline_judge_copy` issue is not such an issue: it is about the
+  harness, and you plan it on an active eval that the change serves.
+  Every rule below that plans an `eval_only` item or `needs_eval: true`
+  applies only when `eval_building` is `true`.
   `dropped_eval_items` lists the items code dropped from earlier plans of
   this run. They never ran: they are not attempts, and you do not plan them
   again. When code drops every item of a plan, you plan the wave once more,
@@ -475,7 +478,9 @@ runs; only "did the output change in the named way" needs the agent.
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
   new_tool | params | …`), with `needs_eval: true` when the issue has no eval
   yet and `eval_building` is `true` (otherwise the issue is not a candidate —
-  Hard rules). `params` is a run-config-only arm — the model's provider
+  Hard rules; a `smell`, `baseline_audit` or `baseline_judge_copy` issue is
+  planned with `needs_eval: false` and an active eval that the change
+  serves). `params` is a run-config-only arm — the model's provider
   parameters (thinking level, temperature, top_p) on a clone of the parent
   with everything else byte-identical. Parameters are an ordinary lever:
   the kickoff guidance must NAME one to exclude it; "do not
@@ -549,22 +554,35 @@ which cause.
 ## Smells
 
 A smell is an issue in the design of the agent: true of it whether an eval
-passes or fails. Your input's `detections` are facts that code found in the
-**present** baseline: each states a number, the reference it was compared
-with and where that reference comes from, and names a smell document. Code
-runs the detectors again after each promotion, so `detections` always
-describes the baseline you plan against.
+passes or fails. Two sources name the smells of the **present** baseline:
 
-- For each detection, open the smell document from the table "Smells" of
+- Your input's `detections` are facts that code found: each states a
+  number, the reference it was compared with and where that reference comes
+  from, and names a smell document. Code runs the detectors again after each
+  promotion, so `detections` always describes the baseline you plan
+  against.
+- The `smell` issues in memory are the findings of the baseline reviewer,
+  an agent that reads the design of each baseline before you plan. Each
+  carries the tags `smell`, `smell_<smell id>` and `audited_rc_<rc id>`: the
+  ones whose `audited_rc_` tag names `baseline.rc_id` are about the present
+  baseline. An earlier baseline's smell issues stay open until a lifecycle
+  write closes them, so read the tag. The content gives the evidence, where
+  it was seen and how sure the reviewer is.
+
+For each one:
+
+- Open the smell document from the table "Smells" of
   `references/planner.md` in the `kiln-harness-tuner-knowledge` skill. Read
   "How to confirm it" against the baseline, then "What it blocks" and the
   remedies.
-- A fix for a smell is a fix arm on the issue that the change serves, with
-  `needs_eval: false` and the `eval_id` of an active eval that the change
-  serves, as for a `baseline_audit` scrub. Name the detection in the
+- A fix for a smell is a fix arm on the smell issue, with `needs_eval:
+  false` and the `eval_id` of an active eval that the change serves, as for
+  a `baseline_audit` scrub. For a detection with no smell issue, plan it on
+  the issue that the change serves. Name the detection or the smell in the
   hypothesis.
 - A smell is evidence. The reference is a default, not a measured optimum,
-  and an experiment decides.
+  and the reviewer's confidence is not a measurement. An experiment
+  decides.
 
 ## Step 2 — Weigh value and cost (reasoning, one short paragraph each)
 

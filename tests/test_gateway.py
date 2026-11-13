@@ -827,6 +827,34 @@ class TestRoles:
             if role not in gw.VAL_READERS:
                 assert "get_val_summary" not in ops, role
 
+    def test_the_baseline_reviewer_reads_and_never_writes(self):
+        ops = set(gw.ROLE_OPS["baseline_review"])
+        assert {
+            "get_run_config",
+            "get_prompt_text",
+            "get_train_results",
+            "get_skill_content",
+            "get_tool_definition",
+            "memory_list",
+        } <= ops
+        writes = {
+            "memory_create",
+            "memory_update",
+            "run_task",
+            "create_run_config",
+            "rename_run_config",
+            "create_prompt",
+            "create_code_tool",
+            "create_eval",
+        }
+        assert not writes & ops
+        assert not any(op.startswith(("create_", "archive_")) for op in ops)
+        # The reviewer does not judge whether an answer is right.
+        assert "get_train_expected" not in ops
+        assert "get_task_run" not in ops
+        assert "baseline_review" not in gw.VAL_READERS
+        assert "baseline_review" in gw.TRACE_READER_ROLES
+
     def test_an_operation_outside_the_role_is_refused(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, {}, role="batch_plan")
         with pytest.raises(

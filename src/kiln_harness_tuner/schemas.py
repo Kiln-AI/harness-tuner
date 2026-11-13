@@ -125,6 +125,7 @@ CLAUDE_CODE_SPEND_SOURCES = frozenset(
         "report_writer",
         "integrity_review",
         "generality_review",
+        "baseline_review",
     }
 )
 
@@ -1766,6 +1767,70 @@ class Detection(BaseModel):
     eval_id: str | None = None  # when the fact is about one eval
 
 
+class SmellFinding(BaseModel):
+    """One smell that the baseline reviewer names in the design of the
+    baseline: what it saw and where. It states no fix: the smell document
+    gives the remedies, and the planner chooses."""
+
+    smell: str  # the id of a smell document
+    evidence: str = Field(max_length=900)  # what was seen
+    # Where it was seen: train item ids, tool names, "prompt", skill names.
+    where: list[str] = Field(default=[], max_length=12)
+    confidence: str = Field(max_length=300)  # how sure, in words
+
+
+class DetectionCheck(BaseModel):
+    """The baseline reviewer's reading of one code detection."""
+
+    smell: str
+    detector: str
+    holds: bool | None  # None: reading could not tell
+    note: str = ""
+
+
+class TraceSample(BaseModel):
+    """The train items of one eval whose stored baseline traces the reviewer
+    starts from. Code chooses them by the order of the train set, never by
+    whether an item passed."""
+
+    eval_id: str
+    item_ids: list[str]
+
+
+class BaselineReviewInput(BaseModel):
+    """The baseline reviewer's input (`smells.run.ensure_baseline_reviewed`).
+    Train only: the samples name stored train rows, and the detections read
+    the harness."""
+
+    baseline: BaselineRef
+    detections: list[Detection]
+    samples: list[TraceSample]
+    known_smells: list[str]  # the ids of every smell document
+
+
+class BaselineReviewResult(BaseModel):
+    findings: list[SmellFinding] = []
+    detection_checks: list[DetectionCheck] = []
+    notes: str = ""  # a design issue that fits no smell, in a few lines
+
+
+class BaselineReview(BaseModel):
+    """What the run keeps about one review of one baseline, for the report.
+    `detection_checks` and `notes` are kept beside the component design's
+    fields, so that the report can show the reviewer's reading of each
+    detection."""
+
+    rc_id: str
+    status: Literal["done", "skipped", "failed", "off"]
+    reason: str = ""  # why it did not run; for `done`, the failed writes
+    findings: list[SmellFinding] = []
+    # `done`: the issue of each finding, in order ("" when its write
+    #   failed). `skipped`: the smell issues already in memory.
+    issue_ids: list[str] = []
+    detection_checks: list[DetectionCheck] = []
+    notes: str = ""
+
+
 class BatchPlanInput(BaseModel):
     guidance: str  # kickoff human guidance, verbatim, every wave
     baseline: BaselineRef
@@ -2147,6 +2212,9 @@ class RunStatus(BaseModel):
     #   not the flat list of the component design, because a `Detection`
     #   does not name its baseline and the appendix shows each one.
     detections_by_rc: dict[str, list[Detection]] = {}
+    # Each review of a baseline by the baseline reviewer, in order
+    #   (`baseline_review` events): done, skipped, failed or off.
+    baseline_reviews: list[BaselineReview] = []
 
 
 class ReportInput(BaseModel):

@@ -218,13 +218,14 @@ shows the train items only. Read results with `get_train_results` after
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |
 | eval_build | reading the task and the evals, `get_train_results`, memory, the eval-build operations, the code-tool writes |
+| baseline_review | reading the task and the evals, `get_train_results`, `list_train_items`, `get_skill`, `get_skill_content`, `get_code_tool`, `list_available_tools`, `get_tool_definition`, memory reads (no write of any kind) |
 | integrity_review | none: no MCP server and no tool; its input is all it reads |
 | generality_review | none: no MCP server and no tool; its input is all it reads |
 
 Every role that has operations, except the preflight, also has
 `get_answer_part`. The roles that read trace files — batch_plan,
-create_experiment_rc, probe, analyze_experiment_results and eval_build —
-may `Read`, `Grep` and `Glob` the trace folder.
+create_experiment_rc, probe, analyze_experiment_results, eval_build and
+baseline_review — may `Read`, `Grep` and `Glob` the trace folder.
 
 The exact lists are `kiln_harness_tuner/gateway/ops.py` (`ROLE_OPS`); a test keeps
 this table and that code in step.
@@ -233,4 +234,5 @@ this table and that code in step.
 
 `memory` (what to write, and the record kinds) · `kiln-harness-tuner-batch-selection`
 · `kiln-harness-tuner-experiment-build` · `kiln-harness-tuner-experiment-analysis` ·
-`kiln-harness-tuner-probe` · `kiln-harness-tuner-promote` · `kiln-harness-tuner-report`
+`kiln-harness-tuner-probe` · `kiln-harness-tuner-promote` · `kiln-harness-tuner-report` ·
+`kiln-harness-tuner-baseline-review`

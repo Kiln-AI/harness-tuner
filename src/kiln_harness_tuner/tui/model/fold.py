@@ -20,6 +20,7 @@ from typing import Any
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
+    BaselineReview,
     CandidateValTable,
     DetectabilityReport,
     ItemOutcome,
@@ -679,6 +680,20 @@ class RunModel:
     def _on_opening_screen_skipped(self, s: Stamped, f: Mapping[str, Any]) -> None:
         self._step(words.SCREEN_STEP, "skip", words.skipped(_text(f.get("reason"))))
 
+    def _on_baseline_review(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        # The step of the Starting checklist at wave 1; after a promotion
+        # the run is past it, and the review is a log line.
+        review = _valid(BaselineReview, f.get("review"))
+        if review is None:
+            return
+        if self.mode == "starting":
+            status, text = words.review_step(
+                review.status, len(review.findings), review.reason
+            )
+            self._step(words.REVIEW_STEP, status, text)
+        elif line := _text(f.get("line")):
+            self._say(s, "run", line)
+
     # ---- phases ----
 
     def _on_phase_start(self, s: Stamped, f: Mapping[str, Any]) -> None:
@@ -691,6 +706,11 @@ class RunModel:
         elif name == "baseline_measure":
             text = f"{self._baseline_name()} · {words.BASELINE_MEASURING}"
             self._step(words.BASELINE_STEP, "busy", text, since=s.mono)
+        elif name == "baseline_review":
+            if self.mode == "starting":
+                self._step(words.REVIEW_STEP, "busy", words.REVIEW_BUSY, since=s.mono)
+            else:
+                self._say(s, "run", words.REVIEW_AFTER_PROMOTION)
         elif name == "planning" and wave is not None:
             self._planning_started(s, wave, _text(f.get("label")))
         elif name == "promotion_gate":

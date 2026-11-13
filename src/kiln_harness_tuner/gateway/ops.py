@@ -1424,6 +1424,24 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_MEM_READ,
         "get_val_summary",
     ),
+    # The baseline reviewer reads the harness and train traces only: no
+    # write of any kind, and it is not a val reader. Code writes the issues
+    # of its findings. No `get_train_expected` and no `get_task_run` (whose
+    # answer for a dataset item is its labelled output): an expected output
+    # serves only to judge whether an answer is right, which the reviewer
+    # must not.
+    "baseline_review": (
+        *_TASK,
+        *_EVALS,
+        "get_train_results",
+        "list_train_items",
+        "get_skill",
+        "get_skill_content",
+        "get_code_tool",
+        "list_available_tools",
+        "get_tool_definition",
+        *_MEM_READ,
+    ),
     "eval_build": (
         "get_task",
         "list_run_configs",

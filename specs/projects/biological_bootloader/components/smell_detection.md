@@ -236,7 +236,7 @@ evals.
 ROLE_OPS["baseline_review"] = (
     *_TASK,          # get_task, get_run_config, get_prompt_text, ...
     *_EVALS,         # list_evals, get_eval, ...
-    "get_train_results", "get_task_run", "get_train_expected", "list_train_items",
+    "get_train_results", "list_train_items",
     "get_skill", "get_skill_content", "get_code_tool",
     "list_available_tools", "get_tool_definition",
     *_MEM_READ,
@@ -249,6 +249,12 @@ ROLE_OPS["baseline_review"] = (
   folder is opened to it by the existing rule.
 - It is not in `VAL_READERS`. Every answer it gets holds train records
   only.
+- No `get_train_expected` and no `get_task_run` (its answer for a dataset
+  item is the labelled output). An expected output serves only to judge
+  whether an answer is right, and the reviewer must not judge that
+  (decided in the code review of phase 7). The trace folder's `_expected/`
+  files stay readable to the role; the skill tells the reviewer not to
+  open them.
 
 ### 4.4 The skill's procedure
 

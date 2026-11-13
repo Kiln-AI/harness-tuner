@@ -242,6 +242,11 @@ BASELINE_AUDIT_TAG = "baseline_audit"
 # audit runs once per baseline on its own.
 BASELINE_JUDGE_COPY_TAG = "baseline_judge_copy"
 AUDITED_RC_TAG_PREFIX = "audited_rc_"
+# The issue the baseline reviewer's finding becomes (`smells.run`):
+# `smell`, `smell_<smell id>` and the `audited_rc_<id>` tag of the baseline
+# it reviewed. Bound to no eval: a smell is about the harness.
+SMELL_TAG = "smell"
+SMELL_TAG_PREFIX = "smell_"
 # The machine binding between an eval and its issue memories (`eval_<eval_id>`).
 # Parsed for NUMERIC ids only — Kiln ids are numeric everywhere, and reading a
 # human `eval_…` word tag as a binding would flag a live issue UNMEASURABLE the
@@ -254,6 +259,20 @@ _PRIORITY_TAG_RE = re.compile(r"^p(?P<n>[0-3])$")
 # p1 is the middle of the road: high enough that the planner sees it, low
 # enough that it never outranks a human `p0`.
 DEFAULT_ISSUE_PRIORITY = 1
+
+
+_TAG_CHARS_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def fits_tag(text: str) -> bool:
+    """True when `text` holds only the tag characters `[A-Za-z0-9_-]`."""
+    return _TAG_CHARS_RE.fullmatch(text) is not None
+
+
+def smell_tag(smell_id: str) -> str:
+    """`smell_<id>`. A smell document's id is lower case with `-`, so it
+    fits the tag characters (`fits_tag`)."""
+    return f"{SMELL_TAG_PREFIX}{smell_id}"
 
 
 def baseline_rc_tag(rc_id: str) -> str:

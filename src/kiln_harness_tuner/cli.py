@@ -388,6 +388,13 @@ def build_parser() -> _Parser:
         " issue)",
     )
     parser.add_argument(
+        "--no-baseline-review",
+        action="store_true",
+        help="skip the baseline reviewer: the agent session that reads the"
+        " baseline's design for smells once per baseline, before the"
+        " planner (the code detectors still run)",
+    )
+    parser.add_argument(
         "--reference-check",
         choices=REFERENCE_CHECK_MODES,
         default="warn",
@@ -1031,6 +1038,7 @@ def build_ctx(
     gate_agent: str = "auto",
     recon: bool = True,
     baseline_audit: bool = True,
+    baseline_review: bool = True,
     reference_check: str = "warn",
     objective: str = "quality",
     model_policy: ModelPolicy | None = None,
@@ -1075,6 +1083,7 @@ def build_ctx(
         gate_agent=gate_agent,
         recon=recon,
         baseline_audit=baseline_audit,
+        baseline_review=baseline_review,
         reference_check=reference_check,
         measure_baseline_first=True,
         detectability_check=True,
@@ -1355,6 +1364,7 @@ async def _run(
                 gate_agent=args.gate_agent,
                 recon=not args.no_recon,
                 baseline_audit=not args.no_baseline_audit,
+                baseline_review=not args.no_baseline_review,
                 reference_check=args.reference_check,
                 objective=args.objective,
                 model_policy=policy,

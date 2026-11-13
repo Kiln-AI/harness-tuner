@@ -39,6 +39,7 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from kiln_harness_tuner.dispatch.base import BASELINE_REVIEW_TIMEOUT_SECS
 from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
 from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
 from kiln_harness_tuner.provider_errors import (
@@ -48,6 +49,8 @@ from kiln_harness_tuner.provider_errors import (
 from kiln_harness_tuner.schemas import (
     AgentResult,
     AnalysisInput,
+    BaselineReviewInput,
+    BaselineReviewResult,
     BatchPlan,
     BatchPlanInput,
     DescribeEvalInput,
@@ -131,6 +134,9 @@ AGENT_TIMEOUTS_SECS: dict[str, float] = {
     "integrity_review": 10 * 60,
     # The generality reviewer: the same shape — read the input, answer.
     "generality_review": 10 * 60,
+    # The baseline reviewer: reads the smell documents, the harness and a
+    # sample of train traces through its gateway operations, then answers.
+    "baseline_review": BASELINE_REVIEW_TIMEOUT_SECS,
     "preflight": 3 * 60,
 }
 
@@ -674,9 +680,16 @@ def _classify_cli_error(detail: str) -> str:
 # tables, the report writer the whole run's history. Read-only, nothing they
 # hold can reach a record a later agent reads. The two reviewers (integrity,
 # generality) hold no val data; they have no tools, so they have nothing to
-# write.
+# write. The baseline reviewer holds no val data either: it reads, and code
+# writes the issues of its findings.
 READ_ONLY_ROLES = frozenset(
-    {"promote_best", "report_writer", "integrity_review", "generality_review"}
+    {
+        "promote_best",
+        "report_writer",
+        "integrity_review",
+        "generality_review",
+        "baseline_review",
+    }
 )
 
 
@@ -829,6 +842,11 @@ class ClaudeCliDispatcher:
         self, req: GeneralityReviewInput
     ) -> AgentResult[GeneralityReviewResult]:
         return await self._run("generality_review", req, GeneralityReviewResult)
+
+    async def baseline_review(
+        self, req: BaselineReviewInput
+    ) -> AgentResult[BaselineReviewResult]:
+        return await self._run("baseline_review", req, BaselineReviewResult)
 
     async def probe(self, req: ProbeInput) -> AgentResult[ProbeResult]:
         return await self._run("probe", req, ProbeResult)
