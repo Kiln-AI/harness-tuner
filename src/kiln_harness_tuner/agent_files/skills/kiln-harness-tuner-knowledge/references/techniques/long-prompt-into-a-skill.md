@@ -17,15 +17,17 @@ cost: medium
 - The prompt is long and holds many topics, and each run needs one or a
   few of them. Example: an agent that can do 25 things, with the rules of
   all 25 in its prompt.
-- The model is small or medium. A smaller model loses parts of a long
-  prompt sooner, and does better with a focused context.
+- A probe shows that the model reliably opens skills under this run
+  config. Small models often do not. The measured cases are in the
+  playbook [the skill is not read](../playbooks/skill-is-not-read.md).
 - The traces show the agent miss a part of the long prompt, and the part
   it misses changes from item to item.
 - The cost per item is high because of the prompt, and the measured cost
   shows no saving from a prompt cache.
 
-As of the review date, this move is worth an experiment for most long
-prompts, and it is often the right direction. The conditions below decide.
+The move is worth an experiment when the prompt holds many topics, each
+run needs few of them, and a probe shows that the model opens skills. When
+one of these conditions is not true, an alternative below fits better.
 
 ## When not to use
 
@@ -59,19 +61,14 @@ The change is a new [skill](../levers/skill.md) bundle and a shorter
 
 1. **Probe**, when no earlier probe answered it: does this model open a
    skill under this run config?
-2. **Split the content by topic.** One `references/` file for each topic.
-   A file has a contents line at the top that names what it holds, with its
-   key terms: the words that a question about the topic would use.
-3. **Write the `SKILL.md` body as a router**: for each kind of request,
-   which file to read. It lists. It does not narrate an order ("load X
-   first"): a router that sets an order couples the calls, and it can break
-   an eval that the change was not aimed at.
-4. **Write the description** with the path of each reference file and its
-   key terms, inside the 1,024 characters.
-5. **Trim the prompt on the same arm.** It keeps what every run needs (the
+2. **Build the bundle from the prompt text**, never from the train items.
+   The steps are in the `kiln-harness-tuner-experiment-build` skill,
+   `references/skill-authoring.md`: section 2, "When the model is lost in a
+   long prompt or one big skill", for the topic files and the body map, and
+   section 3 for the description.
+3. **Trim the prompt on the same arm.** It keeps what every run needs (the
    role, the output contract) and one line that names the skill. The moved
    text leaves the prompt. Two copies can disagree.
-6. **Write from the prompt text**, never from the train items.
 
 ## Check that it took effect
 
@@ -79,7 +76,7 @@ Smoke on two or three train items that need different topics. In each
 trace, find the read of the right reference file before the answer. When
 the skill is never opened, the change did not reach the agent.
 
-A router changes the order of the agent's calls, and that can break another
+The bundle changes the order of the agent's calls, and that can break another
 criterion. Measure the bundle on its target evals, and add an eval only when
 you have a stated reason to expect the bundle to break it. When it fixes its
 target, the val gate measures every eval before a promotion.

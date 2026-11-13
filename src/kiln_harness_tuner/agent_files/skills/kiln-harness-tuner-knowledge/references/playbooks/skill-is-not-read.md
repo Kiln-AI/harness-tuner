@@ -1,7 +1,7 @@
 ---
 title: The skill is not read
-description: The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. The path index in the description, then a prompt rule.
-reviewed: 2026-11-12
+description: The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. A rewrite of the skill, then a prompt rule.
+reviewed: 2026-11-13
 kind: failure
 applies_to: all
 ---
@@ -25,11 +25,9 @@ low cost whether this model opens skills at all under this run config.
 
 ## What to try, in order
 
-1. [Path index in the skill description](../techniques/path-index-in-the-skill-description.md),
+1. [Rewrite an inherited skill](../techniques/rewrite-an-inherited-skill.md),
    when the agent opens the skill and misses the file, or guesses a path.
-   A new version of the skill whose description lists the full path of
-   each reference file, with its key terms, and says that no other paths
-   exist.
+   A new version of the skill, attached in place of the old one.
 2. [One general rule per edit](../techniques/one-general-rule-per-edit.md),
    when the agent does not open the skill: one prompt rule that says which
    requests need the skill.
@@ -46,9 +44,10 @@ low cost whether this model opens skills at all under this run config.
 
 ## What not to do yet
 
-- Do not make the `SKILL.md` body longer. The body is read after the
-  decision that fails: the agent does not open the skill, or opens it and
-  picks a file from the description.
+- Do not add content to the `SKILL.md` body to fix a read failure. The
+  body is a map of the reference files. Full paths and key terms in the
+  map are part of the fix. More content in the body is not: it gives the
+  model more to read before it picks a file.
 - Do not assume that the agent reads a skill because it is attached. Count
   the reads in a few traces, or ask a probe.
 - When the agent loads the skill and does not follow it, do not add more
@@ -59,7 +58,8 @@ low cost whether this model opens skills at all under this run config.
 
 ## Budget
 
-The order does not change with the budget. Steps 1 to 3 have a low cost.
+The order does not change with the budget. Steps 2 and 3 have a low cost.
+Step 1 has a medium cost: a new version of the skill.
 
 ## Priors
 

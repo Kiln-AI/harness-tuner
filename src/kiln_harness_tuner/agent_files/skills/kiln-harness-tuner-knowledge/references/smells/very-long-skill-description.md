@@ -52,9 +52,8 @@ Nothing.
 
 - [Rewrite an inherited skill](../techniques/rewrite-an-inherited-skill.md),
   when the skill can get a new version: a short description, and the rules
-  and facts moved into the body or the reference files.
-- [Path index in the skill description](../techniques/path-index-in-the-skill-description.md),
-  when the description is long because it lists the files: keep the paths
-  and their key terms, and cut the other text.
+  and facts moved into the body or the reference files. When the
+  description is long because it lists the files, keep the paths and their
+  key terms, and cut the other text.
 - [Skill into the prompt](../techniques/skill-into-the-prompt.md), when
   most runs need the content of the skill.

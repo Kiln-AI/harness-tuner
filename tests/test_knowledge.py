@@ -54,8 +54,9 @@ def test_the_shipped_knowledge_has_a_document_of_each_type():
         assert kb.by_kind(kind), f"no document in {kind}/"
 
 
-# V1 coverage, sections 1 and 3: the six levers, and the twenty-eight
-# techniques with the levers each one uses.
+# V1 coverage, sections 1 and 3: the six levers, and the techniques with the
+# levers each one uses. `path-index-in-the-skill-description` was removed
+# after V1: a restructure by `rewrite-an-inherited-skill` covers it.
 V1_LEVERS = {"prompt", "skill", "new_tool", "tool_config", "params", "model"}
 V1_TECHNIQUE_LEVERS = {
     "add-the-missing-requirement": ["prompt"],
@@ -67,7 +68,6 @@ V1_TECHNIQUE_LEVERS = {
     "one-general-rule-per-edit": ["prompt", "skill"],
     "long-prompt-into-a-skill": ["skill", "prompt"],
     "skill-into-the-prompt": ["prompt", "skill"],
-    "path-index-in-the-skill-description": ["skill"],
     "rewrite-an-inherited-skill": ["skill"],
     "prune-one-group-at-a-time": ["prompt", "skill", "tool_config"],
     "attach-the-knowledge-source": ["tool_config", "skill"],

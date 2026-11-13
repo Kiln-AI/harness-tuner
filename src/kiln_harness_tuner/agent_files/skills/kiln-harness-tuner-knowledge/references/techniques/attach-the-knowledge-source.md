@@ -55,15 +55,30 @@ The change is one of two, on a new run config: attach a tool that exists
    decide whether to call it. When the description does not say what the
    source holds, a wrapper with a new description is a second
    change.
-3. **Or write a skill**, when the knowledge is text that the tuner has: a
-   contents body that names each topic with its key terms, and one
-   reference file for each topic.
+3. **Or write a skill**, when the tuner has the text of the knowledge.
+   The sources for the skill's text are:
+   - the task instruction;
+   - existing skills and prompts;
+   - the output of a tool that the run config can attach;
+   - documents that the user supplied.
+
+   The builder's own knowledge alone is usually not enough. It can be
+   enough when the builder's model is much stronger than the agent's
+   runtime model, for example a frontier builder that writes for a small
+   local model. It is not enough when the two models are peers: the agent
+   already knows what the builder knows. The train labels are never a
+   source (step 5). The shape of the bundle is in the
+   `kiln-harness-tuner-experiment-build` skill,
+   `references/skill-authoring.md`, section 2.
 4. **Choose the content by what the agent does with it.** Worked examples
    of correct work (for a query agent: example queries) can help more than
    general notes about the domain. Records that do not match the question
    can lower the result: see the prior below.
 5. **Never write a value from a train item** into the skill, and never an
-   expected answer.
+   expected answer. Facts that the skill holds only because the train
+   labels show them are a leak too, even when they copy no value. The
+   labels can show which rule the agent misses; they are not a source of
+   the skill's facts.
 6. A prompt line that tells the agent to use the source is part of the
    hypothesis, or a second arm. Scope discipline is the next step:
    [answer only from the source](answer-only-from-the-source.md).
@@ -107,4 +122,6 @@ improve, the source does not hold what the answers need.
 Medium. Attaching the source is the common first step for answers that are
 not grounded, in field practice: a model cannot state a private fact that
 it does not have. One public case shows that what the source holds matters
-as much as whether it is attached.
+as much as whether it is attached. The condition on the builder's own
+knowledge is reasoning: a skill adds facts only when its writer knows what
+the agent's model does not.

@@ -53,9 +53,8 @@ tuner can change, and a rule around it leaves the fault in place.
 
 - [Rewrite an inherited skill](../techniques/rewrite-an-inherited-skill.md),
   first: a new version of the skill, with the fault removed, attached in
-  place of the old one.
-- [Path index in the skill description](../techniques/path-index-in-the-skill-description.md),
-  when the new version has reference files and the agent does not open
-  the one it needs.
+  place of the old one. When the agent does not open the reference file it
+  needs, the new version also restructures it: the full path of each file,
+  with its key terms, in the description and in the body map.
 - [Prune one group at a time](../techniques/prune-one-group-at-a-time.md),
   when the skill may not help at all: drop it on one arm and measure it.

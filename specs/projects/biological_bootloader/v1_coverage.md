@@ -91,7 +91,7 @@ because each is a property of the design.
 | `one-general-rule-per-edit` | prompt, skill | low | Research, the planner's skill |
 | `long-prompt-into-a-skill` | skill, prompt | medium | Overview 6.2, ladder row 8 |
 | `skill-into-the-prompt` | prompt, skill | low | Overview 6.2 and 9 |
-| `path-index-in-the-skill-description` | skill | low | Ladder row 5 |
+| `path-index-in-the-skill-description` | skill | low | Ladder row 5. Removed after V1: the file does not exist. A restructure by `rewrite-an-inherited-skill` covers it. |
 | `rewrite-an-inherited-skill` | skill | medium | Ladder row 10 |
 | `prune-one-group-at-a-time` | prompt, skill, tool_config | low | Research, overview 6.3 |
 | **Knowledge** | | | |
@@ -171,7 +171,7 @@ plans, as a step of its procedure.
 | `failure-at-a-tool-call` | The failing message comes before or with a tool call. A new tool description, then a directive in the tool's response. | Ladder row 4 |
 | `malformed-tool-calls` | Wrong case, wrong id form, a misspelled tool name. A wrapper that normalises, errors the agent can act on, a guard at the tool. | Ladder row 7 |
 | `wrong-tool-chosen` | The agent picks the wrong tool, or breaks a rule that the product enforces. Consolidate, or remove and scope. | Ladder row 11 |
-| `skill-is-not-read` | The agent never loads a skill file, guesses a path, or loads it and does not follow it. The path index in the description, then a prompt rule. | Ladder row 5, research |
+| `skill-is-not-read` | The agent never loads a skill file, guesses a path, or loads it and does not follow it. A rewrite of the skill, then a prompt rule. | Ladder row 5, research |
 | `lost-in-long-instructions` | The agent misses a part of a long prompt or a long skill. Progressive disclosure, or a prompt-structure change when the task has no tools. A probe first. | Ladder rows 8 and 14 |
 | `change-the-surface-not-the-words` | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception: procedure text comes first. | Ladder, research |
 | **Kind: eval** (the measurement is the problem) | | |
