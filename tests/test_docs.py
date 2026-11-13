@@ -250,3 +250,92 @@ def test_install_doc_lists_every_console_script():
     count, names = lines[0]
     assert names.split(", ") == sorted(scripts)
     assert int(count) == len(scripts)
+
+
+# The role table of `docs/agents.md`: a row's first cell is the role in
+# backticks. Its first line says how many roles there are, in words.
+AGENTS_DOC = DOCS_ROOT / "agents.md"
+ROLE_ROW_RE = re.compile(r"^\| `([a-z_]+)`", re.MULTILINE)
+ROLE_SECTION_RE = re.compile(r"^## `([a-z_]+)`$", re.MULTILINE)
+COUNT_WORDS = (
+    "zero one two three four five six seven eight nine ten eleven twelve"
+    " thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty"
+).split()
+
+
+def agent_roles() -> set[str]:
+    """The roles the dispatcher can run: the keys of its timeout table, less
+    the lane check, which is not a role."""
+    from kiln_harness_tuner.dispatch.claude_cli import AGENT_TIMEOUTS_SECS
+
+    return set(AGENT_TIMEOUTS_SECS) - {"preflight"}
+
+
+def test_every_role_has_a_row_and_a_section_in_agents_md():
+    """`docs/agents.md` is where a reader whose run went wrong looks for the
+    agent to blame. When the code dispatches a role that the page leaves
+    out, that reader cannot find the role. Only the role table counts: the
+    entry-file table under it cannot satisfy the check."""
+    text = AGENTS_DOC.read_text(encoding="utf-8")
+    head = text.split("\n## ", 1)[0]
+    role_table = head.split("\n| Agent |", 1)[1].split("\n\n", 1)[0]
+    rows = set(ROLE_ROW_RE.findall(role_table))
+    sections = set(ROLE_SECTION_RE.findall(text))
+    roles = agent_roles()
+    assert rows == roles, (
+        f"role table of docs/agents.md: missing {sorted(roles - rows)},"
+        f" unknown {sorted(rows - roles)}"
+    )
+    assert sections == roles, (
+        f"role sections of docs/agents.md: missing {sorted(roles - sections)},"
+        f" unknown {sorted(sections - roles)}"
+    )
+    first_line = text.splitlines()[2]
+    word = COUNT_WORDS[len(roles)].capitalize()
+    assert first_line.startswith(f"{word} agent roles."), (
+        f"docs/agents.md says {first_line.split('.')[0]!r}; the code has"
+        f" {len(roles)} roles"
+    )
+
+
+# The two layout blocks: the root `AGENTS.md` (`## Layout`) and
+# `docs/architecture.md` section 13. Each names a package directory as an
+# indented `<name>/` at the start of a line.
+LAYOUT_BLOCKS = {
+    "AGENTS.md": "## Layout",
+    "docs/architecture.md": "## 13. Layout",
+}
+PACKAGE_ROOT = REPO_ROOT / "src" / "kiln_harness_tuner"
+
+
+def layout_block(name: str) -> str:
+    """The first fenced block after the layout heading of `name`, up to
+    `src/kiln_api_mcp/`, so that a line under `tests/` (such as `tui/`)
+    does not count."""
+    text = (REPO_ROOT / name).read_text(encoding="utf-8")
+    after = text.split(f"\n{LAYOUT_BLOCKS[name]}\n", 1)[1]
+    return after.split("```", 2)[1].split("\nsrc/kiln_api_mcp/", 1)[0]
+
+
+def package_directories() -> list[str]:
+    return sorted(
+        p.name
+        for p in PACKAGE_ROOT.iterdir()
+        if p.is_dir() and not p.name.startswith(("__", "."))
+    )
+
+
+@pytest.mark.parametrize("name", sorted(LAYOUT_BLOCKS))
+def test_each_package_directory_is_in_the_layout_block(name: str):
+    """A layout block that leaves out a package makes a contributor look for
+    it by hand. A contributor who adds a package then sees no line to
+    follow. Each directory of `src/kiln_harness_tuner/` has a line in both
+    blocks."""
+    assert len(package_directories()) >= 8, package_directories()
+    block = layout_block(name)
+    missing = [
+        d
+        for d in package_directories()
+        if not re.search(rf"^ +{re.escape(d)}/ ", block, re.MULTILINE)
+    ]
+    assert not missing, f"{name}: the layout block has no line for {missing}"

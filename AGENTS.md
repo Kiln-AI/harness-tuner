@@ -28,7 +28,14 @@ src/kiln_harness_tuner/
   dispatch/         the dispatcher seam, and the claude -p, codex exec and
                     opencode run implementations
   gateway/          the loop gateway: the only way loop agents reach Kiln
+  knowledge/        the knowledge system's code: load, check and index the
+                    skill kiln-harness-tuner-knowledge (python -m
+                    kiln_harness_tuner.knowledge check|build)
+  onboarding/       the start before the run: checks, guided questions,
+                    the summary
   skill_installer/  the MCP server that installs a skill bundle atomically
+  smells/           smell detection: the detectors in code, their
+                    thresholds, and the baseline review step
   tui/              the terminal app (Textual) of an interactive run: the
                     start-up and run screens, and the run model
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)

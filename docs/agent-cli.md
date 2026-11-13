@@ -52,6 +52,9 @@ class AgentDispatcher(Protocol):
     async def generality_review(
         self, req: GeneralityReviewInput
     ) -> AgentResult[GeneralityReviewResult]: ...
+    async def baseline_review(
+        self, req: BaselineReviewInput
+    ) -> AgentResult[BaselineReviewResult]: ...
 ```
 
 `preflight` runs once per run, before any paid work, and proves the agents'
@@ -281,7 +284,7 @@ worth, so the decision is informed.
 
 The short version:
 
-1. Implement the eleven methods (ten roles and `preflight`). Return `AgentResult[T]` with a validated `data`
+1. Implement the twelve methods (eleven roles and `preflight`). Return `AgentResult[T]` with a validated `data`
    on success.
 2. Make `preflight` prove the agents' Kiln lane and raise with an actionable
    message when it cannot.

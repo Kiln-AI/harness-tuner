@@ -11,7 +11,7 @@ The knowledge system is the skill
 [`kiln-harness-tuner-knowledge`](../../../src/kiln_harness_tuner/agent_files/skills/kiln-harness-tuner-knowledge/SKILL.md).
 It holds what is known about how to improve an agent's harness. The loop
 agents of the tuner read it: the planner, the builder, the analyzer, the
-report writer and, later, the baseline reviewer. Each role has its own entry
+report writer and the baseline reviewer. Each role has its own entry
 file in `references/`.
 
 It has four component types. Each is one Markdown file, and its directory

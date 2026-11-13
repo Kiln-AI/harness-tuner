@@ -56,7 +56,7 @@ changes knowledge documents also ends with
   `ensure_baseline_reviewed`, the smell issues in memory, the
   `--no-baseline-review` flag, the report. `tests/test_baseline_review.py`
   and the extended role tests.
-- [ ] Phase 8: Documents and acceptance. `docs/agents.md`,
+- [x] Phase 8: Documents and acceptance. `docs/agents.md`,
   `docs/architecture.md`, `docs/how-it-works.md` and `docs/cli.md`. The two
   acceptance checks of the maintenance skill that need a person (an agent
   adds a technique as one file; an agent stops on a conflict), with a short

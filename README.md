@@ -208,7 +208,7 @@ Evals need direct API access and can't run on a coding agent subscription, so th
 - [Costs](docs/costs.md): estimate a run before you start it.
 - [Limitations](docs/limitations.md): what it doesn't do. Read it before planning a long run.
 - [Architecture](docs/architecture.md): the wave loop, the gate, measurement, memory and the sandbox.
-- [Agents](docs/agents.md): the ten agent roles and what each one does.
+- [Agents](docs/agents.md): the eleven agent roles and what each one does.
 - [Agent CLIs](docs/agent-cli.md): how it runs on Claude Code, Codex and OpenCode.
 
 ## Contributing

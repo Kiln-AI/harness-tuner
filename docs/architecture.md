@@ -224,8 +224,22 @@ Per wave, in order:
    ceiling runs to completion and is paid for. The clock does not work this way
    (section 3.3).
 3. **Read the baseline**, fresh, because the previous wave's promotion moved
-   it. The planner receives the run-config id and nothing else.
-4. **Plan.** One `batch_plan` dispatch. A hard failure exits the run
+   it. The planner receives the run-config id, and no val number of the
+   baseline.
+4. **The smells of the baseline** (`smells.ensure_baseline_reviewed`),
+   once for each baseline: on wave 1, and on the wave after a promotion,
+   when the run config differs from the one last reviewed. The smell
+   detectors in code run first, then one `baseline_review` session, and
+   code writes one `smell` issue for each finding (section 18). No session
+   runs with `--no-baseline-review`, on a wrap-up wave, or when less than
+   `MIN_WAVE_START_SECS` plus the review's timeout is left; the detectors
+   still run. It never raises, apart from a quota error. After a review,
+   the wave-start clock checks run again before the plan. The wave's cycle
+   time starts at the end of the review. So the review does not add to the
+   projected length of a wave.
+5. **Plan.** One `batch_plan` dispatch. Its input carries the present
+   baseline's detections (`BatchPlanInput.detections`), and it reads the
+   `smell` issues from memory with the other issues. A hard failure exits the run
    (`planner_failed`) — it is the loop's brain, and another attempt after the
    retry ladder only burns budget. **The eval-building guard**
    (`items.drop_eval_building_items`): eval building is experimental and off
@@ -242,21 +256,21 @@ Per wave, in order:
    `plan_all_items_dropped` event). If that plan also has no item left, the
    run exits `empty_plan`. The report names each open issue that has no eval
    (section 11).
-5. **Optionally, screening rounds** (`_screening_phase`). When the plan
+6. **Optionally, screening rounds** (`_screening_phase`). When the plan
    carries `screen` instead of items, code measures every variant it names
    on the screening subset and calls the planner again with the table
    (phase `rescreen`), up to a fixed number of rounds per wave.
-6. **Optionally, the probe phase.** When the plan comes back with
+7. **Optionally, the probe phase.** When the plan comes back with
    `probe_phase: true` it carries probes only. The loop runs them, then calls
    the planner again with the answers and plans the wave's arms on facts. One
    probe phase per wave; a second is logged and runs as an ordinary wave.
-7. **Run the wave.** Every item in parallel, bounded by
+8. **Run the wave.** Every item in parallel, bounded by
    `--max-concurrent-agents` and `--max-concurrent-evals`.
-8. **The tripwire.** Section 10.
-9. **The promotion gate.** Section 9. It runs over what completed even when
+9. **The tripwire.** Section 10.
+10. **The promotion gate.** Section 9. It runs over what completed even when
    the wave tripped or the deadline hit, so a measured winner is never
    stranded.
-10. **Exit, or carry one thing forward.** The planner's own
+11. **Exit, or carry one thing forward.** The planner's own
    `rejected_summary` is the single piece of in-context state that crosses a
    wave boundary; everything else the next planner reads from memory.
 
@@ -435,9 +449,9 @@ REST reads and one `setup_ok` event.
 The sync is additive. It creates memories, adds tags and appends content lines.
 It never deletes a memory, never rewrites agent-authored prose and never closes
 an issue. The two baseline-audit issues (`baseline_audit`, and
-`baseline_judge_copy`; section 3.1, step 11) are bound to no
-eval on purpose: the sync neither repairs them into a binding nor reports
-them as unbound.
+`baseline_judge_copy`; section 3.1, step 11) and the `smell` issues
+(section 18) are bound to no eval on purpose: the sync neither repairs them
+into a binding nor reports them as unbound.
 
 An issue's `content` has three writers — setup, the loop's code writers, and
 agents recording findings — so the field is split by one delimiter line.
@@ -563,7 +577,7 @@ it.
 | Actor | `baseline` record | `val` record |
 |---|---|---|
 | `select_baseline` (code) | read — passes the run-config id onward, never metrics | — |
-| the planner, the builder, the analyst, the eval builder, the prober | **none** | **none** |
+| the planner, the builder, the analyst, the eval builder, the prober, the baseline reviewer | **none** | **none** |
 | the promotion gate (agent + code apply) | read and write | read and write |
 | the report writer | read | read, and its numbers are labelled val-grade |
 
@@ -699,7 +713,15 @@ kind, so an issue writer handed an experiment id refuses with `RecordKindError`
 Writers, one function per write: open an experiment, record the run config it
 built, record the verdict, mark it failed, promote the baseline, record the val
 stats, stamp promoted / held / rejected, mark an issue fixed / regressed /
-won't-fix, link an eval, record an open question.
+won't-fix, link an eval, record an open question, record a smell.
+
+**Smell issues** (`record_smell`, section 18) are written by code from the
+baseline reviewer's findings. Each is an issue with the tags `issue`, `p1`,
+`smell`, `smell_<id>` (the smell document) and `audited_rc_<rc>` (the run
+config it was found in), and with no eval binding. An open issue of the
+same smell and run config is not written again. `find_smell_issues` reads
+them back in any state: one is enough to show that the run config was
+reviewed.
 
 Both caps are enforced by the API and clamped client-side before any write:
 `OVERVIEW_MAX_CHARS` and `CONTENT_MAX_CHARS` in `memory_schema.py`. The clamps
@@ -837,6 +859,10 @@ resubmit them unchanged once the question is answered.
 | the planner hard-failing | exit the run, `planner_failed` |
 | the promotion gate hard-failing | skip promotion, note it. The candidates stay pooled and merge-eligible |
 | the report writer hard-failing | the report still ships, rendered by code from `RunStatus` |
+| a smell detector raising | that detector is skipped (`smell_detector_failed`); the others run. A run config that cannot be read skips them all (`smell_detection_skipped`) |
+| the baseline reviewer failing, timing out or turned off | the run goes on with the code detections. The event `baseline_review_skipped` gives the reason, and the report states it |
+| the knowledge skill unreadable at run time | detections and findings are kept unchecked (`knowledge_unreadable`); a finding whose id does not fit a memory tag is dropped |
+| a smell id that is not a smell document | the detection or the finding is dropped (`smell_unknown`) |
 
 **The tripwire.** More than half a wave's items ending `failed_infra` with the
 same error class marks the wave aborted, notes the incomplete experiment
@@ -906,7 +932,7 @@ way.
   eval" is there only while eval building is off (section 3.2). It lists
   each open issue that no eval binds, read from memory when the report is
   written (`RunStatus.issues_without_eval`), so the issues the run created
-  are in it too. Closed issues and the baseline-audit issues are left out.
+  are in it too. Closed issues, the baseline-audit issues and the `smell` issues (section 18) are left out.
   A row says when the eval-building guard dropped a planned eval build for
   the issue (`RunStatus.dropped_eval_items`, folded from the
   `eval_item_dropped` events). The code-rendered fallback report reads
@@ -915,6 +941,14 @@ way.
   issues and the ones setup found with no eval binding. The
   section tells the owner to create each eval in the Kiln app, with a link
   to the Kiln docs on evals.
+  "## Smells" (`render_smells_appendix`) is there when a baseline of the
+  run had a detection or a finding, or a review that was not done. For
+  each baseline it gives the review's status line, the detections table
+  (the fact, the reference and its source, and the reviewer's reading of
+  it) and the findings table (the evidence, where, the confidence, and the
+  id of the `smell` issue code wrote). It is folded from the
+  `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
+  `RunStatus.baseline_reviews`), and the fallback report has it too.
 - **The transcripts.** The dispatcher copies every agent session's
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
@@ -955,8 +989,8 @@ role. **`settings.readonly.json`** and the val readers' files are the same
 with no write grant at all, and with two more write denies first: the whole
 state folder and the scratch tree. The read-only roles (`READ_ONLY_ROLES` in
 `dispatch/claude_cli.py`: the promotion agent and the report writer, which
-hold val data, and the two reviewers) run under it, and get no scratch
-directory.
+hold val data, the two reviewers, and the baseline reviewer) run under it,
+and get no scratch directory.
 
 1. **File writes.** One path-scoped allow rule for the run's scratch tree, and
    an explicit deny over the Kiln project tree. The session's working directory
@@ -980,7 +1014,8 @@ directory.
 
    **The trace folder.** The roles that read traces —
    `TRACE_READER_ROLES` in `gateway/ops.py`: the planner, the builder, the
-   probe, the analyst and the eval builder — also get an explicit allow
+   probe, the analyst, the eval builder and the baseline reviewer — also
+   get an explicit allow
    rule, `Read(//<run dir>/scratch/traces/**)`, in their own settings file.
    The scratch tree is not denied, so the fence alone would let the read
    through; the explicit rule is there so that auto mode does not refuse it
@@ -1190,9 +1225,19 @@ src/kiln_harness_tuner/
   contract.py       the no-cost live response-shape pre-flight
   model_preflight.py  one test call per model before the first spend
   concurrency.py, provider_errors.py, snapshots.py
+  knowledge/        the knowledge system's code: the schema, the loader,
+                    the structural checks, the generated index blocks, and
+                    the command line (check, build)
+  smells/           smell detection: the detection model, the detectors
+                    and their registry, the thresholds, and the step that
+                    runs the detectors and the baseline reviewer
+  onboarding/       the start before the run: the checks, the guided
+                    questions, the summary
   agents/           one prompt template per agent role
   agent_files/      the agents' skills and instructions (package data),
-                    installed per agent CLI into the state folder
+                    installed per agent CLI into the state folder; the
+                    knowledge system is the skill
+                    kiln-harness-tuner-knowledge
   demo_project/     the moderation example's Kiln project, shipped as
                     package data for --demo-project
   dispatch/         the seam (base.py), --agent-cli (agent_cli.py), the
@@ -1211,6 +1256,10 @@ tests/              the offline suite
                     the entry, and pseudo-terminal tests (marked slow)
   packaging/        the CI smoke test of the installed wheel, and the
                     fake claude it runs with
+specs/              the project specs, and backlog.md: the known gaps and
+                    the pending ideas of the knowledge system
+.agents/skills/     the skills for coding agents that work on this
+                    repository: knowledge-maintenance
 ```
 
 ## 14. Portability guardrails
@@ -1248,6 +1297,16 @@ cannot narrow in silence), `test_docs.py`, and `test_cli_reference.py` (every
 console script is named in `docs/cli.md`, and every flag of `harness-tuner`
 and `harness-tuner-install-agents` is there, with its default;
 `docs/objectives.md` has every objective and the example policy).
+`test_docs.py` also holds `docs/agents.md` to the roles (a row and a
+section for each) and the layout blocks to the package's directories.
+
+The knowledge system has its own tests (section 18): `test_knowledge.py`
+runs every structural check on the shipped skill and compares each
+generated block with the files; `test_knowledge_checks.py` builds a small
+tree with one deliberate violation for each rule and asserts that exactly
+that rule is reported; `test_backlog.py` holds `specs/backlog.md` to its
+format. `test_smells.py` and `test_baseline_review.py` cover the detectors
+and the review step against the fake dispatcher and the fake Kiln.
 
 **The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
 runs in CI, not under pytest, because the suite runs from the checkout and
@@ -1822,3 +1881,145 @@ baseline outside the policy is named once at start-up
 config names its model under different keys, and evals are frozen. The
 planner receives the policy and `allowed_models` — the server's
 `GET /api/available_models`, filtered by it.
+
+## 18. The knowledge system and smell detection
+
+The loop's planner chooses what to try. The knowledge system is the general
+knowledge that it chooses from, and smell detection finds the issues in the
+design of the baseline that the knowledge says how to fix. Neither one
+changes how a result is measured or promoted.
+
+### 18.1 The knowledge skill
+
+The knowledge system is one skill,
+[`kiln-harness-tuner-knowledge`](../src/kiln_harness_tuner/agent_files/skills/kiln-harness-tuner-knowledge/SKILL.md).
+A loop agent can read only the installed skills folder, so the knowledge is
+a skill, and a run installs it for every agent CLI with the others. It holds
+general knowledge: field knowledge, public sources, synthetic experiments
+and anonymised cases from other projects. Nothing measured on a run's
+target, or on the moderation example, goes in it.
+
+It has four component types. Each is one Markdown file with YAML front
+matter, and its directory gives its type:
+
+| Type | Directory | What it is |
+|---|---|---|
+| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `model`). |
+| Technique | `references/techniques/` | One optimisation: when to use it and when not, its alternatives, how, a cheap check that it took effect, its cost, what to do when it does not move an eval, priors and confidence. It names the levers it uses. |
+| Playbook | `references/playbooks/` | How to solve one problem or reach one goal, as an ordered list of techniques, each with its condition. Its kind is `goal`, `order`, `failure`, `eval` or `design`. |
+| Smell | `references/smells/` | An issue in the design of the agent, true whether an eval passes or fails: how to recognise it, how to confirm it, who can detect it, and at least one remedy. |
+
+The file name without `.md` is the id. Front matter holds only what code
+filters on or checks; links are ordinary Markdown links in the body. A
+component can have sub-files in a folder beside it with the same name.
+
+**Entry files.** Each reading role has its own first file at the top of
+`references/`, and its prompt template names that file, so that no role
+depends on a decision to open a skill: `planner.md` (every smell, and every
+playbook by kind), `builder.md` (every active technique, and every lever),
+`smells.md` (every smell, for the baseline reviewer), `analyzer.md` (the
+playbooks for failure patterns) and `report.md`. `technique-index.md` lists
+the techniques by name, for one case only: the user's guidance names a
+technique. The tables in these files are **generated blocks** between
+markers. Code writes them from the component files, and a person never
+edits them.
+
+### 18.2 The package
+
+[`knowledge/`](../src/kiln_harness_tuner/knowledge/) loads, checks and
+indexes the skill. It has no console script; it is run as a module:
+
+```
+uv run python -m kiln_harness_tuner.knowledge check
+uv run python -m kiln_harness_tuner.knowledge build
+```
+
+`check` prints one line for each broken rule and exits 1 when there is
+one (2 when there is no tree). `build` rewrites the generated blocks, then
+checks. `--root` names another skill folder. `check` is pure: the caller
+passes the gateway operations and the detector registry that the documents
+are held to.
+
+`schema.py` fixes the task shapes, the required sections of each type, the
+size limits (in characters: a lever 6,000, a technique 12,000, a playbook
+8,000, a smell 4,000, a sub-file 20,000) and the depth limit: every file is
+reachable from an entry file within `MAX_DEPTH` (5) links. Other rules: each
+link resolves inside the skill; each lever names gateway operations that
+exist; each lever a technique names has a document; each playbook step links
+a technique or a playbook; each smell has a remedy; each smell that names a
+code detector names a registered one, and each registered detector names a
+smell that exists; each generated block matches the files; no file is
+outside the layout. The loader never raises for a bad document: each fault
+is a problem with its rule id. At run time the loop uses the loader only to
+check smell ids.
+
+### 18.3 The maintenance skill and the backlog
+
+A coding agent that changes the knowledge system reads
+[`.agents/skills/knowledge-maintenance/`](../.agents/skills/knowledge-maintenance/SKILL.md),
+and the root `AGENTS.md` points to it. Loop agents never read it: it is not
+in the package. It holds the procedure for each kind of request, one
+template for each component type, the placement rules, the content rules
+with their reasons, the conflict rule (stop and ask the person: deprecate
+the old guidance, or state when to use each), the approval rule for priors,
+the commands that end each change, and the audit.
+
+[`specs/backlog.md`](../specs/backlog.md) lists the known gaps and the
+pending ideas in a fixed format. `test_backlog.py` holds the format. Loop
+agents do not read it.
+
+### 18.4 Smell detectors in code
+
+[`smells/`](../src/kiln_harness_tuner/smells/). A detector is a small pure
+function over `DetectorInputs` (the run config's properties, its prompt,
+skill and code-tool texts, and the definition of each attached tool) that
+returns `Detection`s. One detector belongs to one smell, and the smell
+document names it. A new detector is one file in `smells/detectors/` and one
+entry in `DETECTORS`. A detector that reads stored train trace stats sets
+`reads_traces`; no detector does yet, so the detectors read only the run
+config, its texts and its tool definitions, and spend nothing.
+
+| Detector | Smell | Fires when |
+|---|---|---|
+| `long_prompt` | `very-long-prompt` | the prompt is over `LONG_PROMPT_CHARS` (200,000 characters) |
+| `long_tool_description` | `very-long-tool-description` | a tool's description is over `LONG_TOOL_DESCRIPTION_CHARS` (4,096) |
+| `long_skill_description` | `very-long-skill-description` | a skill's description is over `LONG_SKILL_DESCRIPTION_CHARS` (1,024) |
+
+The thresholds are in `smells/thresholds.py`, each with its source. No
+measured optimum is known for any of them, so each is a default that can
+change. A detection states a fact with its numbers, the reference it was
+compared with and the source of that reference. It states no verdict.
+
+`run_detectors` reads the run config once and runs each detector in its own
+`try`. A detector that raises, or returns something that is not a
+detection, is skipped. A detection whose smell is not a smell document is
+dropped. It never raises, apart from `ProviderQuotaError`.
+
+### 18.5 The baseline reviewer
+
+`ensure_baseline_reviewed` (section 3.2, step 4) runs the detectors, then
+dispatches the `baseline_review` role ([agents.md](agents.md) has its
+input, its output and its gateway operations). The session reads the smell
+documents, the baseline's harness and a fixed sample of its stored train
+traces: up to `REVIEW_ITEMS_PER_EVAL` (4) items per active eval and
+`REVIEW_MAX_ITEMS` (20) in all, in the order of the train set. It names the
+smells it finds and says whether each detection holds. It reads train only,
+writes nothing, and does not diagnose a failed eval item. It has no
+`get_train_expected` and no `get_task_run`. Its trace-folder read rule also
+lets it read the `_expected/` files that the `get_train_expected` calls of
+other roles write there. Its skill forbids them; no settings rule denies
+them.
+
+Code checks each finding's smell id against the smell documents, merges
+two findings of one smell, keeps at most `REVIEW_MAX_FINDINGS` (15), and
+writes one `smell` issue for each (section 8). The review is recorded with
+one of four statuses: `done`; `skipped` (a wrap-up wave, too little time,
+or memory already holds this run config's smell issues); `failed` (the
+session gave no result, or the step raised); `off` (`--no-baseline-review`).
+The run goes on in every case. The planner reads the detections in its
+input and the smell issues in memory, and the report's `## Smells` section
+shows both (section 11).
+
+A resumed run reviews a baseline again when its first review wrote no
+issue (it found no smell, or every write failed), because the check for an
+earlier review reads the smell issues in memory.
