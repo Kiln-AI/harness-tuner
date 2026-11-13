@@ -6,7 +6,7 @@ status: complete
 
 ## Phases
 
-- [ ] Phase 1: Write the Kiln-side `kiln_side/project_overview.md` (functional spec section 9)
+- [x] Phase 1: Write the Kiln-side `kiln_side/project_overview.md` (functional spec section 9)
 - [ ] Phase 2: The `model_catalog` package, the fetch at start-up, `--no-model-catalog` and the snapshot file (architecture sections 2 to 5)
 - [ ] Phase 3: The gateway operations `list_models`, `get_model_details` and `list_providers`, the roles, and the skill and doc text (architecture sections 6 and 8)
 - [ ] Phase 4: The old-model detector, its smell document, and the backlog entries (architecture section 7)
