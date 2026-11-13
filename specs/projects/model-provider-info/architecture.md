@@ -305,10 +305,11 @@ logger.info("model catalogue: kiln %s, models.dev %s, %d models", ...)
 - `build_ctx` gets two new keyword parameters, `model_catalog: Catalog |
   None = None` and the `run_started_at` it already takes, and sets them on
   `Ctx`.
-- Right after `build_ctx` returns, `_run` emits the event:
-  `model_catalog` with `kiln`, `models_dev`, `models` (count) and
-  `release_dates` (count), or `model_catalog_unavailable` with `source`
-  and `reason` for each source that is `none`.
+- When the wave log is wired (`ctx.log = FanoutLog(...)`), `_run` emits
+  one `model_catalog_unavailable` with `source` and `reason` for each
+  source that is `none`. Then it always emits `model_catalog` with `kiln`,
+  `models_dev`, `models` (count) and `release_dates` (count). Before the
+  wave log is wired, the context's log is a `NullLog`.
 
 ### 5.2 `orchestrator.Ctx`
 

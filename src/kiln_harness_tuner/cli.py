@@ -84,6 +84,13 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError
+from kiln_harness_tuner.model_catalog import (
+    CATALOG_FILE,
+    Catalog,
+    Source,
+    fetch_catalog,
+    write_catalog,
+)
 from kiln_harness_tuner.model_policy import (
     MODEL_CHOICES,
     ModelPolicy,
@@ -405,6 +412,14 @@ def build_parser() -> _Parser:
         help="skip the design review: the agent session that checks the"
         " agent's design once per baseline, before the planner (the code"
         " detectors still run)",
+    )
+    parser.add_argument(
+        "--no-model-catalog",
+        action="store_true",
+        help="do not fetch the model catalogue at the start of the run (Kiln's"
+        " published model file and models.dev, for price, context, release"
+        " date and notes); the model tools then serve the Kiln server's list"
+        " only",
     )
     parser.add_argument(
         "--reference-check",
@@ -802,6 +817,7 @@ RUN_DIR_ENTRIES = (
     "gateway_memory.jsonl",
     "val_summary.json",
     "model_policy.json",
+    CATALOG_FILE,
 )
 
 
@@ -1138,6 +1154,7 @@ def build_ctx(
     noise_check_items: int = 0,
     model_preflight: bool = True,
     eval_building: bool = False,
+    model_catalog: Catalog | None = None,
 ) -> Ctx:
     return Ctx(
         run_dir=run_dir,
@@ -1186,10 +1203,33 @@ def build_ctx(
         objective=objective,
         model_policy=model_policy,
         keep_model=keep_model,
+        model_catalog=model_catalog,
+        run_started_at=run_started_at,
         # A tree the read fence denies: `runs/` is denied except this run's
         # scratch, so `runs/.quarantine/` is unreadable to every agent.
         quarantine_root=state.quarantine(target.project_id, target.task_id),
         train_set_path=run_dir / "train_set.json",
+    )
+
+
+def _source_text(source: Source) -> str:
+    return source.state if source.state == "ok" else f"none ({source.reason})"
+
+
+def log_catalog(log: EventLog, catalog: Catalog) -> None:
+    """The run's catalogue events: one `model_catalog_unavailable` for each
+    source that is `none`, and then `model_catalog` with the counts."""
+    # `model_catalog` is emitted for every run, also when a source failed:
+    # the counts of the source that worked are still worth a line.
+    for name, source in (("kiln", catalog.kiln), ("models_dev", catalog.models_dev)):
+        if source.state == "none":
+            log.event("model_catalog_unavailable", source=name, reason=source.reason)
+    log.event(
+        "model_catalog",
+        kiln=catalog.kiln.state,
+        models_dev=catalog.models_dev.state,
+        models=len(catalog.models),
+        release_dates=sum(m.release_date is not None for m in catalog.models),
     )
 
 
@@ -1421,6 +1461,16 @@ async def _run(
             policy_copy.write_text(
                 Path(args.model_policy).expanduser().read_text(encoding="utf-8")
             )
+        # Before the first session: every agent of the run reads this one
+        # snapshot through its gateway.
+        catalog = await fetch_catalog(enabled=not args.no_model_catalog)
+        write_catalog(run_dir, catalog)
+        logger.info(
+            "model catalogue: kiln %s, models.dev %s, %d models",
+            _source_text(catalog.kiln),
+            _source_text(catalog.models_dev),
+            len(catalog.models),
+        )
         mcp_config_path, settings_path = render_run_configs(
             run_dir,
             target,
@@ -1467,6 +1517,7 @@ async def _run(
                 noise_check_items=args.noise_check,
                 model_preflight=not args.skip_model_preflight,
                 eval_building=args.experimental_eval_building,
+                model_catalog=catalog,
             )
             _RUN_PROGRESS.spend = ctx.spend
             # The tracker MUST share Ctx.clock's domain — run_start's monotonic
@@ -1490,6 +1541,9 @@ async def _run(
                 # Tracker before UI: renders always see post-update snapshots.
                 # The spend meter rides the same fan-out (budget enforcement).
                 ctx.log = FanoutLog(wave_log, tracker, ui, ctx.spend)
+                # Here, not right after `build_ctx`: until this line the
+                # context's log is a `NullLog`.
+                log_catalog(ctx.log, catalog)
                 # The analyzer logs too (`eval_job_errors`)
                 # — re-point it at the fan-out now that it exists.
                 ctx.analyzer.log = ctx.log

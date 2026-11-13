@@ -102,6 +102,7 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_feed import MemoryFeed
 from kiln_harness_tuner.memory_schema import RecordKindError, canonical_question
+from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import (
     KEEP_SOURCE,
     ModelPolicy,
@@ -327,6 +328,12 @@ class Ctx:
     objective: str = "quality"
     model_policy: ModelPolicy | None = None
     keep_model: bool = False
+    # `model_catalog`: the run's catalogue snapshot (`model_catalog`), as
+    #   written to the run directory; None = not fetched (other unit tests).
+    #   `run_started_at`: the run's start, the date the old-model detector
+    #   measures a release date against.
+    model_catalog: Catalog | None = None
+    run_started_at: datetime | None = None
     quarantine_root: Path | None = None
     train_set_path: Path | None = None
     # The evals on disk at start-up; an eval that appears later

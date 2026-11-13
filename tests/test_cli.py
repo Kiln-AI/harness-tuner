@@ -10,7 +10,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
 from conftest import TtyStream
 from rich.console import Console
 
@@ -42,6 +44,8 @@ from kiln_harness_tuner.install_agents import package_version
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError, KilnTransportError
 from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriteRefused
 from kiln_harness_tuner.memory_schema import RecordKindError
+from kiln_harness_tuner.model_catalog import CATALOG_FILE, fetch_catalog, load_catalog
+from kiln_harness_tuner.model_catalog.fetch import KILN_URL, MODELS_DEV_URL
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import OnboardingError, OnboardingStopped
 from kiln_harness_tuner.onboarding.demo import demo_fence_root
@@ -436,6 +440,79 @@ def test_the_ids_and_the_path_are_optional():
     assert (args.project_id, args.task_id, args.project_path) == (None, None, None)
     args = build_parser().parse_args(["--task-id", "424242613304"])
     assert (args.project_id, args.task_id) == (None, "424242613304")
+
+
+def _wave_log_events(run_dir: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (run_dir / "wave_log.jsonl").read_text().splitlines()
+    ]
+
+
+def test_no_model_catalog_parses_and_defaults_off():
+    assert build_parser().parse_args([]).no_model_catalog is False
+    assert build_parser().parse_args(["--no-model-catalog"]).no_model_catalog
+
+
+@respx.mock
+def test_the_run_writes_the_catalogue_snapshot_and_logs_the_event(
+    monkeypatch, state_dir
+):
+    """The real fetch, on routes: the snapshot is in the run folder before
+    the first session, the context carries it, and the wave log counts it."""
+    seen = {}
+
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        seen["ctx"] = ctx
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "fetch_catalog", fetch_catalog)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    model = {"name": "m1", "friendly_name": "M1", "providers": []}
+    respx.get(KILN_URL).mock(
+        return_value=httpx.Response(200, json={"model_list": [model]})
+    )
+    respx.get(MODELS_DEV_URL).mock(return_value=httpx.Response(503))
+    assert main(ARGS) == 0
+    run_dir = _run_dir(state_dir)
+    snapshot = load_catalog(run_dir)
+    assert [m.model for m in snapshot.models] == ["m1"]
+    assert snapshot.models_dev.reason == "HTTP 503"
+    ctx = seen["ctx"]
+    assert ctx.model_catalog == snapshot
+    # The one start time: the budget's clock zero is the detector's date.
+    assert ctx.run_started_at is not None
+    assert ctx.run_started_at == ctx.analyzer.run_started_at
+    # The read fence names the snapshot: no agent reads it but the gateway.
+    deny = json.loads((run_dir / "settings.json").read_text())["permissions"]["deny"]
+    assert any(rule.endswith(f"/{CATALOG_FILE})") for rule in deny)
+    events = _wave_log_events(run_dir)
+    (unavailable,) = [e for e in events if e["kind"] == "model_catalog_unavailable"]
+    assert (unavailable["source"], unavailable["reason"]) == ("models_dev", "HTTP 503")
+    (counted,) = [e for e in events if e["kind"] == "model_catalog"]
+    assert counted["kiln"] == "ok" and counted["models_dev"] == "none"
+    assert (counted["models"], counted["release_dates"]) == (1, 0)
+    log_text = (run_dir / "kiln-harness-tuner.log").read_text()
+    assert "model catalogue: kiln ok, models.dev none (HTTP 503), 1 models" in log_text
+
+
+@respx.mock
+def test_no_model_catalog_makes_no_request(monkeypatch, state_dir):
+    async def fake_orchestrate(ctx, guidance, timeout_mins):
+        return "wrap_up"
+
+    monkeypatch.setattr(kiln_harness_tuner.cli, "fetch_catalog", fetch_catalog)
+    monkeypatch.setattr(kiln_harness_tuner.cli, "orchestrate", fake_orchestrate)
+    kiln = respx.get(KILN_URL).mock(return_value=httpx.Response(200, json={}))
+    models_dev = respx.get(MODELS_DEV_URL).mock(return_value=httpx.Response(200))
+    assert main([*ARGS, "--no-model-catalog"]) == 0
+    assert not kiln.called and not models_dev.called
+    run_dir = _run_dir(state_dir)
+    assert load_catalog(run_dir).kiln.reason == "turned off"
+    events = _wave_log_events(run_dir)
+    unavailable = [e for e in events if e["kind"] == "model_catalog_unavailable"]
+    assert [e["source"] for e in unavailable] == ["kiln", "models_dev"]
+    assert {e["reason"] for e in unavailable} == {"turned off"}
 
 
 def test_no_interaction_parses_and_defaults_off():
@@ -886,7 +963,13 @@ def test_the_run_shows_its_events_on_the_display_it_is_given(
     (shown,) = displays
     assert isinstance(shown.tracker, RunStatusTracker)
     assert isinstance(shown.console, Console)
-    assert shown.kinds == ["exit"]
+    # The catalogue events come first: the fan-out exists from the run's start.
+    assert shown.kinds == [
+        "model_catalog_unavailable",
+        "model_catalog_unavailable",
+        "model_catalog",
+        "exit",
+    ]
     # The run's tracker is before the display in the fan-out.
     assert shown.exit_reason_seen == "wrap_up"
     assert not shown.open

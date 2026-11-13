@@ -118,9 +118,10 @@ is the Kiln server's `_is_valid_price` and `_extract_limits`.
 | Kiln's file | The catalogue has no Kiln data. The tools serve what the Kiln server's `/api/available_models` gives, with the catalogue fields null. models.dev is not joined, because the join needs the provider's model id. The snapshot records `kiln: "none"` and the reason. |
 | Both, or the flag | Same as a failure of Kiln's file. |
 
-A failure never stops the run. The run's log has the event
-`model_catalog` with the counts, or `model_catalog_unavailable` with the
-source and the reason. Each tool answer has a `catalog` field that says
+A failure never stops the run. The run's log has one event
+`model_catalog_unavailable`, with the source and the reason, for each source
+that failed. Then it always has the event `model_catalog` with the state of
+each source and the counts. Each tool answer has a `catalog` field that says
 which sources the answer has.
 
 ### 3.6 The snapshot file

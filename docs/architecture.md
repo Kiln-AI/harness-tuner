@@ -1257,6 +1257,9 @@ src/kiln_harness_tuner/
   status.py, ui.py, wave_log.py, memory_feed.py, report.py, logbook.py   observability
   contract.py       the no-cost live response-shape pre-flight
   model_preflight.py  one test call per model before the first spend
+  model_catalog/    the model catalogue: the fetch of Kiln's published
+                    model file and models.dev, the join, and the run's
+                    snapshot (model_catalog.json)
   concurrency.py, provider_errors.py, snapshots.py
   knowledge/        the knowledge system's code: the schema, the loader,
                     the structural checks, the generated index blocks, and
