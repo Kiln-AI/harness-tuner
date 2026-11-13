@@ -192,14 +192,13 @@ def _link(ctx: _Context, *_: object) -> Iterable[Problem]:
                 )
 
 
-def _depths(ctx: _Context) -> dict[Path, int]:
-    """Each reachable document -> its distance in links from the nearest
-    root."""
+def _distances(ctx: _Context, starts: Iterable[Path]) -> dict[Path, int]:
+    """Each document that a chain of links from `starts` leads to -> its
+    distance in links from the nearest start."""
     depth: dict[Path, int] = {}
     queue: deque[Path] = deque()
-    for name in ROOTS:
-        path = ctx.references / name
-        if path in ctx.by_path:
+    for path in starts:
+        if path in ctx.by_path and path not in depth:
             depth[path] = 0
             queue.append(path)
     while queue:
@@ -212,14 +211,30 @@ def _depths(ctx: _Context) -> dict[Path, int]:
     return depth
 
 
+def _depths(ctx: _Context) -> dict[Path, int]:
+    """Each document that an entry file leads to -> its distance in links
+    from the nearest entry file."""
+    return _distances(ctx, (ctx.references / name for name in ROOTS))
+
+
+def _dormant(doc: Document) -> bool:
+    return isinstance(doc.meta, TechniqueMeta) and doc.meta.status == "dormant"
+
+
 def _reachable(ctx: _Context, *_: object) -> Iterable[Problem]:
-    depth = _depths(ctx)
+    """A dormant technique has no index row, and procedure 4.5 of the
+    maintenance skill removes the links to it. So it may have no inbound
+    link, and its sub-files are reached through it."""
+    dormant = (path for path, doc in ctx.by_path.items() if _dormant(doc))
+    starts = (*(ctx.references / name for name in ROOTS), *dormant)
+    reached = _distances(ctx, starts)
     for path, doc in ctx.by_path.items():
-        if path not in depth:
+        if path not in reached:
             yield Problem(
                 "reachable",
                 doc.path.as_posix(),
-                "no chain of links from an entry file leads here",
+                "no chain of links from an entry file or a dormant technique"
+                " leads here",
             )
 
 

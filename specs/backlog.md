@@ -403,15 +403,6 @@ Remove the workarounds that an older model needed and the current one does not.
 
 Put a small knowledge source in the prompt, and remove the search tool.
 
-### Playbook: open models on-prem
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md)
-
-Goal: the agent runs on an open model on the user's own servers.
-
 ### Playbook: after a change of model
 
 - Kind: playbook

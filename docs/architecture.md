@@ -2010,15 +2010,16 @@ are held to.
 `schema.py` fixes the task shapes, the required sections of each type, the
 size limits (in characters: a lever 6,000, a technique 12,000, a playbook
 8,000, a smell 4,000, a sub-file 20,000) and the depth limit: every file is
-reachable from an entry file within `MAX_DEPTH` (5) links. Other rules: each
-link resolves inside the skill; each lever names gateway operations that
-exist; each lever a technique names has a document; each playbook step links
-a technique or a playbook; each smell has a remedy; each smell that names a
-code detector names a registered one, and each registered detector names a
-smell that exists; each generated block matches the files; no file is
-outside the layout. The loader never raises for a bad document: each fault
-is a problem with its rule id. At run time the loop uses the loader only to
-check smell ids.
+reachable from an entry file within `MAX_DEPTH` (5) links. A dormant
+technique, and its sub-files, may have no chain of links from an entry file.
+Other rules: each link resolves inside the skill; each lever names gateway
+operations that exist; each lever a technique names has a document; each
+playbook step links a technique or a playbook; each smell has a remedy; each
+smell that names a code detector names a registered one, and each registered
+detector names a smell that exists; each generated block matches the files;
+no file is outside the layout. The loader never raises for a bad document:
+each fault is a problem with its rule id. At run time the loop uses the
+loader only to check smell ids.
 
 ### 18.3 The maintenance skill and the backlog
 

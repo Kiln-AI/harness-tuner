@@ -274,7 +274,10 @@ both.
 - The roots are the five role entry files and `technique-index.md`.
 - A file is reachable when a chain of Markdown links leads to it from a
   root.
-- **Every file** under `references/` must be reachable.
+- **Every file** under `references/` must be reachable, with one exception:
+  a dormant technique may have no inbound link. The index leaves it out, and
+  the maintenance skill removes the links to it when it becomes dormant. Its
+  sub-files are reachable through it.
 - **The depth limit is 5 links** from the nearest root. The longest designed
   chain is: entry file, smell, playbook, technique, lever (4). A sub-file
   adds 1.
@@ -383,7 +386,7 @@ smell id.
 | `size` | The file is inside its size limit |
 | `shape` | Each `applies_to` value is in `TASK_SHAPES` |
 | `link` | Each internal link resolves |
-| `reachable` | Each file is reachable from a root |
+| `reachable` | Each file is reachable from a root, or is a dormant technique or one of its sub-files |
 | `depth` | Each file is inside `MAX_DEPTH` |
 | `technique-lever-ids` | Each value in a technique's `levers` is the id of a lever document |
 | `lever-ops` | Each `gateway_ops` value is a gateway operation |
@@ -476,6 +479,8 @@ mapping, so the two packages do not depend on each other in a circle.
 - `test_a_heading_inside_a_fence_is_not_a_section`
 - `test_a_link_inside_a_fence_is_not_a_link`
 - `test_a_dormant_technique_is_left_out_of_the_index`
+- `test_a_dormant_technique_may_have_no_link`
+- `test_the_sub_files_of_a_dormant_technique_are_reachable_through_it`
 - `test_render_blocks_is_stable`
 - `test_build_rewrites_only_between_the_markers`
 - `test_load_records_a_problem_and_does_not_raise`

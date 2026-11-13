@@ -72,9 +72,10 @@ If the request fits none of these, ask the person before you change a file.
 4. If a technique covers it, extend that technique: add to `When to use`,
    `How` or `Priors`.
 5. If none covers it, add a technique (4.3).
-6. Decide if a playbook or a smell must link to it (section 5).
-7. If the new text disagrees with existing text, stop (section 7).
-8. Finish (section 9).
+6. If the source is not public, apply section 8 to the text you add.
+7. Decide if a playbook or a smell must link to it (section 5).
+8. If the new text disagrees with existing text, stop (section 7).
+9. Finish (section 9).
 
 Reason: one approach with two documents gives two answers to one question.
 The search in step 3 prevents a duplicate.
@@ -138,6 +139,11 @@ decide the rank.
    its file name. A playbook change needs the owners (section 5).
 3. Do not delete the file.
 4. Finish (section 9).
+
+A dormant technique can end with no links to it. The index leaves it out,
+and the check allows a dormant technique that nothing links to. Each other
+rule still applies: a playbook that loses its last step, or a smell that
+loses its last remedy, fails the check.
 
 Reason: a dormant technique stays in the system, so a reader can see that it
 was tried and why it is not suggested. A deleted file loses that history.
@@ -243,12 +249,17 @@ for the change.
 A prior is one real case in which a technique was used. It is one sample,
 not a universal lesson, and its text says so.
 
-- A prior never names a client, and never holds client data.
-- **Before a prior is committed, a person approves it**, unless it is
+The approval rule applies to a prior, and to any other text that you take
+from a case that is not public: a step in `How`, a condition in
+`When to use`, a case study.
+
+- A prior never names a client, and never holds client data. The same is
+  true for any text from a case that is not public.
+- **Before the text is committed, a person approves it**, unless it is
   clearly public information: a published paper or post, with its link.
-  Show the person the exact text of the prior and ask. Do not commit first
-  and ask at review. Reason: a result can be sensitive when no entity is
-  named, and a pull request review comes after the text is in the history.
+  Show the person the exact text and ask. Do not commit first and ask at
+  review. Reason: a result can be sensitive when no entity is named, and a
+  pull request review comes after the text is in the history.
 - Never add a prior from the run's own target or from the moderation demo
   (content rule 6).
 - Before you write a number from a public source, open the source and check
@@ -267,7 +278,7 @@ Run these commands, in order:
 
 ```
 uv run python -m kiln_harness_tuner.knowledge build
-uv run pytest tests/test_knowledge.py tests/test_knowledge_checks.py tests/test_backlog.py
+uv run pytest
 uv run ruff check
 uv run ruff format --check
 ```

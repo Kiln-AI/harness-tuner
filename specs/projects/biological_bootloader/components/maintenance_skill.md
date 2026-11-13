@@ -77,11 +77,11 @@ Simplified Technical English, and each rule has its reason beside it.
 
 | Request | Procedure |
 |---|---|
-| "Read this post and add this approach" | 1. Read the source. 2. State in one sentence what the approach changes. 3. Search the techniques for one that covers it. 4. If one covers it, extend that technique: add to `When to use`, `How` or `Priors`. 5. If none does, add a technique. 6. Decide if a playbook or a smell must link to it (placement rules). 7. Finish. |
+| "Read this post and add this approach" | 1. Read the source. 2. State in one sentence what the approach changes. 3. Search the techniques for one that covers it. 4. If one covers it, extend that technique: add to `When to use`, `How` or `Priors`. 5. If none does, add a technique. 6. If the source is not public, apply the approval rule to the text you add. 7. Decide if a playbook or a smell must link to it (placement rules). 8. Finish. |
 | "We learned a lesson, record this" | 1. Find the technique. 2. Apply the approval rule. 3. Add a prior. 4. Change `Confidence` only if this lesson changes it, and say why in the commit message. 5. Finish. |
 | Add a technique, playbook, smell or lever | 1. Copy the template to the right directory, with the id as the file name. 2. Fill every required part. 3. Add the links in and out. 4. Finish. |
 | Add an idea or a gap for later | Add an entry to `specs/backlog.md`, at the end, in the fixed format. Do not rank it. |
-| A technique went out of fashion | 1. Set `status: dormant`, or narrow `When to use`. 2. Change each playbook and smell that links to it. 3. Do not delete the file. 4. Finish. |
+| A technique went out of fashion | 1. Set `status: dormant`, or narrow `When to use`. 2. Change each playbook and smell that links to it. 3. Do not delete the file. 4. Finish. The technique can end with no links: the check allows that for a dormant technique. |
 | Audit | Section 3.7. |
 
 ### 3.3 Placement rules
@@ -130,6 +130,9 @@ An older approach is never deleted or rewritten to make room.
 
 ### 3.5 Priors and approval
 
+Each rule here applies to a prior, and to any other text taken from a case
+that is not public.
+
 - A prior never names a client and never holds client data.
 - Before a prior is **committed**, a person approves it, unless it is
   clearly public information (a published paper or post, with its link). A
@@ -143,7 +146,7 @@ An older approach is never deleted or rewritten to make room.
 
 ```
 uv run python -m kiln_harness_tuner.knowledge build
-uv run pytest tests/test_knowledge.py tests/test_knowledge_checks.py tests/test_backlog.py
+uv run pytest
 uv run ruff check
 uv run ruff format --check
 ```

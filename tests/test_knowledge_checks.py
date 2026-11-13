@@ -107,6 +107,8 @@ It depends. On the test.
 High, in a test.
 """
 
+DORMANT = TECHNIQUE.replace("status: active", "status: dormant")
+
 PLAYBOOK = """\
 ---
 title: One playbook
@@ -549,10 +551,47 @@ def test_a_link_inside_a_fence_is_not_a_link(tree):
 
 
 def test_reachable_is_reported(tree):
+    # An active technique that the index does not list yet, and that nothing
+    # else links.
+    tree.write("techniques/t-new.md", TECHNIQUE)
+    problems = tree.problems(rebuild=False)
+    assert {p.rule for p in problems} == {"index", "reachable"}, problems
+    [problem] = [p for p in problems if p.rule == "reachable"]
+    assert problem.path == "techniques/t-new.md"
+
+
+def test_a_dormant_technique_may_have_no_link(tree):
     # A dormant technique has no index row, and nothing else links it.
-    tree.write("techniques/t-asleep.md", TECHNIQUE.replace("active", "dormant"))
-    [problem] = _only(tree, "reachable")
-    assert problem.path == "techniques/t-asleep.md"
+    tree.write("techniques/t-asleep.md", DORMANT)
+    assert tree.problems() == []
+
+
+def test_the_sub_files_of_a_dormant_technique_are_reachable_through_it(tree):
+    tree.write(
+        "techniques/t-asleep.md",
+        DORMANT.replace("Read a trace.", "See [the recipe](t-asleep/recipe.md)."),
+    )
+    tree.write("techniques/t-asleep/recipe.md", "# Recipe\n\nMore detail.\n")
+    assert tree.problems() == []
+
+
+def test_a_dormant_technique_does_not_make_its_unlinked_sub_file_reachable(tree):
+    tree.write("techniques/t-asleep.md", DORMANT)
+    tree.write("techniques/t-asleep/recipe.md", "# Recipe\n")
+    assert {p.rule for p in tree.problems()} == {"reachable", "subfile"}
+
+
+def test_a_playbook_that_loses_its_dormant_step_is_reported(tree):
+    """Procedure 4.5: the technique goes dormant and the playbook drops it.
+    The technique may stay unlinked; the empty playbook may not."""
+    tree.edit("techniques/t-one.md", "status: active", "status: dormant")
+    tree.edit(
+        "playbooks/p-one.md",
+        "1. [One technique](../techniques/t-one.md), when the test says so.",
+        "Nothing yet.",
+    )
+    [problem] = _only(tree, "playbook-steps")
+    assert problem.path == "playbooks/p-one.md"
 
 
 def test_depth_is_reported(tree):
@@ -563,7 +602,7 @@ def test_depth_is_reported(tree):
         alternatives = f"[next](./{after}.md), when deeper." if after else "None."
         tree.write(
             f"techniques/{this}.md",
-            TECHNIQUE.replace("active", "dormant").replace(
+            DORMANT.replace(
                 "## Alternatives\n\nNone.", f"## Alternatives\n\n{alternatives}"
             ),
         )
@@ -859,7 +898,7 @@ def test_a_heading_inside_a_fence_is_not_a_section(tree):
 
 
 def test_a_dormant_technique_is_left_out_of_the_index(tree):
-    tree.write("techniques/t-asleep.md", TECHNIQUE.replace("active", "dormant"))
+    tree.write("techniques/t-asleep.md", DORMANT)
     blocks = render_blocks(load(tree.root))
     assert "t-asleep" not in blocks[("builder.md", "techniques")]
     assert "t-one" in blocks[("builder.md", "techniques")]

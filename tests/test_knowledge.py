@@ -381,18 +381,11 @@ def test_the_maintenance_skill_names_the_build_and_check_commands():
     for command in (
         "uv run python -m kiln_harness_tuner.knowledge build",
         "uv run python -m kiln_harness_tuner.knowledge check",
-        "uv run pytest tests/test_knowledge.py tests/test_knowledge_checks.py"
-        " tests/test_backlog.py",
+        "uv run pytest\n",
         "uv run ruff check",
         "uv run ruff format --check",
     ):
         assert command in text, command
-    for test_file in (
-        "test_knowledge.py",
-        "test_knowledge_checks.py",
-        "test_backlog.py",
-    ):
-        assert (REPO_ROOT / "tests" / test_file).is_file(), test_file
 
 
 def test_agents_md_points_to_the_maintenance_skill():

@@ -252,7 +252,7 @@ One row for each idea of the project overview and the design notes.
 | Tips for a query tool: timestamps, sample queries | 10 | V1 `guide-skill-for-a-tool-set`, in sub-files |
 | The stack rank | 10 | V1 `ordering-work` |
 | Playbook: much cheaper | Notes | V1 `cheaper-or-faster` |
-| Playbook: open models on-prem | Notes | Backlog |
+| Playbook: open models on-prem | Notes | Backlog: On-prem open-weight models |
 | Playbook: an eval near zero | Notes | V1 |
 | Playbook: a saturated eval | Notes | V1 |
 | Playbook: train wins that validation rejects | Notes | V1 |
