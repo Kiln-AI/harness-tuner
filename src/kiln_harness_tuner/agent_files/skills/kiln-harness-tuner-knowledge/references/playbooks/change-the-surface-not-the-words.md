@@ -15,8 +15,9 @@ This playbook applies in two cases:
 - **The failure is mechanical**: a wrong case or form of an id, pages
   that the agent does not follow, a result that floods the context, an
   error that the agent cannot act on, or a rule about one tool that sits
-  in the prompt. Text in a tool moves with the tool, so the tool's own
-  text is the very strong preference for that rule.
+  in the prompt, and the model breaks it. Text in a tool moves with the
+  tool, so the tool's own text is the very strong preference for that
+  rule.
 - **Two text changes failed on one issue.** A text change is a `prompt`
   arm, or a `skill` arm that only changes words (a description, a body).
   Your input's `lever_attempts` counts the arms opened on each issue and

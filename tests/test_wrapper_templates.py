@@ -310,8 +310,7 @@ class TestContextOnToolSurface:
         mod, _ = load("context_on_tool_surface", {})
         monkeypatch.setattr(mod, "_context", lambda: {"id": "u1"})
         assert mod.run()["notes"] == (
-            "no display name on record for user u1; "
-            "the user id is the only name known; `now` is UTC"
+            "no display name on record for user u1; `now` is UTC"
         )
 
 

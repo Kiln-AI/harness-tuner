@@ -51,9 +51,11 @@ cost: medium
 
 The change is a wrapper with the guard, on a new run config, with the
 wrapped tool dropped (the lever [new_tool](../levers/new_tool.md)), and an
-edit of the [prompt](../levers/prompt.md) on the same arm. The template
-`readonly_guard.py` of the code-tool authoring skill has one form of it: a
-read-only variant of a read-write tool.
+edit of the [prompt](../levers/prompt.md) on the same arm. Make sure every
+function of the wrapped tool that the agent needs is in a wrapper tool
+before you remove it. The template `readonly_guard.py` of the code-tool
+authoring skill has one form of it: a read-only variant of a read-write
+tool.
 
 1. **State the rule** from the task's instruction, the product's own
    rules, and the traces. Do not copy the text of an eval or of its judge.
@@ -65,6 +67,10 @@ read-only variant of a read-write tool.
    - a limit on a value, an amount or a count;
    - a scope, which refuses a record outside the user or the account of
      the request.
+
+   A guard is a hard limit only when it checks a fixed value, or a state
+   that the wrapper reads itself. A flag or an id that the model supplies
+   only makes the model state its intent.
 3. **Refuse with an error the agent can act on**: which rule, and what the
    allowed path is ("this tool only reads; to change an order, call
    `update_order` after the user confirms").
@@ -82,9 +88,9 @@ read-only variant of a read-write tool.
 
 Dry-run the wrapper with a call that breaks the rule, and read the
 refusal. Read the new tool's description: it states the rule, and the
-prompt does not. Then smoke two or three train items whose traces broke the rule.
-In each trace, find the refusal, or a call in the allowed form, and no
-call that breaks the rule.
+prompt does not. Then smoke two or three train items whose traces broke
+the rule. In each trace, find the refusal, or a call in the allowed form,
+and no call that breaks the rule.
 
 ## Budget
 

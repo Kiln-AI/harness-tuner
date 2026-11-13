@@ -35,7 +35,10 @@ they are.
 
 The harness is one object. A new tool says when to call it in its own
 description, not in a prompt line, and a guide skill can describe the tool
-set. The same arm removes the prompt text that the new tool takes over.
+set. The exception is a "call X at the start" line, which goes in the
+prompt: see
+[missing context the agent could be given](missing-context-the-agent-could-be-given.md).
+The same arm removes the prompt text that the new tool takes over.
 
 ## What to try, in order
 
@@ -44,8 +47,9 @@ most other work.
 
 1. A result that is very large, or that carries every field:
    [cap and preview wrapper](../techniques/cap-and-preview-wrapper.md).
-   It returns the fields this agent uses, a preview with a follow-up
-   query, or an error that asks for a narrower query.
+   It returns a trimmed result that says when it was cut and how to get
+   more, a preview with a follow-up query, or an error that asks for a
+   narrower query.
 2. The same chain of calls each time, with an id passed from one call to
    the next, or one call for each item of a list:
    [roll-up tool](../techniques/roll-up-tool.md).
@@ -64,6 +68,12 @@ most other work.
 
 When a smell is fixed, the failures that it hid can show. Take each of
 them to its failure playbook.
+
+When a fit is justified for the agent overall, it comes before the other
+fixes of a tool failure, for example in
+[the wrong tool is chosen](wrong-tool-chosen.md). Hold those fixes until
+the fit is measured, because the fit can solve the failure. Continue with
+them only when it does not.
 
 ## What not to do yet
 

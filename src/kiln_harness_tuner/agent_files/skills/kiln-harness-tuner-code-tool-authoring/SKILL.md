@@ -61,12 +61,12 @@ not `tool_config`. It is a new tool: a clone of a code tool with the new
 When the failure in the trace is MECHANICAL (wrong case, display number
 for an id, a body on GET, one call per page or per item, a list that
 floods the context, an error body the model cannot act on, a rule about a
-tool that sits in the prompt), reach for a template in
-[references/wrappers/README.md](references/wrappers/README.md) BEFORE any
-prompt edit — the knowledge skill's playbook "change the surface, not the
-words". Eight complete `run()` modules,
-one per failure class, each tested by `tests/test_wrapper_templates.py`
-against a stub of `kiln.tools`:
+tool that sits in the prompt, and the model breaks it), reach for a
+template in [references/wrappers/README.md](references/wrappers/README.md)
+BEFORE any prompt edit — the knowledge skill's playbook "change the
+surface, not the words". Eight complete `run()` modules, one per failure
+class, each tested by `tests/test_wrapper_templates.py` against a stub of
+`kiln.tools`:
 
 | Failure | Template |
 |---|---|
@@ -76,7 +76,7 @@ against a stub of `kiln.tools`:
 | A list floods the context | `preview_and_cap.py` — total + first N rows, projected |
 | Resolve-then-fetch idiom | `composite_resolve_fetch.py` |
 | Raw 4xx bodies | `actionable_errors.py` — valid values, nearest matches, "GET takes no body", "wait N s" |
-| A rule about a call or its reply sits in the prompt | `context_on_tool_surface.py` — the rule in the description, the tool's own status in a response `notes` field |
+| A rule about a call or its reply sits in the prompt, and the model breaks it | `context_on_tool_surface.py` — the rule in the description, the tool's own status in a response `notes` field |
 | Spurious writes on a read scenario | `readonly_guard.py` |
 
 Three edits turn a template into the subject's tool: rename
@@ -177,8 +177,9 @@ Your gateway operations (the `kiln-harness-tuner-gateway` skill has their fields
    the wrapped tool surface.
 5. **A tool nobody is told about goes unused.** If the hypothesis needs the
    model to *prefer* the new tool, the usage directive (description text,
-   in preference to a prompt line) is part of the same lever — build it in the same rc and
-   say so in `build_notes`; do not silently widen the hypothesis.
+   in preference to a prompt line) is part of the same lever — build it in
+   the same rc and say so in `build_notes`; do not silently widen the
+   hypothesis.
 
 ## Worked example — a composite wrapper, complete
 

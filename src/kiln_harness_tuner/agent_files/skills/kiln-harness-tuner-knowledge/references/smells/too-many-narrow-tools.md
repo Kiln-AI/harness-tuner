@@ -52,15 +52,20 @@ the moment it chooses, and the list grows with each new tool.
 
 ## Remedies
 
-- [Consolidate tools](../techniques/consolidate-tools.md), first, when
-  many narrow or overlapping tools do one job, or general tools carry no
-  rule of the product: a few general wrappers by job, with the policy
-  inside, in an arm that makes this change alone.
+- [Fit the tool layer to the agent](../playbooks/fit-the-tool-layer-to-the-agent.md),
+  first, when the fit is justified for the agent overall. It gives the
+  order across the tool smells: remove or scope tools, then consolidate
+  them.
 - [Remove or scope tools](../techniques/remove-or-scope-tools.md), when
   some tools are not needed for this task, or one of two overlapping tools
   can go.
+- [Consolidate tools](../techniques/consolidate-tools.md), when the
+  remaining tools still overlap, or general tools carry no rule of the
+  product: a few general wrappers by job, with the policy inside, in an
+  arm that makes this change alone.
 - [New tool description](../techniques/new-tool-description.md), when the
   tool set is right and the descriptions do not say which tool is for
   which request.
 - [Wrong tool chosen](../playbooks/wrong-tool-chosen.md), when the traces
-  show the agent choose the wrong tool.
+  show the agent choose the wrong tool. A justified fit of the tool layer
+  comes first there too.

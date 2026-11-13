@@ -1,6 +1,6 @@
 ---
 title: The wrong tool is chosen
-description: The agent picks the wrong tool, or breaks a rule that the product enforces. Consolidate the tools with the policy inside, or remove and scope them, then better descriptions.
+description: The agent picks the wrong tool, or breaks a rule that the product enforces. Fit the tool layer first when the agent as a whole needs it, then remove and scope tools, descriptions, guards.
 reviewed: 2026-11-13
 kind: failure
 applies_to:
@@ -28,12 +28,15 @@ When the right tool is called with a malformed input, see
 
 ## What to try, in order
 
-1. [Consolidate tools](../techniques/consolidate-tools.md), when many
-   narrow or overlapping tools do one job, or general tools carry no rule
-   of the product. A few general wrappers by job, each with the product's
-   policy inside: its permission checks, guards and defaults. Plan it as
-   an arm that makes this change alone, so that its result says what it
-   did: it is a large change.
+1. [Fit the tool layer to the agent](fit-the-tool-layer-to-the-agent.md),
+   when that is justified for the agent overall, not only as a fix for
+   this failure: the tool smells show in the design. This includes
+   [remove or scope tools](../techniques/remove-or-scope-tools.md), then
+   [consolidate tools](../techniques/consolidate-tools.md), in the order of
+   that playbook. Do the fit first, and hold the other steps of this
+   playbook until it is measured: it can fix the wrong choice. When it
+   does not fix it, or when a fit is not justified, continue with the
+   steps below.
 2. [Remove or scope tools](../techniques/remove-or-scope-tools.md), when
    some attached tools are not needed for this task, or two tools overlap
    and one can go.
@@ -57,6 +60,6 @@ When the right tool is called with a malformed input, see
 
 ## Budget
 
-On a small budget, steps 2 and 3 come first: each has a low cost. Step 1
-has a high cost. Plan it when the budget leaves room for an arm that makes
-that change alone.
+Step 1 has a high cost when it consolidates tools. On a small budget, plan
+it only when the budget leaves room for an arm that makes that change
+alone. Otherwise start at step 2: steps 2 and 3 each have a low cost.

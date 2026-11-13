@@ -37,6 +37,9 @@ cost: medium
   [guard tool calls at the boundary](guard-tool-calls-at-the-boundary.md).
 - **Each result is large.** A roll-up of large results is one large
   result. Trim first: [cap and preview wrapper](cap-and-preview-wrapper.md).
+- **One existing tool already gives the context in a compact form.** A
+  prompt line that tells the agent to always call it costs less:
+  [missing context the agent could be given](../playbooks/missing-context-the-agent-could-be-given.md).
 - **The context tool returns everything that it can.** A context loader
   that returns all fields of many APIs floods the context. It returns only
   the facts that the failures show the agent needs.
@@ -75,7 +78,8 @@ first. The tool and the line are one set of changes.
    - **A context loader**: one tool, for example `get_account_context`,
      that calls the tools that hold the facts and returns a short summary
      of them. Add one prompt line that tells the agent to call it before
-     it answers.
+     it answers. This line is the workflow exception of
+     [missing context the agent could be given](../playbooks/missing-context-the-agent-could-be-given.md).
 3. **Return a compact result.** Keep the fields that the agent uses in
    its answer or in its next step. Drop the ids that it only passed
    along.

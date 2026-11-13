@@ -475,8 +475,9 @@ to a prompt line for a rule about that tool. This is a very strong
 preference: text in a tool moves with the tool, so a later change of the
 tool set needs no prompt change and later experiments stay clean. When the
 failure is mechanical (wrong case, id form, pagination, floods, unusable
-errors, a rule about one tool that sits in the prompt), the first arm is a
-wrapper or a skill restructure, not a prompt line. Your input's `max_concurrent_agents` and `lever_costs` are the
+errors, a rule about one tool that sits in the prompt and that the model
+breaks), the first arm is a wrapper or a skill restructure, not a prompt
+line. Your input's `max_concurrent_agents` and `lever_costs` are the
 capacity and cost signals (Step 3).
 
 `lever_attempts` (issue id → technique → arms ever opened on that pair,

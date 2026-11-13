@@ -1,7 +1,7 @@
 ---
 title: Missing context the agent could be given
-description: The agent fails because it did not know a fact that a tool could give it - if it had known that, it would have done the right thing. One tool that loads it, and a prompt line to call it first.
-reviewed: 2026-11-12
+description: The agent fails because it did not know a fact that a tool could give it - if it had known that, it would have done the right thing. A prompt line to always call that tool, or a new tool.
+reviewed: 2026-11-13
 kind: failure
 applies_to:
   - tools
@@ -33,13 +33,21 @@ request.
 
 ## What to try, in order
 
-1. [Roll-up tool](../techniques/roll-up-tool.md), when the facts come from
-   several tools, or from one tool that the agent does not think to call.
-   One tool that loads the context the agent needs at the start, in a
-   compact form, and a prompt line that says to call it first.
-2. [New tool description](../techniques/new-tool-description.md), when one
-   existing tool already gives the fact in a compact form. A new
-   description that says when to call it, on a clone or a wrapper.
+1. A prompt line that tells the agent to always call the tool, when one
+   existing tool already gives the needed context in a compact form. For
+   example: "At the start of each request, call `get_account_status`."
+   This is a prompt line, not tool text, and it is an exception to the
+   preference for tool text over prompt rules. It is guidance about the
+   agent's own workflow ("always call X"), not about how one tool works.
+   The exception covers any "call X at the start" line, for an existing
+   tool or a new one: that line goes in the prompt. The tool's own
+   description says what the tool does and when it applies, and it can
+   also say "call this first".
+2. [Roll-up tool](../techniques/roll-up-tool.md), when no such tool
+   exists: the facts are spread across many tools, or a call to the tools
+   on every session costs too many tokens. Build one tool that loads the
+   context the agent needs at the start, in a compact form, and a prompt
+   line that says to call it first.
 3. [Cap and preview wrapper](../techniques/cap-and-preview-wrapper.md),
    when the context tool returns much more than the facts the failures
    show. A context loader that returns everything floods the context.
@@ -57,5 +65,5 @@ request.
 
 ## Budget
 
-On a small budget, step 2 comes first when one tool already gives the
-fact: it has a low cost. Step 1 has a medium cost.
+The order does not change with the budget. Step 1 has a low cost: one
+prompt line. Step 2 has a medium cost: a new code tool.

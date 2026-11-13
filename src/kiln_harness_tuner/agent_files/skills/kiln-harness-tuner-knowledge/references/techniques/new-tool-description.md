@@ -90,8 +90,9 @@ the build, and drop the old tool on the same run config.
 
 Read the new run config: the new tool is attached, the old one is gone,
 and the description that the model sees (`get_tool_definition`) is the
-new text. The prompt no longer states the rule that moved. Then smoke two or three train items that failed at that call,
-and count the calls in the right form.
+new text. The prompt no longer states the rule that moved. Then smoke two
+or three train items that failed at that call, and count the calls in the
+right form.
 
 ## Budget
 

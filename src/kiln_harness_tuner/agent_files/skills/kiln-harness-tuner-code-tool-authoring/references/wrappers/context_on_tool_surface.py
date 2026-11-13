@@ -16,8 +16,9 @@ general goes in the description, and it moves out of the prompt.
 tool_description (the half that matters — write it for that decision
 point): "Call this FIRST, before any other tool or any reply. It returns
 who you are talking to and the current time. Your first sentence must
-address the user by the name it returns. Do not narrate which tools you
-will call."
+address the user by the display name it returns. When it returns no
+display name, greet the user without a name, and never use the user id as
+a name. Do not narrate which tools you will call."
 
 parameters_schema: {"type": "object", "properties": {}}
 
@@ -45,8 +46,7 @@ def _notes(user):
     who = (
         f"signed-in user: {name}"
         if name
-        else f"no display name on record for user {user.get('id')}; "
-        "the user id is the only name known"
+        else f"no display name on record for user {user.get('id')}"
     )
     return f"{who}; `now` is UTC"
 
