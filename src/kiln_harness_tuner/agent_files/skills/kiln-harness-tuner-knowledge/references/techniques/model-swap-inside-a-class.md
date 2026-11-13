@@ -41,6 +41,10 @@ cost: high
   disclosure. A change of class is a new start, with its own tuning.
 - **A model that the run's model policy does not allow.** The policy is a
   hard limit, and create refuses it.
+- **The run's objective is `speed` or `cost`.** The run then opens with a
+  screening round of the lower thinking levels, and the planner screens
+  the allowed models next. That screening replaces this order (lock, tune, scan
+  again).
 
 ## Alternatives
 
@@ -68,7 +72,8 @@ round of candidates in code, and an arm.
    tools and the settings.
 4. **Scan the class again** with the tuned harness: screen the candidates
    in code, on the same items, then commit the best survivor as an arm.
-   Set a thinking level from the new model's own list.
+   Set a thinking level from the new model's own list, and the output mode
+   to the new model's default (the lever gives the step).
 5. **After a swap, measure again what the harness gained.** Each promoted
    change was measured with the old model. With the new model, a change
    can help less, help more, or hurt. Check the evals that each change
@@ -86,7 +91,10 @@ Code checks that the swap reached the call: a drive that another model or
 provider served gives the verdict `lever not applied`. A smoke on two or
 three train items shows that the new model calls the tools and returns the
 output form that the task needs. The model list does not give the
-capability flags, so one drive shows them.
+capability flags, so one drive shows them. Invalid output just after the
+swap points first to a wrong output mode, not to a weaker model: check
+that the mode is the new model's default before you record the model as
+refuted.
 
 ## Budget
 

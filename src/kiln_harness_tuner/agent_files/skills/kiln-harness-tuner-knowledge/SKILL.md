@@ -6,9 +6,10 @@ description: The Kiln Harness Tuner knowledge system - what to try when you tune
 # kiln-harness-tuner-knowledge
 
 This skill holds what is known about how to improve an agent's harness: the
-prompt, the skills, the tools, the model and its settings. It is general
-knowledge, from the field, from public sources and from other projects. It
-holds nothing that was measured on the task that you tune.
+prompt, the skills, the tools, the model, its settings and its output
+mode. It is general knowledge, from the field, from public sources and
+from other projects. It holds nothing that was measured on the task that
+you tune.
 
 **Experiments decide.** No document here is a rule of the form "you must do
 X". A document says what to try, in what order, and under which conditions.

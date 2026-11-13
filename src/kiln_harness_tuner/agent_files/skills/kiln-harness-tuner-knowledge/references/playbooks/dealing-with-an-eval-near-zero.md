@@ -32,8 +32,9 @@ pass rate of about 20%, with room to rise, is a useful start.
 
 1. Read the raw outputs of several failing items, before any arm. Name
    the cause of each.
-2. A format failure:
-   [the output contract is not met](output-contract-not-met.md). A
+2. A format failure, broken JSON included:
+   [the output contract is not met](output-contract-not-met.md), which
+   starts a JSON shape failure with the output mode of the run config. A
    malformed tool call:
    [malformed tool calls](malformed-tool-calls.md). A requirement that the
    prompt never states:

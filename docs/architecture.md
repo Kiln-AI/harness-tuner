@@ -1971,7 +1971,7 @@ matter, and its directory gives its type:
 
 | Type | Directory | What it is |
 |---|---|---|
-| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `model`). |
+| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `output_mode`, `model`). |
 | Technique | `references/techniques/` | One optimisation: when to use it and when not, its alternatives, how, a cheap check that it took effect, its cost, what to do when it does not move an eval, priors and confidence. It names the levers it uses. |
 | Playbook | `references/playbooks/` | How to solve one problem or reach one goal, as an ordered list of techniques, each with its condition. Its kind is `goal`, `order`, `failure`, `eval` or `design`. |
 | Smell | `references/smells/` | An issue in the design of the agent, true whether an eval passes or fails: how to recognise it, how to confirm it, who can detect it, and at least one remedy. |

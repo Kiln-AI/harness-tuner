@@ -97,6 +97,69 @@ def test_the_v1_levers_are_present():
     assert {d.id for d in load().by_kind("levers")} >= V1_LEVERS
 
 
+# The two lists that tell the planner which `technique` names are lever ids.
+LEVER_ID_LISTS = {
+    "planner.md": default_root() / "references" / "planner.md",
+    "batch-selection": source_dir()
+    / "skills"
+    / "kiln-harness-tuner-batch-selection"
+    / "SKILL.md",
+}
+
+
+@pytest.mark.parametrize("where", sorted(LEVER_ID_LISTS))
+def test_each_list_of_lever_ids_names_every_lever_document(where):
+    """A lever document that the list leaves out gets a free-text
+    `technique`, so `lever_attempts` counts it under another key."""
+    text = " ".join(LEVER_ID_LISTS[where].read_text(encoding="utf-8").split())
+    lists = re.findall(r"where one exists(?::| \() ?([`a-z_, ]+)[.)]", text)
+    assert len(lists) == 1, lists
+    named = set(re.findall(r"`([a-z_]+)`", lists[0]))
+    assert named == {d.id for d in load().by_kind("levers")}
+
+
+def _kiln_output_modes() -> list[str]:
+    from kiln_ai.datamodel.datamodel_enums import StructuredOutputMode
+
+    return [mode.value for mode in StructuredOutputMode]
+
+
+def test_the_output_mode_lever_names_every_kiln_mode():
+    """The lever explains each value. A mode Kiln adds is not explained."""
+    doc = load().get("levers", "output_mode")
+    assert doc is not None
+    text = doc.section("What it is").text
+    missing = [m for m in _kiln_output_modes() if f"`{m}`" not in text]
+    assert not missing, missing
+
+
+def test_the_output_contract_playbook_ranks_every_kiln_mode():
+    doc = load().get("playbooks", "output-contract-not-met")
+    assert doc is not None
+    text = doc.section("The output modes, ranked").text
+    missing = [m for m in _kiln_output_modes() if f"`{m}`" not in text]
+    assert missing == ["unknown"], missing  # legacy, looked up at call time
+
+
+def test_the_output_mode_lever_is_what_the_code_does():
+    """The lever says a change of the mode is a model-level swap, that a
+    screen and a probe can set it, and that a probe cannot set a model."""
+    from kiln_harness_tuner.items import SWAP_KEYS
+    from kiln_harness_tuner.schemas import (
+        SCREEN_ONLY_OVERRIDES,
+        ProbeCheck,
+        ScreenCandidate,
+    )
+
+    override = {"structured_output_mode": "json_schema"}
+    assert "structured_output_mode" in SWAP_KEYS
+    assert "structured_output_mode" not in SCREEN_ONLY_OVERRIDES
+    assert ProbeCheck(overrides=override, count="json_valid").overrides == override
+    assert ScreenCandidate(id="s1-1", overrides=override).overrides == override
+    with pytest.raises(ValueError):
+        ProbeCheck(overrides={"model_name": "m"}, count="json_valid")
+
+
 @pytest.mark.parametrize("technique", sorted(V1_TECHNIQUE_LEVERS))
 def test_the_v1_technique_is_present_with_its_levers(technique):
     doc = load().get("techniques", technique)

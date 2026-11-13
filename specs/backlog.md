@@ -94,7 +94,9 @@ not in documents.
 - Depends on: None
 - Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
 
-The lever, and its screen. Kiln has nine modes. The field passes through and cannot be screened.
+The lever document and the screen exist. Missing: code keeps the parent's mode on a model swap
+(no switch to Kiln's default); no signal shows that a mode reached the call; the model list does
+not say which modes a model supports; the setup probe of valid JSON skips some modes.
 
 ### Detectors from the trace counts
 

@@ -177,6 +177,17 @@ with `phase: "rescreen"` and every result so far in `screening_results`. At
 most 4 rounds per wave (`screen_rounds_left`); after that the plan must
 carry items.
 
+A candidate that changes the model keeps the parent's
+`structured_output_mode` unless its `overrides` name one. Name the new
+model's default (`list_available_models` gives it; `allowed_models` does
+not), unless the candidate tests the output mode. Leave it out when the
+default is absent, `default` or `unknown`. On a parent that attaches a
+tool or a skill, Kiln refuses `function_calling`, `function_calling_weak`,
+and `default` outside Ollama and Docker Model Runner: every call fails.
+When the new model's default is one of them, name `json_schema` if you
+know the model supports it (a probe, an earlier screen), else
+`json_instruction_and_object`.
+
 ```
 {"items": [], "rejected_summary": "...", "open_questions": [],
  "screen": {
@@ -184,7 +195,8 @@ carry items.
      {"id": "s1-1", "label": "flash low",
       "overrides": {"model_name": "gemini_3_8_flash",
                     "model_provider_name": "gemini_api",
-                    "thinking_level": "low"}},
+                    "thinking_level": "low",
+                    "structured_output_mode": "json_schema"}},
      {"id": "s1-2", "overrides": {"thinking_level": "none"}}],
    "round": 1, "target_evals": null, "mode": "stratified",
    "reason": "every allowed model at its lowest two levels"}}
@@ -501,13 +513,15 @@ more, emit valid JSON, produce output) is a `check` probe that no agent
 runs; only "did the output change in the named way" needs the agent.
 
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
-  new_tool | params | …`), with `needs_eval: true` when the issue has no eval
-  yet and `eval_building` is `true` (otherwise the issue is not a candidate —
+  new_tool | params | output_mode | …`), with `needs_eval: true` when the
+  issue has no eval yet and `eval_building` is `true` (otherwise the issue is not a candidate —
   Hard rules; a `smell`, `baseline_audit` or `baseline_judge_copy` issue is
   planned with `needs_eval: false` and an active eval that the change
   serves). `params` is a run-config-only arm — the model's provider
   parameters (thinking level, temperature, top_p) on a clone of the parent
-  with everything else byte-identical. Parameters are an ordinary lever:
+  with everything else byte-identical. `output_mode` is the same kind of
+  arm for `structured_output_mode` alone (the knowledge lever
+  `levers/output_mode.md`). Parameters are an ordinary lever:
   the kickoff guidance must NAME one to exclude it; "do not
   change the tools/eval/corpus" does not. **Thinking is a ladder**: start from the baseline's level (the minimum viable one)
   and raise it one rung per arm, only once the baseline measurement shows
@@ -865,10 +879,12 @@ Per experiment item:
 - **FixWork** carries `hypothesis` + `predicted_effect` (required discipline:
   a result you didn't predict is exploration, not an experiment).
   **`technique` is the lever's short name** (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, or a name of a few words): at most
+  `tool_config`, `new_tool`, `params`, `output_mode`, or a name of a few
+  words): at most
   60 characters, one line. It is the id of a lever document of the
   `kiln-harness-tuner-knowledge` skill where one exists (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, `model`), it is the key of
+  `tool_config`, `new_tool`, `params`, `output_mode`, `model`), it is the
+  key of
   `lever_attempts`, and the experiment record's label carries it. Put what
   the build does in the `hypothesis` (the record keeps its first 900
   characters) and in `cohesion_notes`. When the arm applies a technique of

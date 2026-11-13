@@ -1,7 +1,7 @@
 ---
 title: Model settings
 description: The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
   - list_available_models
@@ -20,8 +20,10 @@ three of them, in `run_config_properties`:
 - `temperature`: from 0 to 2.
 - `top_p`: from 0 to 1.
 
-The model and the provider are the lever [model](model.md). The prompt,
-the tools and the skills stay as the parent has them.
+The model and the provider are the lever [model](model.md). The output
+mode (`structured_output_mode`) is the lever
+[output_mode](output_mode.md). The prompt, the tools and the skills stay
+as the parent has them.
 
 ## How the tuner changes it
 
@@ -55,8 +57,8 @@ Rules of the object:
   did not move against the parent, gives the verdict `lever not applied`.
   When no signal can show it, the verdict is `lever unverified`.
 - A provider can refuse a setting. One failed call shows it.
-- The output mode (`structured_output_mode`) is not part of this lever. It
-  passes through the run config as the parent has it.
+- The output mode is not part of this lever. It has its own lever,
+  [output_mode](output_mode.md).
 - Kiln has no setting for `max_tokens`, a seed, `top_k` or penalties.
 
 ## See also
