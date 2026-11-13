@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # Functional spec: Model Info MCP
@@ -314,9 +314,10 @@ It holds no measured number from a run, by the working rule of
 ## 9. The Kiln-side project
 
 Phase 1 of this project writes
-`specs/projects/model-agent-info/project_overview.md` in a form that another
-agent can start with `/spec new_project` in the Kiln repository. It is
-written here, in this repository's spec folder, and the user moves it.
+`specs/projects/model-provider-info/kiln_side/project_overview.md` in a form
+that another agent can start with `/spec new_project` in the Kiln
+repository, as the project `model-agent-info`. It is written here, inside
+this project's folder, and the user moves it.
 
 It states:
 
@@ -345,7 +346,10 @@ before it is used.
 `tags` for each new model and for each new provider entry, and it keeps the
 provider list current when it adds a provider.
 
-**The backfill.** The scope is open (section 12).
+**The backfill.** `agent_notes` and tags for the featured models, and for
+each model released in the last 12 months that has a provider entry that is
+not deprecated. The other models stay empty until a maintainer changes them.
+The provider list is filled in full.
 
 **Not in that project.** `superseded_by`, a size class, release date, open
 weights, zero data retention as a field. The reasons are in this project's
@@ -387,11 +391,3 @@ overview, section 2.
   splits it, and `get_answer_part` gives the rest.
 - **A run with no network**: both fetches fail in at most 10 seconds. The
   tools serve the Kiln server's list, and the detector is silent.
-
-## 12. Open questions
-
-1. **The backfill scope of the Kiln-side project.** Proposal: `agent_notes`
-   and tags for the featured models and for each model with a provider entry
-   that is not deprecated and that was released in the last 12 months. The
-   others stay empty until a maintainer touches them. The provider list is
-   filled in full.
