@@ -1,6 +1,6 @@
 ---
 name: kiln-harness-tuner-gateway
-description: How a Kiln Harness Tuner agent reaches Kiln — the typed gateway operations (mcp__kiln_harness_tuner_gateway__<operation>) its role is given, each with its fields, its answer and an example. Load in any Kiln Harness Tuner agent session before the first Kiln read or write. Covers what "train only" means for every answer, the memory scopes, drives on train items, run configs under the model policy, the eval-build operations, and what to do when an operation is refused.
+description: How a Kiln Harness Tuner agent reaches Kiln — the typed gateway operations (mcp__kiln_harness_tuner_gateway__<operation>) its role is given, each with its fields, its answer and an example. Load in any Kiln Harness Tuner agent session before the first Kiln read or write. Covers what "train only" means for every answer, the memory scopes, drives on train items, the models and providers with their prices and status, run configs under the model policy, the eval-build operations, and what to do when an operation is refused.
 ---
 
 # kiln-harness-tuner-gateway
@@ -116,11 +116,86 @@ whether it does (`per_turn`) or only the run total is known
 | `list_prompts` | — | the task's saved prompts, with their text |
 | `get_prompt_text` | `id` | the prompt text a prompt id renders (e.g. `simple_prompt_builder`, `id::…`) |
 
-### Reading the models
+### Models and providers
+
+The run fetches a model catalogue once, at its start: Kiln's published
+model file, joined with models.dev. Every session of the run reads the
+same snapshot. The three operations join that snapshot with what the Kiln
+server offers now and with the run's model policy.
+
+Each (provider, model) pair has a `status`:
+
+| Status | Meaning |
+|---|---|
+| `ready` | The Kiln server offers the pair, and the run's model policy allows it. You can make a run config with it. |
+| `blocked_by_policy` | The server offers the pair. The model policy refuses it. |
+| `not_offered` | The provider is connected in Kiln, but the server does not offer this model on it. |
+| `not_connected` | The server offers nothing on this provider. Usually Kiln has no API key for it. |
+
+The status is information. `create_run_config` refuses a pair that the
+model policy refuses. Use `ready` pairs only: a pair that the server does
+not offer fails when it runs. When a good model is `not_connected`, say so
+in your output, so that the report can ask the user to connect that
+provider for the next run.
+
+Every answer has `catalog`: `kiln` and `models_dev` (`ok` or `none`), and
+`fetched_at`. A source that is `none` gives null fields. With `kiln:
+"none"`, the operations list only what the Kiln server offers. A pair that
+the catalogue does not have (a fine-tune, a custom model) is listed with
+null catalogue fields. A price is a list price in USD per million tokens,
+from models.dev. The price that the loop measures on the task wins over it.
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `list_available_models` | — | the models the run's model policy allows, with each one's thinking levels and default `structured_output_mode` |
+| `list_models` | `family?`, `provider?`, `tags?` (≤12), `tools?`, `vision?`, `reasoning?`, `open_weights?`, `max_input_price?`, `include_not_available?` (default false), `include_deprecated?` (default false), `sort?` (`featured`, `price` or `newest`; default `featured`), `limit?` (≤200, default 50), `offset?` | one row per model: `model`, `name`, `family`, `featured_rank`, `tags`, `release_date`, `context_window`, `open_weights`, `thinking`, and `providers` (per entry: `provider`, `status`, `input_price`, `output_price`, `tags`, `deprecated`); plus `catalog` and `total` (the rows after the filters, on every page) |
+| `get_model_details` | `model`, `provider?` | everything about one model: the row's fields, `editorial_notes`, `agent_notes` (notes for an agent that chooses or configures the model), `knowledge_cutoff`, `max_output_tokens`, `release_date_match` (`exact` or `loose`), and per provider entry its status, the four prices (input, output, cache read, cache write), `context_window`, `max_output_tokens`, `tags`, the provider's own `model_id`, `supports_tools`, `supports_structured_output`, `supports_vision`, `supports_doc_extraction`, `reasoning_capable`, `thinking_levels` (lowest first) and `default_thinking_level`, `structured_output_mode`, `takes_temperature`, `suggested_for`, `untested`, `deprecated` |
+| `list_providers` | `include_not_available?` (default false) | per provider: `provider` (Kiln's id), `name`, `status` (`connected` or `not_connected`), `ready_models` (the count of `ready` pairs), `tags`, `notes` |
+
+`list_models` rules:
+
+- Filters are joined with AND. `tools`, `vision`, `reasoning`, `provider`
+  and `max_input_price` test each provider entry, and remove the entries
+  that fail. A row with no entry left is not listed. An entry with an
+  unknown value for a filter that tests it does not pass.
+- `family`, `open_weights` and `tags` test the row. A `tags` filter
+  matches a tag on the model or on one of its listed entries.
+- Without `include_not_available`, a row lists its `ready` entries only.
+- `featured` is Kiln's rank, then the order of Kiln's file. `price` is the
+  lowest `input_price + output_price` of the row's listed entries. `newest`
+  is the release date. A row with no value is last.
+
+`get_model_details` lists every entry of the model, of every status, and
+deprecated entries too. For a pair that the server offers, the thinking
+levels, the default level and `structured_output_mode` are the server's.
+
+Some providers have no models.dev data, so their entries have no price
+and no limits. Then:
+
+- Call `get_model_details` without `provider`. The answer gives every
+  provider entry of the model, also the entries on providers that are not
+  connected.
+- The price on another provider of the same model is a proxy. It is often
+  close, but it is not the price that you will pay. Say in your notes that
+  it is a proxy.
+- A local provider (Ollama, Docker Model Runner) has no per-token price.
+  Do not use another provider's price as a proxy for it. Use the cost that
+  the loop measures.
+- The price that the loop measures on the task wins over a listed price
+  and over a proxy.
+
+A model that is in neither the catalogue nor the server's list is
+refused. A release date with `release_date_match: "loose"` came from a
+match on the model's name only.
+
+Examples:
+
+```
+mcp__kiln_harness_tuner_gateway__list_models(tools=true, sort="price",
+    max_input_price=1.0)
+mcp__kiln_harness_tuner_gateway__get_model_details(model="<model id>",
+    provider="openrouter")
+mcp__kiln_harness_tuner_gateway__list_providers(include_not_available=true)
+```
 
 ### Reading the evals
 
@@ -217,9 +292,9 @@ shows the train items only. Read results with `get_train_results` after
 |---|---|
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
-| batch_plan | reading the task, reading the models, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads, memory |
+| batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads, memory |
 | create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
-| probe | reading the task, reading the models, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, `list_code_tools`, `list_skills`, memory (no update) |
+| probe | reading the task, models and providers, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, `list_code_tools`, `list_skills`, memory (no update) |
 | analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, `get_code_tool`, `get_skill`, `get_skill_content`, memory |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |

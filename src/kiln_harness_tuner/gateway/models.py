@@ -111,12 +111,108 @@ class PromptText(Out):
     chain_of_thought_instructions: str | None = None
 
 
-class ModelView(Out):
+# ---- the model catalogue (`model_info`)
+
+# ready: the Kiln server offers the pair and the model policy allows it.
+# blocked_by_policy: offered, and the policy refuses it. not_offered: the
+# provider is connected, but not with this model. not_connected: the server
+# offers nothing on the provider.
+ModelStatus = Literal["ready", "blocked_by_policy", "not_offered", "not_connected"]
+
+
+class CatalogState(Out):
+    """Which sources an answer has: `none` is a source the run could not
+    fetch, or that `--no-model-catalog` turned off."""
+
+    kiln: Literal["ok", "none"]
+    models_dev: Literal["ok", "none"]
+    fetched_at: str | None = None
+
+
+class ProviderEntryRow(Out):
     provider: str
+    status: ModelStatus
+    input_price: float | None = None  # USD per million tokens
+    output_price: float | None = None
+    tags: list[str] = []
+    deprecated: bool = False
+
+
+class ModelRow(Out):
     model: str
-    name: str | None = None
+    name: str
+    family: str | None = None
+    featured_rank: int | None = None
+    tags: list[str] = []
+    release_date: str | None = None
+    context_window: int | None = None
+    open_weights: bool | None = None
+    thinking: bool = False
+    providers: list[ProviderEntryRow] = []
+
+
+class ModelList(Out):
+    catalog: CatalogState
+    total: int  # the rows after the filters, on every page
+    models: list[ModelRow] = []
+
+
+class ProviderEntryDetails(Out):
+    provider: str
+    status: ModelStatus
+    model_id: str | None = None
+    deprecated: bool = False
+    untested: bool = False
+    input_price: float | None = None
+    output_price: float | None = None
+    cache_read_price: float | None = None
+    cache_write_price: float | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    tags: list[str] = []
+    supports_tools: bool | None = None
+    supports_structured_output: bool | None = None
+    supports_vision: bool | None = None
+    supports_doc_extraction: bool | None = None
+    reasoning_capable: bool | None = None
     thinking_levels: list[str] = []
-    structured_output_mode: str | None = None  # the server's default for it
+    default_thinking_level: str | None = None
+    structured_output_mode: str | None = None
+    takes_temperature: bool | None = None
+    suggested_for: list[str] = []
+
+
+class ModelDetailsView(Out):
+    catalog: CatalogState
+    model: str
+    name: str
+    family: str | None = None
+    featured_rank: int | None = None
+    editorial_notes: str | None = None
+    agent_notes: str | None = None
+    tags: list[str] = []
+    release_date: str | None = None
+    release_date_match: str | None = None
+    knowledge_cutoff: str | None = None
+    open_weights: bool | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+    thinking: bool = False
+    providers: list[ProviderEntryDetails] = []
+
+
+class ProviderRow(Out):
+    provider: str
+    name: str | None = None
+    status: Literal["connected", "not_connected"]
+    ready_models: int = 0
+    tags: list[str] = []
+    notes: str | None = None
+
+
+class ProviderList(Out):
+    catalog: CatalogState
+    providers: list[ProviderRow] = []
 
 
 class ScoreView(Out):
@@ -388,6 +484,38 @@ class NoArgs(In):
 
 class ById(In):
     id: str = Id
+
+
+# A Kiln model id can hold `/` (a custom model), so it has no pattern.
+ModelId = Field(min_length=1, max_length=200)
+
+
+class ListModelsArgs(In):
+    family: str | None = Field(default=None, min_length=1, max_length=100)
+    provider: str | None = Field(default=None, min_length=1, max_length=200)
+    # Kiln's tags are at most 40 characters (`model_catalog.build`).
+    tags: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(
+        default=None, max_length=12
+    )
+    tools: bool | None = None
+    vision: bool | None = None
+    reasoning: bool | None = None
+    open_weights: bool | None = None
+    max_input_price: float | None = Field(default=None, ge=0)
+    include_not_available: bool = False
+    include_deprecated: bool = False
+    sort: Literal["featured", "price", "newest"] = "featured"
+    limit: int = Field(default=50, ge=1, le=200)
+    offset: int = Field(default=0, ge=0)
+
+
+class ModelDetailsArgs(In):
+    model: str = ModelId
+    provider: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class ListProvidersArgs(In):
+    include_not_available: bool = False
 
 
 class EvalConfigRef(In):

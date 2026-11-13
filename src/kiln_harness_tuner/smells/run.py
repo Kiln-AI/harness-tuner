@@ -13,6 +13,7 @@ the baseline reviewer interpret them.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from kiln_harness_tuner.gateway.trace_files import parse_trace, trace_stats
@@ -31,7 +32,7 @@ from kiln_harness_tuner.schemas import (
     TraceSample,
 )
 from kiln_harness_tuner.smells.detectors import DETECTORS
-from kiln_harness_tuner.smells.model import Detector, DetectorInputs
+from kiln_harness_tuner.smells.model import Detector, DetectorInputs, ModelFacts
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -454,9 +455,34 @@ async def _collect(
             texts=texts,
             tool_definitions=definitions,
             trace_stats=await _train_trace_stats(ctx, rc_id) if traces else [],
+            model=_model_facts(ctx, properties),
+            run_date=ctx.run_started_at.date() if ctx.run_started_at else None,
         ),
         unread,
     )
+
+
+def _model_facts(ctx: Ctx, properties: dict[str, Any]) -> ModelFacts | None:
+    """The baseline's model, from its properties and the run's model
+    catalogue. No call to Kiln: the catalogue is the snapshot of the start
+    of the run. None when the properties do not name both a provider and a model."""
+    provider = properties.get("model_provider_name")
+    model = properties.get("model_name")
+    if not (
+        isinstance(provider, str) and provider and isinstance(model, str) and model
+    ):
+        return None
+    row = ctx.model_catalog.model(model) if ctx.model_catalog else None
+    if row is None:
+        return ModelFacts(provider, model, model, None)
+    return ModelFacts(provider, model, row.name, _iso_date(row.release_date))
+
+
+def _iso_date(value: str | None) -> date | None:
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
 
 
 def _definition(tool_id: str, row: Any) -> dict[str, Any] | None:

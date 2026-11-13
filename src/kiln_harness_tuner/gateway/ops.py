@@ -14,8 +14,9 @@ the splits:
   scopes, new evals with splits the gateway assigns.
 
 `ROLE_OPS` names the operations each agent role gets; a role's session is
-served those and no others. There is no operation for settings, providers,
-deletes of evals or baselines, split edits, or held-out items.
+served those and no others. There is no operation that changes settings or
+providers, no delete of evals or baselines, no split edit, and no read of
+held-out items.
 """
 
 from __future__ import annotations
@@ -33,11 +34,14 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from kiln_harness_tuner.gateway import model_info
 from kiln_harness_tuner.gateway import models as m
+from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
 from kiln_harness_tuner.job_drives import EvalJobDriver
-from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
+from kiln_harness_tuner.model_catalog import Catalog
+from kiln_harness_tuner.model_policy import ModelPolicy
 
 Call = Callable[..., Awaitable[Any]]
 
@@ -63,10 +67,6 @@ RC_PROP_KEYS = (
     "skills_config",
     "input_transform",
 )
-
-
-class GatewayError(RuntimeError):
-    """A refused or failed operation; the message is the agent's answer."""
 
 
 NOT_TRAIN = (
@@ -112,6 +112,8 @@ class State:
     # Where trace files go (`--traces-dir`); None = the run's
     # `scratch/traces/` (`trace_files.traces_dir`).
     traces_dir: Path | None = None
+    # The run's model catalogue snapshot (`model_catalog.json`).
+    catalog: Catalog = field(default_factory=lambda: Catalog.unavailable("no snapshot"))
 
     @property
     def trace_root(self) -> Path | None:
@@ -435,29 +437,28 @@ class Gateway:
             m.PromptText, await self.call("GET", f"{self.s.base}/gen_prompt/{req.id}")
         )
 
-    async def list_available_models(self, req: m.NoArgs) -> list[m.ModelView]:
-        available = await self.call("GET", "/api/available_models")
-        available = available if isinstance(available, list) else []
-        rows = allowed_models(self.s.policy, available)
-        modes = {
-            (p.get("provider_id"), d.get("id")): d.get("structured_output_mode")
-            for p in _rows(available)
-            for d in _rows(p.get("models"))
-        }
-        return [
-            m.ModelView(
-                provider=str(r.get("provider")),
-                model=str(r.get("model")),
-                name=r.get("name"),
-                thinking_levels=[str(x) for x in r.get("thinking_levels") or []],
-                structured_output_mode=mode
-                if isinstance(
-                    mode := modes.get((r.get("provider"), r.get("model"))), str
-                )
-                else None,
-            )
-            for r in rows
-        ]
+    # The model operations: the run's catalogue snapshot, joined with what
+    # the server offers now and with the model policy (`model_info`).
+
+    async def _offered(self) -> model_info.Offered:
+        return model_info.Offered.from_payload(
+            await self.call("GET", "/api/available_models")
+        )
+
+    async def list_models(self, req: m.ListModelsArgs) -> m.ModelList:
+        return model_info.list_models(
+            self.s.catalog, await self._offered(), self.s.policy, req
+        )
+
+    async def get_model_details(self, req: m.ModelDetailsArgs) -> m.ModelDetailsView:
+        return model_info.model_details(
+            self.s.catalog, await self._offered(), self.s.policy, req
+        )
+
+    async def list_providers(self, req: m.ListProvidersArgs) -> m.ProviderList:
+        return model_info.list_providers(
+            self.s.catalog, await self._offered(), self.s.policy, req
+        )
 
     def _eval_view(self, row: dict[str, Any]) -> m.EvalView:
         scores = [m.project(m.ScoreView, s) for s in _rows(row.get("output_scores"))]
@@ -1259,7 +1260,23 @@ OPS = _ops(
     ("get_run_config", m.ById, "One run config."),
     ("list_prompts", m.NoArgs, "The task's saved prompts."),
     ("get_prompt_text", m.ById, "The prompt text a prompt id renders."),
-    ("list_available_models", m.NoArgs, "The models the run's policy allows."),
+    (
+        "list_models",
+        m.ListModelsArgs,
+        "Models with price, context, release date and tags, one row per model."
+        " Only ready models unless include_not_available.",
+    ),
+    (
+        "get_model_details",
+        m.ModelDetailsArgs,
+        "Everything about one model: notes for agents, each provider's prices,"
+        " capabilities and thinking levels.",
+    ),
+    (
+        "list_providers",
+        m.ListProvidersArgs,
+        "Providers with their status, ready model count, tags and notes.",
+    ),
     ("list_evals", m.NoArgs, "The task's evals, with their train item counts."),
     ("get_eval", m.ById, "One eval."),
     ("get_eval_config", m.EvalConfigRef, "One eval config (the judge)."),
@@ -1339,6 +1356,7 @@ _TASK = (
     "list_prompts",
     "get_prompt_text",
 )
+_MODELS = ("list_models", "get_model_details", "list_providers")
 _EVALS = ("list_evals", "get_eval", "get_eval_config", "list_specs", "get_spec")
 _MEM_READ = ("memory_list", "memory_get", "memory_summary")
 _MEM_WRITE = ("memory_create", "memory_update")
@@ -1358,7 +1376,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
     "describe_eval": ("get_task", *_EVALS),
     "batch_plan": (
         *_TASK,
-        "list_available_models",
+        *_MODELS,
         *_EVALS,
         "get_train_results",
         "get_train_expected",
@@ -1368,7 +1386,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
     ),
     "create_experiment_rc": (
         *_TASK,
-        "list_available_models",
+        *_MODELS,
         *_EVALS,
         "get_train_results",
         "get_task_run",
@@ -1387,7 +1405,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
     ),
     "probe": (
         *_TASK,
-        "list_available_models",
+        *_MODELS,
         "get_task_run",
         "list_train_items",
         "get_train_expected",

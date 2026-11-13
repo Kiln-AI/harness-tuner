@@ -431,6 +431,8 @@ def dry_preflight(
         "--kiln-host",
         "<fake Kiln>",
         "--no-progress",
+        # The smoke test stays offline: no fetch of the model catalogue.
+        "--no-model-catalog",
     ]
     with FakeKiln(project) as kiln:
         argv[argv.index("<fake Kiln>")] = kiln.host

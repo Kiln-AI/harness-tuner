@@ -13,6 +13,7 @@ from fake_kiln import FakeKiln
 from kiln_harness_tuner.analysis import Analyzer
 from kiln_harness_tuner.memory import MemoryWriter
 from kiln_harness_tuner.memory_schema import baseline_rc_tag
+from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.orchestrator import Ctx, EventLog
 from kiln_harness_tuner.schemas import (
     BatchPlan,
@@ -270,6 +271,19 @@ def no_agent_cli_check(monkeypatch):
         return None
 
     monkeypatch.setattr("kiln_harness_tuner.cli.check_agent_cli", passes)
+
+
+@pytest.fixture(autouse=True)
+def no_catalog_fetch(monkeypatch):
+    """`cli._run` fetches the model catalogue from two public hosts. The
+    suite never goes to the network: every test that reaches `cli.main` gets
+    the catalogue that `--no-model-catalog` gives. `tests/test_cli.py` puts
+    the real fetch back on `respx` routes to test the wiring."""
+
+    async def turned_off(*_args, **_kwargs) -> Catalog:
+        return Catalog.unavailable("turned off")
+
+    monkeypatch.setattr("kiln_harness_tuner.cli.fetch_catalog", turned_off)
 
 
 @pytest.fixture(autouse=True)

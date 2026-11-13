@@ -4,7 +4,7 @@ description: The model's settings on a run config - thinking level, temperature 
 reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
-  - list_available_models
+  - get_model_details
   - create_run_config
 ---
 
@@ -44,9 +44,10 @@ used again.
 
 Rules of the object:
 
-- **The thinking levels come from `list_available_models`**: the
-  `thinking_levels` of the model, lowest first. A level that is not in that
-  list is refused.
+- **The thinking levels come from `get_model_details`**: the
+  `thinking_levels` of the model's provider entry, lowest first. For a pair
+  that the server offers, they are the server's list. A level that is not
+  in that list is refused.
 - **The properties of a run config are fixed when it is created.** A
   mistake means another new run config.
 
@@ -57,6 +58,8 @@ Rules of the object:
   did not move against the parent, gives the verdict `lever not applied`.
   When no signal can show it, the verdict is `lever unverified`.
 - A provider can refuse a setting. One failed call shows it.
+  `get_model_details` gives `takes_temperature` for each provider entry,
+  from models.dev: `false` says that the model does not take a temperature.
 - The output mode is not part of this lever. It has its own lever,
   [output_mode](output_mode.md).
 - Kiln has no setting for `max_tokens`, a seed, `top_k` or penalties.

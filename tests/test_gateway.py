@@ -8,6 +8,7 @@ gateway model names. Every id is invented."""
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import io
 import json
@@ -21,8 +22,24 @@ from test_quarantine import TASK, Project
 
 from kiln_harness_tuner.gateway import hook
 from kiln_harness_tuner.gateway import ops as gw
-from kiln_harness_tuner.gateway.server import POLICY_FILE, create_server, load_policy
-from kiln_harness_tuner.gateway.trainset import TrainSet, TrainSetError, compute
+from kiln_harness_tuner.gateway.server import (
+    POLICY_FILE,
+    create_server,
+    load_policy,
+    load_state,
+)
+from kiln_harness_tuner.gateway.trainset import (
+    FILE_NAME,
+    TrainSet,
+    TrainSetError,
+    compute,
+)
+from kiln_harness_tuner.model_catalog import (
+    Catalog,
+    CatalogModel,
+    Source,
+    write_catalog,
+)
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.quarantine import QuarantineError
 
@@ -332,8 +349,13 @@ class TestReads:
             ]
         }
         gateway, _ = _gateway(tmp_path, routes, policy=policy)
-        out = _run(gateway, "list_available_models")
-        assert [(r["provider"], r["model"]) for r in out] == [("openai", "gpt")]
+        out = _run(gateway, "list_models")
+        assert [
+            (p["provider"], r["model"]) for r in out["models"] for p in r["providers"]
+        ] == [("openai", "gpt")]
+        out = _run(gateway, "list_models", include_not_available=True)
+        statuses = {r["model"]: r["providers"][0]["status"] for r in out["models"]}
+        assert statuses == {"gpt": "ready", "kimi": "blocked_by_policy"}
 
 
 class TestThePolicyCopy:
@@ -408,6 +430,41 @@ class TestThePolicyCopy:
         assert policy is not None
         assert policy.refusal("openai", "gpt") is None
         assert policy.refusal("groq", "kimi") is not None
+
+
+class TestTheCatalogueSnapshot:
+    """The gateway process reads `runs/<run_id>/model_catalog.json` at start,
+    as it reads the policy copy."""
+
+    @staticmethod
+    def _load_state(tmp_path: Path, snapshot: Catalog | None) -> gw.State:
+        p = _project(tmp_path)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        compute(p.root, TASK).write(run_dir / FILE_NAME)
+        if snapshot is not None:
+            write_catalog(run_dir, snapshot)
+        args = argparse.Namespace(
+            run_dir=str(run_dir),
+            project_id=PROJECT,
+            task_id=TASK,
+            role="batch_plan",
+            project_path=None,
+        )
+        return load_state(args)
+
+    def test_load_state_reads_the_catalogue_snapshot(self, tmp_path):
+        snapshot = Catalog(
+            fetched_at="2026-11-13T12:00:00+00:00",
+            kiln=Source(state="ok"),
+            models=[CatalogModel(model="m1", name="M1")],
+        )
+        state = self._load_state(tmp_path, snapshot)
+        assert state.catalog == snapshot
+
+    def test_no_snapshot_loads_as_unavailable(self, tmp_path):
+        state = self._load_state(tmp_path, None)
+        assert state.catalog == Catalog.unavailable("no snapshot")
 
 
 class TestEvalListShapes:
@@ -867,8 +924,8 @@ class TestDocumentedShapes:
             ],
         }
         gateway, _ = _gateway(tmp_path, routes)
-        (model,) = _run(gateway, "list_available_models")
-        assert model["structured_output_mode"] == "json_schema"
+        model = _run(gateway, "get_model_details", model="gpt")
+        assert model["providers"][0]["structured_output_mode"] == "json_schema"
         (tool_set,) = _run(gateway, "list_available_tools")
         assert tool_set["type"] == "code"
         assert tool_set["tools"][0]["function_name"] == "kestrel"
@@ -901,6 +958,16 @@ class TestRoles:
         for role, ops in gw.ROLE_OPS.items():
             if role not in gw.VAL_READERS:
                 assert "get_val_summary" not in ops, role
+
+    def test_the_model_roles_are_served_the_model_operations(self):
+        models = {"list_models", "get_model_details", "list_providers"}
+        for role, ops in gw.ROLE_OPS.items():
+            assert "list_available_models" not in ops, role
+            has = models & set(ops)
+            if role in ("batch_plan", "create_experiment_rc", "probe"):
+                assert has == models, role
+            else:
+                assert not has, role
 
     def test_the_baseline_reviewer_reads_and_never_writes(self):
         ops = set(gw.ROLE_OPS["baseline_review"])
@@ -951,7 +1018,9 @@ class TestRoles:
             "test_items",
             "val_items",
         }
-        for op in gw.OPS:
+        # `list_providers` reads the catalogue's notes on each provider. No
+        # operation changes a provider.
+        for op in set(gw.OPS) - {"list_providers"}:
             assert not forbidden & set(op.split("_")), op
 
 

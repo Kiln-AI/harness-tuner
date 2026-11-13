@@ -63,7 +63,9 @@ round of candidates in code, and an arm.
 
 1. **Choose the class** from what the task needs and what the run allows:
    the size, the price and the latency. The candidates are the models of
-   that class in the run's list of allowed models.
+   that class in the run's list of allowed models. `list_models` gives
+   each one's list price, context window, release date and tags, and
+   `get_model_details` gives Kiln's notes for agents.
 2. **At the start, lock one model** with a reasonable start on the task:
    some items pass, and many fail, so that there is room to rise. On a
    large budget, screen several models of the class first and lock the one
@@ -90,11 +92,11 @@ round of candidates in code, and an arm.
 Code checks that the swap reached the call: a drive that another model or
 provider served gives the verdict `lever not applied`. A smoke on two or
 three train items shows that the new model calls the tools and returns the
-output form that the task needs. The model list does not give the
-capability flags, so one drive shows them. Invalid output just after the
-swap points first to a wrong output mode, not to a weaker model: check
-that the mode is the new model's default before you record the model as
-refuted.
+output form that the task needs. The capability flags of
+`get_model_details` are Kiln's data, and one drive shows what the model
+does on the task. Invalid output just after the swap points first to a
+wrong output mode, not to a weaker model: check that the mode is the new
+model's default before you record the model as refuted.
 
 ## Budget
 

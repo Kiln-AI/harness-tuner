@@ -4,7 +4,7 @@ description: How Kiln asks the model for output that matches the task's output s
 reviewed: 2026-11-13
 gateway_ops:
   - get_run_config
-  - list_available_models
+  - get_model_details
   - create_run_config
 ---
 
@@ -39,10 +39,10 @@ schema as a tool are refused on a run config with tools (Limits).
 
 1. Read the parent's mode: `get_run_config` gives `structured_output_mode`
    in `run_config_properties`.
-2. Read the default mode of each model: `list_available_models` gives the
-   `structured_output_mode` that Kiln's model list recommends for each
-   allowed model on its provider. The planner's `allowed_models` input does
-   not carry it.
+2. Read the default mode of each model: `get_model_details` gives the
+   `structured_output_mode` of each provider entry: the server's value for
+   a pair that the server offers. The planner's
+   `allowed_models` input does not carry it.
 3. Change it in one of three ways:
    - **A screening round**: a candidate with
      `overrides: {"structured_output_mode": "<value>"}`. Code makes and
