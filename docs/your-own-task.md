@@ -634,7 +634,7 @@ check again, for the providers it names.
 **Never asked**, and set only by their flags ([cli.md](cli.md)):
 `--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,
 `--max-turns`, `--gate-agent`, `--reference-check`, `--no-recon`,
-`--no-baseline-audit`, `--no-baseline-review`, `--allow-underpowered`,
+`--no-baseline-audit`, `--no-design-review`, `--allow-underpowered`,
 `--skip-model-preflight`, `--experimental-eval-building` and
 `--no-progress`.
 

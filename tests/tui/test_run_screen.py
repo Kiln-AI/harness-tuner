@@ -28,7 +28,7 @@ from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.state import LogLine, Segment, TimelineView
 from kiln_harness_tuner.tui.screens.run import RunScreen
 from kiln_harness_tuner.tui.theme import DARK, LIGHT
-from kiln_harness_tuner.tui.widgets import timeline_rows, two_lines
+from kiln_harness_tuner.tui.widgets import step_content, timeline_rows, two_lines
 
 LEGEND = "░ plan  ▒ screen  ▓ experiments  ◆ promotion  · gate, no winner  ┄ projected"
 # From a classic 80-column terminal (the Goal needs 74 with the scrollbar)
@@ -146,6 +146,13 @@ async def test_the_last_wave_tag_shows_only_in_the_wrap_up_wave():
 
 
 # ---- the run timeline ----
+
+
+def test_a_step_label_wider_than_its_column_has_a_separator():
+    assert step_content("ok", "Baseline", "measured").plain == "✓ Baseline  measured"
+    wide = step_content("busy", words.REVIEW_STEP, words.REVIEW_BUSY, "⠴")
+    assert wide.plain == "⠴ Design review · checking the agent's design"
+    assert step_content("ok", words.REVIEW_STEP, "").plain == "✓ Design review "
 
 
 def test_timeline_rows_draw_setup_waves_a_promotion_and_the_now_marker():

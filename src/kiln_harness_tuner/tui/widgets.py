@@ -609,12 +609,16 @@ def step_content(
 ) -> Content:
     """A glyph, the label in 9 cells, and the text: the start-up's step line,
     as `PlainTerminal` aligns it, also used by the run screen's checklists.
-    A busy step has the spinner in place of the glyph."""
+    A busy step has the spinner in place of the glyph. A label wider than
+    the column has " · " between it and the text."""
     if status == "busy":
         glyph, style = (spinner_frame() if frame is None else frame), "$text-primary"
     else:
         glyph, style = GLYPHS[status]
-    return Content.assemble((glyph, style), f" {label:<{LABEL_WIDTH}} ", linked(text))
+    gap = " · " if len(label) > LABEL_WIDTH and text else " "
+    return Content.assemble(
+        (glyph, style), f" {label:<{LABEL_WIDTH}}{gap}", linked(text)
+    )
 
 
 def warn_content(text: str) -> Content:

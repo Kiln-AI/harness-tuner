@@ -427,7 +427,7 @@ class Ctx:
     detections: list[Detection] = field(default_factory=list)
     detected_rc_id: str | None = None
     # The baseline reviewer (`smells.ensure_baseline_reviewed`): once for each
-    #   baseline, after the detectors (cli: on, unless `--no-baseline-review`;
+    #   baseline, after the detectors (cli: on, unless `--no-design-review`;
     #   other tests leave it off). `reviewed_rc_id`: the baseline the step
     #   last ran on. `baseline_reviews`: each review, for the report.
     baseline_review: bool = False

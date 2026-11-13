@@ -405,9 +405,9 @@ def test_the_baseline_audit_and_review_are_on_unless_turned_off(tmp_path):
 
     assert ctx_with().baseline_audit is True
     assert ctx_with(baseline_audit=False).baseline_audit is False
-    # The baseline reviewer: the same shape, `--no-baseline-review`.
-    assert build_parser().parse_args(ARGS).no_baseline_review is False
-    assert build_parser().parse_args([*ARGS, "--no-baseline-review"]).no_baseline_review
+    # The design review: the same shape, `--no-design-review`.
+    assert build_parser().parse_args(ARGS).no_design_review is False
+    assert build_parser().parse_args([*ARGS, "--no-design-review"]).no_design_review
     assert ctx_with().baseline_review is True
     assert ctx_with(baseline_review=False).baseline_review is False
 

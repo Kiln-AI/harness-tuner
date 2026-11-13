@@ -38,6 +38,7 @@ from kiln_harness_tuner.smells.run import (
     REVIEW_ITEMS_PER_EVAL,
     REVIEW_MAX_FINDINGS,
     REVIEW_MAX_ITEMS,
+    flagged_smells,
     review_line,
 )
 from kiln_harness_tuner.smells.thresholds import LONG_PROMPT_CHARS
@@ -155,8 +156,11 @@ async def test_each_finding_becomes_one_smell_issue_with_its_tags():
     assert review.notes == "none"
     (event,) = events(ctx, "baseline_review")
     assert event["review"] == review
+    # The line counts the findings and the code detections, each smell once.
+    assert event["flagged"] == ["fixed-call-chain", "tool-search", "very-long-prompt"]
     assert event["line"] == (
-        "baseline review: rc_base — 2 smell finding(s): fixed-call-chain, tool-search"
+        "Design review complete: 3 possible issues flagged (fixed call chain,"
+        " tool search, very long prompt)."
     )
 
 
@@ -247,7 +251,7 @@ async def test_a_failed_review_does_not_stop_the_run_and_is_in_the_report():
         tracker.event(kind, **fields)
     text = render_smells_appendix(tracker.snapshot())
     assert (
-        "Baseline `rc_base`. Baseline review: failed (the review did not run"
+        "Baseline `rc_base`. Design review: failed (the review did not run"
         " (failed_infra provider_error: down))." in text
     )
 
@@ -617,10 +621,54 @@ def test_the_tracker_keeps_each_review():
 
 def test_the_review_line_is_printed_by_the_plain_display():
     review = BaselineReview(rc_id="rc_base", status="off", reason="turned off")
-    line = review_line(review)
-    assert line == "baseline review: rc_base — off: turned off"
+    line = review_line(review, ["very-long-prompt"])
+    assert line == "Design review skipped: turned off."
     assert "baseline_review" in SETUP_LINE_EVENTS
     assert own_line("baseline_review", {"line": line}) == line
+
+
+@pytest.mark.parametrize(
+    "status,reason,flagged,line",
+    [
+        ("done", "", [], "Design review complete: nothing flagged."),
+        (
+            "done",
+            "",
+            ["very-long-prompt"],
+            "Design review complete: 1 possible issue flagged (very long prompt).",
+        ),
+        (
+            "done",
+            "1 of 1 finding(s) could not be written as issues: tool-search",
+            ["tool-search"],
+            "Design review complete: 1 possible issue flagged (tool search);"
+            " 1 of 1 finding(s) could not be written as issues: tool-search.",
+        ),
+        ("failed", "timeout", [], "Design review failed: timeout."),
+        (
+            "failed",
+            "ValueError: bad input.",
+            [],
+            "Design review failed: ValueError: bad input.",
+        ),
+        ("skipped", "already reviewed", [], "Design review skipped: already reviewed."),
+    ],
+)
+def test_the_review_line_names_what_was_flagged(status, reason, flagged, line):
+    review = BaselineReview(rc_id="rc_base", status=status, reason=reason)
+    assert review_line(review, flagged) == line
+
+
+def test_the_flagged_smells_name_each_smell_once():
+    review = BaselineReview(
+        rc_id="rc_base",
+        status="done",
+        findings=[finding("tool-search"), finding("very-long-prompt")],
+    )
+    assert flagged_smells(review, [detection(), detection()]) == [
+        "tool-search",
+        "very-long-prompt",
+    ]
 
 
 def test_the_report_has_the_smells_appendix():
@@ -633,8 +681,8 @@ def test_the_report_has_the_smells_appendix():
         review=BaselineReview(rc_id="rc_next", status="off", reason="turned off"),
     )
     text = render_smells_appendix(tracker.snapshot())
-    assert text.startswith("## Smells\n")
-    assert "Baseline `rc_base`. Baseline review: done, 1 finding(s)." in text
+    assert text.startswith("## Design review\n")
+    assert "Baseline `rc_base`. Design review: done, 1 finding(s)." in text
     assert (
         "| very-long-prompt | The system prompt has 200,005 characters. | 200,000"
         " | a default | holds: Most of it is one pasted table. |"
@@ -645,7 +693,7 @@ def test_the_report_has_the_smells_appendix():
     ) in text
     assert "Reviewer's notes: The output schema has no field for the reason." in text
     # A baseline with nothing found is shown when its review did not run.
-    assert "Baseline `rc_next`. Baseline review: off (turned off)." in text
+    assert "Baseline `rc_next`. Design review: off (turned off)." in text
     # The intro says which parts code computed and which the reviewer wrote.
     assert "Code renders this section." in text
     assert "in the reviewer's words" in text
@@ -661,7 +709,7 @@ def test_a_skipped_review_lists_its_smell_issues():
     )
     tracker.event("baseline_review", review=skipped)
     assert (
-        "Baseline `rc_base`. Baseline review: skipped (already reviewed). Its"
+        "Baseline `rc_base`. Design review: skipped (already reviewed). Its"
         " smell issues in memory: `mem_1`, `mem_2`."
     ) in render_smells_appendix(tracker.snapshot())
 

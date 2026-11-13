@@ -379,9 +379,9 @@ def detected_status():
 
 def test_the_report_has_the_smells_appendix(detected_status, tmp_path):
     text = render_smells_appendix(detected_status)
-    assert text.startswith("## Smells\n")
+    assert text.startswith("## Design review\n")
     # No review event: the run had no reviewer (an old log).
-    assert "Baseline `rc_base`. Baseline review: not run." in text
+    assert "Baseline `rc_base`. Design review: not run." in text
     assert "rc_next" not in text
     assert "| very-long-prompt | The system prompt has 200,005 characters." in text
     assert "| 200,000 |" in text
@@ -403,7 +403,7 @@ async def test_the_written_report_carries_the_smells_appendix(tmp_path):
     tracker.event("smell_detections", rc="rc_base", detections=[found])
     writer = ReportWriter(tracker, "r1", tmp_path / "reports")
     path = await writer.write_fallback(make_ctx(), "wrap_up")
-    assert "\n## Smells\n" in open(path, encoding="utf-8").read()
+    assert "\n## Design review\n" in open(path, encoding="utf-8").read()
 
 
 async def test_an_unreadable_knowledge_skill_keeps_every_detection(monkeypatch):

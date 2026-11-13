@@ -16,7 +16,7 @@ writes the file (`reports/kiln-harness-tuner-<run_id>.md`). Code appends a code-
 after your markdown — narrate spend and the run's clock, never build or
 restate them. Code also appends why each arm stopped, the screened
 candidates' trade-offs and the smells of each baseline (the code
-detections, and the status and findings of the baseline review): point at
+detections, and the status and findings of the design review): point at
 those tables, never rebuild them.
 Reading is your only API activity: no file writes, no memory
 writes, no eval jobs, no `split` params.

@@ -400,11 +400,11 @@ def build_parser() -> _Parser:
         " issue)",
     )
     parser.add_argument(
-        "--no-baseline-review",
+        "--no-design-review",
         action="store_true",
-        help="skip the baseline reviewer: the agent session that reads the"
-        " baseline's design for smells once per baseline, before the"
-        " planner (the code detectors still run)",
+        help="skip the design review: the agent session that checks the"
+        " agent's design once per baseline, before the planner (the code"
+        " detectors still run)",
     )
     parser.add_argument(
         "--reference-check",
@@ -1455,7 +1455,7 @@ async def _run(
                 gate_agent=args.gate_agent,
                 recon=not args.no_recon,
                 baseline_audit=not args.no_baseline_audit,
-                baseline_review=not args.no_baseline_review,
+                baseline_review=not args.no_design_review,
                 reference_check=args.reference_check,
                 objective=args.objective,
                 model_policy=policy,

@@ -124,11 +124,11 @@ not a test, made it, with one scripted reviewer answer. **This is
 fixture output, not a run.**
 
 ```
-## Smells
+## Design review
 
-The smells found in the design of each baseline. Code renders this section. ...
+The smells that the design review flagged in each baseline. Code renders this section. ...
 
-Baseline `rc_base`. Baseline review: done, 1 finding(s).
+Baseline `rc_base`. Design review: done, 1 finding(s).
 
 | smell | fact | reference | source of the reference | reviewer |
 |---|---|---:|---|---|
@@ -168,7 +168,7 @@ setup keeps the baseline record that the first run seeds.
 
    Give it 120 minutes or more. The deadline starts before setup, and the
    review is not dispatched on a wrap-up wave or with less than 35 minutes
-   left. Then the report's status line says "Baseline review: skipped (too
+   left. Then the report's status line says "Design review: skipped (too
    little time)." (or "skipped (a wrap-up wave)"), and only the code
    detection shows.
 
@@ -176,12 +176,12 @@ setup keeps the baseline record that the first run seeds.
    it on the full train split. Each call sends the long prompt, about
    50,000 tokens. Set `--budget-usd` to what that costs on the model.
 5. Look for three things:
-   - the line `baseline review: <rc> — …` on the run's display, and the
+   - the line `Design review complete: …` on the run's display, and the
      `smell_detections` event in `runs/<run id>/wave_log.jsonl`, with the
      `long_prompt` detection, before the planner's first phase;
    - `detections` in the planner's input, in the `batch_plan` session's
      transcript under `traces/`;
-   - the `## Smells` section of the report, with the `very-long-prompt`
+   - the `## Design review` section of the report, with the `very-long-prompt`
      row, the reviewer's reading of it, and the review's status line.
 
 Nothing measured in this run goes in `AGENTS.md` or in `agent_files/`.

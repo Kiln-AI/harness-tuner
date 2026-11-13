@@ -78,7 +78,7 @@ flowchart TD
     E --> F{"Objective is speed or cost?"}
     F -- yes --> G[Opening screen: lower thinking levels]
     F -- no --> S
-    G --> S["Smells, once for each baseline: code detectors, then a review session"]
+    G --> S["Design review, once for each baseline: code detectors, then a review session"]
     S --> H[Wave: the planner reads memory and plans]
     H --> I{"Plan asks for a screen?"}
     I -- yes --> J["Screening round: timing pairs, judged items, stop rules"]
@@ -128,22 +128,26 @@ flowchart TD
 
 ### 2. A wave
 
-1. **Smells**, once for each baseline: at the first wave, and at the wave
-   after a promotion. A smell is an issue in the design of the agent, such
-   as a very long prompt or a tool that returns very large results. It is
-   true whether an eval passes or fails.
+1. **Design review**, once for each baseline: at the first wave, and at
+   the wave after a promotion. It looks for smells. A smell is a possible
+   issue in the design of the agent, such as a very long prompt or a tool
+   that returns very large results. It is true whether an eval passes or
+   fails.
    1. The **smell detectors** in code read the baseline's prompt, skills and
       tool definitions, and state facts: for example, "The system prompt
       has 240,000 characters. The reference is 200,000." They cost nothing.
-   2. One **baseline review** session reads the smell documents, the
+   2. One **design review** session reads the smell documents, the
       baseline's harness and a fixed sample of its train traces. It names
       the smells that it finds, with evidence, and says whether each code
       detection holds. It reads train only, and writes nothing. Code writes
       one `smell` issue for each finding.
 
-   A review that fails, or that `--no-baseline-review` turns off, does not
+   A review that fails, or that `--no-design-review` turns off, does not
    stop the run: the planner still gets the code detections. No review runs
-   on the wrap-up wave.
+   on the wrap-up wave. The run's log gives the result, for example
+   "Design review complete: 2 possible issues flagged (very long prompt,
+   fixed call chain)." The report's `## Design review` section gives the
+   details.
 2. **Plan.** The planner agent reads memory: the issues (the smell issues
    too), the earlier results, the dead ends, the lessons and the open
    questions. It also gets the code detections. It reads the **knowledge

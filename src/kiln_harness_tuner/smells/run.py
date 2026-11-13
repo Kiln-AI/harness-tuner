@@ -91,7 +91,7 @@ async def ensure_baseline_reviewed(
     ctx.log.event(
         "phase_start",
         name="baseline_review",
-        label="Baseline review: reading the design of the baseline for smells…",
+        label="Design review: checking the agent's design…",
     )
     try:
         _record(ctx, await _review_or_failure(ctx, baseline))
@@ -238,7 +238,8 @@ def _merged(first: SmellFinding, second: SmellFinding) -> SmellFinding:
 
 def _record(ctx: Ctx, review: BaselineReview) -> None:
     """Keep the review for the report, and emit it. Every status but `done`
-    also emits `baseline_review_skipped` with the reason."""
+    also emits `baseline_review_skipped` with the reason. `flagged` is the
+    smells that the review and the code detections flagged."""
     ctx.baseline_reviews.append(review)
     if review.status != "done":
         ctx.log.event(
@@ -247,18 +248,38 @@ def _record(ctx: Ctx, review: BaselineReview) -> None:
             status=review.status,
             reason=review.reason,
         )
-    ctx.log.event("baseline_review", review=review, line=review_line(review))
+    flagged = flagged_smells(review, ctx.detections)
+    ctx.log.event(
+        "baseline_review",
+        review=review,
+        flagged=flagged,
+        line=review_line(review, flagged),
+    )
 
 
-def review_line(review: BaselineReview) -> str:
-    """The review's one plain line for the displays."""
-    head = f"baseline review: {review.rc_id}"
+def flagged_smells(
+    review: BaselineReview, detections: Sequence[Detection]
+) -> list[str]:
+    """The smell ids that the review's findings and the code detections
+    flag, each one time: the findings first, then the detections."""
+    smells = [f.smell for f in review.findings] + [d.smell for d in detections]
+    return list(dict.fromkeys(smells))
+
+
+def review_line(review: BaselineReview, flagged: Sequence[str]) -> str:
+    """The review's one plain line for the displays. A flagged smell is a
+    possible issue, not a confirmed one."""
+    reason = review.reason.rstrip(".")
     if review.status == "done":
-        smells = ", ".join(f.smell for f in review.findings)
-        line = f"{head} — {len(review.findings)} smell finding(s)"
-        line += f": {smells}" if smells else ""
-        return line + (f" ({review.reason})" if review.reason else "")
-    return f"{head} — {review.status}: {review.reason}"
+        if flagged:
+            names = ", ".join(smell.replace("-", " ") for smell in flagged)
+            noun = "possible issue" if len(flagged) == 1 else "possible issues"
+            line = f"Design review complete: {len(flagged)} {noun} flagged ({names})"
+        else:
+            line = "Design review complete: nothing flagged"
+        return line + (f"; {reason}." if reason else ".")
+    verb = "failed" if review.status == "failed" else "skipped"
+    return f"Design review {verb}: {reason}."
 
 
 async def baseline_trace_samples(ctx: Ctx, rc_id: str) -> list[TraceSample]:

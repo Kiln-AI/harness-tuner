@@ -228,12 +228,12 @@ Per wave, in order:
 3. **Read the baseline**, fresh, because the previous wave's promotion moved
    it. The planner receives the run-config id, and no val number of the
    baseline.
-4. **The smells of the baseline** (`smells.ensure_baseline_reviewed`),
+4. **The design review of the baseline** (`smells.ensure_baseline_reviewed`),
    once for each baseline: on wave 1, and on the wave after a promotion,
    when the run config differs from the one last reviewed. The smell
    detectors in code run first, then one `baseline_review` session, and
    code writes one `smell` issue for each finding (section 18). No session
-   runs with `--no-baseline-review` or on a wrap-up wave; the detectors
+   runs with `--no-design-review` or on a wrap-up wave; the detectors
    still run. It never raises, apart from a quota error. The review is part
    of the wave: the clock is not checked again after it, so a review that
    ends past the time limit is still followed by this wave's plan.
@@ -966,7 +966,7 @@ way.
   issues and the ones setup found with no eval binding. The
   section tells the owner to create each eval in the Kiln app, with a link
   to the Kiln docs on evals.
-  "## Smells" (`render_smells_appendix`) is there when a baseline of the
+  "## Design review" (`render_smells_appendix`) is there when a baseline of the
   run had a detection or a finding, or a review that was not done. For
   each baseline it gives the review's status line, the detections table
   (the fact, the reference and its source, and the reviewer's reading of
@@ -2075,10 +2075,19 @@ two findings of one smell, keeps at most `REVIEW_MAX_FINDINGS` (15), and
 writes one `smell` issue for each (section 8). The review is recorded with
 one of four statuses: `done`; `skipped` (a wrap-up wave, or memory already
 holds this run config's smell issues); `failed` (the session gave no
-result, or the step raised); `off` (`--no-baseline-review`).
+result, or the step raised); `off` (`--no-design-review`).
 The run goes on in every case. The planner reads the detections in its
-input and the smell issues in memory, and the report's `## Smells` section
+input and the smell issues in memory, and the report's `## Design review` section
 shows both (section 11).
+
+The displays call the step the **design review**. Its one log line counts
+the smells flagged by the findings and by the code detections, each smell
+one time, and names them with spaces for the hyphens: "Design review
+complete: 2 possible issues flagged (very long prompt, fixed call chain).",
+or "Design review complete: nothing flagged.". A review that is not done
+gives "Design review skipped: <reason>." or "Design review failed:
+<reason>.". The `baseline_review` event carries the line and the
+`flagged` smell ids.
 
 A resumed run reviews a baseline again when its first review wrote no
 issue (it found no smell, or every write failed), because the check for an

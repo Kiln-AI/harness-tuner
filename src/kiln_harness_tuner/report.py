@@ -840,7 +840,7 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
-SMELLS_APPENDIX_HEADING = "## Smells"
+SMELLS_APPENDIX_HEADING = "## Design review"
 
 
 def _number(value: float | None) -> str:
@@ -854,11 +854,11 @@ _HOLDS = {True: "holds", False: "does not hold", None: "could not tell"}
 
 def _review_status_line(review: BaselineReview | None) -> str:
     if review is None:
-        return "Baseline review: not run."
+        return "Design review: not run."
     if review.status == "done":
-        line = f"Baseline review: done, {len(review.findings)} finding(s)."
+        line = f"Design review: done, {len(review.findings)} finding(s)."
         return line + (f" {_md(review.reason)}." if review.reason else "")
-    line = f"Baseline review: {review.status} ({_md(review.reason)})."
+    line = f"Design review: {review.status} ({_md(review.reason)})."
     if review.status == "skipped" and review.issue_ids:
         ids = ", ".join(f"`{_md(i)}`" for i in review.issue_ids)
         line += f" Its smell issues in memory: {ids}."
@@ -866,10 +866,10 @@ def _review_status_line(review: BaselineReview | None) -> str:
 
 
 def render_smells_appendix(status: RunStatus) -> str:
-    """The smells of each baseline of the run: the status of its review by
-    the baseline reviewer, the facts that the detectors in code found (with
-    the reviewer's reading of each), and the reviewer's findings, each of
-    which code wrote as a smell issue. A smell names a document of the
+    """The `## Design review` section: for each baseline of the run, the
+    status of its design review, the facts that the detectors in code found
+    (with the reviewer's reading of each), and the reviewer's findings, each
+    of which code wrote as a smell issue. A smell names a document of the
     knowledge skill, which gives the remedies. Empty string when there is
     nothing to show and every review was done."""
     reviews = {review.rc_id: review for review in status.baseline_reviews}
@@ -891,13 +891,14 @@ def render_smells_appendix(status: RunStatus) -> str:
     lines = [
         SMELLS_APPENDIX_HEADING,
         "",
-        "The smells found in the design of each baseline. Code renders this"
-        " section. The first table holds facts that the detectors in code"
-        " computed; its reviewer column is the baseline reviewer's reading."
-        " The second table is the baseline reviewer's findings, in the"
-        " reviewer's words, which code wrote as smell issues. Each smell is a"
-        " document of the knowledge skill, which says how to confirm it and"
-        " gives the remedies. A smell is evidence, not a verdict.",
+        "The smells that the design review flagged in each baseline. Code"
+        " renders this section. The first table holds facts that the"
+        " detectors in code computed; its reviewer column is the design"
+        " reviewer's reading. The second table is the design reviewer's"
+        " findings, in the reviewer's words, which code wrote as smell issues."
+        " Each smell is a document of the knowledge skill, which says how to"
+        " confirm it and gives the remedies. A smell is evidence, not a"
+        " verdict.",
     ]
     for rc_id in shown:
         review = reviews.get(rc_id)

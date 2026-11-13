@@ -716,17 +716,17 @@ class RunModel:
 
     def _on_baseline_review(self, s: Stamped, f: Mapping[str, Any]) -> None:
         # The step of the Starting checklist at wave 1; after a promotion
-        # the run is past it, and the review is a log line.
+        # the run is past it. The log line comes in both modes.
         review = _valid(BaselineReview, f.get("review"))
         if review is None:
             return
         if self.mode == "starting":
-            status, text = words.review_step(
-                review.status, len(review.findings), review.reason
-            )
+            flagged = f.get("flagged")
+            count = len(flagged) if isinstance(flagged, list) else len(review.findings)
+            status, text = words.review_step(review.status, count, review.reason)
             self._step(words.REVIEW_STEP, status, text)
-        elif line := _text(f.get("line")):
-            self._say(s, "run", line)
+        if line := _text(f.get("line")):
+            self._say(s, "warn" if review.status == "failed" else "run", line)
 
     # ---- phases ----
 

@@ -377,7 +377,7 @@ points at these tables and does not restate them.
 It may read exit-time memory, including both val-carrying records, and it must
 label their numbers val-grade.
 
-Code also appends the `## Smells` section: the code detections and the
+Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
 ([architecture.md](architecture.md) section 11).
 
@@ -496,6 +496,9 @@ again — the arm. On a reused run config it costs the arm at once.
 
 ## `baseline_review`
 
+The run's displays, the report and the flag call this step the **design
+review**.
+
 **Dispatched** once for each baseline, at the top of a wave, before the
 planner: at wave 1, and on the wave after a promotion, because a new
 baseline can remove a smell or add one (`smells.ensure_baseline_reviewed`;
@@ -503,7 +506,7 @@ baseline can remove a smell or add one (`smells.ensure_baseline_reviewed`;
 run first, and their detections are in the input. No session is
 dispatched, and the review is recorded with its reason, when:
 
-- `--no-baseline-review` turns it off (`off`);
+- `--no-design-review` turns it off (`off`);
 - the wave is the wrap-up wave, the last one (`skipped`): no later wave
   would use the review;
 - memory already holds `smell` issues of this run config, from an earlier
@@ -561,7 +564,7 @@ read about. The code detections and the failures still reach it. A false finding
 which the planner reads as evidence, not as a verdict, and which an arm
 must still measure. A review that fails, or does not run, costs nothing
 but the review: the run goes on with the code detections, and the report
-states why. The report's `## Smells` section shows each finding with its
+states why. The report's `## Design review` section shows each finding with its
 issue id, and the reviewer's reading of each detection.
 
 ---
