@@ -353,10 +353,9 @@ same way as `speed`, with cost in place of latency.
   `speed`.
 - **Promotion.** The same two conditions as `speed`, with "clearly cheaper"
   in place of "clearly faster". The cheapest candidate that meets both wins.
-- **What to expect.** A lower thinking level is often faster but not
-  significantly cheaper, so a cost run drops it. A cheaper model usually loses
-  some quality. The levers that keep quality are fewer tokens: fewer turns, a
-  smaller prompt and fewer attached tools and skills.
+- **What to expect.** A cheaper model usually loses some quality. The levers
+  that keep quality are fewer tokens: fewer turns, a smaller prompt and fewer
+  attached tools and skills.
 
 ## What the loop does not do
 

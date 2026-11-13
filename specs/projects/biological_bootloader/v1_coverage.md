@@ -175,8 +175,9 @@ plans, as a step of its procedure.
 | `lost-in-long-instructions` | The agent misses a part of a long prompt or a long skill. Progressive disclosure, or a prompt-structure change when the task has no tools. A probe first. | Ladder rows 8 and 14 |
 | `change-the-surface-not-the-words` | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception: procedure text comes first. | Ladder, research |
 | **Kind: eval** (the measurement is the problem) | | |
-| `dealing-with-a-saturated-eval` | The baseline is at the ceiling, or the judge's fires are false. Measure the issue on the baseline, judge the fires, then grow or change the eval. No fix. | Ladder row 12, notes |
-| `dealing-with-an-eval-near-zero` | Read the raw outputs. A format or protocol failure can be fixed. A capability floor cannot: use a stronger model to get a signal. A reasonable start is about 20%, with room to rise. | Overview 6.4, notes |
+| `dealing-with-a-saturated-eval` | The baseline is at the ceiling. Keep the eval as a guard, put the effort elsewhere, ask its owner for harder items. No fix. | Ladder row 12, notes |
+| `dealing-with-a-wrong-eval` | The judge fails right answers or passes wrong ones, or the eval does not measure the issue. Read and classify the fires; arm only config failures; report the rest in `open_questions`. Split from `dealing-with-a-saturated-eval` after V1. | Ladder row 12, notes |
+| `dealing-with-an-eval-near-zero` | Read the raw outputs. A missing requirement or a format or protocol failure is fixed with text. Consider a smarter model only on evidence of a capability floor. The "about 20%" start is dropped after V1: it had no basis. | Overview 6.4, notes |
 | `dealing-with-a-noisy-eval` | Repeat before you trust a small difference. Do not let a decision turn on one or two items. | Notes |
 | `dealing-with-train-wins-rejected-at-val` | Look for copied eval content. Stop writing rules for small groups of failures. Fewer and larger experiments. Then change the surface. | Notes, ladder rule 2, research |
 
@@ -221,7 +222,7 @@ One row for each idea of the project overview and the design notes.
 | A model guide and a provider guide | 6.4 | Backlog: Model and provider information |
 | Very fast providers | 6.4, notes | V1 `faster-provider-for-the-same-model` |
 | Model and harness are a pair | 6.4 | V1 `ordering-work` |
-| Lock a model of the right class with a reasonable start | 6.4 | V1 `ordering-work`, `dealing-with-an-eval-near-zero` |
+| Lock a model of the right class with some aptitude for the task | 6.4 | V1 `ordering-work`, `model-swap-inside-a-class` |
 | A scan of models before the lock, on a large budget only | 6.4 | V1 `spending-the-budget` |
 | Come back to the model after the harness | 6.4 | V1 `model-swap-inside-a-class` |
 | A scan of the settings last, if at all | 6.4 | V1 `spending-the-budget`, `thinking-level-ladder` |
@@ -254,7 +255,7 @@ One row for each idea of the project overview and the design notes.
 | Playbook: much cheaper | Notes | V1 `cheaper-or-faster` |
 | Playbook: open models on-prem | Notes | Backlog: On-prem open-weight models |
 | Playbook: an eval near zero | Notes | V1 |
-| Playbook: a saturated eval | Notes | V1 |
+| Playbook: a saturated eval | Notes | V1; the wrong-judge case is `dealing-with-a-wrong-eval` |
 | Playbook: train wins that validation rejects | Notes | V1 |
 | Playbook: variance too high | Notes | V1 `dealing-with-a-noisy-eval` |
 | Smell: old models | Notes | Backlog |
@@ -283,7 +284,7 @@ Its name and its one-table form are not kept. Its content is.
 | Row 9 | Smell `document-behind-a-lookup-tool` |
 | Row 10 | Smell `faulty-inherited-skill` |
 | Row 11 | Playbook `wrong-tool-chosen`; smell `too-many-narrow-tools` |
-| Row 12 | Playbook `dealing-with-a-saturated-eval` |
+| Row 12 | Playbooks `dealing-with-a-saturated-eval` and `dealing-with-a-wrong-eval` |
 | Row 13 | Technique `thinking-level-ladder` |
 | Row 14 | Playbook `lost-in-long-instructions`; technique `structure-a-long-prompt` |
 | In each row: "Try first" and "Then" | The ordered steps of the playbook, or the remedies of the smell, each a link to a technique |
@@ -426,8 +427,8 @@ source is corrected or dropped.
 | 4 | `policy-as-step-by-step-procedures` | From Quesma's post, rewriting a policy as step-by-step procedures for a small model on a telecom support benchmark raised the pass rate from 0.55 to 0.675. | https://quesma.com/blog/tau2-benchmark-improving-results-smaller-models, 2025-09-12 |
 | 5 | `attach-the-knowledge-source` | From LinkedIn's text-to-SQL paper, example queries took an analytics agent's correct-or-nearly-correct answers from 24% to 49% on 133 questions, and adding domain-knowledge records lowered it to 42%. | https://arxiv.org/html/2507.14372, 2025-07-18 |
 | 6 | `ordering-work` | From Nubank's support-agent paper, an agent that started with a knowledge tool and a human-transfer tool gained a routine from the operating procedures, domain tools and escalation, then tool hierarchies and conciseness budgets. | https://arxiv.org/abs/2606.08867, 2026-06-07 |
-| 7 | `dealing-with-a-saturated-eval` | From Shopify's Sidekick post, calibrating LLM judges to human labels moved agreement (Cohen's kappa) from 0.02 to 0.61, against a human baseline of 0.69. | https://shopify.engineering/building-production-ready-agentic-systems, 2025-08-26 |
-| 8 | `dealing-with-a-saturated-eval` | From Hex's data-agent post, on an eval with a near-miss trap (2.03% against 2.04%), the judge accepted the difference 35% of the time. | https://hex.tech/blog/evaluate-data-agents/, 2026-05-22 |
+| 7 | `dealing-with-a-wrong-eval` (was `dealing-with-a-saturated-eval`) | From Shopify's Sidekick post, calibrating LLM judges to human labels moved agreement (Cohen's kappa) from 0.02 to 0.61, against a human baseline of 0.69. | https://shopify.engineering/building-production-ready-agentic-systems, 2025-08-26 |
+| 8 | `dealing-with-a-wrong-eval` (was `dealing-with-a-saturated-eval`) | From Hex's data-agent post, on an eval with a near-miss trap (2.03% against 2.04%), the judge accepted the difference 35% of the time. | https://hex.tech/blog/evaluate-data-agents/, 2026-05-22 |
 | 9 | Held: no V1 document | From Anthropic's agent-evals post, fixing rigid grading, ambiguous specs and a too-constrained scaffold took one model on an agent benchmark from 42% to 95%. | https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents, 2026-01-09 |
 | 10 | `thinking-level-ladder` | From LangChain's harness post, running the highest reasoning level everywhere scored 53.9% against 63.6% at "high", because of agent timeouts. | https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering, 2026-02-17 |
 | 11 | `model-swap-inside-a-class` | From Hex's Quick Edits post, a model with a pass rate about 1 point lower was adopted because it made 20% fewer wrong edits at half the cost. | https://hex.tech/blog/we-used-evals-to-improve-ai-feature, 2026-10-08 |

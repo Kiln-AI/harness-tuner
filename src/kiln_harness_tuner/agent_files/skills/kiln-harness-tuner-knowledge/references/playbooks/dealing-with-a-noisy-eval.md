@@ -41,9 +41,10 @@ difference smaller than the noise is not a result, in either direction.
    at val, not clear", read
    [train wins rejected at validation](dealing-with-train-wins-rejected-at-val.md).
 4. When the judge is the source (it gives different verdicts on the same
-   output, or verdicts that disagree with its reasoning):
-   [dealing with a saturated eval](dealing-with-a-saturated-eval.md),
-   which gives how to read the fires.
+   output, or verdicts that disagree with its reasoning), it is a judge
+   failure. Read the fires and report them as
+   [dealing with a wrong eval](dealing-with-a-wrong-eval.md) says. Plan
+   the arms against the noise with steps 1 to 3 here.
 5. When the agent is the source, and the task needs one stable answer for
    one input: one arm on a sampling setting, with the trace-level reason:
    [thinking level ladder](../techniques/thinking-level-ladder.md).

@@ -66,7 +66,8 @@ spend buys no lesson.
 - Do not split a small budget over many experiments that are each too
   small to pass their test. Each one then ends with no answer.
 - Do not spend a small budget on the choice of the model to lock. Pick a
-  model of the right class with a reasonable start, and begin the work.
+  model of the right class with some aptitude for the task, and begin the
+  work.
 - Do not plan a full measurement of every eval for an arm that has not yet
   fixed its target. The target eval decides first. This holds for every
   arm: a skill bundle and the wildcard too. The val gate measures every

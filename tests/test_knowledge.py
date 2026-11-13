@@ -180,7 +180,9 @@ def test_the_guide_skill_for_a_tool_set_has_its_sub_files():
         assert path in linked, f"guide-skill-for-a-tool-set.md does not link {name}.md"
 
 
-# V1 coverage, section 4: the twenty-one playbooks, each with its kind.
+# V1 coverage, section 4: the playbooks, each with its kind.
+# `dealing-with-a-wrong-eval` was split from `dealing-with-a-saturated-eval`
+# after V1: a ceiling and a wrong judge are two diagnoses.
 V1_PLAYBOOK_KINDS = {
     "know-the-agent-before-you-plan": "order",
     "ordering-work": "order",
@@ -200,6 +202,7 @@ V1_PLAYBOOK_KINDS = {
     "lost-in-long-instructions": "failure",
     "change-the-surface-not-the-words": "failure",
     "dealing-with-a-saturated-eval": "eval",
+    "dealing-with-a-wrong-eval": "eval",
     "dealing-with-an-eval-near-zero": "eval",
     "dealing-with-a-noisy-eval": "eval",
     "dealing-with-train-wins-rejected-at-val": "eval",

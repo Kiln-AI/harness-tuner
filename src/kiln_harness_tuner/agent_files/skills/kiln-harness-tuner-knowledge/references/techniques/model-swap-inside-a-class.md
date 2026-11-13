@@ -16,10 +16,12 @@ cost: high
 - `allowed_models` lists a model other than the baseline's, and the
   guidance does not forbid a model change. Otherwise the model is not a
   lever.
-- **At the start**, the model has no reasonable start on the task: almost
-  every item fails, so no change to the harness can show a signal. A
-  model of the same class with a reasonable start gives the tuning a
-  signal.
+- **At the start**, the model shows no aptitude for the task: it passes
+  almost nothing across the evals, and the outputs are wrong in
+  substance, not only in form. A missing requirement or a wrong format
+  can also put a capable model near zero, and text fixes it, so read the
+  outputs first. A model of the same class with some aptitude for the
+  task gives the tuning a start.
 - **After the harness is tuned**, quality has stopped moving, and other
   models of the same class (the same size, price and latency) may do
   better, cost less or run faster with this harness.
@@ -64,10 +66,10 @@ round of candidates in code, and an arm.
 1. **Choose the class** from what the task needs and what the run allows:
    the size, the price and the latency. The candidates are the models of
    that class in the run's list of allowed models.
-2. **At the start, lock one model** with a reasonable start on the task:
+2. **At the start, lock one model** with some aptitude for the task:
    some items pass, and many fail, so that there is room to rise. On a
    large budget, screen several models of the class first and lock the one
-   with the best start. On a small budget, lock one and start.
+   with the best aptitude. On a small budget, lock one and start.
 3. **Tune the harness with the model locked.** The prompt, the skills, the
    tools and the settings.
 4. **Scan the class again** with the tuned harness: screen the candidates

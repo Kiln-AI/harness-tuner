@@ -33,9 +33,14 @@ Three facts shape the order:
 
 1. [Know the agent before you plan](know-the-agent-before-you-plan.md),
    when the shapes of the agent are not yet known.
-2. A model with a reasonable start on the task, only when the model is a
+2. A model with some aptitude for the task, only when the model is a
    lever (`allowed_models` lists another model, and the guidance does not
-   forbid a model change), and the baseline model passes almost no item:
+   forbid a model change). A model that passes almost nothing across the
+   evals may need a smarter model before the harness tuning. Read the
+   outputs first: a missing requirement or a wrong format can put a
+   capable model near zero, and text fixes it. Change the model only on
+   evidence that it cannot do the task. The reads show answers wrong in
+   substance, or repeated arms on sound fixes did not move the score:
    [dealing with an eval near zero](dealing-with-an-eval-near-zero.md).
    Lock that model, then tune the harness. When the model is not a lever,
    it is the environment of the task, and this step does not apply.
@@ -43,6 +48,7 @@ Three facts shape the order:
    an arm predicts. A fix measured on such an eval teaches nothing. Take
    it to its playbook:
    [a saturated eval](dealing-with-a-saturated-eval.md),
+   [a wrong eval](dealing-with-a-wrong-eval.md),
    [a noisy eval](dealing-with-a-noisy-eval.md), or
    [train wins rejected at validation](dealing-with-train-wins-rejected-at-val.md).
 4. A smell that blocks the work you plan. Its document, in the planner's
@@ -86,7 +92,7 @@ Three facts shape the order:
 ## Budget
 
 On a small budget, steps 6 and 7 are often left out: pick a model of the
-right class with a reasonable start, and tune the harness. On a large
+right class with some aptitude for the task, and tune the harness. On a large
 budget, a scan of the models of the class before the lock becomes
 reasonable, when the model is a lever, and a short settings scan at the
 end can pay. See [spending the budget](spending-the-budget.md).
