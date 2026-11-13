@@ -1,6 +1,6 @@
 ---
 title: Guard tool calls at the boundary
-description: A check in a wrapper that refuses a call which breaks a rule the product enforces, with an error that says why, and the prompt text that the guard takes over removed.
+description: A check in a wrapper that refuses a call which breaks a rule the product enforces, with an error that says why, and the rule moved from the prompt into the tool's description.
 reviewed: 2026-11-13
 status: active
 levers:
@@ -45,7 +45,7 @@ cost: medium
 - [Consolidate tools](consolidate-tools.md), when the rules belong inside a
   few general tools that carry the product's policy.
 - [Directive in the tool response](directive-in-the-tool-response.md),
-  when the rule applies to the reply, not to a call.
+  when the reply misstates the result of a call, not when a call breaks a rule.
 
 ## How
 
@@ -68,17 +68,21 @@ read-only variant of a read-write tool.
 3. **Refuse with an error the agent can act on**: which rule, and what the
    allowed path is ("this tool only reads; to change an order, call
    `update_order` after the user confirms").
-4. **Edit the prompt.** Remove the text that the guard now enforces, or
-   cut it to one line that says what the agent does when a call is
-   refused. Two places that state one rule can disagree after a later
-   change.
+4. **Move the rule into the tool's description, and remove it from the
+   prompt.** The guard refuses only after a wrong call. So the description
+   states the rule, and the model reads it before the call ("call this
+   only after the user confirms the change"). Text in a tool moves with the
+   tool. So a later experiment that adds, removes or changes the tool needs
+   no prompt change, and its result stays clean. Two places that state one
+   rule can also disagree after a later change.
 5. **Dry-run with reads only**, or with an id that does not exist. A dry
    run makes nested calls for real.
 
 ## Check that it took effect
 
 Dry-run the wrapper with a call that breaks the rule, and read the
-refusal. Then smoke two or three train items whose traces broke the rule.
+refusal. Read the new tool's description: it states the rule, and the
+prompt does not. Then smoke two or three train items whose traces broke the rule.
 In each trace, find the refusal, or a call in the allowed form, and no
 call that breaks the rule.
 
@@ -108,4 +112,5 @@ databases and APIs agrees that a limit is held in code or in the system,
 and not only in the prompt. It follows from first principles: a check in
 code applies to every call, and a line in the prompt applies only when the
 model follows it. Low, for how much of the gain comes from the guard and
-how much from the prompt edit: no measured case is recorded here yet.
+how much from the rule in the description: no measured case is recorded
+here yet.

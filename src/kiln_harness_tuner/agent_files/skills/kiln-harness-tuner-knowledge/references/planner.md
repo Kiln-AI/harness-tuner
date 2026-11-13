@@ -122,5 +122,5 @@ The response to a smell that needs more than one technique.
 <!-- BEGIN GENERATED: playbooks-design -->
 | Playbook | Applies to | Description |
 |---|---|---|
-| [fit-the-tool-layer-to-the-agent](playbooks/fit-the-tool-layer-to-the-agent.md) | tools | The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, with the prompt and the guide skill. |
+| [fit-the-tool-layer-to-the-agent](playbooks/fit-the-tool-layer-to-the-agent.md) | tools | The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, and where its rules go. |
 <!-- END GENERATED: playbooks-design -->

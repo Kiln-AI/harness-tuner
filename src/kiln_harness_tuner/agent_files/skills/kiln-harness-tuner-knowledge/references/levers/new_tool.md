@@ -72,8 +72,8 @@ Rules of the object:
   both.
 - No value from a train item goes into the code or the description. Code
   searches each build for copies of train content and of eval text.
-- The tool's own description is the one text that the model reads at the
-  moment it decides to call the tool.
+- The tool's description moves with the tool. A run config that drops the
+  tool drops its description too.
 - When the parent's output mode sends the schema as a tool
   (`function_calling`, `function_calling_weak`, or `default` outside Ollama
   and Docker Model Runner), Kiln refuses every call once a tool or a skill

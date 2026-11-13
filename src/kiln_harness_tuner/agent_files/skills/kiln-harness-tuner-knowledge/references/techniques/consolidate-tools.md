@@ -32,9 +32,12 @@ cost: high
   description is cheaper: [new tool description](new-tool-description.md).
 - **Many tools are attached and never called.** Drop them first:
   [remove or scope tools](remove-or-scope-tools.md).
-- **Do not write a prompt list of which tool to use when.** The model
-  must then apply a table of rules on each call. A tool set with one tool
-  for each job makes the choice plain.
+- **A prompt list of which tool to use when is not the fix.** Prefer the
+  tool descriptions to the prompt. Text in a tool moves with the tool. So
+  a later experiment that changes the tool set needs no prompt change, and
+  its result stays clean. A prompt list ties the prompt to the tool set,
+  and it grows with each tool. A tool set with one tool for each job makes
+  the choice plain.
 
 ## Alternatives
 
@@ -62,7 +65,7 @@ they are. The wrappers are a layer over them.
 2. **Write one wrapper for each job.** It calls the existing tools that
    the job needs, with a parameter that selects the variant (for example
    the record type). Its description says what the job is and when to call
-   it.
+   it. That text goes in the description, not in the prompt.
 3. **Put the product's policy inside.** From the product's own rules: the
    permission check, the required step before an action, the defaults, the
    limits. The wrapper refuses a call that breaks a rule, with an error

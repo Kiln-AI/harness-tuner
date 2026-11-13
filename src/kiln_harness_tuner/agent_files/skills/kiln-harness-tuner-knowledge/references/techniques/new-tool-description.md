@@ -1,7 +1,7 @@
 ---
 title: New tool description
-description: A new description for a tool - a code-tool clone, or a wrapper - because the description is the one text the model reads at the moment it decides to call the tool.
-reviewed: 2026-11-12
+description: A new description for a tool - a code-tool clone, or a wrapper - for a failure at a call. A rule in the tool moves with the tool, so the prompt does not change with the tool set.
+reviewed: 2026-11-13
 status: active
 levers:
   - new_tool
@@ -24,19 +24,29 @@ cost: low
   not say what the argument is or what form it takes.
 - The agent misspells the tool's name, or calls a name that does not
   exist. A clearer name is a new tool too.
+- **A rule about one tool is in the prompt**, or the plan is a prompt edit
+  for a failure at a call. Prefer the tool's description to the prompt, a
+  skill body or a skill description. This is a very strong preference.
+  Text in a tool moves with the tool. So a later experiment that adds,
+  removes or changes the tool needs no prompt change, and its result stays
+  clean. A
+  rule about a tool in the prompt ties the prompt to the tool set, and a
+  later change of the tools can leave it out of date.
 
 ## When not to use
 
-- **The failure comes after the tool result**, in the reply. The text
-  that the agent reads at that moment is the result:
-  [directive in the tool response](directive-in-the-tool-response.md).
+- **The failure comes after the tool result**, and the reply misstates
+  the result: a fact that it leaves out or gets wrong. The result is the
+  text to change:
+  [directive in the tool response](directive-in-the-tool-response.md). A
+  rule about the reply in general, such as a format, can go in this
+  description.
 - **The tool works, and the call is right, but the result is too large**
   or the call fails on a form that code could fix. Change what the tool
   does, not what it says: [cap and preview wrapper](cap-and-preview-wrapper.md),
   [normalize inputs wrapper](normalize-inputs-wrapper.md).
-- **Do not change the prompt, a skill body or a skill description for a
-  failure at the decision point.** The model reads those far from the
-  moment of the call. The tool's description is next to the decision.
+- **The rule is not about one tool**: it applies to all the work of the
+  agent. That rule goes in the prompt.
 - **The description is already long.** Add the missing point and remove
   text that does not help the decision. A longer description is read on
   every call.
@@ -44,7 +54,7 @@ cost: low
 ## Alternatives
 
 - [Directive in the tool response](directive-in-the-tool-response.md),
-  when the failure is in the reply after the call.
+  when the reply after the call misstates the result.
 - [Normalize inputs wrapper](normalize-inputs-wrapper.md), when the agent
   sends inputs in many forms and code can map each one.
 - [Consolidate tools](consolidate-tools.md), when many tools overlap and
@@ -70,15 +80,17 @@ the build, and drop the old tool on the same run config.
    invented tool name, give the clone a short name in the words that the
    agent uses. The new tool needs a fresh function name in any case.
 5. **Keep it short.** The description is read on every call of every
-   item. Do not copy the prompt into it.
-6. **Write from the traces and the tool**, never from the text of an eval
+   item. Do not copy the whole prompt into it.
+6. **Move the rule out of the prompt.** On the same arm, remove the prompt
+   text about this tool that the new description now states.
+7. **Write from the traces and the tool**, never from the text of an eval
    or from a train item.
 
 ## Check that it took effect
 
 Read the new run config: the new tool is attached, the old one is gone,
 and the description that the model sees (`get_tool_definition`) is the
-new text. Then smoke two or three train items that failed at that call,
+new text. The prompt no longer states the rule that moved. Then smoke two or three train items that failed at that call,
 and count the calls in the right form.
 
 ## Budget
@@ -100,7 +112,9 @@ None yet.
 ## Confidence
 
 Medium, for a failure at the decision point of one call. It is field
-practice, and it follows from what the model reads: the description and
-the parameters of a tool are next to the choice of the call, and the
-prompt is not. Low, for a change of description with no failure that it
+practice: the description and the parameters of a tool say what the call
+is and what form it takes. The preference for the description over the
+prompt is a design choice of the tuner: the prompt does not change with
+the tool set. It is not a claim that a description works better than a
+prompt line. Low, for a change of description with no failure that it
 targets: a longer description can add steps.

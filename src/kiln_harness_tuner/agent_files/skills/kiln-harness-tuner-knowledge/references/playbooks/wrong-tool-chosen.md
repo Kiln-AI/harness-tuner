@@ -1,7 +1,7 @@
 ---
 title: The wrong tool is chosen
 description: The agent picks the wrong tool, or breaks a rule that the product enforces. Consolidate the tools with the policy inside, or remove and scope them, then better descriptions.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: failure
 applies_to:
   - tools
@@ -47,9 +47,11 @@ When the right tool is called with a malformed input, see
 
 ## What not to do yet
 
-- No prompt list of which tool to use when. The agent reads the list far
-  from the moment it chooses, and the tool descriptions are the text in
-  front of it then.
+- No prompt list of which tool to use when. Put when to use each tool in
+  its own description. This is a very strong preference. Text in a tool
+  moves with the tool. So a later experiment that adds, removes or changes
+  a tool needs no prompt change, and its result stays clean. A prompt list
+  ties the prompt to the tool set, and it grows with each tool.
 - Do not put a consolidation and other changes in one arm. A large change
   together with others gives a result that no one can attribute.
 

@@ -49,8 +49,8 @@ cost: medium
   narrow tools that the agent chooses among, not a chain that it calls in
   one order.
 - [Directive in the tool response](directive-in-the-tool-response.md),
-  when the agent calls the right tools and then ignores an instruction at
-  the moment it replies.
+  when the agent calls the right tools and then its reply misstates the
+  result.
 
 ## How
 

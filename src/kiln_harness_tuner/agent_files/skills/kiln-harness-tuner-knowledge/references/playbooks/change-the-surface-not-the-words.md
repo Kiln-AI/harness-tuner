@@ -1,7 +1,7 @@
 ---
 title: Change the surface, not the words
 description: Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception - procedure text comes first.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: failure
 applies_to: all
 ---
@@ -14,8 +14,9 @@ This playbook applies in two cases:
 
 - **The failure is mechanical**: a wrong case or form of an id, pages
   that the agent does not follow, a result that floods the context, an
-  error that the agent cannot act on, or a text that the model does not
-  read at the moment it fails.
+  error that the agent cannot act on, or a rule about one tool that sits
+  in the prompt. Text in a tool moves with the tool, so the tool's own
+  text is the very strong preference for that rule.
 - **Two text changes failed on one issue.** A text change is a `prompt`
   arm, or a `skill` arm that only changes words (a description, a body).
   Your input's `lever_attempts` counts the arms opened on each issue and
@@ -44,7 +45,7 @@ and [faulty inherited skill](../smells/faulty-inherited-skill.md).
    floods and pages,
    [roll-up tool](../techniques/roll-up-tool.md) for a chain of calls, and
    [directive in the tool response](../techniques/directive-in-the-tool-response.md)
-   for a text that the model does not read when it replies.
+   for a reply that misstates a tool's result.
 2. A guard at the tool, when the failure is a rule that the product can
    check:
    [guard tool calls at the boundary](../techniques/guard-tool-calls-at-the-boundary.md).

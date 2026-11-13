@@ -32,9 +32,11 @@ cost: medium
   with a new name.
 - **The tool returns an error that the agent cannot read, and the input
   was right.** [Errors the agent can act on](errors-the-agent-can-act-on.md).
-- **Do not write a prompt list of formatting rules.** The model must then
-  apply each rule on each call, and one missed rule is one failed call. The
-  wrapper accepts what the model sends.
+- **A prompt list of formatting rules is not the fix.** The wrapper
+  accepts what the model sends. When the model must still know a form,
+  prefer the parameter description to the prompt. Text in a tool moves
+  with the tool. So a later experiment that changes the tool set needs no
+  prompt change, and its result stays clean.
 
 ## Alternatives
 
@@ -66,7 +68,8 @@ has this shape.
 4. **Keep the parameter names** of the wrapped tool, so that the calls in
    the agent's habit still fit.
 5. **Remove the prompt text on input formats** that the wrapper takes
-   over, on the same arm.
+   over, on the same arm. A form that the wrapper cannot map, and that the
+   model must know, goes in the parameter description.
 
 ## Check that it took effect
 

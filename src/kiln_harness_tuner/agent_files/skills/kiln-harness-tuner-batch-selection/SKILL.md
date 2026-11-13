@@ -467,13 +467,16 @@ every issue you consider, read the decision point (before / with / after
 which tool call) and the failure pattern that the analyst wrote in the
 content of its experiment memories, take the failure to the playbook whose
 situation fits, and take the first step whose condition holds. The decision
-point names the surface the model reads at that moment: before or with a
-call, that tool's description (a new one is a code-tool clone or a wrapper);
-after a call, the tool's response or the prompt; when a skill is chosen, the
-skill's description. When the failure is mechanical (wrong case, id form,
-pagination, floods, unusable errors, text the model does not read at the
-moment it fails), the first arm is a wrapper or a skill restructure, not a
-prompt line. Your input's `max_concurrent_agents` and `lever_costs` are the
+point names the surface to change: before or with a call, that tool's
+description (a new one is a code-tool clone or a wrapper); after a call,
+the tool's response, with a rule about the reply in the tool's description;
+when a skill is chosen, the skill's description. Prefer a tool's own text
+to a prompt line for a rule about that tool. This is a very strong
+preference: text in a tool moves with the tool, so a later change of the
+tool set needs no prompt change and later experiments stay clean. When the
+failure is mechanical (wrong case, id form, pagination, floods, unusable
+errors, a rule about one tool that sits in the prompt), the first arm is a
+wrapper or a skill restructure, not a prompt line. Your input's `max_concurrent_agents` and `lever_costs` are the
 capacity and cost signals (Step 3).
 
 `lever_attempts` (issue id → technique → arms ever opened on that pair,

@@ -1,7 +1,7 @@
 ---
 title: Fit the tool layer to the agent
-description: The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, with the prompt and the guide skill.
-reviewed: 2026-11-12
+description: The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, and where its rules go.
+reviewed: 2026-11-13
 kind: design
 applies_to:
   - tools
@@ -33,9 +33,9 @@ in or what comes back. The [code tools](../levers/new_tool.md) lever says
 how. So many tool designs can be tried, and the original tools stay as
 they are.
 
-The harness is one object. A new tool often needs a prompt line that says
-when to call it, and a guide skill can describe the tool set. The same arm
-removes the prompt text that the new tool takes over.
+The harness is one object. A new tool says when to call it in its own
+description, not in a prompt line, and a guide skill can describe the tool
+set. The same arm removes the prompt text that the new tool takes over.
 
 ## What to try, in order
 
@@ -70,10 +70,13 @@ them to its failure playbook.
 - Do not ask for a change to the company's APIs. The tuner cannot make it,
   and a layer of wrappers can try many designs in the same time.
 - Do not add prompt rules on how to use a tool in place of a change to the
-  tool. The rule is far from the moment of the call, and the tool still
-  returns what it returned.
+  tool. The tool still returns what it returned. A rule that the model
+  needs about a tool goes in the tool's description. This is a very
+  strong preference. Text in a tool moves with the tool. So a later experiment
+  that adds, removes or changes a tool needs no prompt change, and its
+  result stays clean.
 - Do not put several unrelated wrappers in one arm. When it wins, nothing
-  says which wrapper helped. A wrapper with its prompt line and its guide
+  says which wrapper helped. A wrapper with its description and its guide
   skill is one technique, and it is one arm.
 - Do not plan a small fix elsewhere while a tool result can flood the
   context. The flood hides the effect of the fix.
