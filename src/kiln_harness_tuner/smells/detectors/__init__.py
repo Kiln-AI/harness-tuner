@@ -8,6 +8,7 @@ from kiln_harness_tuner.smells.detectors import (
     long_skill_description,
     long_tool_description,
     many_tools,
+    old_model,
 )
 from kiln_harness_tuner.smells.model import Detector
 
@@ -16,6 +17,7 @@ DETECTORS: tuple[Detector, ...] = (
     long_tool_description.DETECTOR,
     long_skill_description.DETECTOR,
     many_tools.DETECTOR,
+    old_model.DETECTOR,
 )
 
 

@@ -219,7 +219,8 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
 # V1 coverage, section 2: the smells, each with who detects it and its code
 # detectors. `too-many-narrow-tools` was split after V1 into `too-many-tools`
 # and `unnecessary-tools`: a count of tools and a tool set with tools it does
-# not need are two issues.
+# not need are two issues. Then the smells added after V1: `old-model` (the
+# model-provider-info project).
 CODE = ["code"]
 AGENT = ["agent"]
 BOTH = ["code", "agent"]
@@ -238,6 +239,7 @@ V1_SMELL_DETECTION = {
     "document-behind-a-lookup-tool": (AGENT, []),
     "very-long-tool-description": (CODE, ["long_tool_description"]),
     "tools-on-a-live-server": (AGENT, []),
+    "old-model": (CODE, ["old_model"]),
 }
 
 

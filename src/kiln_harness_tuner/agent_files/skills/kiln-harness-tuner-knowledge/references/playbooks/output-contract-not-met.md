@@ -34,7 +34,7 @@ rule of this second kind, also under a schema.
 1. **A JSON shape failure, and the mode is not the model's default.** This
    can happen just after a model swap that kept the parent's mode. Set the
    default mode on a new run config: `get_run_config` gives the mode, and
-   `list_available_models` gives the default. On a run config with a tool
+   `get_model_details` gives the default. On a run config with a tool
    or a skill, a tool-call default is refused: use the fallback that step
    4 of the model lever gives. Read invalid output after a
    swap as a wrong mode first, not as a weaker model.

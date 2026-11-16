@@ -179,7 +179,7 @@ carry items.
 
 A candidate that changes the model keeps the parent's
 `structured_output_mode` unless its `overrides` name one. Name the new
-model's default (`list_available_models` gives it; `allowed_models` does
+model's default (`get_model_details` gives it; `allowed_models` does
 not), unless the candidate tests the output mode. Leave it out when the
 default is absent, `default` or `unknown`. On a parent that attaches a
 tool or a skill, Kiln refuses `function_calling`, `function_calling_weak`,

@@ -3,8 +3,8 @@
 One process per agent session, started by Claude Code from the run's
 per-role MCP config, OUTSIDE the agent sandbox. It serves the operations of
 ONE role (`ops.ROLE_OPS[role]`) as typed tools and nothing else; it reads
-the run's train set and model policy from the run directory, which agents
-cannot read.
+the run's train set, model policy and model catalogue snapshot from the run
+directory, which agents cannot read.
 
     harness-tuner-gateway-mcp --role batch_plan --run-dir runs/<run_id>
         --kiln-host http://localhost:8757 --project-id <id> --task-id <id>
@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 
 from kiln_harness_tuner.gateway import ops as gw
 from kiln_harness_tuner.gateway.trainset import FILE_NAME, TrainSet
+from kiln_harness_tuner.model_catalog import load_catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 
 POLICY_FILE = "model_policy.json"
@@ -59,6 +60,7 @@ def load_state(args: argparse.Namespace) -> gw.State:
         policy=load_policy(run_dir),
         max_concurrent_evals=getattr(args, "max_concurrent_evals", None) or None,
         traces_dir=Path(args.traces_dir) if getattr(args, "traces_dir", None) else None,
+        catalog=load_catalog(run_dir),
     )
     state.load_created()
     return state

@@ -41,3 +41,11 @@ MANY_TOOLS = 40
 MANY_TOOLS_SOURCE = (
     "a default of the tuner, set by the project owner; not a measured optimum"
 )
+
+OLD_MODEL_MONTHS = 8
+# A house default, set by the project owner on 2026-11-13. No published
+# value. A model line usually has a newer release within this time.
+OLD_MODEL_MONTHS_SOURCE = (
+    "smells.thresholds.OLD_MODEL_MONTHS: a house default, set by the project"
+    " owner on 2026-11-13; no published value is known"
+)

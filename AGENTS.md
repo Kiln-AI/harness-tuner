@@ -31,6 +31,9 @@ src/kiln_harness_tuner/
   knowledge/        the knowledge system's code: load, check and index the
                     skill kiln-harness-tuner-knowledge (python -m
                     kiln_harness_tuner.knowledge check|build)
+  model_catalog/    the model catalogue: Kiln's published model file and
+                    models.dev, fetched once at the start of a run, joined,
+                    and kept as one snapshot in the run folder
   onboarding/       the start before a run: the Kiln and task checks, the API
                     keys, the guided questions, the summary and the rerun
                     command
