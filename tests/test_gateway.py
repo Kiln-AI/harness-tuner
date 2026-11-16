@@ -123,9 +123,12 @@ class FakeKiln:
     def __init__(self, routes: dict[tuple[str, str], Any]):
         self.routes = routes
         self.calls: list[tuple[str, str, Any, Any]] = []
+        # The keyword options of each call (timeout, retries), by path.
+        self.options: dict[str, dict[str, Any]] = {}
 
-    async def __call__(self, method, path, query_params=None, body=None, **_):
+    async def __call__(self, method, path, query_params=None, body=None, **options):
         self.calls.append((method, path, query_params, body))
+        self.options[path] = options
         value = self.routes.get((method, path))
         if callable(value):
             return value(query_params, body)
@@ -885,7 +888,7 @@ class TestDocumentedShapes:
             raise KilnAPIError("GET", f"{servers}/s2/tools", 502, "connection refused")
 
         def hangs(_query, _body):  # the client's timeout: not an HTTP answer
-            raise KilnError("GET s3/tools timed out after 600s")
+            raise KilnError("GET s3/tools timed out after 45s")
 
         routes = {
             ("GET", f"/api/projects/{PROJECT}/available_tools"): [],
@@ -905,8 +908,14 @@ class TestDocumentedShapes:
             ("GET", f"{servers}/s2/tools"): down,
             ("GET", f"{servers}/s3/tools"): hangs,
         }
-        gateway, _ = _gateway(tmp_path, routes)
+        gateway, kiln = _gateway(tmp_path, routes)
         depot, down_set, hung_set = _run(gateway, "list_available_tools")
+        # A server that is down costs one short wait, not the retry ladder.
+        for server in ("s1", "s2", "s3"):
+            assert kiln.options[f"{servers}/{server}/tools"] == {
+                "timeout_secs": gw.OPENENV_LIST_TIMEOUT_SECS,
+                "retries": False,
+            }
         assert depot["type"] == "openenv" and depot["set_name"] == "Depot"
         (tool,) = depot["tools"]
         assert tool["id"] == "kiln_tool::openenv::s1::append_note"
