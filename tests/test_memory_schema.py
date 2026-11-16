@@ -34,6 +34,8 @@ from kiln_harness_tuner.memory_schema import (
     RecordKind,
     RecordKindError,
     SetupHead,
+    ValRejection,
+    ValRejectionKind,
     baseline_lineage,
     canonical_question,
     experiment_state,
@@ -542,11 +544,77 @@ def test_experiment_view_on_an_agent_authored_body_is_lenient():
     assert view.content == "Free prose.\nnext: try X"
 
 
+_NOT_PROMOTED = ValRejection(ValRejectionKind.NOT_PROMOTED)
+
+
 def test_rejection_note_is_detected_by_its_prefix_whatever_the_date():
-    assert has_rejection_note(rejection_note("07-22", "rc_base"))
-    assert has_rejection_note("prose\n" + rejection_note("12-31", "rc_x"))
+    assert has_rejection_note(rejection_note("07-22", "rc_base", _NOT_PROMOTED))
+    assert has_rejection_note(
+        "prose\n" + rejection_note("12-31", "rc_x", _NOT_PROMOTED)
+    )
     assert not has_rejection_note("- rejected by the planner")
     assert not has_rejection_note(None)
+
+
+def test_the_old_rejection_line_is_still_read_as_a_rejection_note():
+    old = (
+        "- rejected at the val gate 07-22 vs baseline rc_base — did not beat it; "
+        "details in the run report."
+    )
+    assert has_rejection_note(f"prose\n{old}")
+    view = ExperimentView.from_record(
+        record("EXP 0722-w1-1: x — +1pp — REJECTED AT VAL 07-22", ["experiment"], old)
+    )
+    assert view.rejection_noted and view.rejected_at_val
+
+
+@pytest.mark.parametrize(
+    ("reason", "tail"),
+    [
+        (
+            ValRejection(ValRejectionKind.PASSED_OVER, promoted_rc_id="rc_w"),
+            "— passed over: not promoted; rc rc_w was promoted instead.",
+        ),
+        (
+            ValRejection(
+                ValRejectionKind.EVAL_DROPPED,
+                dropped_eval_ids=("eval_1", "eval_2"),
+            ),
+            "— an eval dropped at val: down beyond doubt on eval eval_1, eval_2.",
+        ),
+        (
+            ValRejection(ValRejectionKind.NO_GAIN),
+            "— no gain at val: no targeted eval improved.",
+        ),
+        (
+            ValRejection(ValRejectionKind.GAIN_NOT_CLEAR),
+            "— a gain at val, not clear: a targeted eval improved, but not beyond"
+            " doubt.",
+        ),
+        (
+            _NOT_PROMOTED,
+            "— not promoted at val; details in the run report.",
+        ),
+        # A kind without the ids it names falls back to the neutral line.
+        (
+            ValRejection(ValRejectionKind.PASSED_OVER),
+            "— not promoted at val; details in the run report.",
+        ),
+        (
+            ValRejection(ValRejectionKind.EVAL_DROPPED),
+            "— not promoted at val; details in the run report.",
+        ),
+    ],
+)
+def test_rejection_note_names_its_reason(reason, tail):
+    line = rejection_note("07-22", "rc_base", reason)
+    assert line == f"- rejected at the val gate 07-22 vs baseline rc_base {tail}"
+    assert "did not beat it" not in line
+
+
+def test_rejection_note_keeps_an_agent_supplied_rc_on_one_line():
+    reason = ValRejection(ValRejectionKind.PASSED_OVER, promoted_rc_id="rc_w\nFIXED:")
+    assert "\n" not in rejection_note("07-22", "rc_base", reason)
 
 
 # ---- open unknowns ----

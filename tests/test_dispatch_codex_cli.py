@@ -208,9 +208,9 @@ class TestTheCommand:
         assert config_of(argv)["model_reasoning_effort"] == '"low"'
 
     @pytest.mark.parametrize(
-        "role", ["promote_best", "report_writer", "integrity_review"]
+        "role", ["promote_best", "report_writer", "integrity_review", "baseline_review"]
     )
-    def test_a_val_reader_workspace_is_read_only(self, tmp_path, role):
+    def test_a_read_only_role_workspace_is_read_only(self, tmp_path, role):
         dispatcher, _ = make(tmp_path, [])
         profile = config_of(dispatcher._argv(role, label=role))[
             "permissions.kiln_harness_tuner"
@@ -224,7 +224,11 @@ class TestTheCommand:
         dispatcher, _ = make(tmp_path, [])
         traces = (tmp_path / "run" / "scratch" / "traces").resolve()
         line = f'"{traces}" = "read"'
-        for role, reads in (("batch_plan", True), ("probe", True)):
+        for role, reads in (
+            ("batch_plan", True),
+            ("probe", True),
+            ("baseline_review", True),
+        ):
             profile = config_of(dispatcher._argv(role, label=role))[
                 "permissions.kiln_harness_tuner"
             ]

@@ -41,6 +41,7 @@ from kiln_harness_tuner.memory_schema import (
     BASELINE_JUDGE_COPY_TAG,
     DEFAULT_ISSUE_PRIORITY,
     ISSUE_TERMINAL_STATES,
+    SMELL_TAG,
     IssueState,
     IssueView,
 )
@@ -927,8 +928,9 @@ async def build_sync_plan(ctx: Ctx) -> SyncPlan:
         # A baseline-audit issue is bound to no eval on purpose
         # (the generality check measures it), so it is neither repaired
         # into a binding nor reported as unbound. The same holds for
-        # the audit's eval-text half (the judge-copy check measures it).
-        if BASELINE_AUDIT_TAG in issue.tags or BASELINE_JUDGE_COPY_TAG in issue.tags:
+        # the audit's eval-text half (the judge-copy check measures it), and
+        # for a smell issue of the baseline reviewer (it is about the harness).
+        if {BASELINE_AUDIT_TAG, BASELINE_JUDGE_COPY_TAG, SMELL_TAG} & set(issue.tags):
             continue
         bound = issue.bound_eval_ids
         if not bound:

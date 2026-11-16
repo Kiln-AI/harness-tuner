@@ -48,6 +48,8 @@ from kiln_harness_tuner.provider_errors import (
 from kiln_harness_tuner.schemas import (
     AgentResult,
     AnalysisInput,
+    BaselineReviewInput,
+    BaselineReviewResult,
     BatchPlan,
     BatchPlanInput,
     DescribeEvalInput,
@@ -131,6 +133,9 @@ AGENT_TIMEOUTS_SECS: dict[str, float] = {
     "integrity_review": 10 * 60,
     # The generality reviewer: the same shape — read the input, answer.
     "generality_review": 10 * 60,
+    # The baseline reviewer: reads the smell documents, the harness and a
+    # sample of train traces through its gateway operations, then answers.
+    "baseline_review": 20 * 60,
     "preflight": 3 * 60,
 }
 
@@ -679,9 +684,16 @@ def _classify_cli_error(detail: str) -> str:
 # tables, the report writer the whole run's history. Read-only, nothing they
 # hold can reach a record a later agent reads. The two reviewers (integrity,
 # generality) hold no val data; they have no tools, so they have nothing to
-# write.
+# write. The baseline reviewer holds no val data either: it reads, and code
+# writes the issues of its findings.
 READ_ONLY_ROLES = frozenset(
-    {"promote_best", "report_writer", "integrity_review", "generality_review"}
+    {
+        "promote_best",
+        "report_writer",
+        "integrity_review",
+        "generality_review",
+        "baseline_review",
+    }
 )
 
 
@@ -834,6 +846,11 @@ class ClaudeCliDispatcher:
         self, req: GeneralityReviewInput
     ) -> AgentResult[GeneralityReviewResult]:
         return await self._run("generality_review", req, GeneralityReviewResult)
+
+    async def baseline_review(
+        self, req: BaselineReviewInput
+    ) -> AgentResult[BaselineReviewResult]:
+        return await self._run("baseline_review", req, BaselineReviewResult)
 
     async def probe(self, req: ProbeInput) -> AgentResult[ProbeResult]:
         return await self._run("probe", req, ProbeResult)
@@ -1436,12 +1453,25 @@ class ClaudeCliDispatcher:
         return self._agents_dir
 
     def _parse_cli_output(self, stdout: str) -> CliRound | None:
-        """`claude -p --output-format json` prints one JSON object. None when
-        stdout is not one."""
+        """`claude -p --output-format json` prints one JSON object. With
+        `verbose` on (the `--verbose` option, or `"verbose": true` in a
+        Claude Code settings file the run's `--settings` does not override)
+        it prints a list of events in place of it, and the last
+        `"type": "result"` event is that object. None when stdout is
+        neither."""
         try:
             payload = json.loads(stdout)
         except ValueError:
             return None
+        if isinstance(payload, list):
+            results = [
+                event
+                for event in payload
+                if isinstance(event, dict) and event.get("type") == "result"
+            ]
+            if not results:
+                return None
+            payload = results[-1]
         if not isinstance(payload, dict):
             return None
         result_text = payload.get("result")

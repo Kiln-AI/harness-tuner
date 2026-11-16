@@ -257,12 +257,12 @@ tempCodeRunnerFile.py
 /examples/*/*/tasks/**/runs/
 /src/kiln_harness_tuner/demo_project/*/tasks/**/runs/
 
-# Installed by `harness-tuner-install-agents --dest .` from
-# `src/kiln_harness_tuner/agent_files/`: the skills in each agent CLI's own
-# layout, and Claude Code's `kiln_api_mcp` server. `agent_files/` is the
-# source. The root `AGENTS.md` and `CLAUDE.md` are the tracked contributor
-# guide, not install targets.
-/.agents/
+# A person's own Claude Code skills and settings: what
+# `harness-tuner-install-agents --agent-cli claude` writes when its `--dest`
+# is this folder, and any local Claude Code configuration. They do not belong
+# in the repository. The root `AGENTS.md` and `CLAUDE.md` are the tracked
+# contributor guide. `.agents/skills/` is tracked: it holds the maintenance
+# skill of the knowledge system.
 /.claude/skills/
 /.claude/settings.json
 /.mcp.json

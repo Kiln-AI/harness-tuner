@@ -316,7 +316,7 @@ promotion pass together with the planner's `promotion_candidate` intent.
   record's, and later planners/builders read the group off the post-verdict
   content; code re-appends it if you drop it, belt-and-braces — the
   same goes for the open record's `issue:` and `technique:` lines, which
-  the lever ladder's count reads) /
+  the planner's `lever_attempts` count reads) /
   the full per-pair numbers table incl.
   holes / `bundle cost: $<n>` (that label, that figure — see above) /
   interpretation + caution grade / `next:` line written for
@@ -332,7 +332,12 @@ promotion pass together with the planner's `promotion_candidate` intent.
   or `next:`.
 - **`findings`**: what was learned, suspected culprits on failure, the
   caution/power reading — prose for the orchestrator log and report.
-  **Name the decision point** (the lever ladder's first rule):
+  **The planner never reads `findings`** — it reads `memory_content`. So
+  the decision point, the failure class and the failure pattern (the
+  knowledge skill's playbook id, `references/analyzer.md`) go in BOTH: in
+  full here, and in one or two lines of the `memory_content`
+  interpretation or its `next:` line.
+  **Name the decision point**:
   for the failing items you read, say whether the failing message was
   emitted BEFORE any tool call, WITH a tool call (narration riding the
   call), or AFTER a tool's result — and which tool. The next planner picks
