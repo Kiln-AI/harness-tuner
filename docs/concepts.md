@@ -252,7 +252,7 @@ clock.
 ## Where to go next
 
 - [architecture.md](architecture.md) — how these pieces are built and wired.
-- [agents.md](agents.md) — the ten agents and what each is given.
+- [agents.md](agents.md) — the eleven agents and what each is given.
 - [your-own-task.md](your-own-task.md) — what a task needs before the loop can
   work on it.
 - [limitations.md](limitations.md) — what the loop does not do.

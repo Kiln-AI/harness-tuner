@@ -249,7 +249,10 @@ merge minus the culprit" is a future wave's fresh experiment, noted in
 - Losers get no writes **from you** — but passing a candidate over is a real
   outcome, not a silent one: their train verdicts stand while code stamps
   each passed-over candidate's own experiment record `— REJECTED AT VAL
-  <MM-DD>` plus one metric-free line. Their wins stay merge-eligible as
+  <MM-DD>` plus one metric-free line. Code chooses that line's reason from
+  the gate's outcome and the candidate's val table (another candidate won,
+  an eval dropped beyond doubt, no targeted gain, or a gain not beyond
+  doubt); your `rationale` never reaches it. Their wins stay merge-eligible as
   ingredients, never as a re-submission of that rc or of the combination
   that just lost (`kiln-harness-tuner-batch-selection`, Merge timing + the val-gate
   carve-out).

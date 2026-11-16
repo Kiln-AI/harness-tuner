@@ -20,7 +20,7 @@ terminal.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from typing import TYPE_CHECKING, TypeVar
 
 from kiln_harness_tuner.analysis import (
@@ -125,6 +125,7 @@ async def call_with_retries(
     log: EventLog | None = None,
     source: str = "",
     item_id: str | None = None,
+    terminal_errors: Collection[str] = ("parse_failure",),
 ) -> AgentResult[T]:
     """Retry ladder. The returned result's `usage` covers EVERY attempt
     — failed tries cost real money and must reach the spend accounting
@@ -132,10 +133,10 @@ async def call_with_retries(
     scripted/shared results unmutated.
 
     `attempts` is reported rather than left to callers to infer, because the
-    ladder's two terminal cases (a non-`failed_infra` status, and
-    `parse_failure`) both return without retrying: a caller re-deriving "was
-    this retried?" from `status` gets the second one wrong, and setup's fatal
-    message did exactly that. The ladder owns its
+    ladder's terminal cases (a non-`failed_infra` status, and an error class in
+    `terminal_errors`, `parse_failure` by default) return without retrying: a
+    caller re-deriving "was this retried?" from `status` gets the second one
+    wrong, and setup's fatal message did exactly that. The ladder owns its
     own arithmetic.
 
     With `log` set, each retry emits a `dispatch_retry` event before its
@@ -161,8 +162,11 @@ async def call_with_retries(
     for attempt, backoff in enumerate(backoffs, start=1):
         if result.status != "failed_infra":
             break
-        if result.error and result.error.error_class == "parse_failure":
-            break  # terminal — the in-session repair already ran
+        if result.error and result.error.error_class in terminal_errors:
+            # Terminal: `parse_failure` — the in-session repair already ran;
+            # a caller can name more (a session on the run's clock that hit
+            # its cap is not tried again).
+            break
         if log is not None:
             log.event(
                 "dispatch_retry",

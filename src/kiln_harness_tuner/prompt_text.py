@@ -310,15 +310,21 @@ class RcText:
     found: bool = True
 
 
-async def rc_texts(ctx: Ctx, rc_ids: list[str]) -> dict[str, RcText]:
+async def rc_texts(
+    ctx: Ctx, rc_ids: list[str], *, listing: list[dict[str, Any]] | None = None
+) -> dict[str, RcText]:
     """rc id -> its prompt and skill text, over one listing of the task's
-    run configs. A listing that fails, or a missing row, reads as nothing."""
+    run configs. A listing that fails, or a missing row, reads as nothing.
+    `listing`: the task's run configs, when the caller has read them
+    already."""
     from kiln_harness_tuner.probes import task_run_configs
 
     unread = RcText(prompt=None, skill_ids=(), skills=None, found=False)
     tool_cache: dict[str, CodeToolText | None] = {}
     try:
-        rows = {str(r.get("id")): r for r in await task_run_configs(ctx)}
+        if listing is None:
+            listing = await task_run_configs(ctx)
+        rows = {str(r.get("id")): r for r in listing}
     except KilnError:
         return dict.fromkeys(rc_ids, unread)
     cache: dict[str, SkillText | None] = {}

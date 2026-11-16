@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from kiln_harness_tuner.schemas import (
     AgentResult,
+    BaselineReviewResult,
     ErrorInfo,
     EvalDescription,
     GeneralityReviewResult,
@@ -128,3 +129,11 @@ class FakeDispatcher:
             self.calls.append(("generality_review", req))
             return ok(GeneralityReviewResult())
         return await self._next("generality_review", req)
+
+    async def baseline_review(self, req):
+        # Like integrity_review: an empty review (no finding) when never
+        # scripted, so every test whose run reviews the baseline need not.
+        if self.queues.get("baseline_review") is None:
+            self.calls.append(("baseline_review", req))
+            return ok(BaselineReviewResult())
+        return await self._next("baseline_review", req)

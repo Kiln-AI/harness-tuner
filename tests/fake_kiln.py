@@ -55,6 +55,10 @@ _GEN_PROMPT_PATH = re.compile(
 _RUN_CONFIGS_PATH = re.compile(
     r"^/api/projects/(?P<pid>[^/]+)/tasks/(?P<tid>[^/]+)/run_configs$"
 )
+# One attached tool's definition, read by the smell detectors.
+_TOOL_DEFINITION_PATH = re.compile(
+    r"^/api/projects/[^/]+/tasks/[^/]+/tools/(?P<tool>.+)/definition$"
+)
 _EVALS_LIST_PATH = re.compile(
     r"^/api/projects/(?P<pid>[^/]+)/tasks/(?P<tid>[^/]+)/evals$"
 )
@@ -290,6 +294,10 @@ class FakeKiln:
         self.saved_prompts: dict[str, dict[str, Any]] = {}
         self.gen_prompt_fails = False  # the render route answers 500
         self.run_configs: Any = []
+        # `GET …/tools/{tool_id}/definition`: the definition of each tool by
+        # its id (`tool_id`, `function_name`, `description`, `parameters`).
+        # An id that is not here answers 404.
+        self.tool_definitions: dict[str, Any] = {}
         # Code probes: `POST …/run_configs` appends a row here
         # (and to `run_configs` when it is a list) and returns it;
         # `POST …/run` records the body in `run_posts` and serves the next
@@ -740,6 +748,10 @@ class FakeKiln:
         if _CODE_TRUST_PATH.match(url_path) and method.upper() == "POST":
             self.code_trust_posts += 1
             return {"trusted": True}
+        if (m := _TOOL_DEFINITION_PATH.match(url_path)) and method.upper() == "GET":
+            if m["tool"] not in self.tool_definitions:
+                raise KilnAPIError(method, url_path, 404, {"detail": "no such tool"})
+            return dict(self.tool_definitions[m["tool"]])
         if _RUN_CONFIGS_PATH.match(url_path):
             # Rows are copied so a caller can't mutate fake state; a drifted
             # shape a test scripted (None, an envelope dict, a str body) is
