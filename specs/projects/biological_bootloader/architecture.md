@@ -181,7 +181,7 @@ each wave, when the baseline is not yet reviewed
   planner: BatchPlanInput.detections + smell issues in memory
            + knowledge/references/planner.md (smells, playbooks by kind) ──► techniques
   builder: knowledge/references/builder.md ──► the technique of its item ──► levers
-  analyzer: knowledge/references/analyzer.md (failure-pattern playbooks)
+  analyzer: knowledge/references/analyzer.md (failure and eval playbooks)
 end of run
   report: RunStatus.detections, RunStatus.baseline_reviews ──► the smells appendix
 ```

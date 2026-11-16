@@ -338,6 +338,43 @@ def test_each_entry_file_exists_and_has_its_blocks():
             assert f"<!-- END GENERATED: {block} -->" in text, (entry, block)
 
 
+def test_the_analyzer_lists_every_eval_playbook():
+    """The analyzer sees a judge that fails right answers first. Without the
+    eval playbooks in its entry file it names a failure playbook instead, and
+    the planner arms a fix for a false fire."""
+    text = (default_root() / "references" / "analyzer.md").read_text(encoding="utf-8")
+    eval_playbooks = [
+        doc.id
+        for doc in load().by_kind("playbooks")
+        if doc.meta is not None and doc.meta.kind == "eval"
+    ]
+    assert "dealing-with-a-wrong-eval" in eval_playbooks
+    for playbook in eval_playbooks:
+        assert f"(playbooks/{playbook}.md)" in text, playbook
+
+
+# The documents that rename, merge or drop tools, and the smell that leads to
+# them. Each one names the Kiln eval template and the eval config type that
+# score the tool calls.
+TOOL_CALL_EVAL_DOCS = (
+    "techniques/roll-up-tool.md",
+    "techniques/consolidate-tools.md",
+    "techniques/remove-or-scope-tools.md",
+    "smells/fixed-call-chain.md",
+)
+
+
+@pytest.mark.parametrize("path", TOOL_CALL_EVAL_DOCS)
+def test_the_tool_documents_name_real_kiln_tool_call_evals(path):
+    """A renamed Kiln name would send the reader to look for an eval that
+    does not exist, and a tool change would break the eval that does."""
+    from kiln_ai.datamodel.eval import EvalTemplateId, V2EvalType
+
+    text = (default_root() / "references" / path).read_text(encoding="utf-8")
+    for name in (EvalTemplateId.tool_call.value, V2EvalType.tool_call_check.value):
+        assert f"`{name}`" in text, (path, name)
+
+
 ALL_OF_RULE = "A document applies only when the task has every shape in its list."
 
 

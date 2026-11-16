@@ -53,7 +53,7 @@ entry file, so that no role depends on a decision to open a skill:
 |---|---|---|
 | `batch_plan` | `planner.md` | every smell, and every playbook by kind |
 | `create_experiment_rc` | `builder.md` | every active technique, and every lever |
-| `analyze_experiment_results` | `analyzer.md` | the playbooks for failure patterns |
+| `analyze_experiment_results` | `analyzer.md` | the playbooks for failure patterns and for eval problems |
 | `report_writer` | `report.md` | the smells, playbooks and techniques that can explain a run |
 | `baseline_review` | `smells.md` | every smell, with who can detect it |
 

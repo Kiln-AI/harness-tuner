@@ -1,7 +1,7 @@
 ---
 title: Consolidate tools
 description: Replace many narrow or overlapping tools with a few general wrappers by job, each with the product's policy inside - its permission checks, guards and defaults.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 status: active
 levers:
   - new_tool
@@ -43,6 +43,11 @@ cost: high
   its result stays clean. A prompt list ties the prompt to the tool set,
   and it grows with each tool. A tool set with one tool for each job makes
   the choice plain.
+- **An eval scores the tool calls.** An eval made from the Kiln template
+  `tool_call`, a `tool_call_check` eval config, or a judge whose criteria
+  name a tool can expect the tools that a consolidation merges or renames.
+  Read the spec of that eval first. Keep the tool names that it expects, or
+  list that eval in the arm's `evaluation_target` as a stated coupling.
 
 ## Alternatives
 

@@ -60,10 +60,11 @@ Three facts shape the order:
    be a set of changes (a tool, its prompt line and its guide skill), and
    the set is measured as one. When two text arms failed on one issue:
    [change the surface, not the words](change-the-surface-not-the-words.md).
-6. The settings, late, and only when the budget leaves room:
-   [thinking level ladder](../techniques/thinking-level-ladder.md). A
-   setting changes how the same model reads the same harness, so it
-   teaches little while the harness has a known problem.
+6. A short screen of the settings:
+   [thinking level ladder](../techniques/thinking-level-ladder.md). It is
+   low cost, and it fits a small budget, for example when no known harness
+   problem is open. A setting changes how the same model reads the same
+   harness, so it teaches little while the harness has a known problem.
 7. A scan of the model class again, after the harness is tuned, when the
    model is a lever:
    [model swap inside a class](../techniques/model-swap-inside-a-class.md).
@@ -92,11 +93,12 @@ Three facts shape the order:
 
 ## Budget
 
-On a small budget, steps 6 and 7 are often left out: pick a model of the
-right class with some aptitude for the task, and tune the harness. On a large
+On a small budget, step 7 is often left out: pick a model of the right
+class with some aptitude for the task, and tune the harness. On a large
 budget, a scan of the models of the class before the lock becomes
-reasonable, when the model is a lever, and a short settings scan at the
-end can pay. See [spending the budget](spending-the-budget.md).
+reasonable, when the model is a lever. The settings screen of step 6 is
+low cost, and it fits a small budget too. See
+[spending the budget](spending-the-budget.md).
 
 ## Priors
 

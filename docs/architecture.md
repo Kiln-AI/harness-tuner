@@ -1985,11 +1985,11 @@ component can have sub-files in a folder beside it with the same name.
 depends on a decision to open a skill: `planner.md` (every smell, and every
 playbook by kind), `builder.md` (every active technique, and every lever),
 `smells.md` (every smell, for the baseline reviewer), `analyzer.md` (the
-playbooks for failure patterns) and `report.md`. `technique-index.md` lists
-the techniques by name, for one case only: the user's guidance names a
-technique. The tables in these files are **generated blocks** between
-markers. Code writes them from the component files, and a person never
-edits them.
+playbooks for failure patterns and for eval problems) and `report.md`.
+`technique-index.md` lists the techniques by name, for one case only: the
+user's guidance names a technique. The tables in these files are
+**generated blocks** between markers. Code writes them from the component
+files, and a person never edits them.
 
 ### 18.2 The package
 

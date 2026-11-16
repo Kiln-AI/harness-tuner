@@ -54,7 +54,7 @@ another role.
 | Planner (batch selection) | [references/planner.md](references/planner.md) | Every smell and every playbook, grouped by kind |
 | Builder (experiment build) | [references/builder.md](references/builder.md) | Every active technique and every lever |
 | Baseline reviewer | [references/smells.md](references/smells.md) | Every smell, with who can detect it |
-| Analyzer | [references/analyzer.md](references/analyzer.md) | The playbooks for failure patterns |
+| Analyzer | [references/analyzer.md](references/analyzer.md) | The playbooks for failure patterns and for eval problems |
 | Report writer | [references/report.md](references/report.md) | The smells, playbooks and techniques that can explain a run |
 
 [references/technique-index.md](references/technique-index.md) lists the

@@ -105,7 +105,7 @@ ENTRY_BLOCKS: dict[str, tuple[str, ...]] = {
     ),
     "builder.md": ("techniques", "levers"),
     "smells.md": ("smells-detail",),
-    "analyzer.md": ("playbooks-failure",),
+    "analyzer.md": ("playbooks-failure", "playbooks-eval"),
     "report.md": ("smells", "playbooks", "techniques"),
     INDEX_FILE: ("techniques",),
 }

@@ -1,7 +1,7 @@
 ---
 title: Fixed call chain
 description: The agent calls the same tools in the same order on each run, and passes an id from one result to the next call. The model decides nothing new between the calls.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 applies_to:
   - tools
 detected_by:
@@ -42,6 +42,12 @@ In how the agent runs:
 - Check where each argument comes from.
 - **Not this smell:** an order that changes with the data, where the agent
   chooses the next tool from what it read. That chain carries decisions.
+- **Not this smell alone:** a chain that an eval scores. An eval made from
+  the Kiln template `tool_call`, a `tool_call_check` eval config, or a
+  judge whose criteria name a tool can expect each call of the chain. Read
+  the spec of that eval before you name a remedy. A remedy keeps the tool
+  names that it expects, or lists that eval in the arm's
+  `evaluation_target` as a stated coupling.
 
 ## What it blocks
 

@@ -1,7 +1,7 @@
 ---
 title: Remove or scope tools
 description: Drop the attached tools that this task does not need, or that overlap, so the agent chooses among fewer tools and reads fewer descriptions on every call.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 status: active
 levers:
   - tool_config
@@ -40,6 +40,11 @@ cost: low
   [consolidate tools](consolidate-tools.md).
 - **The agent has few tools.** There is little to gain, and each arm costs
   a measurement.
+- **An eval scores the tool calls.** An eval made from the Kiln template
+  `tool_call`, a `tool_call_check` eval config, or a judge whose criteria
+  name a tool can expect a tool that you drop. Read the spec of that eval
+  first. Keep the tools that it expects, or list that eval in the arm's
+  `evaluation_target` as a stated coupling.
 
 ## Alternatives
 

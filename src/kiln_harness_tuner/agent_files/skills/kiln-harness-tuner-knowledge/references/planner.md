@@ -71,7 +71,7 @@ does not matter.
 |---|---|---|
 | [know-the-agent-before-you-plan](playbooks/know-the-agent-before-you-plan.md) | all | Classify the agent before the first plan - its turns, its output, a classifier shape, its tools, skills and model - because each document says which shapes it fits. |
 | [ordering-work](playbooks/ordering-work.md) | all | How to order the work of a run - the priority comes from the smells and the failures of this agent, not from a fixed order of levers. All of it is guidance. |
-| [spending-the-budget](playbooks/spending-the-budget.md) | all | How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scans only on a large one. |
+| [spending-the-budget](playbooks/spending-the-budget.md) | all | How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scan of models only on a large one. |
 <!-- END GENERATED: playbooks-order -->
 
 ## Goals

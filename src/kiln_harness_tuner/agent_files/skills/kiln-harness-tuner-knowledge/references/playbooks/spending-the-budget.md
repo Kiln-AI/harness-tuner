@@ -1,7 +1,7 @@
 ---
 title: Spending the budget
-description: How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scans only on a large one.
-reviewed: 2026-11-13
+description: How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scan of models only on a large one.
+reviewed: 2026-11-16
 kind: order
 applies_to: all
 ---
@@ -30,11 +30,11 @@ not the numbers:
 
 Build cost and learning cost are different. A prompt line costs the least
 to build. A new description on a clone of a tool, a change of the attached
-tools, a flat skill, a wrapper, a skill with reference files, a new tool,
-a consolidation of tools and a model swap each cost more to build, in
-about that order. The `cost` of each technique gives its class. But a text
-arm that cannot win at validation costs the most of all, because its
-spend buys no lesson.
+tools, a flat skill, a wrapper, a skill with reference files, a new tool
+and a consolidation of tools each cost more to build, in about that order.
+A swap to another model needs no build. Its cost is the measurement. The
+`cost` of each technique gives its class. But a text arm that cannot win
+at validation costs the most of all, because its spend buys no lesson.
 
 ## What to try, in order
 
@@ -51,15 +51,17 @@ spend buys no lesson.
    [one general rule per edit](../techniques/one-general-rule-per-edit.md).
 3. On a small budget, prefer the techniques of `low` cost for each issue,
    and techniques that change one surface. Leave out the scan of models
-   before the lock, and the scan of settings.
+   before the lock.
 4. On a large budget, a scan of the models of the class before the lock
    becomes reasonable, when the model is a lever:
    [model swap inside a class](../techniques/model-swap-inside-a-class.md).
    The techniques of `high` cost fit too, for example
    [consolidate tools](../techniques/consolidate-tools.md).
-5. A short scan of the settings, last, when budget remains after the
-   harness work:
-   [thinking level ladder](../techniques/thinking-level-ladder.md).
+5. A short screen of the settings:
+   [thinking level ladder](../techniques/thinking-level-ladder.md). It is
+   low cost, and it fits a small budget, for example when no known harness
+   problem is open. A setting does not fix a failure that has a cause in
+   the harness.
 
 ## What not to do yet
 
