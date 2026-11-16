@@ -815,7 +815,7 @@ train items. Today only `--noise-check` repeats a measurement, one time, before 
 - Kind: code
 - Where: tuner
 - Depends on: None
-- Source: [moderate_batches.md](../reviews/projects/biological_bootloader/moderate_batches.md), 9.2
+- Source: [smell_detection.md](projects/biological_bootloader/components/smell_detection.md), 4.3; phase 7 code review
 
 A hard read fence in code, so that the design reviewer cannot read `traces/_expected/`. Today only
 the text of its skill keeps it out.
