@@ -1,7 +1,7 @@
 ---
 title: Ordering work
 description: How to order the work of a run - the priority comes from the smells and the failures of this agent, not from a fixed order of levers. All of it is guidance.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 kind: order
 applies_to: all
 ---
@@ -33,14 +33,15 @@ Three facts shape the order:
 
 1. [Know the agent before you plan](know-the-agent-before-you-plan.md),
    when the shapes of the agent are not yet known.
-2. A model with some aptitude for the task, only when the model is a
-   lever (`allowed_models` lists another model, and the guidance does not
-   forbid a model change). A model that passes almost nothing across the
-   evals may need a smarter model before the harness tuning. Read the
-   outputs first: a missing requirement or a wrong format can put a
-   capable model near zero, and text fixes it. Change the model only on
-   evidence that it cannot do the task. The reads show answers wrong in
-   substance, or repeated arms on sound fixes did not move the score:
+2. When the model is a lever (`allowed_models` lists another model, and
+   the guidance does not forbid a model change) and the baseline model
+   passes almost nothing across the evals: find a model with some aptitude
+   for the task. This case may need a smarter model before the harness
+   tuning. Read the outputs first: a missing requirement or a wrong format
+   can put a capable model near zero, and text fixes it. Change the model
+   only on evidence that it cannot do the task. That evidence is one of
+   two things: the reads show answers wrong in substance, or repeated arms
+   on sound fixes did not move the score. See
    [dealing with an eval near zero](dealing-with-an-eval-near-zero.md).
    Lock that model, then tune the harness. When the model is not a lever,
    it is the environment of the task, and this step does not apply.

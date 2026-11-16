@@ -792,11 +792,13 @@ Per experiment item:
   routine train-side guard evals are duplicated spend paid per item. This is
   your cost lever — one or a few, never the full suite (the full val pass is
   the promotion stage, not your call). The exception is a swap to another
-  model, which changes every item: its technique documents measure every
-  eval. The same model on another provider is not an exception. `scores` omitted = all directional
-  scores; list a subset only for multi-score evals. Informational scores
-  can't be targeted. Merge items list their **ingredients' targeted evals**
-  (attribution order).
+  model, which changes every item: its technique documents
+  (`techniques/model-swap-inside-a-class.md`,
+  `techniques/decision-model-for-a-classifier.md`) measure every eval. The
+  same model on another provider is not an exception. `scores` omitted =
+  all directional scores; list a subset only for multi-score evals.
+  Informational scores can't be targeted. Merge items list their
+  **ingredients' targeted evals** (attribution order).
 - **`promotion_candidate`** — intent: designed to become the baseline if
   successful. Knowledge-only / one-off probes set `false` and never pay the
   val pass. `MergeWork` requires `true` (schema-enforced). A **single big
