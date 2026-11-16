@@ -1,6 +1,6 @@
 ---
 title: Cap and preview wrapper
-description: A wrapper that returns only what this agent needs from a large tool result - the fields it uses, a capped preview with a follow-up query, or an error when the result is too large.
+description: A wrapper that returns only what this agent needs from a large tool result - a trim that says when it cut and how to get more, a capped preview with a follow-up, or an error when it is too large.
 reviewed: 2026-11-13
 status: active
 levers:
@@ -56,10 +56,22 @@ is built, dry-run and attached.
 There are three forms. Choose the form from what the agent does with the
 result in the traces.
 
-1. **Trim to what this agent needs.** The wrapper calls the tool and keeps
-   only the fields that the traces show the agent use. It drops ids that
-   the agent never passes on, long text fields and nested objects. When
-   the agent uses an id only to find a name, return the name.
+1. **Trim to what this agent needs.** The wrapper calls the tool and
+   returns a smaller result. The exact design depends on the wrapped tool
+   and on the use case. Use your judgement, and let the dry run, the
+   smoke and the evals check it. A good design has three parts:
+   - **It trims, but not too much.** It drops what the agent does not
+     use: ids that it never passes on, long text fields, nested objects.
+     When the agent uses an id only to find a name, it returns the name.
+     It keeps what the task can need, not only what one trace used.
+   - **It keeps a way to get more.** For example, a `limit` parameter with
+     a default of N that the agent can set higher, and an `offset` with a
+     default of 0.
+   - **It says clearly when there is more**, for example `was_truncated`
+     and the `total`. Then the agent always sees that a result was cut.
+
+   Form 1 cuts each row, and pages the rows. Form 2 returns a preview, and
+   a separate call that gets one item in full.
 2. **Preview and cap.** The wrapper returns the total count, the first N
    rows in the trimmed form, and how to get more: a cursor, or a filter.
    A follow-up query (a second wrapper, or a parameter of the same one)
@@ -81,7 +93,7 @@ For each form:
 - **Drop the wrapped tool on the same run config** when the wrapper
   replaces it. With both, the agent chooses, and the result does not tell
   which path it took.
-- **Set the cap from the traces**: the largest number of rows that the
+- **Set the default cap from the traces**: the largest number of rows that the
   agent used in one answer, with a margin. Do not set it from a train
   item.
 - A prompt line that tells the agent to prefer the wrapper is a second
@@ -90,10 +102,11 @@ For each form:
 ## Check that it took effect
 
 Dry-run the wrapper on a read that returns a large result, and compare
-its size with the size of the raw result. Then smoke two or three train
-items that called the large tool. In each trace, find a call to the
-wrapper, no call to the dropped tool, and a tool result that is smaller
-than the baseline's.
+its size with the size of the raw result. When the result was cut, find
+the signal that says so, and get the rest with a second call (a higher
+limit, or an offset). Then smoke two or three train items that called
+the large tool. In each trace, find a call to the wrapper, no call to the
+dropped tool, and a tool result that is smaller than the baseline's.
 
 ## Budget
 

@@ -40,6 +40,7 @@ from kiln_harness_tuner.smells.run import (
     REVIEW_MAX_FINDINGS,
     REVIEW_MAX_ITEMS,
     flagged_smells,
+    planner_detections,
     review_line,
 )
 from kiln_harness_tuner.smells.thresholds import LONG_PROMPT_CHARS
@@ -118,6 +119,124 @@ async def test_the_planner_input_carries_the_detections():
     await orchestrate(ctx, "g", timeout_mins=180)
     (plan_input,) = ctx.dispatch.calls_to("batch_plan")
     assert [d.detector for d in plan_input.detections] == ["long_prompt"]
+
+
+# ---- the reviewer's reading of each detection, for the planner ----
+
+
+def check(holds: bool | None, note: str = "", **kwargs) -> DetectionCheck:
+    fields = {"smell": "very-long-prompt", "detector": "long_prompt", **kwargs}
+    return DetectionCheck(holds=holds, note=note, **fields)
+
+
+def reviewed(rc_id: str, *checks: DetectionCheck, status="done") -> BaselineReview:
+    return BaselineReview(rc_id=rc_id, status=status, detection_checks=list(checks))
+
+
+def readings(detections) -> list[tuple[bool | None, str | None]]:
+    return [(d.reviewer_holds, d.reviewer_note) for d in detections]
+
+
+@pytest.mark.parametrize(
+    ("holds", "note", "reading"),
+    [
+        (
+            True,
+            "The prompt repeats one table.",
+            (True, "The prompt repeats one table."),
+        ),
+        (False, "It is long for a reason.", (False, "It is long for a reason.")),
+        (
+            None,
+            "The prompt could not be read.",
+            (None, "The prompt could not be read."),
+        ),
+        (True, "", (True, None)),
+    ],
+)
+def test_each_detection_carries_the_reading_of_its_smell_and_detector(
+    holds, note, reading
+):
+    planned = planner_detections(
+        [detection()], [reviewed("rc_base", check(holds, note))], "rc_base"
+    )
+    assert readings(planned) == [reading]
+    assert planned[0].model_dump(exclude={"reviewer_holds", "reviewer_note"}) == (
+        detection().model_dump()
+    )
+
+
+@pytest.mark.parametrize(
+    "reviews",
+    [
+        [],
+        [reviewed("rc_base", status="failed")],
+        [reviewed("rc_base", status="off")],
+        [reviewed("rc_base", status="skipped")],
+        # A review of an earlier baseline is not about the present one.
+        [reviewed("rc_old", check(False, "Not here."))],
+        # The review read other detections only.
+        [
+            reviewed(
+                "rc_base",
+                check(False, "Other smell.", smell="tool-search"),
+                check(False, "Other detector.", detector="prompt_tokens"),
+            )
+        ],
+    ],
+)
+def test_a_detection_with_no_reading_is_kept_with_null_fields(reviews):
+    planned = planner_detections([detection()], reviews, "rc_base")
+    assert readings(planned) == [(None, None)]
+
+
+def test_the_last_done_review_of_the_baseline_gives_the_reading():
+    reviews = [
+        reviewed("rc_base", check(False, "First.")),
+        reviewed("rc_base", check(False, "Second."), check(True, "Again.")),
+        reviewed("rc_base", status="failed"),
+    ]
+    planned = planner_detections([detection(), detection()], reviews, "rc_base")
+    # A pair read two times: the last reading, as in the report's table.
+    assert readings(planned) == [(True, "Again."), (True, "Again.")]
+
+
+async def test_the_planner_input_carries_the_reviewers_reading():
+    ctx = reviewing_ctx()
+    ctx.dispatch.queue(
+        "baseline_review",
+        ok(BaselineReviewResult(detection_checks=[check(False, "Long for a reason.")])),
+    )
+    ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (plan_input,) = ctx.dispatch.calls_to("batch_plan")
+    assert [d.detector for d in plan_input.detections] == ["long_prompt"]
+    assert readings(plan_input.detections) == [(False, "Long for a reason.")]
+
+
+async def test_a_promotion_gives_the_new_detections_the_new_review_only():
+    ctx = make_ctx()
+    ctx.baseline_review = True
+    _promotion_scenario(ctx)
+    ctx.kiln.run_configs = [
+        baseline_row(LONG_PROMPT),
+        {**baseline_row(LONG_PROMPT), "id": "rc_cand"},
+    ]
+    ctx.dispatch.queue("promote_best", decision("rc_cand"))
+    ctx.dispatch.queue(
+        "baseline_review",
+        ok(BaselineReviewResult(detection_checks=[check(False, "On rc_base.")])),
+        ok(BaselineReviewResult()),
+    )
+    await orchestrate(ctx, "g", timeout_mins=180)
+
+    plans = ctx.dispatch.calls_to("batch_plan")
+    assert [p.baseline.rc_id for p in plans] == ["rc_base", "rc_cand"]
+    assert [readings(p.detections) for p in plans] == [
+        [(False, "On rc_base.")],
+        # The detectors ran again on rc_cand, and its review read nothing.
+        [(None, None)],
+    ]
 
 
 async def test_each_finding_becomes_one_smell_issue_with_its_tags():

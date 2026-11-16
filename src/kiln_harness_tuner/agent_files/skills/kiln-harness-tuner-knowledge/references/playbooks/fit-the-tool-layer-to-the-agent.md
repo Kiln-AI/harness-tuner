@@ -1,7 +1,7 @@
 ---
 title: Fit the tool layer to the agent
-description: The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, with the prompt and the guide skill.
-reviewed: 2026-11-12
+description: The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, and where its rules go.
+reviewed: 2026-11-13
 kind: design
 applies_to:
   - tools
@@ -22,7 +22,8 @@ to recognise it. The smells of the tools are:
 [tool results flood the context](../smells/tool-results-flood-the-context.md),
 [fixed call chain](../smells/fixed-call-chain.md),
 [general query tool without a guide](../smells/general-query-tool-without-a-guide.md),
-[too many narrow tools](../smells/too-many-narrow-tools.md),
+[too many tools](../smells/too-many-tools.md),
+[unnecessary tools](../smells/unnecessary-tools.md),
 [tool search](../smells/tool-search.md),
 [document behind a lookup tool](../smells/document-behind-a-lookup-tool.md)
 and [very long tool description](../smells/very-long-tool-description.md).
@@ -33,9 +34,12 @@ in or what comes back. The [code tools](../levers/new_tool.md) lever says
 how. So many tool designs can be tried, and the original tools stay as
 they are.
 
-The harness is one object. A new tool often needs a prompt line that says
-when to call it, and a guide skill can describe the tool set. The same arm
-removes the prompt text that the new tool takes over.
+The harness is one object. A new tool says when to call it in its own
+description, not in a prompt line, and a guide skill can describe the tool
+set. The exception is a "call X at the start" line, which goes in the
+prompt: see
+[missing context the agent could be given](missing-context-the-agent-could-be-given.md).
+The same arm removes the prompt text that the new tool takes over.
 
 ## What to try, in order
 
@@ -44,19 +48,20 @@ most other work.
 
 1. A result that is very large, or that carries every field:
    [cap and preview wrapper](../techniques/cap-and-preview-wrapper.md).
-   It returns the fields this agent uses, a preview with a follow-up
-   query, or an error that asks for a narrower query.
+   It returns a trimmed result that says when it was cut and how to get
+   more, a preview with a follow-up query, or an error that asks for a
+   narrower query.
 2. The same chain of calls each time, with an id passed from one call to
    the next, or one call for each item of a list:
    [roll-up tool](../techniques/roll-up-tool.md).
 3. A general query tool (SQL, GraphQL, a general API) with no examples and
    no guide to its schema, or tool search:
    [guide skill for a tool set](../techniques/guide-skill-for-a-tool-set.md).
-4. Many narrow tools, or tools that overlap: first
+4. Too many tools, or tools that overlap or are never called: first
    [remove or scope tools](../techniques/remove-or-scope-tools.md), when
    some of them are not needed; then
    [consolidate tools](../techniques/consolidate-tools.md), when the
-   remaining tools still overlap or carry no rule of the product.
+   remaining tools still overlap or are still too many.
 5. Errors that the agent cannot act on, or inputs in forms that the tool
    refuses:
    [errors the agent can act on](../techniques/errors-the-agent-can-act-on.md)
@@ -65,15 +70,24 @@ most other work.
 When a smell is fixed, the failures that it hid can show. Take each of
 them to its failure playbook.
 
+When a fit is justified for the agent overall, it comes before the other
+fixes of a tool failure, for example in
+[the wrong tool is chosen](wrong-tool-chosen.md). Hold those fixes until
+the fit is measured, because the fit can solve the failure. Continue with
+them only when it does not.
+
 ## What not to do yet
 
 - Do not ask for a change to the company's APIs. The tuner cannot make it,
   and a layer of wrappers can try many designs in the same time.
 - Do not add prompt rules on how to use a tool in place of a change to the
-  tool. The rule is far from the moment of the call, and the tool still
-  returns what it returned.
+  tool. The tool still returns what it returned. A rule that the model
+  needs about a tool goes in the tool's description. This is a very
+  strong preference. Text in a tool moves with the tool. So a later experiment
+  that adds, removes or changes a tool needs no prompt change, and its
+  result stays clean.
 - Do not put several unrelated wrappers in one arm. When it wins, nothing
-  says which wrapper helped. A wrapper with its prompt line and its guide
+  says which wrapper helped. A wrapper with its description and its guide
   skill is one technique, and it is one arm.
 - Do not plan a small fix elsewhere while a tool result can flood the
   context. The flood hides the effect of the fix.

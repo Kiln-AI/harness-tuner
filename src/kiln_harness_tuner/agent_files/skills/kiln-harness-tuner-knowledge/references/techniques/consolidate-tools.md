@@ -1,7 +1,7 @@
 ---
 title: Consolidate tools
 description: Replace many narrow or overlapping tools with a few general wrappers by job, each with the product's policy inside - its permission checks, guards and defaults.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 status: active
 levers:
   - new_tool
@@ -21,8 +21,13 @@ cost: high
   carries the rule: a permission check, a required step, a default.
 - The tools mirror the endpoints of an API, one for one, and the work of
   the task needs several of them for each step.
-- A smell of too many narrow tools is reported, and removal alone would
-  leave a part of the work with no tool.
+- A smell of too many tools or of unnecessary tools is reported, and
+  removal alone would leave a part of the work with no tool.
+- The agent finds its tools through tool search, with no list of them to
+  read. The collapsed style is one general tool that can call each
+  operation, such as a `call_api` tool, with a guide skill that names the
+  operations (step 6). A search call and a load call before each use are
+  then gone.
 
 ## When not to use
 
@@ -32,9 +37,17 @@ cost: high
   description is cheaper: [new tool description](new-tool-description.md).
 - **Many tools are attached and never called.** Drop them first:
   [remove or scope tools](remove-or-scope-tools.md).
-- **Do not write a prompt list of which tool to use when.** The model
-  must then apply a table of rules on each call. A tool set with one tool
-  for each job makes the choice plain.
+- **A prompt list of which tool to use when is not the fix.** Prefer the
+  tool descriptions to the prompt. Text in a tool moves with the tool. So
+  a later experiment that changes the tool set needs no prompt change, and
+  its result stays clean. A prompt list ties the prompt to the tool set,
+  and it grows with each tool. A tool set with one tool for each job makes
+  the choice plain.
+- **An eval scores the tool calls.** An eval made from the Kiln template
+  `tool_call`, a `tool_call_check` eval config, or a judge whose criteria
+  name a tool can expect the tools that a consolidation merges or renames.
+  Read the spec of that eval first. Keep the tool names that it expects, or
+  list that eval in the arm's `evaluation_target` as a stated coupling.
 
 ## Alternatives
 
@@ -62,7 +75,7 @@ they are. The wrappers are a layer over them.
 2. **Write one wrapper for each job.** It calls the existing tools that
    the job needs, with a parameter that selects the variant (for example
    the record type). Its description says what the job is and when to call
-   it.
+   it. That text goes in the description, not in the prompt.
 3. **Put the product's policy inside.** From the product's own rules: the
    permission check, the required step before an action, the defaults, the
    limits. The wrapper refuses a call that breaks a rule, with an error

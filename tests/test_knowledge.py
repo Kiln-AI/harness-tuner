@@ -54,8 +54,9 @@ def test_the_shipped_knowledge_has_a_document_of_each_type():
         assert kb.by_kind(kind), f"no document in {kind}/"
 
 
-# V1 coverage, sections 1 and 3: the six levers, and the twenty-eight
-# techniques with the levers each one uses.
+# V1 coverage, sections 1 and 3: the six levers, and the techniques with the
+# levers each one uses. `path-index-in-the-skill-description` was removed
+# after V1: a restructure by `rewrite-an-inherited-skill` covers it.
 V1_LEVERS = {"prompt", "skill", "new_tool", "tool_config", "params", "model"}
 V1_TECHNIQUE_LEVERS = {
     "add-the-missing-requirement": ["prompt"],
@@ -67,7 +68,6 @@ V1_TECHNIQUE_LEVERS = {
     "one-general-rule-per-edit": ["prompt", "skill"],
     "long-prompt-into-a-skill": ["skill", "prompt"],
     "skill-into-the-prompt": ["prompt", "skill"],
-    "path-index-in-the-skill-description": ["skill"],
     "rewrite-an-inherited-skill": ["skill"],
     "prune-one-group-at-a-time": ["prompt", "skill", "tool_config"],
     "attach-the-knowledge-source": ["tool_config", "skill"],
@@ -180,7 +180,9 @@ def test_the_guide_skill_for_a_tool_set_has_its_sub_files():
         assert path in linked, f"guide-skill-for-a-tool-set.md does not link {name}.md"
 
 
-# V1 coverage, section 4: the twenty-one playbooks, each with its kind.
+# V1 coverage, section 4: the playbooks, each with its kind.
+# `dealing-with-a-wrong-eval` was split from `dealing-with-a-saturated-eval`
+# after V1: a ceiling and a wrong judge are two diagnoses.
 V1_PLAYBOOK_KINDS = {
     "know-the-agent-before-you-plan": "order",
     "ordering-work": "order",
@@ -200,6 +202,7 @@ V1_PLAYBOOK_KINDS = {
     "lost-in-long-instructions": "failure",
     "change-the-surface-not-the-words": "failure",
     "dealing-with-a-saturated-eval": "eval",
+    "dealing-with-a-wrong-eval": "eval",
     "dealing-with-an-eval-near-zero": "eval",
     "dealing-with-a-noisy-eval": "eval",
     "dealing-with-train-wins-rejected-at-val": "eval",
@@ -213,24 +216,30 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
     assert doc.meta is not None and doc.meta.kind == V1_PLAYBOOK_KINDS[playbook]
 
 
-# V1 coverage, section 2: the thirteen smells, each with who detects it, and
-# the code detectors of the three that code detects. Then the smells added
-# after V1: `old-model` (the model-provider-info project).
+# V1 coverage, section 2: the smells, each with who detects it and its code
+# detectors. `too-many-narrow-tools` was split after V1 into `too-many-tools`
+# and `unnecessary-tools`: a count of tools and a tool set with tools it does
+# not need are two issues. Then the smells added after V1: `old-model` (the
+# model-provider-info project).
+CODE = ["code"]
+AGENT = ["agent"]
+BOTH = ["code", "agent"]
 V1_SMELL_DETECTION = {
-    "very-long-prompt": ["long_prompt"],
-    "one-file-skill-with-many-topics": [],
-    "skill-too-small-to-earn-its-place": [],
-    "very-long-skill-description": ["long_skill_description"],
-    "faulty-inherited-skill": [],
-    "tool-results-flood-the-context": [],
-    "fixed-call-chain": [],
-    "general-query-tool-without-a-guide": [],
-    "too-many-narrow-tools": [],
-    "tool-search": [],
-    "document-behind-a-lookup-tool": [],
-    "very-long-tool-description": ["long_tool_description"],
-    "tools-on-a-live-server": [],
-    "old-model": ["old_model"],
+    "very-long-prompt": (BOTH, ["long_prompt"]),
+    "one-file-skill-with-many-topics": (AGENT, []),
+    "skill-too-small-to-earn-its-place": (AGENT, []),
+    "very-long-skill-description": (BOTH, ["long_skill_description"]),
+    "faulty-inherited-skill": (AGENT, []),
+    "tool-results-flood-the-context": (AGENT, []),
+    "fixed-call-chain": (AGENT, []),
+    "general-query-tool-without-a-guide": (AGENT, []),
+    "too-many-tools": (CODE, ["many_tools"]),
+    "unnecessary-tools": (AGENT, []),
+    "tool-search": (AGENT, []),
+    "document-behind-a-lookup-tool": (AGENT, []),
+    "very-long-tool-description": (CODE, ["long_tool_description"]),
+    "tools-on-a-live-server": (AGENT, []),
+    "old-model": (CODE, ["old_model"]),
 }
 
 
@@ -238,9 +247,9 @@ V1_SMELL_DETECTION = {
 def test_the_v1_smell_is_present_with_its_detection(smell):
     doc = load().get("smells", smell)
     assert doc is not None, f"smells/{smell}.md is missing"
-    detectors = V1_SMELL_DETECTION[smell]
+    detected_by, detectors = V1_SMELL_DETECTION[smell]
     assert doc.meta is not None
-    assert doc.meta.detected_by == (["code"] if detectors else ["agent"])
+    assert doc.meta.detected_by == detected_by
     assert doc.meta.detectors == detectors
 
 
@@ -329,6 +338,43 @@ def test_each_entry_file_exists_and_has_its_blocks():
         for block in blocks:
             assert f"<!-- BEGIN GENERATED: {block} -->" in text, (entry, block)
             assert f"<!-- END GENERATED: {block} -->" in text, (entry, block)
+
+
+def test_the_analyzer_lists_every_eval_playbook():
+    """The analyzer sees a judge that fails right answers first. Without the
+    eval playbooks in its entry file it names a failure playbook instead, and
+    the planner arms a fix for a false fire."""
+    text = (default_root() / "references" / "analyzer.md").read_text(encoding="utf-8")
+    eval_playbooks = [
+        doc.id
+        for doc in load().by_kind("playbooks")
+        if doc.meta is not None and doc.meta.kind == "eval"
+    ]
+    assert "dealing-with-a-wrong-eval" in eval_playbooks
+    for playbook in eval_playbooks:
+        assert f"(playbooks/{playbook}.md)" in text, playbook
+
+
+# The documents that rename, merge or drop tools, and the smell that leads to
+# them. Each one names the Kiln eval template and the eval config type that
+# score the tool calls.
+TOOL_CALL_EVAL_DOCS = (
+    "techniques/roll-up-tool.md",
+    "techniques/consolidate-tools.md",
+    "techniques/remove-or-scope-tools.md",
+    "smells/fixed-call-chain.md",
+)
+
+
+@pytest.mark.parametrize("path", TOOL_CALL_EVAL_DOCS)
+def test_the_tool_documents_name_real_kiln_tool_call_evals(path):
+    """A renamed Kiln name would send the reader to look for an eval that
+    does not exist, and a tool change would break the eval that does."""
+    from kiln_ai.datamodel.eval import EvalTemplateId, V2EvalType
+
+    text = (default_root() / "references" / path).read_text(encoding="utf-8")
+    for name in (EvalTemplateId.tool_call.value, V2EvalType.tool_call_check.value):
+        assert f"`{name}`" in text, (path, name)
 
 
 ALL_OF_RULE = "A document applies only when the task has every shape in its list."

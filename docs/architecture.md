@@ -238,9 +238,11 @@ Per wave, in order:
    of the wave: the clock is not checked again after it, so a review that
    ends past the time limit is still followed by this wave's plan.
 5. **Plan.** One `batch_plan` dispatch. Its input carries the present
-   baseline's detections (`BatchPlanInput.detections`), and it reads the
-   `smell` issues from memory with the other issues. A hard failure exits the run
-   (`planner_failed`) — it is the loop's brain, and another attempt after the
+   baseline's detections (`BatchPlanInput.detections`), each with the
+   baseline reviewer's reading of it (`smells.run.planner_detections`),
+   and it reads the `smell` issues from memory with the other issues. A
+   hard failure exits the run (`planner_failed`) — it is the loop's
+   brain, and another attempt after the
    retry ladder only burns budget. **The eval-building guard**
    (`items.drop_eval_building_items`): eval building is experimental and off
    by default. While it is off (no `--experimental-eval-building`), code
@@ -2092,11 +2094,11 @@ component can have sub-files in a folder beside it with the same name.
 depends on a decision to open a skill: `planner.md` (every smell, and every
 playbook by kind), `builder.md` (every active technique, and every lever),
 `smells.md` (every smell, for the baseline reviewer), `analyzer.md` (the
-playbooks for failure patterns) and `report.md`. `technique-index.md` lists
-the techniques by name, for one case only: the user's guidance names a
-technique. The tables in these files are **generated blocks** between
-markers. Code writes them from the component files, and a person never
-edits them.
+playbooks for failure patterns and for eval problems) and `report.md`.
+`technique-index.md` lists the techniques by name, for one case only: the
+user's guidance names a technique. The tables in these files are
+**generated blocks** between markers. Code writes them from the component
+files, and a person never edits them.
 
 ### 18.2 The package
 
@@ -2162,6 +2164,7 @@ config, its texts, its tool definitions and the catalogue snapshot
 | `long_prompt` | `very-long-prompt` | the prompt is over `LONG_PROMPT_CHARS` (200,000 characters) |
 | `long_tool_description` | `very-long-tool-description` | a tool's description is over `LONG_TOOL_DESCRIPTION_CHARS` (4,096) |
 | `long_skill_description` | `very-long-skill-description` | a skill's description is over `LONG_SKILL_DESCRIPTION_CHARS` (1,024) |
+| `many_tools` | `too-many-tools` | the run config attaches more than `MANY_TOOLS` (40) tools, skills not counted |
 | `old_model` | `old-model` | the baseline's model was released more than `OLD_MODEL_MONTHS` (8) calendar months before the run started; silent when the catalogue has no release date for it, for example a fine-tune |
 
 The thresholds are in `smells/thresholds.py`, each with its source. No

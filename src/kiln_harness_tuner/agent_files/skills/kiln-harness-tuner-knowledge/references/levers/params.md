@@ -1,7 +1,7 @@
 ---
 title: Model settings
 description: The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 gateway_ops:
   - get_run_config
   - get_model_details
@@ -53,10 +53,14 @@ Rules of the object:
 
 ## Limits
 
-- A provider can accept a setting and not apply it. Code reads the drives:
-  a thinking level with no reasoning in any drive, and output tokens that
+- A provider can accept a setting and not apply it. Code reads the drives
+  for two things only: the thinking level, and the model and provider. A
+  thinking level with no reasoning in any drive, and output tokens that
   did not move against the parent, gives the verdict `lever not applied`.
-  When no signal can show it, the verdict is `lever unverified`.
+  So does a drive that another model or provider served. When no signal
+  can show one of these two, the verdict is `lever unverified`. Code does
+  not check `temperature` or `top_p`: a change to them gets the verdict
+  `applied` with no check.
 - A provider can refuse a setting. One failed call shows it.
   `get_model_details` gives `supports_temperature` for each provider entry,
   from models.dev: `false` says that the model does not take a temperature.

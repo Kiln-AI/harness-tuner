@@ -28,8 +28,10 @@ cost: low
 - **The policy is short and the agent follows it.** A rewrite changes the
   words and fixes nothing.
 - **The failure is at a tool call**: a malformed call, a wrong argument, a
-  call to the wrong tool. Steps in the prompt do not change what the model
-  reads at that moment. Change the tool surface first.
+  call to the wrong tool. Change the tool surface first, and put the rule
+  in the tool's own text, not in prompt steps. This is a very strong
+  preference: text in a tool moves with the tool, so a later change of the
+  tool set needs no prompt change.
 - **A rule is missing from the policy.** A procedure for a rule that does
   not exist cannot help:
   [add the missing requirement](add-the-missing-requirement.md).

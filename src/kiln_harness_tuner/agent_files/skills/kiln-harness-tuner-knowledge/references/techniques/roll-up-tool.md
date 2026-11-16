@@ -1,7 +1,7 @@
 ---
 title: Roll-up tool
 description: One code tool that does what the agent does in many calls - a fixed chain that passes an id along, a loop of one call per item, or the context the agent needs at the start.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 status: active
 levers:
   - new_tool
@@ -37,9 +37,17 @@ cost: medium
   [guard tool calls at the boundary](guard-tool-calls-at-the-boundary.md).
 - **Each result is large.** A roll-up of large results is one large
   result. Trim first: [cap and preview wrapper](cap-and-preview-wrapper.md).
+- **One existing tool already gives the context in a compact form.** A
+  prompt line that tells the agent to always call it costs less:
+  [missing context the agent could be given](../playbooks/missing-context-the-agent-could-be-given.md).
 - **The context tool returns everything that it can.** A context loader
   that returns all fields of many APIs floods the context. It returns only
   the facts that the failures show the agent needs.
+- **An eval scores the tool calls.** An eval made from the Kiln template
+  `tool_call`, a `tool_call_check` eval config, or a judge whose criteria
+  name a tool can expect the tools that a roll-up replaces. Read the spec
+  of that eval first. Keep the tool names that it expects, or list that
+  eval in the arm's `evaluation_target` as a stated coupling.
 
 ## Alternatives
 
@@ -49,8 +57,8 @@ cost: medium
   narrow tools that the agent chooses among, not a chain that it calls in
   one order.
 - [Directive in the tool response](directive-in-the-tool-response.md),
-  when the agent calls the right tools and then ignores an instruction at
-  the moment it replies.
+  when the agent calls the right tools and then its reply misstates the
+  result.
 
 ## How
 
@@ -65,8 +73,8 @@ first. The tool and the line are one set of changes.
 2. **Choose the form.**
    - **A chain**: one tool that takes the input of the first call, makes
      the calls in order, and returns the facts that the agent used from
-     the last one. The template `composite_resolve_fetch.py` of the
-     code-tool authoring skill has this shape for search, disambiguate
+     any call in the chain. The template `composite_resolve_fetch.py` of
+     the code-tool authoring skill has this shape for search, disambiguate
      and fetch.
    - **A loop**: one tool that takes a list, runs the operation on each
      item, and returns what was done and the errors for each item. A
@@ -75,7 +83,8 @@ first. The tool and the line are one set of changes.
    - **A context loader**: one tool, for example `get_account_context`,
      that calls the tools that hold the facts and returns a short summary
      of them. Add one prompt line that tells the agent to call it before
-     it answers.
+     it answers. This line is the workflow exception of
+     [missing context the agent could be given](../playbooks/missing-context-the-agent-could-be-given.md).
 3. **Return a compact result.** Keep the fields that the agent uses in
    its answer or in its next step. Drop the ids that it only passed
    along.

@@ -1,7 +1,7 @@
 ---
 title: One general rule per edit
 description: A text edit states one general rule, with its reason and its source, and replaces text - not one rule for each failing case.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - prompt
@@ -49,16 +49,13 @@ version of a [skill](../levers/skill.md).
 2. **Write one rule** that states the cause and the action. Put its reason
    beside it, in a short clause. A rule with its reason is easier to keep
    correct.
-3. **Name the source of the rule**: the task instruction, the behaviour of
-   a tool as a trace shows it, the product's documentation, or a general
-   principle. Never a train case. An example uses invented values.
-4. **The rule replaces text.** Remove or change the text that said the
-   same thing less well, and text that a tool now does. When nothing can
-   go, say why in the build notes.
-5. **Look for a contradiction.** Search the prompt and the attached skills
+3. **Apply "Text you add"** in the `kiln-harness-tuner-experiment-build`
+   skill's `SKILL.md`: the rule replaces text, and it names its source,
+   never a train case. An example in the rule uses invented values.
+4. **Look for a contradiction.** Search the prompt and the attached skills
    for text that says the opposite. Two rules that disagree make the model
    choose.
-6. **State it once.** Do not add "always", "never" or capitals to a rule
+5. **State it once.** Do not add "always", "never" or capitals to a rule
    that the model already reads.
 
 ## Check that it took effect

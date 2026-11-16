@@ -19,8 +19,9 @@ cost: medium
   give up after such an error.
 - The agent ends with an answer that hides a failed call, or says that no
   data exists when the call failed.
-- A tool reports an error as a success: an empty result, or a result with
-  an error field that the agent does not read.
+- A tool reports an error as a success: a result with an error field that
+  the agent does not read, or an empty result when the traces or the
+  tool's contract show that empty means failure.
 
 ## When not to use
 
@@ -59,14 +60,28 @@ exceptions.
 3. **Return an error as data**, in the result, with a field that marks it
    as an error. A raised exception reaches the agent as text that it
    cannot use.
-4. **Mark a hidden failure as a failure.** When the tool returns an empty
-   result or an error field inside a success, the wrapper says so in
-   plain words.
+4. **Mark a hidden failure as a failure.** When the tool returns an error
+   field inside a success, the wrapper says so in plain words. An empty
+   result is a failure only when the traces or the tool's contract show
+   that empty means failure (for example, a status field, or a parameter
+   that the tool ignores). Otherwise an empty result is often the correct
+   answer ("no orders match"): return it with the filters that produced
+   it.
 5. **Keep the successful result** as the wrapped tool returns it, unless
    another change trims it.
-6. **A transient error** (a timeout, a rate limit) that a trace shows can
-   get a retry inside the wrapper, so the agent does not see it. No
-   template retries yet: add the retry to the copy of the template.
+6. **Handle a transient error** (a timeout, a rate limit) that a trace shows.
+   Before you add a retry, know how the wrapped tool works and what a
+   retry can do. A write that timed out can already be applied, so a
+   retry writes twice. The nested calls of one call share one timeout
+   (`timeout_seconds`), so a retry with a wait can use all of it. No one
+   answer is correct for every tool. The options include:
+   - retry reads only;
+   - retry a fixed number of times, with a wait that fits the timeout;
+   - return the error, and let the agent decide what to do.
+
+   Choose the option for this tool, and say why in `build_notes`. No
+   template retries yet: when you choose a retry, add it to the copy of
+   the template.
 
 ## Check that it took effect
 

@@ -34,7 +34,9 @@ cost: low
 - **The provider is not the same model in practice.** A provider can serve
   another version, another precision or another context length under the
   same name, and the tool calls or the structured output can then behave
-  differently. Measure it as a model change, on every eval.
+  differently. The first measurement (step 4) checks for this. When it
+  shows a major shift, drop the provider, or plan it as a
+  [model swap](model-swap-inside-a-class.md).
 - **The run's model policy does not allow the provider**, or a stated
   restriction excludes it (a region, data retention, an origin).
 
@@ -57,7 +59,13 @@ The change is the provider on a run config, with the same model (the lever
    cost, and whether the baseline's passes are kept.
 3. **Set the thinking level** from the new provider's own list. A level of
    one provider can be missing on another.
-4. **Commit the best survivor** as an arm, and measure it on every eval.
+4. **Commit the best survivor** as an arm. This is not an exception to the
+   planner's lean-target default. Measure it first on one of the more
+   discriminating evals: one where items pass and fail, not one at the
+   ceiling. The check is that the model behaves roughly the same on the new
+   provider. It catches a major shift, such as another quantisation or a
+   bug of the provider. When it holds, the arm can go to promotion. The val
+   gate measures every eval, and the full set is handled later, in a merge.
 
 ## Check that it took effect
 

@@ -1,7 +1,7 @@
 ---
 title: Skill into the prompt
 description: Move the content of a skill into the prompt and drop the skill - for a small skill, content that most runs need, or a skill the agent does not open.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - prompt
@@ -32,8 +32,8 @@ cost: low
 - **Many topics, and each run needs few of them.** The prompt then grows
   with content that most runs do not use:
   [long prompt into a skill](long-prompt-into-a-skill.md).
-- **A small model that loses parts of a long prompt.** It does better with
-  focused context.
+- **A small model that loses parts of a long prompt**, when a probe shows
+  that it opens skills. It then does better with focused context.
 - **The measured cost shows no cache saving.** Whether the cache applies
   depends on the provider and on how Kiln makes the call. Read the cost
   per item in the traces before you plan the cache as the reason.
@@ -41,11 +41,11 @@ cost: low
 ## Alternatives
 
 - [Long prompt into a skill](long-prompt-into-a-skill.md), the reverse
-  move: when each run needs a part of the content, the model is small or
-  medium, or the prompt cache does not apply.
-- [Path index in the skill description](path-index-in-the-skill-description.md),
-  when the agent opens the skill and then reads the wrong file, and the
-  content is too large for the prompt.
+  move: when a probe shows that the model opens skills, and each run needs
+  a part of the content or the prompt cache does not apply.
+- [Rewrite an inherited skill](rewrite-an-inherited-skill.md), when the
+  agent opens the skill and then reads the wrong file, and the content is
+  too large for the prompt: a new version, restructured.
 
 ## How
 

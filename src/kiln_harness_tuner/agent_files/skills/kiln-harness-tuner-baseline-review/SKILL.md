@@ -82,6 +82,10 @@ return instead of going looking.
      not returned.
    - A code detection that holds is already in the input. Return a finding
      for its smell only when you saw more than the detection states.
+   - Some smells are detected by both code and an agent. The code detection
+     is the sure case, not the only one. With no detection in your input,
+     apply the document's criterion for a reader, and return a finding when
+     the evidence shows it.
 7. **Put a design issue that fits no smell in `notes`**, in a few lines.
 
 ## Hard rules

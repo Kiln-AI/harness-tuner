@@ -14,6 +14,7 @@ from kiln_harness_tuner.smells.run import (
     baseline_trace_samples,
     ensure_baseline_reviewed,
     ensure_detections,
+    planner_detections,
     run_detectors,
 )
 
@@ -26,5 +27,6 @@ __all__ = [
     "detector_smells",
     "ensure_baseline_reviewed",
     "ensure_detections",
+    "planner_detections",
     "run_detectors",
 ]

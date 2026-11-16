@@ -23,6 +23,9 @@ cost: medium
 
 ## When not to use
 
+- **You do not have the documents themselves.** You need the documents to
+  do this. You may have them from existing traces, or from additional
+  context from the user. If you lack them, do not attempt this method.
 - **The agent already finds the right part** with the tool. The change
   adds a bundle and fixes nothing.
 - **The document is very large, or it changes often.** A skill is
@@ -37,8 +40,9 @@ cost: medium
 
 - [Attach the knowledge source](attach-the-knowledge-source.md), when no
   source of the knowledge is in context.
-- [Path index in the skill description](path-index-in-the-skill-description.md),
-  when the document is already a skill and the agent reads the wrong file.
+- [Rewrite an inherited skill](rewrite-an-inherited-skill.md), when the
+  document is already a skill and the agent reads the wrong file: a new
+  version with a better description and body map.
 
 ## How
 
@@ -46,18 +50,22 @@ The change is a new [skill](../levers/skill.md), and the lookup tool
 dropped on the same new run config
 ([tool_config](../levers/tool_config.md)).
 
-1. **Split the document by section.** One `references/` file for each
-   section, with a contents line at the top that names what it holds.
-2. **Write the `SKILL.md` body as a contents file**: each section, what it
-   contains, and its key terms. Key terms are the words that a question
-   would use, not only the section's title.
-3. **Write the description** with the path of each file and its key terms,
-   inside the 1,024 characters. When it does not fit, group the sections.
-4. **Drop the lookup tool on the same arm.** With both, the agent chooses,
+1. **Get the documents themselves.** You need the documents to do this.
+   You may have them from existing traces, or from additional context from
+   the user. If you lack them, do not attempt this method. For the move
+   that drops the tool, a part of a document is not enough: the same arm
+   drops the tool, so a section that the bundle leaves out loses its facts
+   with no sign.
+2. **Build the bundle from the document**, never from the train items: one
+   `references/` file for each section, and a body that maps each file. The
+   steps are in the `kiln-harness-tuner-experiment-build` skill,
+   `references/skill-authoring.md`, sections 2 and 3. Section 4 ends with
+   this same move. When the path index does not fit in the description,
+   group the sections.
+3. **Drop the lookup tool on the same arm.** With both, the agent chooses,
    and the result does not tell which path it took. Remove each mention of
    the tool in the prompt and in other skills.
-5. **Write from the document**, never from the train items.
-6. When the document cannot move (it is too large, or it changes often),
+4. When the document cannot move (it is too large, or it changes often),
    a smaller change is a skill that holds only the keyword contents and
    names the tool's sections, with the tool kept.
 

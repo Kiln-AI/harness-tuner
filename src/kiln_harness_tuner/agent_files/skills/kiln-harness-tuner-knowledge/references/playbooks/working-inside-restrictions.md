@@ -1,7 +1,7 @@
 ---
 title: Working inside restrictions
 description: The user states a restriction - providers, the origin of a model, data retention, a tool that must not change. It is a hard limit on the plan. What to do when the best lever is not allowed.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: goal
 applies_to: all
 ---
@@ -43,10 +43,12 @@ waves on a model that is not allowed.
    - A model change is not allowed: a change to the harness that does the
      same work, for example a tool that removes a mechanical failure,
      [change the surface, not the words](change-the-surface-not-the-words.md).
-   - A tool must not change: a wrapper adds a tool beside it and leaves it
-     as it is. When the restriction forbids a wrapper too, change the text
-     the agent reads about the tool, in the prompt or in a skill:
-     [guide skill for a tool set](../techniques/guide-skill-for-a-tool-set.md).
+   - A tool must not change: a wrapper is allowed only when the guidance
+     says that the restriction is about the tool's code. A wrapper then
+     adds a tool beside it and leaves its code as it is. Otherwise, change
+     the text the agent reads about the tool, in the prompt or in a skill,
+     [guide skill for a tool set](../techniques/guide-skill-for-a-tool-set.md),
+     and put the question in `open_questions`.
 3. When no step inside the limits fits an issue, do not plan an arm for
    it. Say in `rejected_summary` which restriction stops it, so that the
    report can tell the owner.

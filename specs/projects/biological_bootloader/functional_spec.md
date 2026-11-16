@@ -98,7 +98,7 @@ it is a **lever kind**, not a technique in the sense of this spec.
 | Baseline reviewer | Smells. It is the main reader of the smell documents: it reads them, then looks for each one in the agent. | Its own entry file |
 | Planner | Smells, playbooks and techniques | Its own entry file |
 | Builder | Techniques and levers | Its own entry file |
-| Analyzer | The playbooks for failure patterns, so that it can name the pattern it sees in a candidate's traces | Its own entry file |
+| Analyzer | The playbooks for failure patterns and for eval problems, so that it can name the pattern it sees in a candidate's traces, or the eval problem | Its own entry file |
 | Report writer | Playbooks, techniques and priors, where they help it explain the run | Its own entry file |
 | Promoter, probe, reviewers, eval roles | Nothing from the knowledge system | — |
 | Coding agents and people who maintain the system | Everything, plus the maintenance skill | The maintenance skill |
@@ -317,7 +317,7 @@ one a location and a path from an entry file.
   work item directly, and from there the levers.
 - **The baseline reviewer's entry file** lists every smell, with how to
   recognise it in one line and a link to the detail.
-- **The analyzer's entry file** lists the playbooks for failure patterns.
+- **The analyzer's entry file** lists the playbooks for failure patterns and for eval problems.
 - **A technique index** exists for one case only: the user's free-form
   guidance names a technique ("try a sub-agent for X"). The index carries
   the instruction "prefer a playbook; use this index only when the user

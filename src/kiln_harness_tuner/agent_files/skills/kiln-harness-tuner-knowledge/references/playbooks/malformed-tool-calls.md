@@ -1,7 +1,7 @@
 ---
 title: Malformed tool calls
 description: The agent calls a tool with the wrong case, the wrong form of an id, a body on a GET, or a misspelled tool name. A wrapper that normalises, errors the agent can act on, a guard at the tool.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 kind: failure
 applies_to:
   - tools
@@ -44,9 +44,12 @@ error that names the valid values when it cannot.
 
 ## What not to do yet
 
-- No prompt list of formatting rules. The model reads the list far from
-  the call, and a list cannot name every form it will try. A wrapper
-  removes the failure instead of asking the model to avoid it.
+- No prompt list of formatting rules. A list cannot name every form that
+  the model will try. A wrapper removes the failure instead of asking the
+  model to avoid it. A form that the model must still know goes in the
+  parameter description, not in the prompt. This is a very strong
+  preference: text in a tool moves with the tool, so a later change of the
+  tool set needs no prompt change.
 - No model swap for a malformed call. The tool's contract is the problem,
   and a wrapper fixes it for every model.
 

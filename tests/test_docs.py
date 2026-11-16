@@ -24,6 +24,7 @@ commands. This check reads every document a user or a contributor meets.
 from __future__ import annotations
 
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -158,9 +159,9 @@ def test_the_root_documents_are_link_checked():
         assert (REPO_ROOT / name).resolve() in checked, f"{name} is not link-checked"
 
 
-def resolves_inside_the_repository(base: Path, target: str) -> bool:
-    """True when `target`, read from a file in `base`, names an existing path
-    inside this repository, spelled EXACTLY as it is on disk.
+def resolve_inside_the_repository(base: Path, target: str) -> Path | None:
+    """The path `target` names, read from a file in `base`, when it exists
+    inside this repository and is spelled EXACTLY as it is on disk. Else None.
 
     Two failures, both of which are green for the author and broken for every
     reader.
@@ -175,18 +176,55 @@ def resolves_inside_the_repository(base: Path, target: str) -> bool:
     for nobody else. A `../..` link to a file next to the checkout works for
     its author and for no other reader."""
     # The knowledge checks resolve their links with the same rule.
-    return resolve_link(base, target, REPO_ROOT) is not None
+    return resolve_link(base, target, REPO_ROOT)
+
+
+def git_ignored(paths: list[Path]) -> set[Path]:
+    """The members of `paths` that git ignores in this checkout.
+
+    A link into an ignored path resolves on its author's machine and in no
+    other checkout: CI clones the repository, and an ignored file is never in
+    the clone. A tracked file is never reported, even under an ignored
+    pattern, so it stays a valid target. Outside a git checkout no file can
+    be ignored, and the answer is empty."""
+    names = "".join(f"{path.relative_to(REPO_ROOT).as_posix()}\0" for path in paths)
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-z", "--stdin"],
+            cwd=REPO_ROOT,
+            input=names,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return set()
+    # 0: some path is ignored. 1: none is. Anything else: not a git checkout.
+    if result.returncode not in (0, 1):
+        return set()
+    return {REPO_ROOT / name for name in result.stdout.split("\0") if name}
+
+
+def test_git_ignored_reports_ignored_paths_and_not_tracked_ones():
+    """The guard that stops the ignored-link check passing vacuously: a broken
+    `git check-ignore` call would report nothing, and every link would pass."""
+    ignored = REPO_ROOT / ".specs_skill_state" / "tasks" / "a-task.md"
+    reviews = REPO_ROOT / "reviews" / "a-review.md"
+    tracked = REPO_ROOT / "docs" / "agents.md"
+    assert git_ignored([ignored, reviews, tracked]) == {ignored, reviews}
 
 
 @pytest.mark.parametrize(
     "path", linked_files(), ids=lambda p: p.relative_to(REPO_ROOT).as_posix()
 )
 def test_every_internal_link_resolves(path: Path):
-    """Relative links point at files that exist, spelled as they are on disk.
+    """Relative links point at files that exist, spelled as they are on disk,
+    and that git does not ignore.
 
     An `#anchor` suffix is stripped before resolution: this checks that the
     file is there, not that the heading is."""
     broken: list[str] = []
+    resolved: dict[Path, list[str]] = {}
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         for target in LINK_RE.findall(line):
             if target.startswith(EXTERNAL_PREFIXES) or target.startswith("#"):
@@ -194,12 +232,20 @@ def test_every_internal_link_resolves(path: Path):
             if PLACEHOLDER in target:
                 continue
             bare = target.split("#", 1)[0]
-            if not resolves_inside_the_repository(path.parent, bare):
+            found = resolve_inside_the_repository(path.parent, bare)
+            if found is None:
                 broken.append(
                     f"line {lineno}: {target} -> "
                     f"{(path.parent / bare).resolve()} (not found, spelled"
                     " differently on disk, or outside this repository)"
                 )
+            else:
+                resolved.setdefault(found, []).append(f"line {lineno}: {target}")
+    for found in sorted(git_ignored(list(resolved))):
+        broken.extend(
+            f"{where} -> {found} (git-ignored: no other checkout has it)"
+            for where in resolved[found]
+        )
     assert not broken, f"{path.relative_to(REPO_ROOT)} has broken links:\n" + "\n".join(
         broken
     )

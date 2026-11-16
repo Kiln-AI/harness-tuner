@@ -49,18 +49,19 @@ does not matter.
 | Smell | Applies to | Description |
 |---|---|---|
 | [document-behind-a-lookup-tool](smells/document-behind-a-lookup-tool.md) | tools | A long reference document that the agent can reach only by page, by search or by section, through a lookup tool, with no contents to choose from. |
-| [faulty-inherited-skill](smells/faulty-inherited-skill.md) | all | A skill that the baseline attaches is wrong, stale, contradicts the task, or holds data shaped like test cases. It can be changed as a new version. |
+| [faulty-inherited-skill](smells/faulty-inherited-skill.md) | all | A skill that the baseline attaches is wrong or stale, contradicts the task, or holds an example whose answer contradicts a rule. It can be changed as a new version. |
 | [fixed-call-chain](smells/fixed-call-chain.md) | tools | The agent calls the same tools in the same order on each run, and passes an id from one result to the next call. The model decides nothing new between the calls. |
 | [general-query-tool-without-a-guide](smells/general-query-tool-without-a-guide.md) | tools | The agent has a SQL, GraphQL or general API tool, with no examples and no guide to the schema, so it must learn the data model on each run. |
 | [old-model](smells/old-model.md) | all | The baseline's model was released more than the reference time before the run. A code detector reads the release date, and the detection gives the age, the reference and its source. |
 | [one-file-skill-with-many-topics](smells/one-file-skill-with-many-topics.md) | all | An attached skill is one long file that holds many topics, with no reference files. The agent reads all of it to use one part of it. |
 | [skill-too-small-to-earn-its-place](smells/skill-too-small-to-earn-its-place.md) | all | An attached skill holds a few words and no other file. Its description is in every run and opening it costs a call, so it can cost more than it saves. |
-| [too-many-narrow-tools](smells/too-many-narrow-tools.md) | tools | The agent has many tools that each do one small thing, or tools that overlap, or general tools that carry no rule of the product. |
+| [too-many-tools](smells/too-many-tools.md) | tools | The run config attaches more than 40 tools, and every tool definition is in the context of every call. A code detector counts them. |
 | [tool-results-flood-the-context](smells/tool-results-flood-the-context.md) | tools | A tool returns a very large result - a list with every field, a full schema, many pages - or the agent makes one call for each item of a list. |
-| [tool-search](smells/tool-search.md) | tools | The agent must guess that a tool exists, decide to search for it, and find the right search terms, before it can call it. |
+| [tool-search](smells/tool-search.md) | tools | The tools are listed nowhere the model can read, so the agent must guess that a tool exists and guess the raw search terms that find it. |
 | [tools-on-a-live-server](smells/tools-on-a-live-server.md) | tools | The agent's tools read or write a staging or live system, so the right answer to an eval item can change with time, and a measurement cannot be repeated. |
-| [very-long-prompt](smells/very-long-prompt.md) | all | The system prompt is longer than the reference length. A code detector measures it, and the detection gives the length, the reference and its source. |
-| [very-long-skill-description](smells/very-long-skill-description.md) | all | The description of an attached skill is longer than the reference length. A code detector reads each skill's front matter, and each detection names the skill. |
+| [unnecessary-tools](smells/unnecessary-tools.md) | tools | Tools that overlap - two tools used for the same kind of request - or tools never called in the traces. One tool for each job, and each tool needed. |
+| [very-long-prompt](smells/very-long-prompt.md) | all | The system prompt is longer than the reference length, or it holds many unrelated topics and each request needs a few. Code measures the length. |
+| [very-long-skill-description](smells/very-long-skill-description.md) | all | A skill description is longer than the reference length, or it holds rules that the agent needs only after it opens the skill. Code measures the length. |
 | [very-long-tool-description](smells/very-long-tool-description.md) | tools | The description of an attached tool is longer than the reference length. A code detector measures each tool, and each detection names the tool. |
 <!-- END GENERATED: smells -->
 
@@ -71,7 +72,7 @@ does not matter.
 |---|---|---|
 | [know-the-agent-before-you-plan](playbooks/know-the-agent-before-you-plan.md) | all | Classify the agent before the first plan - its turns, its output, a classifier shape, its tools, skills and model - because each document says which shapes it fits. |
 | [ordering-work](playbooks/ordering-work.md) | all | How to order the work of a run - the priority comes from the smells and the failures of this agent, not from a fixed order of levers. All of it is guidance. |
-| [spending-the-budget](playbooks/spending-the-budget.md) | all | How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scans only on a large one. |
+| [spending-the-budget](playbooks/spending-the-budget.md) | all | How to spend a fixed budget - fewer experiments, each large enough to pass its own test, the cheap techniques first on a small budget, and the scan of models only on a large one. |
 <!-- END GENERATED: playbooks-order -->
 
 ## Goals
@@ -91,16 +92,16 @@ A class of failure seen in the traces of eval items.
 | Playbook | Applies to | Description |
 |---|---|---|
 | [answers-not-grounded](playbooks/answers-not-grounded.md) | all | The answers need knowledge that is not in the agent's context - attach the source, then add scope discipline. A source behind a lookup tool can move into a skill. |
-| [change-the-surface-not-the-words](playbooks/change-the-surface-not-the-words.md) | all | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception - procedure text comes first. |
+| [change-the-surface-not-the-words](playbooks/change-the-surface-not-the-words.md) | all | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed. |
 | [failure-at-a-tool-call](playbooks/failure-at-a-tool-call.md) | tools | The failing message comes before or with a tool call - a preamble, or a narration that rides the call. A new tool description, then a directive in the tool's response. |
 | [lost-in-long-instructions](playbooks/lost-in-long-instructions.md) | all | The agent misses a part of a long prompt or of a one-file skill. Progressive disclosure when the model reads skills, a prompt structure when it does not. A probe first. |
 | [malformed-tool-calls](playbooks/malformed-tool-calls.md) | tools | The agent calls a tool with the wrong case, the wrong form of an id, a body on a GET, or a misspelled tool name. A wrapper that normalises, errors the agent can act on, a guard at the tool. |
-| [missing-context-the-agent-could-be-given](playbooks/missing-context-the-agent-could-be-given.md) | tools | The agent fails because it did not know a fact that a tool could give it - if it had known that, it would have done the right thing. One tool that loads it, and a prompt line to call it first. |
+| [missing-context-the-agent-could-be-given](playbooks/missing-context-the-agent-could-be-given.md) | tools | The agent fails because it did not know a fact that a tool could give it - if it had known that, it would have done the right thing. A prompt line to always call that tool, or a new tool. |
 | [output-contract-not-met](playbooks/output-contract-not-met.md) | all | The output breaks its format - broken JSON or JSON that misses the task's schema, a closing block, a layout of free text, an escaping rule, or the form of a field. |
 | [requirement-missing-from-the-prompt](playbooks/requirement-missing-from-the-prompt.md) | all | The eval checks for something that neither the prompt nor the task instruction asks for. State the requirement in new words - do not copy the eval. |
-| [skill-is-not-read](playbooks/skill-is-not-read.md) | all | The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. The path index in the description, then a prompt rule. |
+| [skill-is-not-read](playbooks/skill-is-not-read.md) | all | The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. A rewrite of the skill, then a prompt rule. |
 | [wrong-scope-or-refusal](playbooks/wrong-scope-or-refusal.md) | all | The agent answers requests outside its scope, or refuses valid ones. A paragraph of decline rules, then a rebalance for the refusals that remain. |
-| [wrong-tool-chosen](playbooks/wrong-tool-chosen.md) | tools | The agent picks the wrong tool, or breaks a rule that the product enforces. Consolidate the tools with the policy inside, or remove and scope them, then better descriptions. |
+| [wrong-tool-chosen](playbooks/wrong-tool-chosen.md) | tools | The agent picks the wrong tool, or breaks a rule that the product enforces. Fit the tool layer first when the agent as a whole needs it, then remove and scope tools, descriptions, guards. |
 <!-- END GENERATED: playbooks-failure -->
 
 ## Eval problems
@@ -111,8 +112,9 @@ The measurement is the problem.
 | Playbook | Applies to | Description |
 |---|---|---|
 | [dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md) | all | A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items. |
-| [dealing-with-a-saturated-eval](playbooks/dealing-with-a-saturated-eval.md) | all | The baseline is at the ceiling of an eval, or the judge's fires are false. Measure the issue on the baseline, judge the fires, then grow or change the eval. No fix arm. |
-| [dealing-with-an-eval-near-zero](playbooks/dealing-with-an-eval-near-zero.md) | all | The baseline passes almost no item of an eval. Read the raw outputs - a format or protocol failure can be fixed, a capability floor cannot, and a stronger model gives a signal. |
+| [dealing-with-a-saturated-eval](playbooks/dealing-with-a-saturated-eval.md) | all | The baseline passes almost every item of an eval, so an arm has no room to show a gain on it. Keep the eval as a guard, put the effort elsewhere, and ask its owner for harder items. |
+| [dealing-with-a-wrong-eval](playbooks/dealing-with-a-wrong-eval.md) | all | The judge fails right answers or passes wrong ones, or the eval does not measure the issue. Classify each fire, arm only the config failures, report the rest. Do not tune toward the judge. |
+| [dealing-with-an-eval-near-zero](playbooks/dealing-with-an-eval-near-zero.md) | all | The baseline passes almost no item of an eval. Read the raw outputs first - text fixes a missing requirement or a wrong format. Try a smarter model only on evidence that the model cannot do the task. |
 | [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, or a gain not clear. Only "no gain" shows that the win did not carry. |
 <!-- END GENERATED: playbooks-eval -->
 
@@ -123,5 +125,5 @@ The response to a smell that needs more than one technique.
 <!-- BEGIN GENERATED: playbooks-design -->
 | Playbook | Applies to | Description |
 |---|---|---|
-| [fit-the-tool-layer-to-the-agent](playbooks/fit-the-tool-layer-to-the-agent.md) | tools | The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, with the prompt and the guide skill. |
+| [fit-the-tool-layer-to-the-agent](playbooks/fit-the-tool-layer-to-the-agent.md) | tools | The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, and where its rules go. |
 <!-- END GENERATED: playbooks-design -->

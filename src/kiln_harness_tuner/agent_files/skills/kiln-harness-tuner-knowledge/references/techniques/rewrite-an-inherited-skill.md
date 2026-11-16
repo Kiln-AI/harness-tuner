@@ -19,15 +19,16 @@ cost: medium
 - Earlier arms added prompt rules around the skill, and the failure stayed.
 - The skill describes tools, routes or fields that the agent does not have
   any more.
+- The agent opens the skill and then guesses a path or reads the wrong file.
 
 Everything that the baseline attaches is part of what the tuner can change.
 An inherited skill is not a fixed input.
 
 ## When not to use
 
-- **The skill is correct, and the agent does not read the right file.**
-  That is a read failure:
-  [path index in the skill description](path-index-in-the-skill-description.md).
+- **The model does not open skills at all** under this run config. Probe
+  it first. A new version of a skill that the agent never reads changes
+  nothing: [skill into the prompt](skill-into-the-prompt.md).
 - **The skill may not help at all.** Measure the agent without it first:
   [prune one group at a time](prune-one-group-at-a-time.md).
 - **Do not add prompt rules around a skill that you can change.** A rule
@@ -35,10 +36,8 @@ An inherited skill is not a fixed input.
 
 ## Alternatives
 
-- [Path index in the skill description](path-index-in-the-skill-description.md),
-  when only the reads fail.
 - [Skill into the prompt](skill-into-the-prompt.md), when the skill is a
-  few words.
+  few words, or a probe shows that the model does not open skills.
 - [Prune one group at a time](prune-one-group-at-a-time.md), when it is
   not known that the skill helps.
 
@@ -47,21 +46,22 @@ An inherited skill is not a fixed input.
 The change is a new version of the [skill](../levers/skill.md), attached
 in place of the old one on a new run config.
 
-1. **Export the skill**, and read every file.
-2. **Choose the rewrite** that the failure names:
+1. **Choose the rewrite** that the failure names:
    - **split** a long file into one reference file for each topic;
    - **merge** skills that overlap, so one topic has one place;
-   - **restructure** a body into a router with a path index;
+   - **restructure** it into progressive disclosure: the description and
+     the body map give each reference file's path and key terms
+     (the `kiln-harness-tuner-experiment-build` skill,
+     `references/skill-authoring.md`, section 3);
    - **correct** what is wrong or stale;
    - **scrub** data shaped like test cases: examples with real-looking ids,
      inputs with their expected answers.
-3. **Install it under a new name**, with the old skill's id in
-   `derived_from_ids`. Attach it and drop the old one. The procedure is
-   "Rewriting an inherited skill" in the `kiln-harness-tuner-experiment-build`
-   skill, `references/skill-authoring.md`.
-4. **Change each mention of the old name** in the prompt and in other
+2. **Build the new version.** The steps are "Rewriting an inherited skill"
+   in the `kiln-harness-tuner-experiment-build` skill,
+   `references/skill-authoring.md`, section 4.
+3. **Change each mention of the old name** in the prompt and in other
    skills.
-5. **Never write a value from a train item** into the new version. Code
+4. **Never write a value from a train item** into the new version. Code
    compares the new version with the old one, and searches it for train
    content.
 

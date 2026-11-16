@@ -1,7 +1,7 @@
 ---
 title: Change the surface, not the words
-description: Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception - procedure text comes first.
-reviewed: 2026-11-12
+description: Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed.
+reviewed: 2026-11-16
 kind: failure
 applies_to: all
 ---
@@ -14,8 +14,10 @@ This playbook applies in two cases:
 
 - **The failure is mechanical**: a wrong case or form of an id, pages
   that the agent does not follow, a result that floods the context, an
-  error that the agent cannot act on, or a text that the model does not
-  read at the moment it fails.
+  error that the agent cannot act on, or a rule about one tool that sits
+  in the prompt, and the model breaks it. Text in a tool moves with the
+  tool, so the tool's own text is the very strong preference for that
+  rule.
 - **Two text changes failed on one issue.** A text change is a `prompt`
   arm, or a `skill` arm that only changes words (a description, a body).
   Your input's `lever_attempts` counts the arms opened on each issue and
@@ -44,7 +46,7 @@ and [faulty inherited skill](../smells/faulty-inherited-skill.md).
    floods and pages,
    [roll-up tool](../techniques/roll-up-tool.md) for a chain of calls, and
    [directive in the tool response](../techniques/directive-in-the-tool-response.md)
-   for a text that the model does not read when it replies.
+   for a reply that misstates a tool's result.
 2. A guard at the tool, when the failure is a rule that the product can
    check:
    [guard tool calls at the boundary](../techniques/guard-tool-calls-at-the-boundary.md).
@@ -53,10 +55,16 @@ and [faulty inherited skill](../smells/faulty-inherited-skill.md).
    [long prompt into a skill](../techniques/long-prompt-into-a-skill.md),
    or a new version of an inherited skill,
    [rewrite an inherited skill](../techniques/rewrite-an-inherited-skill.md).
-4. **The exception: a policy failure.** When the agent breaks a rule of
-   the business that only words can carry (who gets a refund, which case
-   needs a person), procedure text comes first:
-   [policy as step-by-step procedures](../techniques/policy-as-step-by-step-procedures.md).
+4. **A policy failure, after two failed text arms.** A policy failure is
+   not mechanical: the agent breaks a rule of the business that only words
+   can carry (who gets a refund, which case needs a person). Its first
+   text arm is
+   [policy as step-by-step procedures](../techniques/policy-as-step-by-step-procedures.md),
+   through the normal path, not through this playbook. When two text arms
+   already failed on a policy issue, change the structure: put the
+   procedures in a skill, with one reference file for each procedure
+   ([long prompt into a skill](../techniques/long-prompt-into-a-skill.md)).
+   Or defer the issue (step 5).
 5. When no surface change fits the issue, defer the issue with the reason
    in `rejected_summary`.
 

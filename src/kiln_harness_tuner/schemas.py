@@ -1788,6 +1788,19 @@ class DetectionCheck(BaseModel):
     note: str = ""
 
 
+class PlannerDetection(Detection):
+    """One code detection as the planner gets it, with the baseline
+    reviewer's reading of it (`DetectionCheck`), matched by smell and
+    detector on the present baseline (`smells.run.planner_detections`).
+    Both reading fields are None when no review of the present baseline is
+    `done`, or when the review did not read this detection.
+    `reviewer_holds` is also None when the reviewer read it and could not
+    tell; `reviewer_note` then says why."""
+
+    reviewer_holds: bool | None = None
+    reviewer_note: str | None = None
+
+
 class TraceSample(BaseModel):
     """The train items of one eval whose stored baseline traces the reviewer
     starts from. Code chooses them by the order of the train set, never by
@@ -1818,7 +1831,8 @@ class BaselineReview(BaseModel):
     """What the run keeps about one review of one baseline, for the report.
     `detection_checks` and `notes` are kept beside the component design's
     fields, so that the report can show the reviewer's reading of each
-    detection."""
+    detection. The planner gets that reading too, with each detection
+    (`PlannerDetection`)."""
 
     rc_id: str
     status: Literal["done", "skipped", "failed", "off"]
@@ -1927,8 +1941,10 @@ class BatchPlanInput(BaseModel):
     dropped_eval_items: list[str] = []
     # What the smell detectors in code found on the PRESENT baseline
     #   (`smells.run_detectors`), run again after each promotion. Each names
-    #   a smell document of the knowledge skill. Empty when none was found.
-    detections: list[Detection] = []
+    #   a smell document of the knowledge skill, and carries the baseline
+    #   reviewer's reading of it when a review of this baseline read it.
+    #   Empty when none was found.
+    detections: list[PlannerDetection] = []
 
 
 class EvalBuildInput(BaseModel):

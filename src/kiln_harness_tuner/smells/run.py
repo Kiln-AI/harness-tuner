@@ -28,6 +28,8 @@ from kiln_harness_tuner.schemas import (
     BaselineReview,
     BaselineReviewInput,
     Detection,
+    DetectionCheck,
+    PlannerDetection,
     SmellFinding,
     TraceSample,
 )
@@ -281,6 +283,38 @@ def review_line(review: BaselineReview, flagged: Sequence[str]) -> str:
         return line + (f"; {reason}." if reason else ".")
     verb = "failed" if review.status == "failed" else "skipped"
     return f"Design review {verb}: {reason}."
+
+
+def planner_detections(
+    detections: Sequence[Detection],
+    reviews: Sequence[BaselineReview],
+    rc_id: str | None,
+) -> list[PlannerDetection]:
+    """The detections of the run config `rc_id` for the planner, each with
+    the reading of the last `done` review of `rc_id`, matched by smell and
+    detector. Every detection is kept. A review of another run config is
+    never used: after a promotion, the new baseline's detections get only
+    the new baseline's review. When the review read one pair two times,
+    the last reading is used, as in the report's table."""
+    review = next(
+        (r for r in reversed(reviews) if r.rc_id == rc_id and r.status == "done"),
+        None,
+    )
+    checks: dict[tuple[str, str], DetectionCheck] = {
+        (check.smell, check.detector): check
+        for check in (review.detection_checks if review is not None else [])
+    }
+    planned = []
+    for detection in detections:
+        check = checks.get((detection.smell, detection.detector))
+        planned.append(
+            PlannerDetection(
+                **detection.model_dump(),
+                reviewer_holds=check.holds if check is not None else None,
+                reviewer_note=(check.note or None) if check is not None else None,
+            )
+        )
+    return planned
 
 
 async def baseline_trace_samples(ctx: Ctx, rc_id: str) -> list[TraceSample]:

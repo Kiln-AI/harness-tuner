@@ -1,7 +1,7 @@
 ---
 title: Guide skill for a tool set
 description: A side skill that describes the agent's tools by progressive disclosure - which tool for which work, then one leaf file per tool or per query area.
-reviewed: 2026-11-12
+reviewed: 2026-11-13
 status: active
 levers:
   - skill
@@ -29,8 +29,9 @@ cost: medium
 - **The agent has a few tools, and their descriptions say all there is to
   know.** A skill adds a step and a description in every call.
 - **The failure is at the decision point of one call** (a preamble, a wrong
-  argument, a narration with the call). The text that the agent reads at
-  that moment is the tool's own description, not a skill.
+  argument, a narration with the call). The rule for that call goes in
+  the tool's own description, not in a skill: text in a tool moves with
+  the tool.
 - **The model does not open skills.** Probe that first, on this model.
 - **The tools return very large results.** A guide does not make a result
   smaller. Fix the result first.

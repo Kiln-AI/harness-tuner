@@ -50,10 +50,9 @@ has the same chance to be missed as the rules already there.
 ## Remedies
 
 - [Rewrite an inherited skill](../techniques/rewrite-an-inherited-skill.md),
-  when the skill can get a new version: a short router body, one reference
-  file for each topic, and a contents line in each file that names its key
-  terms. The text is split, not rewritten in place.
-- [Path index in the skill description](../techniques/path-index-in-the-skill-description.md),
-  after the split, when the agent does not open the file it needs.
+  when the skill can get a new version: a short router body, and one
+  reference file for each topic. The text is split, not rewritten in place.
+  The description and the body map give the full path of each file, with
+  its key terms.
 - [Lost in long instructions](../playbooks/lost-in-long-instructions.md),
   when the traces show the agent miss parts of the skill.
