@@ -102,6 +102,11 @@ ANSWER_MAX_CHARS = 40_000
 # How much of a train result's output an answer shows; the trace file has
 # all of it.
 OUTPUT_PREVIEW_CHARS = 300
+# The longest wait for an OpenEnv server's tool list. Kiln gives up on a
+# connect to the server after 30s and then answers 502; a server that
+# accepts the connect but does not answer would keep Kiln waiting far
+# longer, so the gateway stops waiting first.
+OPENENV_LIST_TIMEOUT_SECS = 45.0
 # How many over-cap answers a gateway process keeps for `get_answer_part`.
 KEPT_ANSWERS = 16
 
@@ -960,10 +965,17 @@ class Gateway:
     async def _openenv_tools(self, server_id: str) -> list[dict[str, Any]]:
         """The tools the OpenEnv server's environment serves, read from the
         running server (Kiln asks it; no episode starts). Read once per
-        process; a failed read is not kept, so the next call asks again."""
+        process; a failed read is not kept, so the next call asks again.
+
+        The read is not retried, and it waits a little longer than Kiln's
+        own connect timeout. A server that is down or does not answer then
+        costs one wait, not the retry ladder's four."""
         if server_id not in self._openenv_lists:
             path = f"{self.s.project}/openenv_servers/{server_id}/tools"
-            self._openenv_lists[server_id] = _rows(await self.call("GET", path))
+            rows = await self.call(
+                "GET", path, timeout_secs=OPENENV_LIST_TIMEOUT_SECS, retries=False
+            )
+            self._openenv_lists[server_id] = _rows(rows)
         return self._openenv_lists[server_id]
 
     async def get_tool_definition(self, req: m.ById) -> m.ToolDefinition:
