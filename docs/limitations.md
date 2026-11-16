@@ -41,6 +41,15 @@ wrap-up wave runs. A run therefore ends later than `--timeout-mins`, by the
 wave in flight plus the wrap-up. A long wave makes this stretch long. The
 budget is the hard ceiling for money: the run never starts a wave past it.
 
+**You start each OpenEnv server.** Kiln saves only the server's URL and
+never starts it. The start asks Kiln for the tools of each OpenEnv server
+that the baseline run config or a train eval input uses. It stops when one
+does not answer ([your-own-task.md](your-own-task.md) section 1.6).
+That check is made once, at the start. A server that stops during the run
+is not found until its items fail as measurement errors. A server that
+only a val or test item uses is not checked, because the start does not
+read those items.
+
 **Per-eval progress inside one eval job is not live.** The status model and
 the tracker have an `eval_progress` count, and nothing emits one: an eval job
 is driven by a single long poll that returns only at a terminal state. What is

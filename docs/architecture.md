@@ -1219,7 +1219,7 @@ src/kiln_harness_tuner/
   model_preflight.py  one test call per model before the first spend
   concurrency.py, provider_errors.py, snapshots.py
   onboarding/       the start before a run: the Kiln and task checks, the
-                    API-key check, the guided questions (the agents' model
+                    API-key check, the OpenEnv check, the guided questions (the agents' model
                     list in agent_models.py, the Models question and its
                     picked policy in models.py), the summary and the rerun
                     command

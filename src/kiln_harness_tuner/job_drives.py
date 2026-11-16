@@ -50,6 +50,10 @@ logger = logging.getLogger(__name__)
 # A tool an OpenEnv server serves: `kiln_tool::openenv::<server id>::<tool>`.
 # Kiln resolves it only while an episode of that server is running.
 OPENENV_TOOL_PREFIX = "kiln_tool::openenv::"
+# The longest wait for Kiln's `GET …/openenv_servers/{id}/tools`. Kiln asks
+# the OpenEnv server, and it waits up to 30 s to connect
+# (`CONNECT_TIMEOUT_S`), so the wait here is a little longer.
+OPENENV_LIST_TIMEOUT_SECS = 45.0
 MULTI_TURN_MODE = "multiturn"
 # The longest one drive may take, end to end: a multi-turn conversation in a
 # OpenEnv episode runs several model calls and several tool calls. The server's
@@ -74,13 +78,16 @@ def openenv_tool_parts(tool_id: str) -> tuple[str, str] | None:
     return (server_id, name) if server_id and name else None
 
 
-def lists_openenv_tool(props: Mapping[str, Any] | None) -> bool:
-    """Does this run config's tool list name an OpenEnv tool?"""
+def run_config_tool_ids(props: Mapping[str, Any] | None) -> list[str]:
+    """The tool ids a run config's properties list (`tools_config.tools`)."""
     tools_config = props.get("tools_config") if isinstance(props, Mapping) else None
     tools = tools_config.get("tools") if isinstance(tools_config, Mapping) else None
-    return any(
-        isinstance(t, str) and t.startswith(OPENENV_TOOL_PREFIX) for t in tools or []
-    )
+    return [t for t in tools or [] if isinstance(t, str)]
+
+
+def lists_openenv_tool(props: Mapping[str, Any] | None) -> bool:
+    """Does this run config's tool list name an OpenEnv tool?"""
+    return any(t.startswith(OPENENV_TOOL_PREFIX) for t in run_config_tool_ids(props))
 
 
 def doc_needs_eval_job(doc: Mapping[str, Any]) -> bool:
