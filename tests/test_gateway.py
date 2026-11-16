@@ -981,8 +981,6 @@ class TestDocumentedShapes:
                 "properties": {
                     "chunk_size": 512,
                     "chunk_overlap": 64,
-                    "api_key": "SECRET",
-                    "auth_header": "SECRET",
                 },
                 "path": "/secret/path/chunker.kiln",
             },
@@ -990,6 +988,10 @@ class TestDocumentedShapes:
                 "model_provider_name": "openai",
                 "model_name": "text-embedding-3-small",
                 "properties": {},
+            },
+            "vector_store_config": {
+                "store_type": "lancedb_hybrid",
+                "properties": {"text_key": "text", "doc_id_key": "doc_id"},
             },
             "reranker_config": None,
         }
@@ -1036,6 +1038,11 @@ class TestDocumentedShapes:
         assert listed["chunker"]["properties"]["chunk_size"] == 512
         assert listed["embedding"]["model_name"] == "text-embedding-3-small"
         assert listed["reranker"] is None
+        # Field names that look like keys are settings, not secrets.
+        assert listed["vector_store"]["properties"] == {
+            "text_key": "text",
+            "doc_id_key": "doc_id",
+        }
         assert "/secret/path" not in json.dumps(listed)
         assert "SECRET" not in json.dumps(listed)
         one = _run(gateway, "get_rag_config", id="kiln_tool::rag::r1")
@@ -1063,7 +1070,7 @@ class TestDocumentedShapes:
         project = f"/api/projects/{PROJECT}"
         sub = f"{project}/tasks/t2"
         routes = {
-            ("GET", f"{project}/tool_servers/s9"): {
+            ("GET", f"{project}/tool_servers/s9/config"): {
                 "id": "s9",
                 "type": "kiln_task",
                 "name": "triage",
@@ -1095,7 +1102,7 @@ class TestDocumentedShapes:
                 "prompt_id": "id::p1",
                 "prompt": "You triage tickets.",
             },
-            ("GET", f"{project}/tool_servers/m1"): {
+            ("GET", f"{project}/tool_servers/m1/config"): {
                 "id": "m1",
                 "type": "remote_mcp",
                 "properties": {"server_url": "https://x", "headers": {"k": "SECRET"}},
@@ -1114,20 +1121,31 @@ class TestDocumentedShapes:
         with pytest.raises(gw.GatewayError, match="not a Kiln task tool") as err:
             _run(gateway, "get_kiln_task_tool", id="m1")
         assert "SECRET" not in str(err.value)
+        # Only the saved record is read: the plain route would connect to an
+        # MCP server, or start a local one, to list its tools.
+        servers = [
+            p for p in (path for _m, path, *_ in kiln.calls) if "tool_servers" in p
+        ]
+        assert servers and all(p.endswith("/config") for p in servers)
 
     @pytest.mark.parametrize(
         "prompt_id, frozen",
-        [("few_shot_prompt_builder", None), ("id::p1", {"base_prompt": "Frozen."})],
+        [
+            ("few_shot_prompt_builder", None),
+            ("repairs_prompt_builder", None),
+            ("id::p1", {"base_prompt": "Frozen."}),
+        ],
     )
-    def test_a_kiln_task_tool_renders_only_a_saved_prompt(
+    def test_a_kiln_task_tool_renders_no_prompt_built_from_runs(
         self, tmp_path, prompt_id, frozen
     ):
-        """A generator builds its text from the called task's stored runs,
-        which can come from held-out drives: it is named, not rendered. A
-        frozen prompt is already on the run config: nothing is rendered."""
+        """A generator such as few-shot builds its text from the called
+        task's stored runs, which can come from held-out drives: it is named,
+        not rendered. A frozen prompt is already on the run config: nothing
+        is rendered."""
         project = f"/api/projects/{PROJECT}"
         routes = {
-            ("GET", f"{project}/tool_servers/s9"): {
+            ("GET", f"{project}/tool_servers/s9/config"): {
                 "type": "kiln_task",
                 "properties": {"task_id": "t2", "run_config_id": "rc7"},
             },
@@ -1145,14 +1163,47 @@ class TestDocumentedShapes:
         assert out["prompt"] is None
         assert not any("gen_prompt" in path for _m, path, *_ in kiln.calls)
         if frozen is None:
-            assert "few_shot_prompt_builder" in out["note"]
+            assert prompt_id in out["note"]
         else:
             assert out["run_config"]["prompt"] is not None and out["note"] is None
+
+    @pytest.mark.parametrize(
+        "prompt_id",
+        [
+            "simple_prompt_builder",
+            "simple_chain_of_thought_prompt_builder",
+            "fine_tune_prompt::p::t2::ft1",
+            "task_run_config::p::t2::rc1",
+        ],
+    )
+    def test_a_kiln_task_tool_renders_a_prompt_that_reads_no_runs(
+        self, tmp_path, prompt_id
+    ):
+        """These prompts use the task's own fields, a fine-tune's prompt or a
+        run config's frozen prompt, never the task's stored runs."""
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9/config"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "rc7"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [
+                {"id": "rc7", "run_config_properties": {"prompt_id": prompt_id}}
+            ],
+            ("GET", f"{project}/tasks/t2/gen_prompt/{prompt_id}"): {
+                "prompt_id": prompt_id,
+                "prompt": "Sort the ticket.",
+            },
+        }
+        gateway, _ = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["prompt"]["prompt"] == "Sort the ticket." and out["note"] is None
 
     def test_a_kiln_task_tool_with_a_missing_run_config_says_so(self, tmp_path):
         project = f"/api/projects/{PROJECT}"
         routes = {
-            ("GET", f"{project}/tool_servers/s9"): {
+            ("GET", f"{project}/tool_servers/s9/config"): {
                 "type": "kiln_task",
                 "properties": {"task_id": "t2", "run_config_id": "gone"},
             },

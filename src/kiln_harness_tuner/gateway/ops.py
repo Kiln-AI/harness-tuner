@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import secrets
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -44,9 +43,14 @@ from kiln_harness_tuner.model_policy import ModelPolicy, allowed_models
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 KILN_TASK_TOOL_PREFIX = "kiln_task::"
-SAVED_PROMPT_PREFIX = "id::"
-# A RAG stage's settings key that can hold a credential is never returned.
-_SECRET_KEY = re.compile(r"key|token|secret|password|credential|auth|header", re.I)
+# The prompts of a called task that the gateway renders: a saved prompt, a
+# run config's frozen prompt, a fine-tune's prompt, and the generators that
+# use only the task's own fields. Every other generator (few-shot,
+# multi-shot, repairs) builds its text from the task's stored runs.
+RUN_FREE_PROMPT_PREFIXES = ("id::", "task_run_config::", "fine_tune_prompt::")
+RUN_FREE_PROMPT_GENERATORS = frozenset(
+    {"simple_prompt_builder", "simple_chain_of_thought_prompt_builder"}
+)
 
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
@@ -301,8 +305,7 @@ def _rag_part(value: Any) -> m.RagPart | None:
     if not isinstance(value, dict):
         return None
     props = value.get("properties") if isinstance(value.get("properties"), dict) else {}
-    safe = {k: v for k, v in props.items() if not _SECRET_KEY.search(str(k))}
-    return m.project(m.RagPart, value, properties=safe)
+    return m.project(m.RagPart, value, properties=props)
 
 
 def _rag_view(row: dict[str, Any]) -> m.RagConfigView:
@@ -1031,7 +1034,12 @@ class Gateway:
         the task's runs and evals can hold items of this task's held-out
         splits, so they are never read."""
         server_id = req.id.removeprefix(KILN_TASK_TOOL_PREFIX)
-        server = await self.call("GET", f"{self.s.project}/tool_servers/{server_id}")
+        # `/config` reads the saved record only. The plain route also asks an
+        # MCP server for its tools: it connects to a remote one, starts a
+        # local one, and answers a failure with its command, URL and stderr.
+        server = await self.call(
+            "GET", f"{self.s.project}/tool_servers/{server_id}/config"
+        )
         server = server if isinstance(server, dict) else {}
         props = (
             server.get("properties")
@@ -1062,7 +1070,9 @@ class Gateway:
         prompt_id = view.run_config.prompt_id
         if view.run_config.prompt is not None or not prompt_id:
             return view
-        if not prompt_id.startswith(SAVED_PROMPT_PREFIX):
+        if prompt_id not in RUN_FREE_PROMPT_GENERATORS and not prompt_id.startswith(
+            RUN_FREE_PROMPT_PREFIXES
+        ):
             # A generator such as few-shot or repairs builds its text from
             # the called task's stored runs, which the loop does not split:
             # one made while a held-out item was driven would show here.
