@@ -457,7 +457,7 @@ class TestTheCatalogueSnapshot:
         snapshot = Catalog(
             fetched_at="2026-11-13T12:00:00+00:00",
             kiln=Source(state="ok"),
-            models=[CatalogModel(model="m1", name="M1")],
+            models=[CatalogModel(model="m1", display_name="M1")],
         )
         state = self._load_state(tmp_path, snapshot)
         assert state.catalog == snapshot
@@ -925,7 +925,7 @@ class TestDocumentedShapes:
         }
         gateway, _ = _gateway(tmp_path, routes)
         model = _run(gateway, "get_model_details", model="gpt")
-        assert model["providers"][0]["structured_output_mode"] == "json_schema"
+        assert model["providers"][0]["default_structured_output_mode"] == "json_schema"
         (tool_set,) = _run(gateway, "list_available_tools")
         assert tool_set["type"] == "code"
         assert tool_set["tools"][0]["function_name"] == "kestrel"

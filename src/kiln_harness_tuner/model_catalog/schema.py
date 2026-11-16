@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-SourceState = Literal["ok", "none"]
+SourceState = Literal["ok", "unavailable"]
 
 
 class _Snapshot(BaseModel):
@@ -18,7 +18,7 @@ class _Snapshot(BaseModel):
 
 
 class Source(_Snapshot):
-    state: SourceState = "none"
+    state: SourceState = "unavailable"
     reason: str = ""  # empty when ok
 
 
@@ -26,48 +26,57 @@ class CatalogEntry(_Snapshot):
     """One provider entry of one model."""
 
     provider: str  # Kiln's provider id
-    model_id: str | None = None  # the provider's own id for the model
+    provider_model_id: str | None = None  # the provider's own id for the model
     deprecated: bool = False
+    # Kiln has not tested the model, usually one a user added.
     untested: bool = False
     supports_tools: bool | None = None
     supports_structured_output: bool | None = None
     supports_vision: bool | None = None
-    supports_doc_extraction: bool | None = None
-    reasoning_capable: bool | None = None
     # The values of Kiln's `available_thinking_levels`, in Kiln's order.
     thinking_levels: list[str] = []
     default_thinking_level: str | None = None
-    structured_output_mode: str | None = None
-    # "evals", "data_gen", "doc_extraction", "synthetic_user"
-    suggested_for: list[str] = []
+    # Kiln's suggested default output mode for the pair.
+    default_structured_output_mode: str | None = None
+    # Values of `KILN_SUGGESTED_FOR` (`build.py`).
+    kiln_suggested_for: list[str] = []
     tags: list[str] = []
-    # From models.dev. Null when this entry has no exact match.
+    # From models.dev. Null when this entry has no exact match. A price of 0
+    # is kept as it is: usually a free tier, not the paid price.
     input_price: float | None = None  # USD per million tokens
     output_price: float | None = None
     cache_read_price: float | None = None
     cache_write_price: float | None = None
     context_window: int | None = None
     max_output_tokens: int | None = None
-    takes_temperature: bool | None = None
+    supports_temperature: bool | None = None
 
 
 class CatalogModel(_Snapshot):
     model: str  # Kiln's model id (KilnModel.name)
-    name: str  # friendly_name
+    display_name: str  # friendly_name
     family: str | None = None
-    featured_rank: int | None = None
+    kiln_featured_rank: int | None = None  # 1 first
     editorial_notes: str | None = None
     agent_notes: str | None = None
     tags: list[str] = []
     entries: list[CatalogEntry] = []
     # The model facts from models.dev: the first matched entry, except the
-    # release date, which has a loose fallback (`release_date_match`).
+    # release date, which has a loose fallback (`release_date_estimated`).
     release_date: str | None = None  # ISO date "YYYY-MM-DD"
-    release_date_match: Literal["exact", "loose"] | None = None
+    release_date_estimated: bool = False
     knowledge_cutoff: str | None = None
     open_weights: bool | None = None
+    # models.dev's `reasoning`: the model reasons before it answers, also
+    # when the reasoning is always on.
+    reasoning_model: bool | None = None
     context_window: int | None = None
     max_output_tokens: int | None = None
+    # USD per million tokens: the median across the models.dev providers of
+    # the model's canonical id, one price per provider (its lowest), $0 left
+    # out. Null with fewer than `MIN_MEDIAN_PRICES` priced providers.
+    median_input_price: float | None = None
+    median_output_price: float | None = None
 
 
 class CatalogProvider(_Snapshot):
@@ -88,8 +97,8 @@ class Catalog(_Snapshot):
     @classmethod
     def unavailable(cls, reason: str) -> Catalog:
         return cls(
-            kiln=Source(state="none", reason=reason),
-            models_dev=Source(state="none", reason=reason),
+            kiln=Source(state="unavailable", reason=reason),
+            models_dev=Source(state="unavailable", reason=reason),
         )
 
     @cached_property

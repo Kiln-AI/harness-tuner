@@ -54,7 +54,7 @@ Out:
 | Source | URL | What the catalogue takes |
 |---|---|---|
 | Kiln's published file | `https://remote-config.getkiln.ai/kiln_config_v2.json` | Each model: id, friendly name, family, `featured_rank`, `editorial_notes`, `agent_notes`, `tags`, and each provider entry (provider id, the provider's model id, capability flags, thinking levels, structured-output mode, `tags`, `deprecated`). The top-level `provider_list`, when it is there. |
-| models.dev | `https://models.dev/api.json` | For each matched provider entry: input, output, cache-read and cache-write price per million tokens; context window; maximum output; release date; knowledge cutoff; open weights; reasoning; tool calls; whether it takes a temperature; input modalities. |
+| models.dev | `https://models.dev/api.json` | For each matched provider entry: input, output, cache-read and cache-write price per million tokens; context window; maximum output; release date; knowledge cutoff; open weights; reasoning; whether it takes a temperature. Across all of its providers: the prices of each canonical model id, for the median price. |
 
 The Kiln fields `agent_notes`, `tags` and `provider_list` do not exist
 until the Kiln-side project ships. Until then they are empty, and the tools
@@ -75,7 +75,7 @@ work with the other fields.
 ### 3.3 The join
 
 **Price and limits are matched for each (provider, model) pair.** The
-provider entry's `model_id` is looked up under the provider's models.dev id.
+provider entry's `provider_model_id` is looked up under the provider's models.dev id.
 The provider's models.dev id comes from `provider_list[].models_dev_id` when
 Kiln publishes it. When Kiln does not, it comes from a built-in table, which
 is a port of the Kiln server's `KILN_TO_MODELS_DEV_PROVIDER` and
@@ -83,15 +83,28 @@ is a port of the Kiln server's `KILN_TO_MODELS_DEV_PROVIDER` and
 table.
 
 **Model facts take the first match in a fixed order.** The release date,
-knowledge cutoff, open weights and context window of the model come from the
-first matched provider entry, in the Kiln server's order
+knowledge cutoff, open weights, `reasoning_model` (models.dev's
+`reasoning`: the model reasons before it answers, also when that is always
+on) and context window of the model come from the first matched provider
+entry, in the Kiln server's order
 (`MODELS_DEV_PROVIDER_PREFERENCE`, then the other providers by name).
 
 **The release date has a looser fallback.** When no provider entry matches,
 the release date is looked up across all of models.dev, by
 `canonical_model_id` or by the last part of the model id with punctuation
-removed. A date found this way is marked `release_date_match: "loose"`. A
-date from an exact match is `"exact"`.
+removed. A date found this way is marked `release_date_estimated: true`. A
+date from an exact match has `false`.
+
+**The median price is across all of models.dev.** One provider's price can
+be far from what most providers charge: OpenRouter routes each call to one
+of many hosts, and its listed price can be one cheap host's price. So each
+model has `median_input_price` and `median_output_price`: the median
+models.dev price for the model's `canonical_model_id` across all models.dev
+providers, not only Kiln's. Each provider counts once, with its lowest
+price, also when it lists the model more than once. A $0 price and a
+missing price are left out. With fewer than three priced providers, the
+median is null. A $0 price stays on its entry as it is; it is a free tier
+with rate limits, not the paid price.
 
 On 2026-11-13 the exact match found 212 of the 264 Kiln models that have a
 provider entry that is not deprecated. The loose fallback raised the count
@@ -114,8 +127,8 @@ is the Kiln server's `_is_valid_price` and `_extract_limits`.
 
 | What fails | Result |
 |---|---|
-| models.dev | The catalogue has the Kiln data. Every models.dev field is null. The snapshot records `models_dev: "none"` and the reason. |
-| Kiln's file | The catalogue has no Kiln data. The tools serve what the Kiln server's `/api/available_models` gives, with the catalogue fields null. models.dev is not joined, because the join needs the provider's model id. The snapshot records `kiln: "none"` and the reason. |
+| models.dev | The catalogue has the Kiln data. Every models.dev field is null. The snapshot records `models_dev: "unavailable"` and the reason. |
+| Kiln's file | The catalogue has no Kiln data. The tools serve what the Kiln server's `/api/available_models` gives, with the catalogue fields null. models.dev is not joined, because the join needs the provider's model id. The snapshot records `kiln: "unavailable"` and the reason. |
 | Both, or the flag | Same as a failure of Kiln's file. |
 
 A failure never stops the run. The run's log has one event
@@ -176,11 +189,11 @@ Lists models, one row for each model, with the model's providers in the row.
 | `family` | string | none | Only this Kiln family. |
 | `provider` | string | none | Only this provider. Other providers are left out of each row. |
 | `tags` | list of strings | none | Only models where at least one of these tags is on the model or on one of its listed provider entries. |
-| `tools` | bool | none | Only models whose listed provider entries support function calling (true), or do not (false). |
-| `vision` | bool | none | The same, for vision input. |
-| `reasoning` | bool | none | The same, for thinking levels or reasoning. |
-| `open_weights` | bool | none | The same, for open weights. A model where this is unknown is left out by a filter on it. |
-| `max_input_price` | number | none | Only provider entries with a known input price at or below this, in USD per million tokens. |
+| `supports_tools` | bool | none | Only models whose listed provider entries support function calling (true), or do not (false). |
+| `supports_vision` | bool | none | The same, for vision input. |
+| `has_thinking_levels` | bool | none | The same, for thinking levels that a run config can set. |
+| `reasoning_model` | bool | none | Only models that reason before they answer (true), or do not (false). A model where this is unknown is left out by a filter on it. |
+| `open_weights` | bool | none | The same, for open weights. |
 | `include_not_available` | bool | false | Also list provider entries that are not `ready`. |
 | `include_deprecated` | bool | false | Also list provider entries that Kiln marks as deprecated. |
 | `sort` | `featured`, `price`, `newest` | `featured` | The order of the rows. |
@@ -197,14 +210,16 @@ Lists models, one row for each model, with the model's providers in the row.
 | Field | Meaning |
 |---|---|
 | `model` | Kiln's model id. |
-| `name` | The friendly name. |
+| `display_name` | The friendly name. |
 | `family` | Kiln's family. |
-| `featured_rank` | Kiln's rank, or null. |
+| `kiln_featured_rank` | Kiln's ranking, 1 first, or null. |
 | `tags` | The model's tags. |
 | `release_date` | Or null. |
 | `context_window` | Tokens, or null. |
 | `open_weights` | Or null. |
-| `thinking` | True when a listed provider entry has thinking levels or is reasoning capable. |
+| `reasoning_model` | The model reasons before it answers, also when that is always on. Or null. |
+| `has_thinking_levels` | True when a listed provider entry has thinking levels that a run config can set. |
+| `median_input_price`, `median_output_price` | USD per million tokens, the median across providers on models.dev (section 3.3). Or null. |
 | `providers` | The listed provider entries: `provider`, `status`, `input_price`, `output_price`, `tags`, `deprecated`. |
 
 The row has no notes. `get_model_details` gives them.
@@ -216,10 +231,12 @@ the filters, before `limit`), and `models`.
 
 ### 5.4 The order
 
-- `featured`: `featured_rank` ascending with null last, then the order of
+- `featured`: `kiln_featured_rank` ascending with null last, then the order of
   Kiln's file, then models that are not in the catalogue, by id.
-- `price`: the lowest `input_price + output_price` of the row's listed
-  provider entries, ascending. A row with no known price is last.
+- `price`: the model's `median_input_price + median_output_price`. Without
+  a median, the lowest `input_price + output_price` of the row's listed
+  provider entries, without $0 prices. Ascending. A row with no known
+  price is last.
 - `newest`: `release_date` descending. A row with no date is last.
 - Ties keep the `featured` order.
 
@@ -232,12 +249,15 @@ Arguments: `model` (required), `provider` (optional).
 The answer has everything that the row of `list_models` has, and:
 
 - `editorial_notes` and `agent_notes`;
-- `knowledge_cutoff`, `max_output_tokens`, and `release_date_match`;
-- for each provider entry: its status, the four prices, its tags, the
-  provider's model id, `supports_tools`, `supports_structured_output`,
-  `supports_vision`, `supports_doc_extraction`, `reasoning_capable`, the
-  thinking levels and the default level, the structured-output mode,
-  `takes_temperature`, `suggested_for`, `untested`, `deprecated`.
+- `knowledge_cutoff`, `max_output_tokens`, and `release_date_estimated`;
+- for each provider entry: its status, the four prices, its tags,
+  `provider_model_id`, `supports_tools`, `supports_structured_output`,
+  `supports_vision`, `supports_temperature`, the thinking levels and the
+  default level, `default_structured_output_mode` (Kiln's suggested
+  default for the pair), `kiln_suggested_for` (`eval_judge`,
+  `synthetic_data`, `document_extraction`, `synthetic_user`), `untested`
+  (Kiln has not tested the model, usually one a user added; the
+  `supports_*` fields do not apply), `deprecated`.
 
 - With `provider`, the answer has only that provider entry.
 - The answer includes provider entries of every status and deprecated
@@ -251,7 +271,7 @@ The answer has everything that the row of `list_models` has, and:
 Argument: `include_not_available` (bool, default false).
 
 Each row: `provider` (Kiln's id), `name`, `status` (`connected` or
-`not_connected`), `ready_models` (the count of `ready` pairs), `tags`, and
+`not_connected`), `ready_model_count` (the count of `ready` pairs), `tags`, and
 `notes`.
 
 - With `include_not_available` false, only connected providers.
@@ -282,7 +302,7 @@ before the date the run started.
   `smells/thresholds.py`, with a comment that gives its source: a house
   default, set by the project owner on 2026-11-13.
 - The release date comes from the snapshot, for the baseline's
-  (provider, model) pair. An exact or a loose match counts.
+  (provider, model) pair. An exact or an estimated date counts.
 - When the date is unknown, the detector returns nothing. A fine-tune or a
   custom model has no date, so it never fires.
 - The detector runs with `--models keep` too. The planner cannot change the
@@ -362,17 +382,20 @@ overview, section 2.
 - `kiln-harness-tuner-gateway/SKILL.md`: a section "Models and providers"
   with the three operations, their arguments and one example each. The row
   for `list_available_models` goes. When an entry has no price or no
-  limits, it tells the agent to call `get_model_details` without
-  `provider`, to use another provider's price for the same model only as a
-  proxy that its notes name as a proxy, that a local provider has no
-  per-token price and gets no proxy, and that the measured price wins.
+  limits, it tells the agent to use the model's median price first, then
+  to call `get_model_details` without `provider` and use another
+  provider's price for the same model only as a proxy that its notes name
+  as a proxy, that a local provider has no per-token price and gets no
+  proxy, and that the measured price wins. It says that a provider price
+  far from the median can be a price error, and that a $0 price is a free
+  tier with rate limits, not the paid price.
 - `experiment-costing/SKILL.md`: "from a live model-info lookup" becomes
   true. The text names `list_models` and `get_model_details`. It says that a
   listed price is a list price, and that the price the loop measures on the
   task wins. For a null price, it gives the same steps as the gateway
-  skill: `get_model_details` without `provider`, another provider's price
-  as a labelled proxy, no proxy for a local provider, and the measured
-  price wins.
+  skill: the median price first, then `get_model_details` without
+  `provider` and another provider's price as a labelled proxy, no proxy
+  for a local provider, and the measured price wins.
 - The knowledge skill's `builder.md`, `levers/model.md` and
   `levers/params.md`: `list_available_models` becomes `list_models` and
   `get_model_details`. The line in `levers/model.md` that says the tool does
@@ -389,8 +412,8 @@ overview, section 2.
   over-the-air file is newer than the installed Kiln): `not_offered` or
   `not_connected`. It is listed only with `include_not_available`.
 - **The same model on many providers**: one row, many provider entries.
-  `thinking` and the filters on capabilities look at the listed entries
-  only.
+  `has_thinking_levels` and the filters on capabilities look at the
+  listed entries only.
 - **A provider id that Kiln's file has and the server does not know**:
   `not_connected`.
 - **A deprecated entry that is the baseline's pair**: listed with

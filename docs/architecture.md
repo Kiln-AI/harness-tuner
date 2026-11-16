@@ -1981,9 +1981,23 @@ entry is dropped alone. The price and the limits are matched on the exact
 (provider, model) pair: the provider's models.dev id comes from Kiln's
 provider list, else from a built-in port of the Kiln server's table
 (`model_catalog/providers.py`). The model facts come from the first
-matched entry, in the Kiln server's provider order. When no entry matches,
-the release date has a looser match on the model's name, marked
-`release_date_match: "loose"`.
+matched entry, in the Kiln server's provider order: the release date, the
+knowledge cutoff, open weights, the limits and `reasoning_model` (models.dev's
+`reasoning`: the model reasons before it answers, also when that is always
+on). When no entry matches, the release date has a looser match on the
+model's name, marked `release_date_estimated: true`.
+
+**The median price.** One provider's price can be far from what most
+providers charge: OpenRouter routes each call to one of many hosts, and its
+listed price can be one cheap host's price. So each model also has
+`median_input_price` and `median_output_price`: the median models.dev price
+of the model's `canonical_model_id` (from the first matched entry that has
+one) across all models.dev providers, not only Kiln's. Each provider counts
+once, with its lowest price: a provider can list one model more than once
+(an alias, a region, a fast tier). A $0 price (a free tier or a coding
+plan) and a missing price are left out. With fewer than three priced
+providers (`MIN_MEDIAN_PRICES`), the median is null. A $0 price stays on
+its entry as it is.
 
 **The snapshot.** `write_catalog` writes the result to
 `runs/<run_id>/model_catalog.json`. It is in `RUN_DIR_ENTRIES`, so the read
@@ -1997,7 +2011,7 @@ orchestrator keeps the same catalogue on the run's context
 release date from it (section 18.4).
 
 **Failures.** A fetch that fails never stops the run. The source is
-recorded as `none` with a reason, and the wave log has one
+recorded as `unavailable` with a reason, and the wave log has one
 `model_catalog_unavailable` event for each source that failed, then always
 one `model_catalog` event with the state of each source and the counts.
 Without models.dev, the catalogue has Kiln's data and null prices. Without
@@ -2009,11 +2023,13 @@ with the server's `GET /api/available_models` at each call, and with the
 model policy:
 
 - `list_models`: one row per model, with its provider entries, filters,
-  three sort orders (`featured`, `price`, `newest`) and pages;
+  three sort orders (`featured`, `price`, `newest`) and pages. `price`
+  sorts on the median input + output price, else on the cheapest listed
+  entry without $0 prices; a row with no price is last;
 - `get_model_details`: one model, with every provider entry, the notes
   and the capability flags;
-- `list_providers`: each provider, its status, its count of `ready` pairs,
-  its tags and notes.
+- `list_providers`: each provider, its status, its count of `ready` pairs
+  (`ready_model_count`), its tags and notes.
 
 Each (provider, model) pair has a status. `ready`: the server offers it
 and the policy allows it. `blocked_by_policy`: the server offers it and the
@@ -2029,6 +2045,16 @@ runs, so the gateway skill tells agents to use `ready` pairs only. The
 three operations go to the planner, the builder and the probe
 (`ROLE_OPS`). Each answer has a `catalog` field that says which sources
 it has.
+
+The field names are made for an agent that reads them with no other
+key, and the snapshot uses the same names, so the answers copy them.
+`reasoning_model` (the model reasons) and `has_thinking_levels` (a run
+config can set a thinking level) are two different facts. A field that is
+Kiln's own advice has a `kiln_` prefix (`kiln_featured_rank`,
+`kiln_suggested_for`). An entry's `provider_model_id` is the provider's
+own id, and `default_structured_output_mode` is Kiln's suggested default
+mode for the pair. Kiln's `reasoning_capable` (its flag for `<think>`
+tags) and `supports_doc_extraction` are not carried: a run uses neither.
 
 ## 18. The knowledge system and smell detection
 

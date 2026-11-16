@@ -58,7 +58,7 @@ Rules of the object:
   did not move against the parent, gives the verdict `lever not applied`.
   When no signal can show it, the verdict is `lever unverified`.
 - A provider can refuse a setting. One failed call shows it.
-  `get_model_details` gives `takes_temperature` for each provider entry,
+  `get_model_details` gives `supports_temperature` for each provider entry,
   from models.dev: `false` says that the model does not take a temperature.
 - The output mode is not part of this lever. It has its own lever,
   [output_mode](output_mode.md).

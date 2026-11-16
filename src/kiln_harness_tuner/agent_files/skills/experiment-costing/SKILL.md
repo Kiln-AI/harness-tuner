@@ -145,18 +145,25 @@ the run's own report, and cite that report rather than the bare number.
   gateway's `list_models` (input and output price per entry, and
   `sort: "price"`) and `get_model_details` (all four prices, cache read and
   cache write included, per provider entry). The run fetched these prices
-  at its start. A listed price is a **list price**: it does not show the
-  cache hit, the reasoning tokens or a provider's discount. A null price
-  means that models.dev has no price for that pair, or that the run could
-  not fetch models.dev (`catalog.models_dev: "none"`). Call
-  `get_model_details` without `provider`: it gives the model's entries on
-  every provider, also on providers that are not connected. The price on
-  another provider is a **proxy**: often close, but not the price you will
-  pay. Say in your estimate that it is a proxy. A local provider (Ollama,
-  Docker Model Runner) has no per-token price. Do not use another
-  provider's price as a proxy for it. Use the cost that the loop measures.
-  **The price that the loop measures on the task wins** over a listed
-  price and over a proxy.
+  at its start, in USD per million tokens. A listed price is a **list
+  price**: it does not show the cache hit, the reasoning tokens or a
+  provider's discount. Each model also has `median_input_price` and
+  `median_output_price`: the median price across the providers on
+  models.dev. When one provider's price is far from the median, it can be
+  a price error, for example a cheap host on OpenRouter that does not show
+  the typical price. A $0 price is a free tier with rate limits, not the
+  paid price: do not budget a run at $0. A null price means that
+  models.dev has no price for that pair, or that the run could not fetch
+  models.dev (`catalog.models_dev: "unavailable"`). Then use the median
+  price first. With no median, call `get_model_details` without
+  `provider`: it gives the model's entries on every provider, also on
+  providers that are not connected. The price on another provider is a
+  **proxy**: often close, but not the price you will pay. Say in your
+  estimate which you used: the median or a proxy. A local provider
+  (Ollama, Docker Model Runner) has no per-token price. Do not use the
+  median or another provider's price as a proxy for it. Use the cost that
+  the loop measures. **The price that the loop measures on the task wins**
+  over a listed price, over the median and over a proxy.
   Direct-provider lanes are typically cheaper than aggregator lanes for the
   same model.
 - **Drive sizes and cache behaviour**: a `custom`-score metric eval over the

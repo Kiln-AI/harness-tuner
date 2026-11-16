@@ -1213,16 +1213,16 @@ def build_ctx(
 
 
 def _source_text(source: Source) -> str:
-    return source.state if source.state == "ok" else f"none ({source.reason})"
+    return source.state if source.state == "ok" else f"unavailable ({source.reason})"
 
 
 def log_catalog(log: EventLog, catalog: Catalog) -> None:
     """The run's catalogue events: one `model_catalog_unavailable` for each
-    source that is `none`, and then `model_catalog` with the counts."""
+    source that is `unavailable`, and then `model_catalog` with the counts."""
     # `model_catalog` is emitted for every run, also when a source failed:
     # the counts of the source that worked are still worth a line.
     for name, source in (("kiln", catalog.kiln), ("models_dev", catalog.models_dev)):
-        if source.state == "none":
+        if source.state == "unavailable":
             log.event("model_catalog_unavailable", source=name, reason=source.reason)
     log.event(
         "model_catalog",

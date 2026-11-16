@@ -28,7 +28,7 @@ from typing import Any
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.model_catalog import Catalog, CatalogEntry, CatalogModel
-from kiln_harness_tuner.model_catalog.build import SUGGESTED_FOR
+from kiln_harness_tuner.model_catalog.build import kiln_suggested_for
 from kiln_harness_tuner.model_policy import ModelPolicy
 
 Status = m.ModelStatus
@@ -37,7 +37,11 @@ Pair = tuple[str, str]  # (Kiln provider id, Kiln model id)
 # The entry fields that come from the server for an offered pair, even when
 # the catalogue has the pair. The probes and the model preflight check the
 # thinking levels and the output mode against the server's model list.
-SERVER_FIELDS = ("thinking_levels", "default_thinking_level", "structured_output_mode")
+SERVER_FIELDS = (
+    "thinking_levels",
+    "default_thinking_level",
+    "default_structured_output_mode",
+)
 
 
 @dataclass(frozen=True)
@@ -99,7 +103,7 @@ def _server_fields(d: dict[str, Any]) -> dict[str, Any]:
         if isinstance(levels, dict)
         else [],
         "default_thinking_level": _text(d, "default_thinking_level"),
-        "structured_output_mode": _text(d, "structured_output_mode"),
+        "default_structured_output_mode": _text(d, "structured_output_mode"),
     }
 
 
@@ -114,8 +118,7 @@ def _entry_from_server(provider: str, d: dict[str, Any]) -> CatalogEntry:
         supports_tools=_flag(d, "supports_function_calling"),
         supports_structured_output=_flag(d, "supports_structured_output"),
         supports_vision=_flag(d, "supports_vision"),
-        supports_doc_extraction=_flag(d, "supports_doc_extraction"),
-        suggested_for=[k for k in SUGGESTED_FOR if d.get(f"suggested_for_{k}") is True],
+        kiln_suggested_for=kiln_suggested_for(d),
         **_server_fields(d),
     )
 
@@ -147,7 +150,7 @@ def _merged(catalog: Catalog, offered: Offered) -> list[CatalogModel]:
         rows.append(
             CatalogModel(
                 model=model,
-                name=_text(first, "name") or model,
+                display_name=_text(first, "name") or model,
                 entries=[
                     _entry_from_server(p, offered.pairs[(p, model)]) for p, _ in pairs
                 ],
@@ -164,12 +167,8 @@ def _catalog_state(catalog: Catalog) -> m.CatalogState:
     )
 
 
-def _thinking(entries: list[CatalogEntry]) -> bool:
-    return any(_reasons(e) for e in entries)
-
-
-def _reasons(entry: CatalogEntry) -> bool:
-    return bool(entry.thinking_levels) or entry.reasoning_capable is True
+def _has_thinking_levels(entries: list[CatalogEntry]) -> bool:
+    return any(e.thinking_levels for e in entries)
 
 
 # ---- list_models
@@ -185,15 +184,11 @@ def _keeps(entry: CatalogEntry, entry_status: Status, req: m.ListModelsArgs) -> 
     if req.provider is not None and entry.provider != req.provider:
         return False
     for wanted, actual in (
-        (req.tools, entry.supports_tools),
-        (req.vision, entry.supports_vision),
-        (req.reasoning, _reasons(entry)),
+        (req.supports_tools, entry.supports_tools),
+        (req.supports_vision, entry.supports_vision),
+        (req.has_thinking_levels, bool(entry.thinking_levels)),
     ):
         if wanted is not None and actual is not wanted:
-            return False
-    if req.max_input_price is not None:
-        price = entry.input_price
-        if price is None or price > req.max_input_price:
             return False
     return True
 
@@ -205,8 +200,12 @@ def _row_keeps(
         return False
     if req.family is not None and row.family != req.family:
         return False
-    if req.open_weights is not None and row.open_weights is not req.open_weights:
-        return False
+    for wanted, actual in (
+        (req.open_weights, row.open_weights),
+        (req.reasoning_model, row.reasoning_model),
+    ):
+        if wanted is not None and actual is not wanted:
+            return False
     if req.tags:
         tags = set(row.tags).union(*(e.tags for e in entries))
         if not tags & set(req.tags):
@@ -214,11 +213,15 @@ def _row_keeps(
     return True
 
 
-def _price_key(entries: list[CatalogEntry]) -> float:
+def _price_key(row: CatalogModel, entries: list[CatalogEntry]) -> float:
+    """The median input + output price; else the cheapest listed entry. A $0
+    price is a free tier, not what the model costs, so it never sorts."""
+    if row.median_input_price is not None and row.median_output_price is not None:
+        return row.median_input_price + row.median_output_price
     prices = [
         e.input_price + e.output_price
         for e in entries
-        if e.input_price is not None and e.output_price is not None
+        if e.input_price and e.output_price
     ]
     return min(prices, default=math.inf)
 
@@ -232,7 +235,7 @@ def _newest_key(row: CatalogModel) -> tuple[bool, int]:
 
 
 def _featured_key(row: CatalogModel) -> tuple[bool, int]:
-    return (row.featured_rank is None, row.featured_rank or 0)
+    return (row.kiln_featured_rank is None, row.kiln_featured_rank or 0)
 
 
 def list_models(
@@ -255,7 +258,7 @@ def list_models(
     # keeps the base order for its ties.
     kept.sort(key=lambda r: _featured_key(r[0]))
     if req.sort == "price":
-        kept.sort(key=lambda r: _price_key([e for e, _ in r[1]]))
+        kept.sort(key=lambda r: _price_key(r[0], [e for e, _ in r[1]]))
     elif req.sort == "newest":
         kept.sort(key=lambda r: _newest_key(r[0]))
     page = kept[req.offset : req.offset + req.limit]
@@ -271,14 +274,17 @@ def _model_row(
 ) -> m.ModelRow:
     return m.ModelRow(
         model=row.model,
-        name=row.name,
+        display_name=row.display_name,
         family=row.family,
-        featured_rank=row.featured_rank,
+        kiln_featured_rank=row.kiln_featured_rank,
         tags=row.tags,
         release_date=row.release_date,
         context_window=row.context_window,
         open_weights=row.open_weights,
-        thinking=_thinking([e for e, _ in entries]),
+        reasoning_model=row.reasoning_model,
+        has_thinking_levels=_has_thinking_levels([e for e, _ in entries]),
+        median_input_price=row.median_input_price,
+        median_output_price=row.median_output_price,
         providers=[
             m.ProviderEntryRow(
                 provider=e.provider,
@@ -298,7 +304,7 @@ def _model_row(
 # The fields a details answer copies from the merged row and its entries.
 _DETAIL_FIELDS = set(m.ModelDetailsView.model_fields) - {
     "catalog",
-    "thinking",
+    "has_thinking_levels",
     "providers",
 }
 _ENTRY_FIELDS = set(m.ProviderEntryDetails.model_fields) - {"status"}
@@ -323,7 +329,7 @@ def model_details(
     return m.ModelDetailsView(
         catalog=_catalog_state(catalog),
         **row.model_dump(include=_DETAIL_FIELDS),
-        thinking=_thinking(entries),
+        has_thinking_levels=_has_thinking_levels(entries),
         providers=[
             m.ProviderEntryDetails(
                 **e.model_dump(include=_ENTRY_FIELDS),
@@ -367,10 +373,10 @@ def list_providers(
                 provider=provider,
                 name=info.name if info else None,
                 status="connected" if connected else "not_connected",
-                ready_models=ready.get(provider, 0),
+                ready_model_count=ready.get(provider, 0),
                 tags=info.tags if info else [],
                 notes=info.notes if info else None,
             )
         )
-    rows.sort(key=lambda r: (-r.ready_models, r.provider))
+    rows.sort(key=lambda r: (-r.ready_model_count, r.provider))
     return m.ProviderList(catalog=_catalog_state(catalog), providers=rows)

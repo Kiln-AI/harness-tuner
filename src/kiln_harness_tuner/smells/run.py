@@ -475,7 +475,7 @@ def _model_facts(ctx: Ctx, properties: dict[str, Any]) -> ModelFacts | None:
     row = ctx.model_catalog.model(model) if ctx.model_catalog else None
     if row is None:
         return ModelFacts(provider, model, model, None)
-    return ModelFacts(provider, model, row.name, _iso_date(row.release_date))
+    return ModelFacts(provider, model, row.display_name, _iso_date(row.release_date))
 
 
 def _iso_date(value: str | None) -> date | None:

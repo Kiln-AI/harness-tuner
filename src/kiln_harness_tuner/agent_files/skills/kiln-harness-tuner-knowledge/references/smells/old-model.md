@@ -26,9 +26,9 @@ In the harness:
 
 - the code detection in your input gives the model, its release date, its
   age in months, and the reference it was compared with;
-- `list_models` with `sort: newest`, and the baseline's `family` or a
-  `max_input_price` near the baseline's price, lists newer models with
-  `ready` provider entries;
+- `list_models` with `sort: newest` and the baseline's `family` lists
+  newer models with `ready` provider entries; compare their
+  `median_input_price` with the baseline's price;
 - the `agent_notes` of the baseline's model in `get_model_details` name a
   model that replaces it.
 
@@ -47,8 +47,8 @@ In how the agent runs:
 - Read the `agent_notes` of the baseline's model and of each candidate.
   Compare the capabilities that the task needs: tool calls, structured
   output, vision, thinking levels.
-- The release date can be a loose match (`release_date_match: "loose"`
-  in `get_model_details`). Then it comes from the name of the model, not
+- The release date can be estimated (`release_date_estimated: true` in
+  `get_model_details`). Then it comes from the name of the model, not
   from an exact entry. State that when you state how sure you are.
 - The reference is a default, not a measured optimum. Read the detection's
   source.

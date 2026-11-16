@@ -138,60 +138,89 @@ not offer fails when it runs. When a good model is `not_connected`, say so
 in your output, so that the report can ask the user to connect that
 provider for the next run.
 
-Every answer has `catalog`: `kiln` and `models_dev` (`ok` or `none`), and
-`fetched_at`. A source that is `none` gives null fields. With `kiln:
-"none"`, the operations list only what the Kiln server offers. A pair that
-the catalogue does not have (a fine-tune, a custom model) is listed with
-null catalogue fields. A price is a list price in USD per million tokens,
-from models.dev. The price that the loop measures on the task wins over it.
+Every answer has `catalog`: `kiln` and `models_dev` (`ok` or
+`unavailable`), and `fetched_at`. A source that is `unavailable` gives null
+fields. With `kiln: "unavailable"`, the operations list only what the Kiln
+server offers. A pair that the catalogue does not have (a fine-tune, a
+custom model) is listed with null catalogue fields.
+
+A price is a list price in USD per million tokens, from models.dev. The
+price that the loop measures on the task wins over it. Each provider entry
+has its own `input_price` and `output_price`. The model has
+`median_input_price` and `median_output_price`: the median price across
+the providers on models.dev, one price for each provider, without $0
+prices. It is null with fewer than three priced providers.
+
+- When one provider's price is far from the median, it can be a price
+  error, for example a cheap host on OpenRouter that does not show the
+  typical price.
+- A $0 price is a free tier with rate limits, not the paid price.
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `list_models` | `family?`, `provider?`, `tags?` (≤12), `tools?`, `vision?`, `reasoning?`, `open_weights?`, `max_input_price?`, `include_not_available?` (default false), `include_deprecated?` (default false), `sort?` (`featured`, `price` or `newest`; default `featured`), `limit?` (≤200, default 50), `offset?` | one row per model: `model`, `name`, `family`, `featured_rank`, `tags`, `release_date`, `context_window`, `open_weights`, `thinking`, and `providers` (per entry: `provider`, `status`, `input_price`, `output_price`, `tags`, `deprecated`); plus `catalog` and `total` (the rows after the filters, on every page) |
-| `get_model_details` | `model`, `provider?` | everything about one model: the row's fields, `editorial_notes`, `agent_notes` (notes for an agent that chooses or configures the model), `knowledge_cutoff`, `max_output_tokens`, `release_date_match` (`exact` or `loose`), and per provider entry its status, the four prices (input, output, cache read, cache write), `context_window`, `max_output_tokens`, `tags`, the provider's own `model_id`, `supports_tools`, `supports_structured_output`, `supports_vision`, `supports_doc_extraction`, `reasoning_capable`, `thinking_levels` (lowest first) and `default_thinking_level`, `structured_output_mode`, `takes_temperature`, `suggested_for`, `untested`, `deprecated` |
-| `list_providers` | `include_not_available?` (default false) | per provider: `provider` (Kiln's id), `name`, `status` (`connected` or `not_connected`), `ready_models` (the count of `ready` pairs), `tags`, `notes` |
+| `list_models` | `family?`, `provider?`, `tags?` (≤12), `supports_tools?`, `supports_vision?`, `reasoning_model?`, `has_thinking_levels?`, `open_weights?`, `include_not_available?` (default false), `include_deprecated?` (default false), `sort?` (`featured`, `price` or `newest`; default `featured`), `limit?` (≤200, default 50), `offset?` | one row per model: `model`, `display_name`, `family`, `kiln_featured_rank` (Kiln's ranking, 1 first), `tags`, `release_date`, `context_window`, `open_weights`, `reasoning_model`, `has_thinking_levels`, `median_input_price`, `median_output_price`, and `providers` (per entry: `provider`, `status`, `input_price`, `output_price`, `tags`, `deprecated`); plus `catalog` and `total` (the rows after the filters, on every page) |
+| `get_model_details` | `model`, `provider?` | everything about one model: the row's fields, `editorial_notes`, `agent_notes` (notes for an agent that chooses or configures the model), `knowledge_cutoff`, `max_output_tokens`, `release_date_estimated`, and per provider entry its status, the four prices (input, output, cache read, cache write), `context_window`, `max_output_tokens`, `tags`, `provider_model_id` (the provider's own id), `supports_tools`, `supports_structured_output`, `supports_vision`, `supports_temperature`, `thinking_levels` (lowest first) and `default_thinking_level`, `default_structured_output_mode`, `kiln_suggested_for`, `untested`, `deprecated` |
+| `list_providers` | `include_not_available?` (default false) | per provider: `provider` (Kiln's id), `name`, `status` (`connected` or `not_connected`), `ready_model_count` (the count of `ready` pairs), `tags`, `notes` |
+
+The fields of a model and of its provider entries:
+
+- `reasoning_model`: the model reasons before it answers, also when the
+  reasoning is always on (models.dev).
+- `has_thinking_levels`: at least one listed provider entry has thinking
+  levels that a run config can set (`thinking_level`).
+- `untested`: Kiln has not tested this model, usually one a user added.
+  The `supports_*` fields do not apply.
+- `kiln_suggested_for`: the uses that Kiln suggests the model for:
+  `eval_judge`, `synthetic_data`, `document_extraction`, `synthetic_user`.
+- `release_date_estimated`: true when the release date came from a match
+  on the model's name only.
 
 `list_models` rules:
 
-- Filters are joined with AND. `tools`, `vision`, `reasoning`, `provider`
-  and `max_input_price` test each provider entry, and remove the entries
-  that fail. A row with no entry left is not listed. An entry with an
-  unknown value for a filter that tests it does not pass.
-- `family`, `open_weights` and `tags` test the row. A `tags` filter
-  matches a tag on the model or on one of its listed entries.
+- Filters are joined with AND. `supports_tools`, `supports_vision`,
+  `has_thinking_levels` and `provider` test each provider entry, and
+  remove the entries that fail. A row with no entry left is not listed.
+  An entry with an unknown value for a filter that tests it does not pass.
+- `family`, `open_weights`, `reasoning_model` and `tags` test the row. A
+  `tags` filter matches a tag on the model or on one of its listed
+  entries. A row with an unknown value does not pass.
 - Without `include_not_available`, a row lists its `ready` entries only.
 - `featured` is Kiln's rank, then the order of Kiln's file. `price` is the
-  lowest `input_price + output_price` of the row's listed entries. `newest`
-  is the release date. A row with no value is last.
+  model's median input + output price. Without a median, it is the lowest
+  `input_price + output_price` of the row's listed entries, without $0
+  prices. A `provider` filter does not change this: `price` sorts on the
+  model's median, not on the price of that provider. `newest` is the
+  release date. A row with no value is last.
 
 `get_model_details` lists every entry of the model, of every status, and
 deprecated entries too. For a pair that the server offers, the thinking
-levels, the default level and `structured_output_mode` are the server's.
+levels, the default level and `default_structured_output_mode` are the
+server's.
 
 Some providers have no models.dev data, so their entries have no price
 and no limits. Then:
 
-- Call `get_model_details` without `provider`. The answer gives every
-  provider entry of the model, also the entries on providers that are not
-  connected.
-- The price on another provider of the same model is a proxy. It is often
-  close, but it is not the price that you will pay. Say in your notes that
-  it is a proxy.
+- Use the model's median price first. Say in your notes that it is a
+  median, not the provider's price.
+- With no median, call `get_model_details` without `provider`. The answer
+  gives every provider entry of the model, also the entries on providers
+  that are not connected. The price on another provider of the same model
+  is a proxy. It is often close, but it is not the price that you will
+  pay. Say in your notes that it is a proxy.
 - A local provider (Ollama, Docker Model Runner) has no per-token price.
-  Do not use another provider's price as a proxy for it. Use the cost that
-  the loop measures.
-- The price that the loop measures on the task wins over a listed price
-  and over a proxy.
+  Do not use the median or another provider's price as a proxy for it.
+  Use the cost that the loop measures.
+- The price that the loop measures on the task wins over a listed price,
+  over the median and over a proxy.
 
 A model that is in neither the catalogue nor the server's list is
-refused. A release date with `release_date_match: "loose"` came from a
-match on the model's name only.
+refused.
 
 Examples:
 
 ```
-mcp__kiln_harness_tuner_gateway__list_models(tools=true, sort="price",
-    max_input_price=1.0)
+mcp__kiln_harness_tuner_gateway__list_models(supports_tools=true,
+    sort="price")
 mcp__kiln_harness_tuner_gateway__get_model_details(model="<model id>",
     provider="openrouter")
 mcp__kiln_harness_tuner_gateway__list_providers(include_not_available=true)

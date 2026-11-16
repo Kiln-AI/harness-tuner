@@ -56,7 +56,7 @@ async def _get_json(client: httpx.AsyncClient, url: str) -> tuple[Any, str]:
 
 
 def _source(reason: str) -> Source:
-    return Source(state="none", reason=reason) if reason else Source(state="ok")
+    return Source(state="unavailable", reason=reason) if reason else Source(state="ok")
 
 
 async def fetch_catalog(

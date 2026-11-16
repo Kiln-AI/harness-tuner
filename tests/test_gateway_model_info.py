@@ -79,7 +79,7 @@ def server_model(provider: str, model: str) -> dict[str, Any]:
     if entry is not None:
         row["available_thinking_levels"] = {v: v for v in entry.thinking_levels} or None
         row["default_thinking_level"] = entry.default_thinking_level
-        row["structured_output_mode"] = entry.structured_output_mode
+        row["structured_output_mode"] = entry.default_structured_output_mode
     return row
 
 
@@ -198,23 +198,70 @@ def test_deprecated_entries_are_left_out_by_default():
 
 def test_entry_filters_remove_entries_and_empty_rows():
     # openai's gpt entry has no tool calls in the fixture; openrouter's has.
-    listed = pairs(models_of(tools=True))
+    listed = pairs(models_of(supports_tools=True))
     assert listed["gpt_6_1_sol"] == [("openrouter", "ready")]
-    assert pairs(models_of(tools=False)) == {"gpt_6_1_sol": [("openai", "ready")]}
+    assert pairs(models_of(supports_tools=False)) == {
+        "gpt_6_1_sol": [("openai", "ready")]
+    }
     # deepseek and glm have no vision: their rows go.
-    assert set(pairs(models_of(vision=False))) == {"deepseek_4_pro", "glm_4_6"}
-    # qwen has no thinking levels; glm is reasoning capable with none.
-    no_thinking = models_of(reasoning=False)
-    assert ids(no_thinking) == ["qwen_3p8_max_0902"]
-    assert no_thinking.models[0].thinking is False
-    assert "glm_4_6" in ids(models_of(reasoning=True))
+    assert set(pairs(models_of(supports_vision=False))) == {"deepseek_4_pro", "glm_4_6"}
+    # qwen and glm have no thinking levels on openrouter.
+    no_levels = models_of(has_thinking_levels=False)
+    assert ids(no_levels) == ["qwen_3p8_max_0902", "glm_4_6"]
+    assert no_levels.models[0].has_thinking_levels is False
+    assert "glm_4_6" not in ids(models_of(has_thinking_levels=True))
     assert pairs(models_of(provider="openai")) == {"gpt_6_1_sol": [("openai", "ready")]}
 
 
-def test_max_input_price_drops_entries_with_no_price():
-    # glm on openrouter has no models.dev price, so a price filter drops it.
-    assert ids(models_of(max_input_price=1.0)) == ["deepseek_4_pro", "gemini_3_8_flash"]
-    assert "glm_4_6" not in ids(models_of(max_input_price=1000.0))
+def test_reasoning_model_is_a_row_filter_apart_from_thinking_levels():
+    # qwen reasons (models.dev) and has no thinking level to set.
+    (qwen,) = models_of(reasoning_model=True, has_thinking_levels=False).models
+    assert (qwen.model, qwen.reasoning_model) == ("qwen_3p8_max_0902", True)
+    # glm has no models.dev match: an unknown value does not pass.
+    assert "glm_4_6" not in ids(models_of(reasoning_model=True))
+    assert models_of(reasoning_model=False).models == []
+    assert models_of().models[-1].reasoning_model is None
+
+
+def with_medians(**medians: tuple[float | None, float | None]) -> Catalog:
+    """The fixture catalogue with these (median input, median output)."""
+    catalog = build()
+    for model, (median_input, median_output) in medians.items():
+        row = catalog.model(model)
+        assert row is not None
+        row.median_input_price, row.median_output_price = median_input, median_output
+    return catalog
+
+
+def test_sort_price_uses_the_median_before_the_entries():
+    # gemini's median is 0.75 + 3.75 in the fixture. A median of 10 for
+    # deepseek wins over its cheap openrouter entry (0.9 + 1.5).
+    answer = models_of(catalog=with_medians(deepseek_4_pro=(5.0, 5.0)), sort="price")
+    assert ids(answer) == [
+        "gemini_3_8_flash",  # 4.5, the median
+        "qwen_3p8_max_0902",  # 8, its entry
+        "deepseek_4_pro",  # 10, the median
+        "gpt_6_1_sol",  # 12
+        "claude_sonnet_5_5",  # 12
+        "glm_4_6",  # no price: last
+    ]
+    deepseek = answer.models[2]
+    assert (deepseek.median_input_price, deepseek.median_output_price) == (5.0, 5.0)
+    assert deepseek.providers[0].input_price == 0.9  # the entry is as listed
+    # A median of one side only is not a median price: the entries decide.
+    half = with_medians(deepseek_4_pro=(5.0, None))
+    assert ids(models_of(catalog=half, sort="price"))[0] == "deepseek_4_pro"
+
+
+def test_a_zero_price_is_shown_and_never_sorts():
+    catalog = build()
+    qwen = catalog.model("qwen_3p8_max_0902")
+    assert qwen is not None
+    qwen.entries[0].input_price = 0.0
+    answer = models_of(catalog=catalog, sort="price")
+    # No other price: qwen sorts with the unpriced rows, in the featured order.
+    assert ids(answer)[-2:] == ["qwen_3p8_max_0902", "glm_4_6"]
+    assert answer.models[-2].providers[0].input_price == 0.0
 
 
 def test_a_tag_filter_value_is_bounded():
@@ -299,13 +346,13 @@ def test_a_pair_the_catalogue_lacks_is_listed_with_null_fields():
     assert row.providers == [
         m.ProviderEntryRow(provider="groq", status="ready", tags=[], deprecated=False)
     ]
-    assert row.thinking is True
+    assert row.has_thinking_levels is True
     details = model_details(
         build(), offered, None, m.ModelDetailsArgs(model=row.model, provider="groq")
     )
     (entry,) = details.providers
     assert entry.thinking_levels == ["low", "high"]
-    assert entry.supports_tools is True and entry.model_id is None
+    assert entry.supports_tools is True and entry.provider_model_id is None
 
 
 def test_a_model_the_catalogue_lacks_is_listed_after_the_catalogue():
@@ -328,15 +375,15 @@ def test_a_model_the_catalogue_lacks_is_listed_after_the_catalogue():
     # After the catalogue's models, by model id.
     assert ids(answer) == ["glm_4_6", FINE_TUNE, "aaa_custom"]
     row = answer.models[ids(answer).index(FINE_TUNE)]
-    assert row.name == "Moderator fine-tune"
-    assert (row.family, row.featured_rank, row.release_date) == (None, None, None)
+    assert row.display_name == "Moderator fine-tune"
+    assert (row.family, row.kiln_featured_rank, row.release_date) == (None, None, None)
     assert row.providers[0].provider == "kiln_fine_tune"
     assert row.providers[0].input_price is None
     (entry,) = model_details(
         build(), offered, None, m.ModelDetailsArgs(model=FINE_TUNE)
     ).providers
-    assert entry.structured_output_mode == "json_schema"
-    assert entry.suggested_for == ["evals"] and entry.untested is True
+    assert entry.default_structured_output_mode == "json_schema"
+    assert entry.kiln_suggested_for == ["eval_judge"] and entry.untested is True
     assert entry.supports_tools is None
 
 
@@ -361,10 +408,10 @@ def test_the_server_values_win_for_an_offered_pair():
     entries = {e.provider: e for e in details.providers}
     assert entries["openai"].thinking_levels == ["low", "xhigh"]
     assert entries["openai"].default_thinking_level == "xhigh"
-    assert entries["openai"].structured_output_mode == "json_mode"
+    assert entries["openai"].default_structured_output_mode == "json_mode"
     # The catalogue's other fields stay, and the snapshot is not changed.
     assert entries["openai"].input_price == 2.0
-    assert entries["openai"].model_id == "gpt-6.1-sol"
+    assert entries["openai"].provider_model_id == "gpt-6.1-sol"
     (catalogue_entry,) = [
         e for e in CATALOG.model("gpt_6_1_sol").entries if e.provider == "openai"
     ]
@@ -377,7 +424,7 @@ def test_the_server_values_win_for_an_offered_pair():
         None,
         m.ModelDetailsArgs(model="gpt_6_1_sol", provider="openai"),
     ).providers
-    assert entry.thinking_levels == [] and entry.structured_output_mode is None
+    assert entry.thinking_levels == [] and entry.default_structured_output_mode is None
 
 
 def test_the_details_fields_are_catalogue_fields():
@@ -389,7 +436,9 @@ def test_the_details_fields_are_catalogue_fields():
 def test_an_unavailable_catalogue_serves_the_server_list():
     catalog = Catalog.unavailable("turned off")
     answer = models_of(catalog=catalog, policy=NO_ANTHROPIC)
-    assert answer.catalog == m.CatalogState(kiln="none", models_dev="none")
+    assert answer.catalog == m.CatalogState(
+        kiln="unavailable", models_dev="unavailable"
+    )
     assert ids(answer) == sorted(
         {model for provider in SERVER.values() for model in provider}
     )
@@ -404,8 +453,8 @@ def test_model_details_lists_every_entry_with_its_status():
     details = model_details(
         build(), OFFERED, NO_ANTHROPIC, m.ModelDetailsArgs(model="deepseek_4_pro")
     )
-    assert details.name == "DeepSeek V4 Pro"
-    assert details.release_date_match == "exact" and details.open_weights is True
+    assert details.display_name == "DeepSeek V4 Pro"
+    assert details.release_date_estimated is False and details.open_weights is True
     assert [(p.provider, p.status, p.deprecated) for p in details.providers] == [
         ("openrouter", "ready", False),
         ("fireworks_ai", "not_connected", True),
@@ -416,9 +465,9 @@ def test_model_details_lists_every_entry_with_its_status():
     ]
     openrouter = details.providers[0]
     assert (openrouter.input_price, openrouter.output_price) == (0.9, 1.5)
-    assert openrouter.model_id == "deepseek/deepseek-v4-pro"
+    assert openrouter.provider_model_id == "deepseek/deepseek-v4-pro"
     gpt = model_details(build(), OFFERED, None, m.ModelDetailsArgs(model="gpt_6_1_sol"))
-    assert gpt.agent_notes and gpt.thinking is True
+    assert gpt.agent_notes and gpt.has_thinking_levels is True
 
 
 def test_model_details_refuses_an_unknown_model():
@@ -450,7 +499,7 @@ def test_model_details_with_a_provider_keeps_one_entry():
 
 def test_list_providers_counts_ready_models_and_orders_them():
     answer = list_providers(build(), OFFERED, NO_ANTHROPIC, m.ListProvidersArgs())
-    assert [(p.provider, p.status, p.ready_models) for p in answer.providers] == [
+    assert [(p.provider, p.status, p.ready_model_count) for p in answer.providers] == [
         ("openrouter", "connected", 6),
         ("openai", "connected", 1),
         ("anthropic", "connected", 0),  # its one pair is blocked by the policy
@@ -469,7 +518,7 @@ def test_list_providers_hides_unconnected_by_default():
     assert {"typesafe", "cloudflare", "vertex", "cerebras", "anthropic"} <= set(rows)
     assert rows["cloudflare"].status == "not_connected"
     assert rows["cloudflare"].name == "Cloudflare Workers AI"
-    assert rows["typesafe"].ready_models == 0
+    assert rows["typesafe"].ready_model_count == 0
     hidden = list_providers(build(), OFFERED, None, m.ListProvidersArgs())
     assert all(p.status == "connected" for p in hidden.providers)
     assert len(hidden.providers) == 3

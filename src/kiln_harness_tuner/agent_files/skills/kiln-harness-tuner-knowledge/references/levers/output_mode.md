@@ -40,8 +40,8 @@ schema as a tool are refused on a run config with tools (Limits).
 1. Read the parent's mode: `get_run_config` gives `structured_output_mode`
    in `run_config_properties`.
 2. Read the default mode of each model: `get_model_details` gives the
-   `structured_output_mode` of each provider entry: the server's value for
-   a pair that the server offers. The planner's
+   `default_structured_output_mode` of each provider entry: the server's
+   value for a pair that the server offers. The planner's
    `allowed_models` input does not carry it.
 3. Change it in one of three ways:
    - **A screening round**: a candidate with

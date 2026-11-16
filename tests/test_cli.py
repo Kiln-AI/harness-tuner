@@ -490,10 +490,13 @@ def test_the_run_writes_the_catalogue_snapshot_and_logs_the_event(
     (unavailable,) = [e for e in events if e["kind"] == "model_catalog_unavailable"]
     assert (unavailable["source"], unavailable["reason"]) == ("models_dev", "HTTP 503")
     (counted,) = [e for e in events if e["kind"] == "model_catalog"]
-    assert counted["kiln"] == "ok" and counted["models_dev"] == "none"
+    assert counted["kiln"] == "ok" and counted["models_dev"] == "unavailable"
     assert (counted["models"], counted["release_dates"]) == (1, 0)
     log_text = (run_dir / "kiln-harness-tuner.log").read_text()
-    assert "model catalogue: kiln ok, models.dev none (HTTP 503), 1 models" in log_text
+    assert (
+        "model catalogue: kiln ok, models.dev unavailable (HTTP 503), 1 models"
+        in log_text
+    )
 
 
 @respx.mock

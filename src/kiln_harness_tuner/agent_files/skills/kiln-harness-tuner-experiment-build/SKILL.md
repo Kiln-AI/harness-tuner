@@ -70,8 +70,9 @@ going looking.
    `structured_output_mode` changed. The model and provider stay as the
    parent has them unless the item names a new model. A new model takes
    its own default `structured_output_mode` (`get_model_details` gives
-   it; keep the parent's when it is absent, `default` or `unknown`), unless
-   the item tests the output mode. In both cases, list the mode change in
+   it as `default_structured_output_mode`; keep the parent's when it is
+   absent, `default` or `unknown`), unless the item tests the output
+   mode. In both cases, list the mode change in
    `change`. On a run config that attaches a tool or a skill, Kiln refuses
    `function_calling`, `function_calling_weak`, and `default` outside
    Ollama and Docker Model Runner: every call fails. When the new model's

@@ -31,7 +31,7 @@ lever [params](params.md). The output mode is the lever
    window, the release date and the tags. `get_model_details` gives one
    model's notes for agents (`agent_notes`), and per provider entry the
    capability flags (tool calls, structured output, vision), the thinking
-   levels and the default `structured_output_mode`. `list_providers` gives
+   levels and `default_structured_output_mode`. `list_providers` gives
    the notes on each provider, for example data retention or routing.
 2. Change it in one of two ways:
    - **A screening round**: candidates with `overrides` of `model_name`
@@ -44,8 +44,8 @@ lever [params](params.md). The output mode is the lever
 3. A thinking level comes from the new model's own list. A level of the
    old model can be missing on the new one.
 4. **The output mode is the new model's default**: the
-   `structured_output_mode` that step 1 gives for the new model and
-   provider. The parent's mode was chosen for the parent's model, and the
+   `default_structured_output_mode` that step 1 gives for the new model
+   and provider. The parent's mode was chosen for the parent's model, and the
    new provider can refuse it or the new model can follow it less well.
    The model preflight makes its test call on a new model in the same way.
    When step 1 gives no mode, or the legacy `default` or `unknown`, keep

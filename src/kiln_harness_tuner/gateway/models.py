@@ -120,34 +120,63 @@ class PromptText(Out):
 ModelStatus = Literal["ready", "blocked_by_policy", "not_offered", "not_connected"]
 
 
-class CatalogState(Out):
-    """Which sources an answer has: `none` is a source the run could not
-    fetch, or that `--no-model-catalog` turned off."""
+CatalogSourceState = Literal["ok", "unavailable"]
+PER_MTOK = "USD per million tokens"
+MEDIAN = f"{PER_MTOK}: the median price across the providers on models.dev"
+UNTESTED = (
+    "Kiln has not tested this model, usually one a user added. The supports_*"
+    " fields do not apply."
+)
+KILN_FEATURED_RANK = "Kiln's ranking, 1 first."
+REASONING_MODEL = (
+    "The model reasons before it answers, also when that is always on (models.dev)."
+)
+HAS_THINKING_LEVELS = (
+    "At least one provider entry has thinking levels that a run config can set."
+)
 
-    kiln: Literal["ok", "none"]
-    models_dev: Literal["ok", "none"]
+
+def _price(what: str) -> Any:
+    return Field(default=None, description=f"{what}, {PER_MTOK}. Null: no price.")
+
+
+class CatalogState(Out):
+    """Which sources an answer has: `unavailable` is a source the run could
+    not fetch, or that `--no-model-catalog` turned off."""
+
+    kiln: CatalogSourceState
+    models_dev: CatalogSourceState
     fetched_at: str | None = None
 
 
 class ProviderEntryRow(Out):
     provider: str
     status: ModelStatus
-    input_price: float | None = None  # USD per million tokens
-    output_price: float | None = None
+    input_price: float | None = _price("Input price")
+    output_price: float | None = _price("Output price")
     tags: list[str] = []
     deprecated: bool = False
 
 
 class ModelRow(Out):
     model: str
-    name: str
+    display_name: str
     family: str | None = None
-    featured_rank: int | None = None
+    kiln_featured_rank: int | None = Field(default=None, description=KILN_FEATURED_RANK)
     tags: list[str] = []
     release_date: str | None = None
     context_window: int | None = None
     open_weights: bool | None = None
-    thinking: bool = False
+    reasoning_model: bool | None = Field(
+        default=None,
+        description=REASONING_MODEL,
+    )
+    has_thinking_levels: bool = Field(
+        default=False,
+        description=HAS_THINKING_LEVELS,
+    )
+    median_input_price: float | None = Field(default=None, description=MEDIAN)
+    median_output_price: float | None = Field(default=None, description=MEDIAN)
     providers: list[ProviderEntryRow] = []
 
 
@@ -160,44 +189,62 @@ class ModelList(Out):
 class ProviderEntryDetails(Out):
     provider: str
     status: ModelStatus
-    model_id: str | None = None
+    provider_model_id: str | None = Field(
+        default=None, description="The provider's own id for the model."
+    )
     deprecated: bool = False
-    untested: bool = False
-    input_price: float | None = None
-    output_price: float | None = None
-    cache_read_price: float | None = None
-    cache_write_price: float | None = None
+    untested: bool = Field(default=False, description=UNTESTED)
+    input_price: float | None = _price("Input price")
+    output_price: float | None = _price("Output price")
+    cache_read_price: float | None = _price("Cache read price")
+    cache_write_price: float | None = _price("Cache write price")
     context_window: int | None = None
     max_output_tokens: int | None = None
     tags: list[str] = []
     supports_tools: bool | None = None
     supports_structured_output: bool | None = None
     supports_vision: bool | None = None
-    supports_doc_extraction: bool | None = None
-    reasoning_capable: bool | None = None
+    supports_temperature: bool | None = None
     thinking_levels: list[str] = []
     default_thinking_level: str | None = None
-    structured_output_mode: str | None = None
-    takes_temperature: bool | None = None
-    suggested_for: list[str] = []
+    default_structured_output_mode: str | None = Field(
+        default=None, description="Kiln's suggested default output mode for the pair."
+    )
+    kiln_suggested_for: list[str] = Field(
+        default=[],
+        description="Uses that Kiln suggests the model for: eval_judge,"
+        " synthetic_data, document_extraction, synthetic_user.",
+    )
 
 
 class ModelDetailsView(Out):
     catalog: CatalogState
     model: str
-    name: str
+    display_name: str
     family: str | None = None
-    featured_rank: int | None = None
+    kiln_featured_rank: int | None = Field(default=None, description=KILN_FEATURED_RANK)
     editorial_notes: str | None = None
     agent_notes: str | None = None
     tags: list[str] = []
     release_date: str | None = None
-    release_date_match: str | None = None
+    release_date_estimated: bool = Field(
+        default=False,
+        description="True: the date came from a match on the model's name only.",
+    )
     knowledge_cutoff: str | None = None
     open_weights: bool | None = None
+    reasoning_model: bool | None = Field(
+        default=None,
+        description=REASONING_MODEL,
+    )
+    has_thinking_levels: bool = Field(
+        default=False,
+        description=HAS_THINKING_LEVELS,
+    )
+    median_input_price: float | None = Field(default=None, description=MEDIAN)
+    median_output_price: float | None = Field(default=None, description=MEDIAN)
     context_window: int | None = None
     max_output_tokens: int | None = None
-    thinking: bool = False
     providers: list[ProviderEntryDetails] = []
 
 
@@ -205,7 +252,7 @@ class ProviderRow(Out):
     provider: str
     name: str | None = None
     status: Literal["connected", "not_connected"]
-    ready_models: int = 0
+    ready_model_count: int = 0
     tags: list[str] = []
     notes: str | None = None
 
@@ -497,14 +544,24 @@ class ListModelsArgs(In):
     tags: list[Annotated[str, Field(min_length=1, max_length=40)]] | None = Field(
         default=None, max_length=12
     )
-    tools: bool | None = None
-    vision: bool | None = None
-    reasoning: bool | None = None
+    supports_tools: bool | None = None
+    supports_vision: bool | None = None
+    reasoning_model: bool | None = Field(
+        default=None,
+        description="The model reasons before it answers, also when that is always on.",
+    )
+    has_thinking_levels: bool | None = Field(
+        default=None,
+        description="The provider entry has thinking levels that a run config can set.",
+    )
     open_weights: bool | None = None
-    max_input_price: float | None = Field(default=None, ge=0)
     include_not_available: bool = False
     include_deprecated: bool = False
-    sort: Literal["featured", "price", "newest"] = "featured"
+    sort: Literal["featured", "price", "newest"] = Field(
+        default="featured",
+        description=f"price: the median input + output price ({PER_MTOK}), else"
+        " the cheapest listed entry with a price above 0.",
+    )
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)
 

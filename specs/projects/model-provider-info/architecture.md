@@ -53,53 +53,54 @@ All are Pydantic models with `extra="ignore"`, so an older tuner reads a
 newer snapshot.
 
 ```
-SourceState = Literal["ok", "none"]
+SourceState = Literal["ok", "unavailable"]
 
 class Source(BaseModel):
-    state: SourceState = "none"
+    state: SourceState = "unavailable"
     reason: str = ""                     # empty when ok
 
 class CatalogEntry(BaseModel):
     """One provider entry of one model."""
     provider: str                        # Kiln's provider id
-    model_id: str | None = None          # the provider's own id for the model
+    provider_model_id: str | None = None # the provider's own id for the model
     deprecated: bool = False
-    untested: bool = False
+    untested: bool = False               # Kiln has not tested it; supports_* do not apply
     supports_tools: bool | None = None
     supports_structured_output: bool | None = None
     supports_vision: bool | None = None
-    supports_doc_extraction: bool | None = None
-    reasoning_capable: bool | None = None
     thinking_levels: list[str] = []      # the values of available_thinking_levels, in Kiln's order
     default_thinking_level: str | None = None
-    structured_output_mode: str | None = None
-    suggested_for: list[str] = []        # "evals", "data_gen", "doc_extraction", "synthetic_user"
+    default_structured_output_mode: str | None = None  # Kiln's suggested default for the pair
+    kiln_suggested_for: list[str] = []   # "eval_judge", "synthetic_data", "document_extraction", "synthetic_user"
     tags: list[str] = []
-    # from models.dev, null when this entry has no exact match
+    # from models.dev, null when this entry has no exact match; a $0 price is kept
     input_price: float | None = None     # USD per million tokens
     output_price: float | None = None
     cache_read_price: float | None = None
     cache_write_price: float | None = None
     context_window: int | None = None
     max_output_tokens: int | None = None
-    takes_temperature: bool | None = None
+    supports_temperature: bool | None = None
 
 class CatalogModel(BaseModel):
     model: str                           # Kiln's model id (KilnModel.name)
-    name: str                            # friendly_name
+    display_name: str                    # friendly_name
     family: str | None = None
-    featured_rank: int | None = None
+    kiln_featured_rank: int | None = None  # 1 first
     editorial_notes: str | None = None
     agent_notes: str | None = None
     tags: list[str] = []
     entries: list[CatalogEntry] = []
     # model facts from models.dev (FS 3.3)
     release_date: str | None = None      # ISO date "YYYY-MM-DD"
-    release_date_match: Literal["exact", "loose"] | None = None
+    release_date_estimated: bool = False # true: from the loose fallback (3.3)
     knowledge_cutoff: str | None = None
     open_weights: bool | None = None
+    reasoning_model: bool | None = None  # models.dev's `reasoning`
     context_window: int | None = None
     max_output_tokens: int | None = None
+    median_input_price: float | None = None   # USD per million tokens (3.5)
+    median_output_price: float | None = None
 
 class CatalogProvider(BaseModel):
     provider: str
@@ -116,7 +117,7 @@ class Catalog(BaseModel):
     providers: list[CatalogProvider] = []
 
     @classmethod
-    def unavailable(cls, reason: str) -> "Catalog"   # both sources "none" with this reason
+    def unavailable(cls, reason: str) -> "Catalog"   # both sources "unavailable" with this reason
     def model(self, model_id: str) -> CatalogModel | None
     def provider(self, provider_id: str) -> CatalogProvider | None
 ```
@@ -143,17 +144,17 @@ Private Pydantic models with `extra="ignore"` read Kiln's raw names:
 ```
 _RawProvider: name, model_id, deprecated, untested_model,
     supports_function_calling, supports_structured_output, supports_vision,
-    supports_doc_extraction, reasoning_capable, available_thinking_levels
-    (dict[str, str] | None), default_thinking_level, structured_output_mode,
-    suggested_for_evals, suggested_for_data_gen, suggested_for_doc_extraction,
-    suggested_for_synthetic_user, tags (list[str] = [])
+    available_thinking_levels (dict[str, str] | None), default_thinking_level,
+    structured_output_mode, suggested_for_evals, suggested_for_data_gen,
+    suggested_for_doc_extraction, suggested_for_synthetic_user,
+    tags (list[str] = [])
 _RawModel: name, friendly_name, family, featured_rank, editorial_notes,
     agent_notes, tags, providers (list[Any])
 _RawProviderInfo: id, friendly_name, notes, tags, models_dev_id
 ```
 
 - `kiln_raw` must be a dict with a list at `model_list`. Otherwise the
-  build returns a catalogue with `kiln.state = "none"` and the reason
+  build returns a catalogue with `kiln.state = "unavailable"` and the reason
   "Kiln's file has no model_list".
 - Each model is validated alone with `_RawModel.model_validate`. On
   `ValidationError` it is dropped. Each item of its `providers` is validated
@@ -187,13 +188,13 @@ publishes it.
 For each entry:
 
 ```
-md = models_dev_raw.get(md_provider, {}).get("models", {}).get(entry.model_id)
+md = models_dev_raw.get(md_provider, {}).get("models", {}).get(entry.provider_model_id)
 ```
 
 When `md` is a dict, the entry takes: `cost.input`, `cost.output`,
 `cost.cache_read`, `cost.cache_write` (each through `_price`),
 `limit.context` and `limit.output` (each through `_limit`), and
-`temperature` (a bool, else None).
+`temperature` (a bool, else None, to `supports_temperature`).
 
 - `_price(v)`: a float or int that is finite and 0 or more, else None. Port
   of `_is_valid_price`.
@@ -201,8 +202,9 @@ When `md` is a dict, the entry takes: `cost.input`, `cost.output`,
 
 Model facts: the entries in the order `PREFERENCE`, then the others sorted
 by provider id. The first entry with a match gives `release_date`,
-`knowledge` (to `knowledge_cutoff`), `open_weights`, `limit.context` and
-`limit.output`. `release_date_match = "exact"`.
+`knowledge` (to `knowledge_cutoff`), `open_weights`, `reasoning` (to
+`reasoning_model`), `limit.context` and `limit.output`.
+`release_date_estimated = False`.
 
 ### 3.3 The loose release date
 
@@ -220,9 +222,9 @@ def _key(model_id: str) -> str:
   date wins. An early date is the first release, and a later date on a
   key is usually a provider adding the model later.
 - A Kiln model takes the earliest date among the keys of its entries'
-  `model_id`s. Deprecated entries count here: an old id is still evidence
-  of the release date. Without them the count falls from 242 to 231.
-  `release_date_match = "loose"`.
+  `provider_model_id`s. Deprecated entries count here: an old id is still
+  evidence of the release date. Without them the count falls from 242 to
+  231. `release_date_estimated = True`.
 - A key shorter than 4 characters is not used. A short key such as `o3`
   matches too much.
 - A `release_date` is valid when it parses with `date.fromisoformat`. Only
@@ -236,6 +238,27 @@ With the models.dev file of 2026-11-13 and Kiln `main` at `a1dc3e4`, this
 algorithm gave a release date for 242 of 264 models (212 exact). A test
 fixture (section 9) keeps a small slice of both files, so that the
 algorithm is tested offline.
+
+### 3.5 The median price
+
+One provider's price can be far from what most providers charge.
+OpenRouter routes each call to one of many hosts, and its listed price can
+be one cheap host's price. In the models.dev file of 2026-11-13,
+OpenRouter lists Kimi K3 at $0.192 input against a median of $3.00 over
+the other providers. Many "coding plan" providers list $0.
+
+- The index is built once for each build: `canonical_model_id` ->
+  models.dev provider id -> that provider's lowest positive input price,
+  and the same for the output price, on every models.dev provider, not
+  only Kiln's. A provider can list one model more than once (an alias, a
+  region, a fast tier); it counts once. A $0 price and a missing price are
+  left out.
+- A model takes the `canonical_model_id` of the first matched entry (in
+  the order of 3.2) that has one.
+- `median_input_price` and `median_output_price` are each the median over
+  the providers, when at least `MIN_MEDIAN_PRICES` (3) providers have a
+  price, else null.
+- A $0 price stays on its entry as it is. It is never used to sort.
 
 ## 4. The fetch and the store
 
@@ -266,9 +289,10 @@ async def fetch_catalog(
   `httpx.AsyncClient(timeout=FETCH_TIMEOUT_SECS, follow_redirects=True)`,
   closed after the fetch. The request has no header beyond httpx's
   defaults.
-- Each source's `Source` is `ok` when its data came back, else `none` with
-  the reason. Then `build_catalog`. When the build finds Kiln's data of the
-  wrong shape, the build sets `kiln` to `none` (section 3.1).
+- Each source's `Source` is `ok` when its data came back, else
+  `unavailable` with the reason. Then `build_catalog`. When the build finds
+  Kiln's data of the wrong shape, the build sets `kiln` to `unavailable`
+  (section 3.1).
 - `fetched_at` is `now()` in UTC, ISO format, to seconds.
 
 ### 4.2 `model_catalog/store.py`
@@ -307,7 +331,7 @@ logger.info("model catalogue: kiln %s, models.dev %s, %d models", ...)
   `Ctx`.
 - When the wave log is wired (`ctx.log = FanoutLog(...)`), `_run` emits
   one `model_catalog_unavailable` with `source` and `reason` for each
-  source that is `none`. Then it always emits `model_catalog` with `kiln`,
+  source that is `unavailable`. Then it always emits `model_catalog` with `kiln`,
   `models_dev`, `models` (count) and `release_dates` (count). Before the
   wave log is wired, the context's log is a `NullLog`.
 
@@ -373,7 +397,8 @@ three functions share:
 1. A deep copy of each catalogue model, in the catalogue's order.
 2. For each offered pair that matches an entry: overlay the server's
    `SERVER_FIELDS` (`thinking_levels` from `available_thinking_levels`,
-   `default_thinking_level`, `structured_output_mode`) onto the copied
+   `default_thinking_level`, `default_structured_output_mode` from
+   `structured_output_mode`) onto the copied
    entry. The probes and the model preflight check these against the
    server, and the installed Kiln can run with another remote config. For
    each offered pair that matches no entry: when the model is in the
@@ -381,14 +406,14 @@ three functions share:
    (`_entry_from_server`) to that model. Otherwise collect it.
 3. The collected pairs, grouped by model id, become new `CatalogModel`s
    built from the server's dicts, sorted by model id, after the catalogue's
-   models. Their `name` is the server's `name`. Their catalogue fields are
+   models. Their `display_name` is the server's `name`. Their catalogue fields are
    null.
 
 `_entry_from_server(provider, d)` reads `supports_function_calling`,
-`supports_structured_output`, `supports_vision`, `supports_doc_extraction`,
+`supports_structured_output`, `supports_vision`,
 `available_thinking_levels` (values in order), `default_thinking_level`,
 `structured_output_mode`, `untested_model`, `deprecated` and the
-`suggested_for_*` flags.
+`suggested_for_*` flags (to `kiln_suggested_for`, as in the build).
 
 The merge runs on each call. It is about 300 models and 800 entries, so the
 cost is small.
@@ -398,26 +423,26 @@ cost is small.
 1. `rows = _merged(...)`.
 2. For each row, keep the entries that pass: the status is `ready`, or
    `include_not_available`; not deprecated, or `include_deprecated`;
-   `provider` when given; `tools`, `vision`, `reasoning` when given (FS
-   5.1); `max_input_price` when given. An entry with a null value for a
-   filter it is tested on does not pass.
+   `provider` when given; `supports_tools`, `supports_vision`,
+   `has_thinking_levels` when given (FS 5.1). An entry with a null value
+   for a filter it is tested on does not pass.
 3. Drop a row with no entry left.
-4. Row filters: `family` (equal); `open_weights` (equal, null does not
-   pass); `tags` (any requested tag in the row's tags or in a kept entry's
+4. Row filters: `family` (equal); `open_weights` and `reasoning_model`
+   (equal, null does not pass); `tags` (any requested tag in the row's tags or in a kept entry's
    tags).
 5. Sort (FS 5.4). Python's sort is stable, and the rows are already in the
    `featured` base order, so `price` and `newest` sort by their key and keep
    the base order for ties. The `featured` key is
-   `(featured_rank is None, featured_rank or 0)`.
+   `(kiln_featured_rank is None, kiln_featured_rank or 0)`.
 6. `total = len(rows)`. Page with `offset` and `limit`.
-7. Map to `m.ModelRow`. `thinking` is true when a kept entry has
-   `thinking_levels` or `reasoning_capable`.
+7. Map to `m.ModelRow`. `has_thinking_levels` is true when a kept entry
+   has `thinking_levels`.
 
-`reasoning` filter on an entry: `bool(thinking_levels) or
-reasoning_capable is True`.
+`has_thinking_levels` filter on an entry: `bool(thinking_levels)`.
 
-`price` key: the lowest `input_price + output_price` among kept entries
-where both are known; `math.inf` when none.
+`price` key: `median_input_price + median_output_price` when both are
+known. Else the lowest `input_price + output_price` among kept entries
+where both are known and above 0. `math.inf` when none.
 
 `newest` key: `release_date` descending, null last. Use the key
 `(release_date is None, _neg(release_date))`, where `_neg` turns the ISO
@@ -438,11 +463,11 @@ date into a negative ordinal.
 - The ids: `catalog.providers`, then the providers of the catalogue's
   entries, then `offered.connected`, without duplicates.
 - `status`: `connected` when in `offered.connected`.
-- `ready_models`: the count of offered pairs of that provider whose status
-  is `ready`.
+- `ready_model_count`: the count of offered pairs of that provider whose
+  status is `ready`.
 - `name`, `tags`, `notes` from `catalog.provider(id)`, else null or empty.
 - Without `include_not_available`, only connected providers.
-- Order: `ready_models` descending, then provider id.
+- Order: `ready_model_count` descending, then provider id.
 
 ### 6.3 The gateway's models (`gateway/models.py`)
 
@@ -451,11 +476,11 @@ class ListModelsArgs(In):
     family: str | None = None
     provider: str | None = None
     tags: list[str] | None = None
-    tools: bool | None = None
-    vision: bool | None = None
-    reasoning: bool | None = None
+    supports_tools: bool | None = None
+    supports_vision: bool | None = None
+    reasoning_model: bool | None = None
+    has_thinking_levels: bool | None = None
     open_weights: bool | None = None
-    max_input_price: float | None = Field(default=None, ge=0)
     include_not_available: bool = False
     include_deprecated: bool = False
     sort: Literal["featured", "price", "newest"] = "featured"
@@ -470,8 +495,8 @@ class ListProvidersArgs(In):
     include_not_available: bool = False
 
 class CatalogState(Out):
-    kiln: Literal["ok", "none"]
-    models_dev: Literal["ok", "none"]
+    kiln: Literal["ok", "unavailable"]
+    models_dev: Literal["ok", "unavailable"]
     fetched_at: str | None
 
 class ProviderEntryRow(Out):
@@ -484,14 +509,17 @@ class ProviderEntryRow(Out):
 
 class ModelRow(Out):
     model: str
-    name: str
+    display_name: str
     family: str | None
-    featured_rank: int | None
+    kiln_featured_rank: int | None
     tags: list[str]
     release_date: str | None
     context_window: int | None
     open_weights: bool | None
-    thinking: bool
+    reasoning_model: bool | None
+    has_thinking_levels: bool
+    median_input_price: float | None
+    median_output_price: float | None
     providers: list[ProviderEntryRow]
 
 class ModelList(Out):
@@ -502,7 +530,7 @@ class ModelList(Out):
 class ProviderEntryDetails(Out):
     provider: str
     status: str
-    model_id: str | None
+    provider_model_id: str | None
     deprecated: bool
     untested: bool
     input_price: float | None
@@ -515,37 +543,38 @@ class ProviderEntryDetails(Out):
     supports_tools: bool | None
     supports_structured_output: bool | None
     supports_vision: bool | None
-    supports_doc_extraction: bool | None
-    reasoning_capable: bool | None
+    supports_temperature: bool | None
     thinking_levels: list[str]
     default_thinking_level: str | None
-    structured_output_mode: str | None
-    takes_temperature: bool | None
-    suggested_for: list[str]
+    default_structured_output_mode: str | None
+    kiln_suggested_for: list[str]
 
 class ModelDetailsView(Out):
     catalog: CatalogState
     model: str
-    name: str
+    display_name: str
     family: str | None
-    featured_rank: int | None
+    kiln_featured_rank: int | None
     editorial_notes: str | None
     agent_notes: str | None
     tags: list[str]
     release_date: str | None
-    release_date_match: str | None
+    release_date_estimated: bool
     knowledge_cutoff: str | None
     open_weights: bool | None
+    reasoning_model: bool | None
+    has_thinking_levels: bool
+    median_input_price: float | None
+    median_output_price: float | None
     context_window: int | None
     max_output_tokens: int | None
-    thinking: bool
     providers: list[ProviderEntryDetails]
 
 class ProviderRow(Out):
     provider: str
     name: str | None
     status: Literal["connected", "not_connected"]
-    ready_models: int
+    ready_model_count: int
     tags: list[str]
     notes: str | None
 
@@ -572,9 +601,12 @@ async def list_models(self, req: m.ListModelsArgs) -> m.ModelList:
 - `OPS`: three new entries, with these summaries (they become the tool
   descriptions):
   - `list_models`: "Models with price, context, release date and tags,
-    one row per model. Only ready models unless include_not_available."
+    one row per model. Only ready models unless include_not_available.
+    Prices are USD per million tokens; median_* is the median across
+    providers on models.dev."
   - `get_model_details`: "Everything about one model: notes for agents,
-    each provider's prices, capabilities and thinking levels."
+    each provider's prices (USD per million tokens), capabilities and
+    thinking levels."
   - `list_providers`: "Providers with their status, ready model count,
     tags and notes."
 - `ROLE_OPS`: in `batch_plan`, `create_experiment_rc` and `probe`, replace
@@ -603,7 +635,7 @@ In `smells/run._collect`:
 
 - `provider, model` come from `properties` (`model_provider_name`,
   `model_name`).
-- `facts = ModelFacts(provider, model, row.name, release_date)` when
+- `facts = ModelFacts(provider, model, row.display_name, release_date)` when
   `ctx.model_catalog` has the model, else
   `ModelFacts(provider, model, model, None)`. `release_date` is parsed with
   `date.fromisoformat`. A bad value gives None.
@@ -766,7 +798,7 @@ document and its detector.
 
 | Where | Failure | What happens |
 |---|---|---|
-| Fetch | any | Never raises. The source is `none`, with a reason. One log line, one event. |
+| Fetch | any | Never raises. The source is `unavailable`, with a reason. One log line, one event. |
 | Build | a bad model or entry | Dropped alone. No event for each one. The counts in the `model_catalog` event show the size. |
 | Store | write fails (disk) | Raises. A run that cannot write its run directory fails at start-up today too. |
 | Gateway load | missing or bad snapshot | `Catalog.unavailable("no snapshot")`. The tools still serve the server's list. |

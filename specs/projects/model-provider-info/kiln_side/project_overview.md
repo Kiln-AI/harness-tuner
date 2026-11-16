@@ -174,6 +174,11 @@ table. Each value was checked against the models.dev file of 2026-11-13.
 The friendly names exist today in `provider_name_from_id`
 (`libs/core/kiln_ai/adapters/provider_tools.py`).
 
+The `notes` of `openrouter` say that OpenRouter routes each call to one of
+many hosts, and that its listed price can be one cheap host's price, not
+the typical price of the model. An agent then compares it with the
+model's median price across providers, which the tuner gives.
+
 ## The maintenance skill
 
 `claude-maintain-models` changes so that:

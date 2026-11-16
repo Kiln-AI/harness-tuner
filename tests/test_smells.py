@@ -585,7 +585,9 @@ async def test_an_eval_whose_train_rows_cannot_be_read_gives_no_trace_stats():
 
 def dated_catalog(model: str, release_date: str | None) -> Catalog:
     return Catalog(
-        models=[CatalogModel(model=model, name="GPT 4o", release_date=release_date)]
+        models=[
+            CatalogModel(model=model, display_name="GPT 4o", release_date=release_date)
+        ]
     )
 
 

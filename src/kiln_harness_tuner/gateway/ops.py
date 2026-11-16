@@ -1264,13 +1264,14 @@ OPS = _ops(
         "list_models",
         m.ListModelsArgs,
         "Models with price, context, release date and tags, one row per model."
-        " Only ready models unless include_not_available.",
+        " Only ready models unless include_not_available. Prices are USD per"
+        " million tokens; median_* is the median across providers on models.dev.",
     ),
     (
         "get_model_details",
         m.ModelDetailsArgs,
-        "Everything about one model: notes for agents, each provider's prices,"
-        " capabilities and thinking levels.",
+        "Everything about one model: notes for agents, each provider's prices"
+        " (USD per million tokens), capabilities and thinking levels.",
     ),
     (
         "list_providers",

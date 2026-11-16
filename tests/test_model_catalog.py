@@ -86,20 +86,24 @@ def test_the_fixture_builds_with_prices_limits_and_dates():
     ]
     gpt = catalog.model("gpt_6_1_sol")
     assert gpt is not None
-    assert (gpt.name, gpt.family, gpt.featured_rank) == ("GPT-6.1 Sol", "gpt", 4)
-    assert gpt.release_date == "2026-09-29" and gpt.release_date_match == "exact"
+    assert (gpt.display_name, gpt.family, gpt.kiln_featured_rank) == (
+        "GPT-6.1 Sol",
+        "gpt",
+        4,
+    )
+    assert gpt.release_date == "2026-09-29" and gpt.release_date_estimated is False
     assert (gpt.knowledge_cutoff, gpt.open_weights) == ("2026-04-30", False)
     assert (gpt.context_window, gpt.max_output_tokens) == (1050000, 128000)
     openai = entry_of(catalog, "gpt_6_1_sol", "openai")
-    assert openai.model_id == "gpt-6.1-sol"
+    assert openai.provider_model_id == "gpt-6.1-sol"
     assert (openai.input_price, openai.output_price) == (2.0, 10.0)
     assert (openai.cache_read_price, openai.cache_write_price) == (0.1, 2.5)
-    assert openai.takes_temperature is False
+    assert openai.supports_temperature is False
     assert openai.thinking_levels == ["none", "low", "medium", "high"]
     assert openai.default_thinking_level == "medium"
-    assert openai.suggested_for == ["evals", "data_gen"]
+    assert openai.kiln_suggested_for == ["eval_judge", "synthetic_data"]
     assert openai.supports_tools is False and openai.supports_vision is True
-    assert openai.structured_output_mode == "json_schema"
+    assert openai.default_structured_output_mode == "json_schema"
     assert openai.tags == ["fast"]
     # The new Kiln fields, and the provider list.
     assert gpt.agent_notes is not None and gpt.agent_notes.startswith("Follows")
@@ -154,13 +158,13 @@ def test_model_facts_follow_the_provider_preference():
 def test_the_loose_match_dates_a_model_with_no_exact_match():
     glm = build().model("glm_4_6")
     assert glm is not None
-    assert glm.release_date == "2025-09-30" and glm.release_date_match == "loose"
+    assert glm.release_date == "2025-09-30" and glm.release_date_estimated is True
     # The other model facts are not taken from a loose match.
     assert glm.open_weights is None and glm.context_window is None
     assert all(e.input_price is None for e in glm.entries)
     jev = build().model("jev_1_13")
     assert jev is not None
-    assert jev.release_date is None and jev.release_date_match is None
+    assert jev.release_date is None and jev.release_date_estimated is False
 
 
 def test_the_loose_match_takes_the_earliest_date():
@@ -180,7 +184,7 @@ def test_the_loose_match_takes_the_earliest_date():
     kiln = one_model({"name": "openrouter", "model_id": "x/big_model_2:free"})
     model = build(kiln, models_dev).model("m")
     assert model is not None
-    assert model.release_date == "2025-06-01" and model.release_date_match == "loose"
+    assert model.release_date == "2025-06-01" and model.release_date_estimated
 
 
 def test_a_loose_date_counts_a_deprecated_entry():
@@ -209,7 +213,114 @@ def test_an_exact_match_with_no_date_falls_back_to_the_loose_date():
     found = model.model("m")
     assert found is not None
     assert found.context_window == 1000
-    assert (found.release_date, found.release_date_match) == ("2025-05-05", "loose")
+    assert (found.release_date, found.release_date_estimated) == ("2025-05-05", True)
+
+
+def priced(canonical: str, input_price: Any, output_price: Any = 1.0) -> dict:
+    """A models.dev entry of a canonical model, with these prices."""
+    cost = {"input": input_price, "output": output_price}
+    return {"canonical_model_id": canonical, "cost": cost}
+
+
+def test_the_median_price_is_across_every_models_dev_provider():
+    # One cheap host on OpenRouter, three hosts at the typical price, a $0
+    # coding plan, an entry with no price, and another canonical model.
+    models_dev = {
+        "openrouter": {"models": {"k/k3": priced("k/k3", 0.192, 0.8)}},
+        "a": {"models": {"k3": priced("k/k3", 3.0, 12.0)}},
+        "b": {"models": {"k3": priced("k/k3", 2.9, 11.0)}},
+        "c": {"models": {"k3": priced("k/k3", 3.1, 13.0)}},
+        "plan": {"models": {"k3": priced("k/k3", 0, 0)}},
+        "d": {"models": {"k3": {"canonical_model_id": "k/k3"}}},
+        "e": {"models": {"k2": priced("k/k2", 99.0, 99.0)}},
+    }
+    model = build(one_model({"name": "openrouter", "model_id": "k/k3"}), models_dev)
+    found = model.model("m")
+    assert found is not None
+    assert (found.median_input_price, found.median_output_price) == (2.95, 11.5)
+    # The entry keeps its own price.
+    assert entry_of(model, "m", "openrouter").input_price == 0.192
+
+
+def test_the_median_needs_three_paid_prices():
+    models_dev = {
+        "openrouter": {"models": {"k3": priced("k/k3", 1.0, 2.0)}},
+        "a": {"models": {"k3": priced("k/k3", 3.0, 0)}},
+        "b": {"models": {"k3": priced("k/k3", 5.0, None)}},
+    }
+    model = build(one_model({"name": "openrouter", "model_id": "k3"}), models_dev)
+    found = model.model("m")
+    assert found is not None
+    assert (found.median_input_price, found.median_output_price) == (3.0, None)
+    # The fixture: three priced gemini entries, two deepseek ones.
+    catalog = build()
+    gemini = catalog.model("gemini_3_8_flash")
+    assert gemini is not None
+    assert (gemini.median_input_price, gemini.median_output_price) == (0.75, 3.75)
+    deepseek = catalog.model("deepseek_4_pro")
+    assert deepseek is not None and deepseek.median_input_price is None
+
+
+def test_a_provider_with_many_entries_counts_once_at_its_lowest_price():
+    # Provider a lists the model three times: an alias, a fast tier and a
+    # $0 plan. It counts once, at its lowest paid price, input and output
+    # each on their own.
+    models_dev = {
+        "a": {
+            "models": {
+                "k3": priced("k/k3", 3.0, 16.0),
+                "k3-fast": priced("k/k3", 4.0, 12.0),
+                "k3-plan": priced("k/k3", 0, 0),
+            }
+        },
+        "b": {"models": {"k3": priced("k/k3", 5.0, 20.0)}},
+    }
+    kiln = one_model({"name": "b", "model_id": "k3"})
+    found = build(kiln, models_dev).model("m")
+    assert found is not None
+    # Two providers, not four entries: no median.
+    assert (found.median_input_price, found.median_output_price) == (None, None)
+    models_dev["c"] = {"models": {"k3": priced("k/k3", 6.0, 24.0)}}
+    found = build(kiln, models_dev).model("m")
+    assert found is not None
+    assert (found.median_input_price, found.median_output_price) == (5.0, 20.0)
+
+
+def test_the_canonical_id_and_reasoning_follow_the_provider_preference():
+    models_dev = {
+        "openrouter": {"models": {"x": {"reasoning": True}}},
+        "groq": {"models": {"x": {**priced("lab/x", 2.0), "reasoning": False}}},
+        "a": {"models": {"x": priced("lab/x", 4.0)}},
+        "b": {"models": {"x": priced("lab/x", 6.0)}},
+    }
+    kiln = one_model(
+        {"name": "groq", "model_id": "x"}, {"name": "openrouter", "model_id": "x"}
+    )
+    found = build(kiln, models_dev).model("m")
+    assert found is not None
+    # OpenRouter's entry has no canonical id: groq's gives the median.
+    assert found.reasoning_model is True and found.median_input_price == 4.0
+    models_dev["openrouter"]["models"]["x"]["reasoning"] = "yes"
+    found = build(kiln, models_dev).model("m")
+    assert found is not None and found.reasoning_model is None
+
+
+def test_kiln_suggested_for_has_the_clear_names():
+    sonnet = entry_of(build(), "claude_sonnet_5_5", "anthropic")
+    assert sonnet.kiln_suggested_for == [
+        "eval_judge",
+        "synthetic_data",
+        "synthetic_user",
+    ]
+    kiln = one_model(
+        {
+            "name": "openai",
+            "suggested_for_doc_extraction": True,
+            "suggested_for_uncensored_data_gen": True,
+        }
+    )
+    entry = entry_of(build(kiln), "m", "openai")
+    assert entry.kiln_suggested_for == ["document_extraction"]
 
 
 def test_the_published_models_dev_id_wins_over_the_built_in_map():
@@ -272,7 +383,7 @@ def test_a_bad_price_and_a_bad_limit_are_dropped():
     assert entry.input_price is None and entry.output_price is None
     assert entry.cache_read_price is None and entry.cache_write_price is None
     assert entry.context_window is None and entry.max_output_tokens is None
-    assert entry.takes_temperature is None
+    assert entry.supports_temperature is None
     zero = models_dev_with("openai", "m-1", cost={"input": 0})
     built = build(one_model({"name": "openai", "model_id": "m-1"}), zero)
     assert entry_of(built, "m", "openai").input_price == 0.0
@@ -300,7 +411,7 @@ def test_a_bad_model_is_dropped_and_the_rest_kept():
     catalog = build(kiln)
     assert len(catalog.models) == 7
     sonnet = catalog.model("claude_sonnet_5_5")
-    assert sonnet is not None and sonnet.name == "Claude 5.5 Sonnet"
+    assert sonnet is not None and sonnet.display_name == "Claude 5.5 Sonnet"
 
 
 def test_a_bad_provider_entry_is_dropped_and_its_model_kept():
@@ -324,7 +435,7 @@ def test_an_unknown_field_is_ignored():
     kiln["a_new_top_level_key"] = []
     kiln["provider_list"] = [{"id": "openai", "region": "us"}]
     catalog = build(kiln)
-    assert entry_of(catalog, "m", "openai").model_id == "m-1"
+    assert entry_of(catalog, "m", "openai").provider_model_id == "m-1"
     assert catalog.provider("openai") is not None
 
 
@@ -356,19 +467,19 @@ def test_a_long_note_is_cut():
     assert provider is not None and provider.notes == "x" * 2000
 
 
-def test_a_kiln_file_without_model_list_gives_kiln_none():
+def test_a_kiln_file_without_model_list_gives_kiln_unavailable():
     for raw in ({"model_list": {}}, [], "text"):
         catalog = build(raw)
-        assert catalog.kiln == Source(state="none", reason=NO_MODEL_LIST)
+        assert catalog.kiln == Source(state="unavailable", reason=NO_MODEL_LIST)
         assert catalog.models == [] and catalog.models_dev == OK
     # A Kiln fetch that failed keeps its own reason.
-    failed = Source(state="none", reason="HTTP 503")
+    failed = Source(state="unavailable", reason="HTTP 503")
     catalog = build_catalog(None, {}, fetched_at=FETCHED_AT, kiln=failed, models_dev=OK)
     assert catalog.kiln == failed
 
 
 def test_no_models_dev_gives_null_prices_and_kiln_data():
-    failed = Source(state="none", reason="timeout after 10 s")
+    failed = Source(state="unavailable", reason="timeout after 10 s")
     catalog = build_catalog(
         kiln_file(), None, fetched_at=FETCHED_AT, kiln=OK, models_dev=failed
     )
@@ -377,17 +488,19 @@ def test_no_models_dev_gives_null_prices_and_kiln_data():
     assert all(m.release_date is None for m in catalog.models)
     assert all(e.input_price is None for m in catalog.models for e in m.entries)
     gpt = catalog.model("gpt_6_1_sol")
-    assert gpt is not None and gpt.featured_rank == 4 and gpt.tags
+    assert gpt is not None and gpt.kiln_featured_rank == 4 and gpt.tags
     # A models.dev body that is not an object is no models.dev.
     catalog = build(models_dev_raw=["not", "an", "object"])
-    assert catalog.models_dev.state == "none"
+    assert catalog.models_dev.state == "unavailable"
     assert all(m.release_date is None for m in catalog.models)
 
 
-def test_unavailable_has_both_sources_none_with_the_reason():
+def test_unavailable_has_both_sources_unavailable_with_the_reason():
     catalog = Catalog.unavailable("turned off")
     assert (
-        catalog.kiln == catalog.models_dev == Source(state="none", reason="turned off")
+        catalog.kiln
+        == catalog.models_dev
+        == Source(state="unavailable", reason="turned off")
     )
     assert catalog.models == [] and catalog.model("x") is None
 
@@ -408,8 +521,8 @@ async def test_fetch_turned_off_makes_no_request():
     kiln, models_dev = fixture_routes()
     catalog = await fetch_catalog(enabled=False)
     assert not kiln.called and not models_dev.called
-    assert catalog.kiln == Source(state="none", reason="turned off")
-    assert catalog.models_dev.state == "none"
+    assert catalog.kiln == Source(state="unavailable", reason="turned off")
+    assert catalog.models_dev.state == "unavailable"
 
 
 @respx.mock
@@ -451,9 +564,9 @@ async def test_fetch_timeout_gives_a_reason_and_never_raises():
     respx.get(KILN_URL).mock(side_effect=httpx.ConnectTimeout("slow"))
     respx.get(MODELS_DEV_URL).mock(side_effect=httpx.ConnectError("no route"))
     catalog = await fetch_catalog()
-    assert catalog.kiln == Source(state="none", reason="timeout after 10 s")
+    assert catalog.kiln == Source(state="unavailable", reason="timeout after 10 s")
     assert catalog.models_dev == Source(
-        state="none", reason="transport error: ConnectError"
+        state="unavailable", reason="transport error: ConnectError"
     )
     assert catalog.models == []
 
@@ -469,9 +582,9 @@ async def test_fetch_is_bounded_in_total_time(monkeypatch):
     respx.get(KILN_URL).mock(side_effect=stalls)
     respx.get(MODELS_DEV_URL).mock(side_effect=RuntimeError("bug"))
     catalog = await asyncio.wait_for(fetch_catalog(), timeout=2)
-    assert catalog.kiln == Source(state="none", reason="timeout after 0.05 s")
+    assert catalog.kiln == Source(state="unavailable", reason="timeout after 0.05 s")
     assert catalog.models_dev == Source(
-        state="none", reason="fetch failed: RuntimeError"
+        state="unavailable", reason="fetch failed: RuntimeError"
     )
 
 
@@ -482,7 +595,7 @@ async def test_fetch_non_2xx_gives_a_reason():
         return_value=httpx.Response(200, json=models_dev_file())
     )
     catalog = await fetch_catalog()
-    assert catalog.kiln == Source(state="none", reason="HTTP 503")
+    assert catalog.kiln == Source(state="unavailable", reason="HTTP 503")
     assert catalog.models_dev == OK
     assert catalog.models == []
 
@@ -495,7 +608,7 @@ async def test_fetch_over_the_byte_cap_gives_a_reason(monkeypatch):
     )
     respx.get(MODELS_DEV_URL).mock(return_value=httpx.Response(200, json={}))
     catalog = await fetch_catalog()
-    assert catalog.kiln == Source(state="none", reason="body over 1 MiB")
+    assert catalog.kiln == Source(state="unavailable", reason="body over 1 MiB")
 
 
 @respx.mock
@@ -504,7 +617,7 @@ async def test_fetch_bad_json_gives_a_reason():
     respx.get(MODELS_DEV_URL).mock(return_value=httpx.Response(200, content=b"{"))
     catalog = await fetch_catalog()
     assert catalog.kiln == OK
-    assert catalog.models_dev == Source(state="none", reason="not valid JSON")
+    assert catalog.models_dev == Source(state="unavailable", reason="not valid JSON")
     assert all(m.release_date is None for m in catalog.models)
 
 

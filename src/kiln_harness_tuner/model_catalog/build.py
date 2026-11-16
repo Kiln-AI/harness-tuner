@@ -10,14 +10,18 @@ The join follows the Kiln server's model info tool (`kiln_server`,
 `api/kiln_fastapi_api/tools/model_info/model_builder.py`): price and limits
 for each (provider, model) pair, and the model facts from the first matched
 entry in a fixed provider order. When no entry gives a release date, the date
-is looked up across all of models.dev by a loose key.
+is looked up across all of models.dev by a loose key. The median price of a
+model is taken across all of models.dev, by the model's canonical id: one
+provider's price can be far from what most providers charge.
 """
 
 from __future__ import annotations
 
 import math
 import re
+import statistics
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
@@ -40,7 +44,15 @@ _TAG_RE = re.compile(r"[a-z0-9_]{1,40}")
 MIN_LOOSE_KEY = 4
 NO_MODEL_LIST = "Kiln's file has no model_list"
 MODELS_DEV_NOT_AN_OBJECT = "models.dev's file is not an object"
-SUGGESTED_FOR = ("evals", "data_gen", "doc_extraction", "synthetic_user")
+# Kiln's `suggested_for_<flag>` -> the value in `kiln_suggested_for`.
+KILN_SUGGESTED_FOR: dict[str, str] = {
+    "evals": "eval_judge",
+    "data_gen": "synthetic_data",
+    "doc_extraction": "document_extraction",
+    "synthetic_user": "synthetic_user",
+}
+# A median over fewer providers is too easy to move with one odd price.
+MIN_MEDIAN_PRICES = 3
 
 
 class _Raw(BaseModel):
@@ -55,8 +67,6 @@ class _RawProvider(_Raw):
     supports_function_calling: bool | None = None
     supports_structured_output: bool | None = None
     supports_vision: bool | None = None
-    supports_doc_extraction: bool | None = None
-    reasoning_capable: bool | None = None
     available_thinking_levels: dict[str, str] | None = None
     default_thinking_level: str | None = None
     structured_output_mode: str | None = None
@@ -98,17 +108,18 @@ def build_catalog(
     Either may be None (its fetch failed)."""
     if not isinstance(models_dev_raw, Mapping):
         if models_dev.state == "ok":
-            models_dev = Source(state="none", reason=MODELS_DEV_NOT_AN_OBJECT)
+            models_dev = Source(state="unavailable", reason=MODELS_DEV_NOT_AN_OBJECT)
         models_dev_raw = {}
     model_list = kiln_raw.get("model_list") if isinstance(kiln_raw, Mapping) else None
     if not isinstance(model_list, list):
         if kiln.state == "ok":
-            kiln = Source(state="none", reason=NO_MODEL_LIST)
+            kiln = Source(state="unavailable", reason=NO_MODEL_LIST)
         return Catalog(fetched_at=fetched_at, kiln=kiln, models_dev=models_dev)
 
     providers = _provider_list(kiln_raw.get("provider_list"))
     published = {p.provider: p.models_dev_id for p in providers}
     loose_dates = _loose_index(models_dev_raw)
+    canonical_prices = _canonical_price_index(models_dev_raw)
     models: list[CatalogModel] = []
     seen: set[str] = set()
     for item in model_list:
@@ -116,7 +127,7 @@ def build_catalog(
         if model is None or model.model in seen:
             continue
         seen.add(model.model)
-        _join(model, models_dev_raw, published, loose_dates)
+        _join(model, models_dev_raw, published, loose_dates, canonical_prices)
         models.append(model)
     return Catalog(
         fetched_at=fetched_at,
@@ -128,6 +139,16 @@ def build_catalog(
 
 
 # ---- the Kiln parse ----
+
+
+def kiln_suggested_for(flags: Mapping[str, Any]) -> list[str]:
+    """The `kiln_suggested_for` values of Kiln's `suggested_for_*` flags, of
+    a raw provider entry or of a server model dict."""
+    return [
+        value
+        for flag, value in KILN_SUGGESTED_FOR.items()
+        if flags.get(f"suggested_for_{flag}") is True
+    ]
 
 
 def _tags(values: Any) -> list[str]:
@@ -182,9 +203,9 @@ def _model(item: Any) -> CatalogModel | None:
         return None
     return CatalogModel(
         model=raw.name,
-        name=raw.friendly_name or raw.name,
+        display_name=raw.friendly_name or raw.name,
         family=raw.family,
-        featured_rank=raw.featured_rank,
+        kiln_featured_rank=raw.featured_rank,
         editorial_notes=_note(raw.editorial_notes),
         agent_notes=_note(raw.agent_notes),
         tags=_tags(raw.tags),
@@ -199,20 +220,16 @@ def _entry(item: Any) -> CatalogEntry | None:
         return None
     return CatalogEntry(
         provider=raw.name,
-        model_id=raw.model_id,
+        provider_model_id=raw.model_id,
         deprecated=raw.deprecated,
         untested=raw.untested_model,
         supports_tools=raw.supports_function_calling,
         supports_structured_output=raw.supports_structured_output,
         supports_vision=raw.supports_vision,
-        supports_doc_extraction=raw.supports_doc_extraction,
-        reasoning_capable=raw.reasoning_capable,
         thinking_levels=list((raw.available_thinking_levels or {}).values()),
         default_thinking_level=raw.default_thinking_level,
-        structured_output_mode=raw.structured_output_mode,
-        suggested_for=[
-            use for use in SUGGESTED_FOR if getattr(raw, f"suggested_for_{use}")
-        ],
+        default_structured_output_mode=raw.structured_output_mode,
+        kiln_suggested_for=kiln_suggested_for(raw.model_dump()),
         tags=_tags(raw.tags),
     )
 
@@ -276,11 +293,12 @@ def _join(
     models_dev_raw: Mapping[str, Any],
     published: Mapping[str, str | None],
     loose_dates: Mapping[str, str],
+    canonical_prices: Mapping[str, _Prices],
 ) -> None:
     matched: list[tuple[CatalogEntry, Mapping[str, Any]]] = []
     for entry in model.entries:
         md_provider = models_dev_provider(entry.provider, published.get(entry.provider))
-        md = _models_dev_entry(models_dev_raw, md_provider, entry.model_id)
+        md = _models_dev_entry(models_dev_raw, md_provider, entry.provider_model_id)
         if md is None:
             continue
         matched.append((entry, md))
@@ -293,25 +311,97 @@ def _join(
         entry.context_window = _limit(limit.get("context"))
         entry.max_output_tokens = _limit(limit.get("output"))
         temperature = md.get("temperature")
-        entry.takes_temperature = temperature if isinstance(temperature, bool) else None
+        entry.supports_temperature = (
+            temperature if isinstance(temperature, bool) else None
+        )
 
     if matched:
-        _, first = min(matched, key=lambda pair: _preference_rank(pair[0]))
+        matched.sort(key=lambda pair: _preference_rank(pair[0]))
+        first = matched[0][1]
         limit = _mapping(first.get("limit"))
         model.release_date = _iso_date(first.get("release_date"))
         knowledge = first.get("knowledge")
         model.knowledge_cutoff = knowledge if isinstance(knowledge, str) else None
         open_weights = first.get("open_weights")
         model.open_weights = open_weights if isinstance(open_weights, bool) else None
+        reasoning = first.get("reasoning")
+        model.reasoning_model = reasoning if isinstance(reasoning, bool) else None
         model.context_window = _limit(limit.get("context"))
         model.max_output_tokens = _limit(limit.get("output"))
-    if model.release_date is not None:
-        model.release_date_match = "exact"
+        _set_median_prices(model, [md for _, md in matched], canonical_prices)
+    if model.release_date is None:
+        model.release_date = _loose_date(model, loose_dates)
+        model.release_date_estimated = model.release_date is not None
+
+
+# ---- the median price ----
+
+
+@dataclass
+class _Prices:
+    """The positive prices of one canonical model id: models.dev provider id
+    -> that provider's lowest price. A provider can list one model more than
+    once (an alias, a region, a fast tier), and it counts once."""
+
+    input: dict[str, float] = field(default_factory=dict)
+    output: dict[str, float] = field(default_factory=dict)
+
+
+def _paid(value: Any) -> float | None:
+    """A price for the median: a $0 price is usually a free tier or a plan,
+    not what most providers charge."""
+    price = _price(value)
+    return price if price else None
+
+
+def _keep_lowest(prices: dict[str, float], provider: str, value: Any) -> None:
+    price = _paid(value)
+    if price is not None and price < prices.get(provider, math.inf):
+        prices[provider] = price
+
+
+def _canonical_price_index(models_dev_raw: Mapping[str, Any]) -> dict[str, _Prices]:
+    index: dict[str, _Prices] = {}
+    for provider_id, provider in models_dev_raw.items():
+        for md in _mapping(_mapping(provider).get("models")).values():
+            if not isinstance(md, Mapping):
+                continue
+            canonical = md.get("canonical_model_id")
+            if not isinstance(canonical, str) or not canonical:
+                continue
+            cost = _mapping(md.get("cost"))
+            prices = index.setdefault(canonical, _Prices())
+            _keep_lowest(prices.input, provider_id, cost.get("input"))
+            _keep_lowest(prices.output, provider_id, cost.get("output"))
+    return index
+
+
+def _median(by_provider: dict[str, float]) -> float | None:
+    if len(by_provider) < MIN_MEDIAN_PRICES:
+        return None
+    return statistics.median(by_provider.values())
+
+
+def _set_median_prices(
+    model: CatalogModel,
+    matched: list[Mapping[str, Any]],
+    canonical_prices: Mapping[str, _Prices],
+) -> None:
+    """The median of the canonical id of the first matched entry that has
+    one. `matched` is in the provider preference order."""
+    canonical = next(
+        (
+            c
+            for md in matched
+            if isinstance(c := md.get("canonical_model_id"), str) and c
+        ),
+        None,
+    )
+    prices = canonical_prices.get(canonical) if canonical is not None else None
+    if prices is None:
         return
-    loose = _loose_date(model, loose_dates)
-    if loose is not None:
-        model.release_date = loose
-        model.release_date_match = "loose"
+    model.median_input_price = _median(prices.input)
+    model.median_output_price = _median(prices.output)
 
 
 # ---- the loose release date ----
@@ -348,8 +438,8 @@ def _loose_date(model: CatalogModel, loose_dates: Mapping[str, str]) -> str | No
     dates = [
         loose_dates[key]
         for entry in model.entries
-        if entry.model_id is not None
-        and len(key := _key(entry.model_id)) >= MIN_LOOSE_KEY
+        if entry.provider_model_id is not None
+        and len(key := _key(entry.provider_model_id)) >= MIN_LOOSE_KEY
         and key in loose_dates
     ]
     return min(dates, default=None)
