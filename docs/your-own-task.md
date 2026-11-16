@@ -261,10 +261,28 @@ has the detail.
 Multi-turn items need a synthetic-user drive config, as an eval needs it.
 An item that the eval job cannot drive fails its drive and says why.
 
+You start each OpenEnv server yourself. Kiln saves only its URL, and it
+never starts the server. Start the server before you start the tuner.
+
+The start checks each OpenEnv server that the task uses. It finds them in
+the baseline run config's OpenEnv tools and in the `openenv_reset` of the
+train eval inputs. It does not read val or test items. It asks Kiln for
+each server's tools (`GET …/openenv_servers/{id}/tools`). That call starts
+no episode. The tuner does not connect to an OpenEnv server itself. The
+start stops before the baseline measurement when:
+
+- a server does not answer, or it has no URL in Kiln;
+- a server does not serve a tool that the baseline run config lists.
+
+The message names the server, its URL and the tools it serves. Start the
+environment at that URL, then check again. A Kiln with no OpenEnv servers,
+or a task that uses none, skips the check.
+
 Keep each OpenEnv server running for the whole run. The agents read its
 tools (names, descriptions, parameters) from the running server, because
-Kiln knows them only during an episode. If a server does not answer, the
-agents see its tools as missing and work from the traces only.
+Kiln knows them only during an episode. If a server stops during the run,
+the agents see its tools as missing and work from the traces only. Its
+eval items fail as measurement errors.
 
 Use Kiln v1.2.1 or later for an OpenEnv task. The loop finds OpenEnv tools
 by `kiln_tool::openenv::` and inputs by `openenv_reset`, the names that
@@ -416,10 +434,12 @@ steps come before any agent session, model call or run folder, in this order:
    (section 1.5).
 4. The readiness check (section 1).
 5. The API-key check ([install.md](install.md) section 5).
-6. The questions, guided start only.
-7. The API-key check again, only when an answer set or changed the model
+6. The OpenEnv check, only for a task that uses an OpenEnv server
+   (section 1.6).
+7. The questions, guided start only.
+8. The API-key check again, only when an answer set or changed the model
    policy.
-8. The summary. A guided start then shows the command that runs it again, and
+9. The summary. A guided start then shows the command that runs it again, and
    asks whether to start.
 
 Then the run itself starts. It runs waves until the budget, the clock or the

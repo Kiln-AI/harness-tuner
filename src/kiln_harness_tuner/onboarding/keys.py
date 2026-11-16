@@ -96,6 +96,7 @@ class Baseline:
     provider: str | None  # Kiln's display name
     rc_id: str
     provider_id: str | None = None  # Kiln's provider id
+    tools: tuple[str, ...] = ()  # the tool ids its run config lists
 
     @property
     def pair(self) -> tuple[str, str] | None:
@@ -201,7 +202,16 @@ def _baseline(row: dict[str, Any] | None) -> Baseline | None:
         provider_name(provider) if provider else None,
         _run_config_id(row),
         provider or None,
+        run_config_tools(row),
     )
+
+
+def run_config_tools(row: dict[str, Any]) -> tuple[str, ...]:
+    """The tool ids a run config lists (`tools_config.tools`)."""
+    props = row.get("run_config_properties")
+    tools_config = props.get("tools_config") if isinstance(props, dict) else None
+    tools = tools_config.get("tools") if isinstance(tools_config, dict) else None
+    return tuple(t for t in tools or [] if isinstance(t, str))
 
 
 def judge_provider(config: Any) -> str | None:

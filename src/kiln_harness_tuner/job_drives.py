@@ -50,6 +50,10 @@ logger = logging.getLogger(__name__)
 # A tool an OpenEnv server serves: `kiln_tool::openenv::<server id>::<tool>`.
 # Kiln resolves it only while an episode of that server is running.
 OPENENV_TOOL_PREFIX = "kiln_tool::openenv::"
+# The longest wait for Kiln's `GET …/openenv_servers/{id}/tools`. Kiln asks
+# the OpenEnv server, and it waits up to 30 s to connect
+# (`CONNECT_TIMEOUT_S`), so the wait here is a little longer.
+OPENENV_LIST_TIMEOUT_SECS = 45.0
 MULTI_TURN_MODE = "multiturn"
 # The longest one drive may take, end to end: a multi-turn conversation in a
 # OpenEnv episode runs several model calls and several tool calls. The server's
