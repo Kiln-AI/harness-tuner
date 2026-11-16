@@ -414,13 +414,15 @@ def _check_openenv(
     def uses() -> dict[str, ServerUse]:
         return used_servers(tool_ids, selection.project_path, selection.task.id)
 
-    if not uses():
+    first = uses()
+    if not first:
         return
+    pending = [first]  # the first run uses this read; each retry reads again
     result = OpenEnvCheck()
 
     def check() -> Problem | None:
         nonlocal result
-        servers = uses()
+        servers = pending.pop() if pending else uses()
         result = run(
             lambda kiln: check_openenv(
                 kiln, project_id=selection.project.id, uses=servers

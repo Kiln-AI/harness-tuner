@@ -78,13 +78,16 @@ def openenv_tool_parts(tool_id: str) -> tuple[str, str] | None:
     return (server_id, name) if server_id and name else None
 
 
-def lists_openenv_tool(props: Mapping[str, Any] | None) -> bool:
-    """Does this run config's tool list name an OpenEnv tool?"""
+def run_config_tool_ids(props: Mapping[str, Any] | None) -> list[str]:
+    """The tool ids a run config's properties list (`tools_config.tools`)."""
     tools_config = props.get("tools_config") if isinstance(props, Mapping) else None
     tools = tools_config.get("tools") if isinstance(tools_config, Mapping) else None
-    return any(
-        isinstance(t, str) and t.startswith(OPENENV_TOOL_PREFIX) for t in tools or []
-    )
+    return [t for t in tools or [] if isinstance(t, str)]
+
+
+def lists_openenv_tool(props: Mapping[str, Any] | None) -> bool:
+    """Does this run config's tool list name an OpenEnv tool?"""
+    return any(t.startswith(OPENENV_TOOL_PREFIX) for t in run_config_tool_ids(props))
 
 
 def doc_needs_eval_job(doc: Mapping[str, Any]) -> bool:

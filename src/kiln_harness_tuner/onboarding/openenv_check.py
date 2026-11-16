@@ -10,7 +10,9 @@ The servers come from two sources only:
 - the baseline run config's tool ids, `kiln_tool::openenv::<server id>::<tool>`;
 - the `openenv_reset.openenv_server_id` of the task's TRAIN eval inputs.
 
-Val and test items are never read here: the loop reads train items only.
+The train inputs are the loop's own train set (`gateway.trainset.compute`),
+which leaves out every item a val or test split holds or a held-out tag
+marks. The check looks at no other item: the loop reads train items only.
 The check talks only to Kiln (`GET …/openenv_servers/{id}/tools`), never to
 an OpenEnv server. That call starts no episode.
 """
@@ -24,10 +26,11 @@ from pathlib import Path
 from typing import Any
 
 from kiln_harness_tuner.analysis import KilnApi
+from kiln_harness_tuner.gateway.trainset import TrainSetError, compute
 from kiln_harness_tuner.job_drives import OPENENV_LIST_TIMEOUT_SECS, openenv_tool_parts
 from kiln_harness_tuner.kiln import KilnAPIError, KilnError, kiln_error_text
 from kiln_harness_tuner.onboarding.terminal import Problem, english_list, plural
-from kiln_harness_tuner.quarantine import QuarantineError, membership, task_dirs
+from kiln_harness_tuner.quarantine import QuarantineError, _children, task_dirs
 
 WHY = (
     "Kiln runs the task's OpenEnv tools and its OpenEnv eval inputs on these",
@@ -53,7 +56,7 @@ class OpenEnvCheck:
 @dataclass
 class ServerUse:
     """What the task uses of one server: the tool names the baseline run
-    config lists, and whether train inputs reset into it."""
+    config lists, and how many train inputs reset into it."""
 
     tools: set[str] = field(default_factory=set)
     train_inputs: int = 0
@@ -71,22 +74,21 @@ def baseline_servers(tool_ids: Iterable[str]) -> dict[str, set[str]]:
 
 def train_input_servers(project_path: Path, task_id: str) -> dict[str, int]:
     """server id -> how many of the task's TRAIN eval inputs reset into it,
-    read from disk. `membership`, the loop's own split code, places every
-    input in its split; only the train inputs' `openenv_reset` is looked
-    at. A project whose splits can't be read gives none: setup's quarantine
-    refuses it later, with its own message."""
+    read from disk. The train inputs are the gateway's train set, so an
+    item that is val or test anywhere, or has a held-out tag, is left out;
+    only a train input's `openenv_reset` is looked at. A project whose train
+    set can't be decided gives none: the run's start-up refuses it later,
+    with its own message."""
+    try:
+        train = compute(project_path, task_id).eval_inputs
+    except (TrainSetError, QuarantineError):
+        return {}
     counts: dict[str, int] = {}
     for task_dir in task_dirs(project_path, task_id):
-        try:
-            member, loaded = membership(task_dir)
-        except QuarantineError:
-            return {}
-        train_ids = {
-            item_id for source, item_id in member.train_any if source == "eval_input"
-        }
-        for item_id in sorted(train_ids):
-            doc = loaded["eval_inputs"].get(item_id)
-            reset = doc.get("openenv_reset") if isinstance(doc, dict) else None
+        for _path, doc in _children(task_dir / "eval_inputs", "eval_input.kiln"):
+            if str(doc.get("id")) not in train:
+                continue
+            reset = doc.get("openenv_reset")
             server_id = (
                 reset.get("openenv_server_id") if isinstance(reset, dict) else None
             )
@@ -120,9 +122,24 @@ def _quoted(names: Iterable[str]) -> str:
     return english_list([f'"{name}"' for name in sorted(names)])
 
 
+def _url(row: Mapping[str, Any]) -> str | None:
+    url = row.get("url")
+    return url if isinstance(url, str) and url else None
+
+
+@dataclass(frozen=True)
+class _Failure:
+    """Why Kiln couldn't list a server's tools. `unreachable` when the
+    server didn't answer Kiln (Kiln's 502 or another 5xx) or Kiln didn't
+    answer the tuner; otherwise Kiln refused the request (a 4xx)."""
+
+    reason: str
+    unreachable: bool
+
+
 async def _tool_names(
     kiln: KilnApi, project_id: str, server_id: str
-) -> list[str] | str:
+) -> list[str] | _Failure:
     """The tool names the server serves, or why Kiln couldn't list them."""
     path = f"/api/projects/{project_id}/openenv_servers/{server_id}/tools"
     try:
@@ -130,12 +147,16 @@ async def _tool_names(
             "GET", path, timeout_secs=OPENENV_LIST_TIMEOUT_SECS, retries=False
         )
     except KilnAPIError as exc:
-        return f"Kiln answered HTTP {exc.status_code}: {kiln_error_text(exc.body)}"
+        return _Failure(
+            f"Kiln answered HTTP {exc.status_code}: {kiln_error_text(exc.body)}",
+            unreachable=exc.status_code >= 500,
+        )
     except KilnError:
         # An httpx timeout is a transport error too.
-        return (
+        return _Failure(
             f"Kiln gave no answer in {OPENENV_LIST_TIMEOUT_SECS:g} s,"
-            " or the connection to Kiln failed"
+            " or the connection to Kiln failed",
+            unreachable=True,
         )
     rows = body if isinstance(body, list) else []
     return [
@@ -147,7 +168,7 @@ def _server_lines(
     server_id: str,
     row: Mapping[str, Any] | None,
     use: ServerUse,
-    served: list[str] | str,
+    served: list[str] | _Failure,
 ) -> list[str]:
     """The lines for one server that isn't ready, or none when it is."""
     if row is None:
@@ -157,17 +178,24 @@ def _server_lines(
             "  Add the server in Kiln, or change what uses it.",
         ]
     name = str(row.get("name") or server_id)
-    url = row.get("url") if isinstance(row.get("url"), str) else None
-    if not url:
+    url = _url(row)
+    if url is None:
         return [
             f'• "{name}", used by {_used_by(use)}: it has no URL in Kiln.',
             "  Start the environment, then set the server's URL in Kiln.",
         ]
-    if isinstance(served, str):
+    if isinstance(served, _Failure) and served.unreachable:
         return [
             f'• "{name}" at {url}, used by {_used_by(use)}, doesn\'t answer.',
-            f"  {served}.",
+            f"  {served.reason}.",
             f"  Start the environment at {url}, or correct the server's URL in Kiln.",
+        ]
+    if isinstance(served, _Failure):
+        return [
+            f'• "{name}" at {url}, used by {_used_by(use)}: Kiln couldn\'t list'
+            " its tools.",
+            f"  {served.reason}.",
+            "  Check the server in Kiln.",
         ]
     missing = use.tools - set(served)
     if missing:
@@ -177,8 +205,9 @@ def _server_lines(
             f'• "{name}" at {url} doesn\'t serve {tool} the baseline run config'
             f" lists: {_quoted(missing)}.",
             f"  It serves {serves}.",
-            "  Start the right environment at this URL, or change the run config's"
-            " tools.",
+            "  Start the right environment at this URL, then check again.",
+            "  To change the run config's tools instead, exit and start the tuner"
+            " again.",
         ]
     return []
 
@@ -203,21 +232,27 @@ async def check_openenv(
     }
     ids = sorted(uses)
 
-    async def served(server_id: str) -> list[str] | str:
+    async def served(server_id: str) -> list[str] | _Failure:
         row = rows.get(server_id)
-        if row is None or not row.get("url"):
+        if row is None or _url(row) is None:
             return []  # nothing to ask: the lines say why
         return await _tool_names(kiln, project_id, server_id)
 
     # The servers are asked at once: a dead one waits for its connect
     # failure, and the others need not wait behind it.
     answers = await asyncio.gather(*(served(server_id) for server_id in ids))
-    lines: list[str] = []
-    for server_id, answer in zip(ids, answers, strict=True):
-        lines += _server_lines(server_id, rows.get(server_id), uses[server_id], answer)
-    if not lines:
+    groups = [
+        lines
+        for server_id, answer in zip(ids, answers, strict=True)
+        if (
+            lines := _server_lines(
+                server_id, rows.get(server_id), uses[server_id], answer
+            )
+        )
+    ]
+    if not groups:
         return OpenEnvCheck(servers=len(ids))
-    bad = sum(1 for line in lines if line.startswith("•"))
+    bad = len(groups)
     title = (
         "An OpenEnv server the task uses isn't ready"
         if bad == 1
@@ -225,7 +260,7 @@ async def check_openenv(
     )
     problem = Problem(
         title,
-        (*WHY, *(f"  {line}" for line in lines)),
+        (*WHY, *(f"  {line}" for lines in groups for line in lines)),
         retry_label=RETRY_LABEL,
     )
     return OpenEnvCheck(problem=problem)

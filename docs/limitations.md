@@ -43,8 +43,8 @@ budget is the hard ceiling for money: the run never starts a wave past it.
 
 **You start each OpenEnv server.** Kiln saves only the server's URL and
 never starts it. The start asks Kiln for the tools of each OpenEnv server
-that the baseline run config or a train eval input uses, and it stops when
-one does not answer ([your-own-task.md](your-own-task.md) section 1.6).
+that the baseline run config or a train eval input uses. It stops when one
+does not answer ([your-own-task.md](your-own-task.md) section 1.6).
 That check is made once, at the start. A server that stops during the run
 is not found until its items fail as measurement errors. A server that
 only a val or test item uses is not checked, because the start does not

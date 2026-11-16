@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from kiln_harness_tuner.analysis import KilnApi
-from kiln_harness_tuner.job_drives import MULTI_TURN_MODE
+from kiln_harness_tuner.job_drives import MULTI_TURN_MODE, run_config_tool_ids
 from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriter
 from kiln_harness_tuner.model_policy import ModelPolicy, run_config_pair
 from kiln_harness_tuner.onboarding import kiln_urls
@@ -202,16 +202,8 @@ def _baseline(row: dict[str, Any] | None) -> Baseline | None:
         provider_name(provider) if provider else None,
         _run_config_id(row),
         provider or None,
-        run_config_tools(row),
+        tuple(run_config_tool_ids(row.get("run_config_properties"))),
     )
-
-
-def run_config_tools(row: dict[str, Any]) -> tuple[str, ...]:
-    """The tool ids a run config lists (`tools_config.tools`)."""
-    props = row.get("run_config_properties")
-    tools_config = props.get("tools_config") if isinstance(props, dict) else None
-    tools = tools_config.get("tools") if isinstance(tools_config, dict) else None
-    return tuple(t for t in tools or [] if isinstance(t, str))
 
 
 def judge_provider(config: Any) -> str | None:

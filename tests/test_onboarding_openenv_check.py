@@ -101,8 +101,9 @@ def write(path: Path, content: object) -> None:
     path.write_text(json.dumps(content))
 
 
-def eval_input(item_id: str, tag: str, server_id: str | None) -> dict:
-    doc: dict = {"id": item_id, "tags": [tag], "data": {"text": "hi"}}
+def eval_input(item_id: str, tag: str | list[str], server_id: str | None) -> dict:
+    tags = [tag] if isinstance(tag, str) else tag
+    doc: dict = {"id": item_id, "tags": tags, "data": {"text": "hi"}}
     if server_id is not None:
         doc["openenv_reset"] = {"openenv_server_id": server_id, "kwargs": {}}
     return doc
@@ -111,7 +112,9 @@ def eval_input(item_id: str, tag: str, server_id: str | None) -> dict:
 @pytest.fixture
 def project_with_splits(tmp_path: Path) -> Path:
     """A task with one eval whose train, val and test splits each hold an
-    input that resets into a different server, and a sibling task."""
+    input that resets into a different server, and a sibling task. Two
+    inputs tagged train are held out all the same: one is in the val split
+    too, and one has a tag whose name says held out."""
     task_dir = tmp_path / "tasks" / f"{TASK_ID} - Shop"
     write(
         task_dir / "evals" / "e1" / "eval.kiln",
@@ -129,6 +132,11 @@ def project_with_splits(tmp_path: Path) -> Path:
     write(inputs / "c" / "eval_input.kiln", eval_input("c", "train", None))
     write(inputs / "d" / "eval_input.kiln", eval_input("d", "val", MAZE))
     write(inputs / "e" / "eval_input.kiln", eval_input("e", "test", "424242000503"))
+    write(inputs / "f" / "eval_input.kiln", eval_input("f", ["train", "val"], MAZE))
+    write(
+        inputs / "g" / "eval_input.kiln",
+        eval_input("g", ["train", "holdout_2026"], "424242000504"),
+    )
     sibling = tmp_path / "tasks" / "424242000999 - Other" / "eval_inputs"
     write(sibling / "a" / "eval_input.kiln", eval_input("a", "train", MAZE))
     return tmp_path
@@ -149,7 +157,8 @@ def test_the_baseline_tools_name_their_servers_and_other_tools_are_left_out():
     }
 
 
-def test_only_train_inputs_name_servers(project_with_splits):
+def test_only_the_loops_train_inputs_name_servers(project_with_splits):
+    # Not the val, test or held-out-tagged inputs, though two are tagged train.
     uses = used_servers([], project_with_splits, TASK_ID)
     assert uses == {SHOP: ServerUse(train_inputs=2)}
 
@@ -163,6 +172,15 @@ def test_a_project_whose_splits_cant_be_read_names_no_server(project_with_splits
     bad = project_with_splits / "tasks" / f"{TASK_ID} - Shop" / "eval_inputs" / "z"
     bad.mkdir()
     (bad / "eval_input.kiln").write_text("{not json")
+    assert used_servers([], project_with_splits, TASK_ID) == {}
+
+
+def test_a_train_split_that_selects_all_names_no_server(project_with_splits):
+    eval_file = project_with_splits / "tasks" / f"{TASK_ID} - Shop" / "evals"
+    eval_file = eval_file / "e1" / "eval.kiln"
+    eval_def = json.loads(eval_file.read_text())
+    eval_def["splits"]["train"]["filter_id"] = "all"
+    eval_file.write_text(json.dumps(eval_def))
     assert used_servers([], project_with_splits, TASK_ID) == {}
 
 
@@ -242,6 +260,19 @@ async def test_a_server_that_doesnt_answer_is_named_with_its_url(answer, why):
     )
 
 
+async def test_a_kiln_refusal_is_not_told_as_a_server_that_doesnt_answer():
+    gone = KilnAPIError(
+        "GET", tools_path(SHOP), 404, {"detail": "OpenEnv server not found"}
+    )
+    result = await check(openenv_kiln(**{tools_path(SHOP): gone}), shop_tools("buy"))
+    assert lines(result)[2:] == (
+        f'  • "Shop" at {SHOP_URL}, used by the baseline run config\'s tools: Kiln'
+        " couldn't list its tools.",
+        "    Kiln answered HTTP 404: OpenEnv server not found.",
+        "    Check the server in Kiln.",
+    )
+
+
 async def test_a_server_with_no_url_is_not_asked():
     kiln = openenv_kiln()
     kiln.routes[("GET", SERVERS)] = [server(SHOP, "Shop", None)]
@@ -268,8 +299,8 @@ async def test_a_tool_the_server_doesnt_serve_names_the_tools_it_serves():
         f'  • "Shop" at {SHOP_URL} doesn\'t serve a tool the baseline run config'
         ' lists: "teleport".',
         '    It serves "buy", "refund" and "search".',
-        "    Start the right environment at this URL, or change the run config's"
-        " tools.",
+        "    Start the right environment at this URL, then check again.",
+        "    To change the run config's tools instead, exit and start the tuner again.",
     )
 
 
@@ -344,10 +375,34 @@ def test_a_guided_start_checks_the_servers_after_the_keys():
     assert "busy Checking the OpenEnv servers…" in terminal.transcript
 
 
-def test_a_guided_start_with_a_server_down_checks_again_until_it_answers():
+def count_reads(monkeypatch) -> list[int]:
+    """Count the start's reads of the servers the task uses."""
+    from kiln_harness_tuner.onboarding import flow
+
+    reads: list[int] = []
+
+    def counted(*args):
+        reads.append(1)
+        return used_servers(*args)
+
+    monkeypatch.setattr(flow, "used_servers", counted)
+    return reads
+
+
+def test_a_start_reads_the_project_once_when_every_server_answers(monkeypatch):
+    reads = count_reads(monkeypatch)
+    start(openenv_start_kiln(tools(SHOP, "search", "buy")), ScriptedTerminal())
+    assert len(reads) == 1
+
+
+def test_a_guided_start_with_a_server_down_checks_again_until_it_answers(
+    monkeypatch,
+):
+    reads = count_reads(monkeypatch)
     kiln = openenv_start_kiln(responses(BAD_GATEWAY, tools(SHOP, "search", "buy")))
     terminal = ScriptedTerminal(["r"])
     start(kiln, terminal)
+    assert len(reads) == 2  # the first check, then the retry reads again
     assert [title for title, _body in terminal.blocks] == [
         "An OpenEnv server the task uses isn't ready"
     ]
