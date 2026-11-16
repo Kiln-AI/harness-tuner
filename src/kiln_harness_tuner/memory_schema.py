@@ -55,7 +55,8 @@ Layout of a record, by kind:
                  content   <opening (FixOpening | MergeOpening)>
                            + `rc:` / `change:` when the build lands
                            → analyzer body + carried CARRIED_KEYS lines
-                           + `- rejected at the val gate …` after a lost val gate
+                           + `- rejected at the val gate … — <reason>` after a
+                             lost val gate (`ValRejection`)
     constraint   overview  OPEN: <question>          (an open unknown)
                  content   OpenUnknownContent (five lines)
     baseline     tags      baseline · rc_<id>        (the pointer is the tag)
@@ -242,6 +243,11 @@ BASELINE_AUDIT_TAG = "baseline_audit"
 # audit runs once per baseline on its own.
 BASELINE_JUDGE_COPY_TAG = "baseline_judge_copy"
 AUDITED_RC_TAG_PREFIX = "audited_rc_"
+# The issue the baseline reviewer's finding becomes (`smells.run`):
+# `smell`, `smell_<smell id>` and the `audited_rc_<id>` tag of the baseline
+# it reviewed. Bound to no eval: a smell is about the harness.
+SMELL_TAG = "smell"
+SMELL_TAG_PREFIX = "smell_"
 # The machine binding between an eval and its issue memories (`eval_<eval_id>`).
 # Parsed for NUMERIC ids only — Kiln ids are numeric everywhere, and reading a
 # human `eval_…` word tag as a binding would flag a live issue UNMEASURABLE the
@@ -254,6 +260,20 @@ _PRIORITY_TAG_RE = re.compile(r"^p(?P<n>[0-3])$")
 # p1 is the middle of the road: high enough that the planner sees it, low
 # enough that it never outranks a human `p0`.
 DEFAULT_ISSUE_PRIORITY = 1
+
+
+_TAG_CHARS_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def fits_tag(text: str) -> bool:
+    """True when `text` holds only the tag characters `[A-Za-z0-9_-]`."""
+    return _TAG_CHARS_RE.fullmatch(text) is not None
+
+
+def smell_tag(smell_id: str) -> str:
+    """`smell_<id>`. A smell document's id is lower case with `-`, so it
+    fits the tag characters (`fits_tag`)."""
+    return f"{SMELL_TAG_PREFIX}{smell_id}"
 
 
 def baseline_rc_tag(rc_id: str) -> str:
@@ -825,10 +845,11 @@ def ingredient_line(memory_id: str, rc_id: str) -> str:
     return f"- ingredient: {memory_id} (rc {rc_id})"
 
 
-# The val-gate rejection's content line — metric-free, pointing at the run
-# report for the numbers. Its stable head is the skip-if-present
-# key: a PREFIX, because the line carries the date and a crash-retry
-# crossing midnight would otherwise append a second copy.
+# The val-gate rejection's content line — metric-free, with a code-chosen
+# reason (`ValRejection`); the numbers stay in the run report. Its stable
+# head is the skip-if-present key: a PREFIX, because the line carries the
+# date and a crash-retry crossing midnight would otherwise append a second
+# copy. Old lines (`— did not beat it; …`) share the prefix.
 REJECTION_LINE_PREFIX = "- rejected at the val gate "
 # The HELD stamp's content line — same prefix discipline.
 HELD_LINE_PREFIX = "- held at the val gate "
@@ -939,10 +960,63 @@ def experiment_label_prefix(label: str, technique: str) -> str:
     return f"{label} ({technique}): "
 
 
-def rejection_note(date: str, baseline_rc_id: str) -> str:
+class ValRejectionKind(StrEnum):
+    """Why the val gate passed a candidate over. Code chooses the kind from
+    the gate's decision and the candidate's val table; an agent never does.
+    A block by the integrity check and a HELD candidate have lines of their
+    own and are not kinds here."""
+
+    PASSED_OVER = "passed over"  # another candidate won the same gate
+    EVAL_DROPPED = "eval dropped"  # a row went down beyond doubt
+    NO_GAIN = "no gain"  # no targeted row improved at all
+    GAIN_NOT_CLEAR = "gain not clear"  # a target improved, not beyond doubt
+    NOT_PROMOTED = "not promoted"  # code cannot tell the reason
+
+
+@dataclass(frozen=True)
+class ValRejection:
+    """The reason on a rejection line. Metric-free by construction: it
+    holds a kind, rc ids and eval ids, and never a number, an item id, a
+    trace or the promotion agent's prose — the experiment record it goes on
+    is train-readable."""
+
+    kind: ValRejectionKind
+    promoted_rc_id: str | None = None  # PASSED_OVER: the rc the gate promoted
+    dropped_eval_ids: tuple[str, ...] = ()  # EVAL_DROPPED: the evals that
+    #   went down beyond doubt. No target or guard label: the planner also
+    #   lists guards in `evaluation_target`, so code cannot tell them apart
+
+
+def _rejection_reason_text(reason: ValRejection) -> str:
+    kind = reason.kind
+    if kind is ValRejectionKind.PASSED_OVER and reason.promoted_rc_id:
+        return (
+            f"passed over: not promoted; rc {one_line(reason.promoted_rc_id)} "
+            "was promoted instead."
+        )
+    dropped = [one_line(e) for e in reason.dropped_eval_ids]
+    if kind is ValRejectionKind.EVAL_DROPPED and dropped:
+        return (
+            "an eval dropped at val: down beyond doubt on eval "
+            + ", ".join(dropped)
+            + "."
+        )
+    if kind is ValRejectionKind.NO_GAIN:
+        return "no gain at val: no targeted eval improved."
+    if kind is ValRejectionKind.GAIN_NOT_CLEAR:
+        return (
+            "a gain at val, not clear: a targeted eval improved, but not beyond doubt."
+        )
+    return "not promoted at val; details in the run report."
+
+
+def rejection_note(date: str, baseline_rc_id: str, reason: ValRejection) -> str:
+    """The rejection's content line. Records written before the reasons
+    carry `— did not beat it; details in the run report.` after the
+    baseline; `has_rejection_note` reads both, by the prefix."""
     return (
         f"{REJECTION_LINE_PREFIX}{date} vs baseline {baseline_rc_id} "
-        "— did not beat it; details in the run report."
+        f"— {_rejection_reason_text(reason)}"
     )
 
 
@@ -1002,7 +1076,7 @@ def head_value(text: str, limit: int) -> str:
 
 def technique_label(technique: str) -> str:
     """The technique as the record carries it, in the overview label and on
-    the `technique:` line alike — so the lever ladder's two sources agree."""
+    the `technique:` line alike — so the two sources of `lever_attempts` agree."""
     return head_value(technique, TECHNIQUE_MAX_CHARS)
 
 
@@ -1011,8 +1085,8 @@ class FixOpening:
     """The content `open_experiment` writes for a fix arm. The verdict
     REPLACES this block with the analyzer's body, so `record_verdict`
     carries `issue:` / `technique:` / `head_to_head_group:` forward: the
-    lever ladder counts arms per `issue` × `technique`, and the head-to-head
-    group must survive the verdict. Each value is bounded on render (see
+    `lever_attempts` count reads arms per `issue` × `technique`, and the
+    head-to-head group must survive the verdict. Each value is bounded on render (see
     `TECHNIQUE_MAX_CHARS`)."""
 
     hypothesis: str
@@ -1174,7 +1248,7 @@ class ExperimentView:
     rc_id: str | None  # content `rc:` — written when the build lands, so an
     #   abandoned record still names the run config it built
     reused_rc_id: str | None  # content `reused rc:` — this arm measured a
-    #   prior run's build; not a second attempt for the lever ladder
+    #   prior run's build; not a second attempt in `lever_attempts`
     change_summary: str | None  # content `change:` — the build's one-line
     #   human summary of what differs from the parent
     generality: str | None  # content `generality:` — the leak check's
@@ -1250,8 +1324,8 @@ class ExperimentView:
 
     @property
     def lever(self) -> str | None:
-        """The technique this arm attacked its issue with, for the lever
-        ladder's count: the content line, else — for a record from before
+        """The technique this arm attacked its issue with, for the
+        `lever_attempts` count: the content line, else — for a record from before
         that line existed — the overview label, which survives
         only while the arm is RUNNING. Best-effort by design."""
         return self.technique or self.overview_technique

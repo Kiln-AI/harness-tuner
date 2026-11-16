@@ -28,19 +28,27 @@ src/kiln_harness_tuner/
   dispatch/         the dispatcher seam, and the claude -p, codex exec and
                     opencode run implementations
   gateway/          the loop gateway: the only way loop agents reach Kiln
+  knowledge/        the knowledge system's code: load, check and index the
+                    skill kiln-harness-tuner-knowledge (python -m
+                    kiln_harness_tuner.knowledge check|build)
   onboarding/       the start before a run: the Kiln and task checks, the API
                     keys, the guided questions, the summary and the rerun
                     command
   skill_installer/  the MCP server that installs a skill bundle atomically
+  smells/           smell detection: the detectors in code, their
+                    thresholds, and the baseline review step
   tui/              the terminal app (Textual) of an interactive run: the
                     start-up and run screens, and the run model
 src/kiln_api_mcp/   the vendored call_kiln_api MCP server (interactive sessions)
 docs/               the reference documentation
-specs/              the feature specs
+specs/              the project specs, and backlog.md: the known gaps and
+                    the pending ideas of the knowledge system
 examples/           the moderation example and a model policy
 tests/              the offline suite — no live server, no model spend
   tui/              the terminal app's tests
   packaging/        the CI smoke test of the installed wheel
+.agents/skills/     the skills for coding agents that work on this
+                    repository: knowledge-maintenance
 ```
 
 A run writes nothing here. Its state goes in the state folder,
@@ -69,22 +77,29 @@ loads `agent_files/`.
 
 ## Working rules
 
-**Findings go in the state folder's `reports/`, never in this file or in
-`agent_files/`.** Every agent the loop dispatches loads the instructions and
-the skills in `agent_files/`, so anything there that answers a question the
-loop is supposed to measure invalidates the measurement. That includes
-measured numbers, lever advice and what worked in an earlier run. These files
-carry what the repository *is*, not what anyone has learned from running it.
+**Nothing measured on the target goes in `agent_files/`.** Every agent the
+loop dispatches loads the instructions and the skills in `agent_files/`. So
+a number, a lesson or lever advice that comes from the run's own target, or
+from the moderation example, invalidates what the loop measures. Those
+findings go in the state folder's `reports/`.
+
+**The knowledge system is the place for general knowledge.** The skill
+`agent_files/skills/kiln-harness-tuner-knowledge/` holds what is known
+about how to improve an agent: field knowledge, public sources, our own
+synthetic experiments and anonymised cases from other projects. Read
+`.agents/skills/knowledge-maintenance/SKILL.md` before you change it. A
+person approves a case study before it is committed, unless it is clearly
+public.
 
 **Write in ASD-STE100 Simplified Technical English.** Short sentences, one idea
 each, no metaphor.
 
 **Fence pseudo-code without a language.** `ruff format` reformats Python fenced
 in Markdown, and only `src/kiln_harness_tuner/agent_files/skills/**` (and its
-installed copies) is excluded from it (`pyproject.toml`,
-`tool.ruff.extend-exclude`). A Python-tagged fence anywhere else in this tree —
-`docs/`, this file — is rewritten by the formatter. A fence with no language is
-left alone.
+installed copies) and `.agents/skills/**` are excluded from it
+(`pyproject.toml`, `tool.ruff.extend-exclude`). A Python-tagged fence
+anywhere else in this tree — `docs/`, this file — is rewritten by the
+formatter. A fence with no language is left alone.
 
 **Run the checks before you call anything done.** CI runs the same three on
 every pull request (`.github/workflows/ci.yml`). Its `package` job also builds

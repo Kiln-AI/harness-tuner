@@ -21,9 +21,12 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 )
 from kiln_harness_tuner.install_agents import source_dir
 from kiln_harness_tuner.memory_schema import (
+    ValRejection,
+    ValRejectionKind,
     baseline_rc_tag,
     is_rejected_at_val,
     rc_ids_from_tags,
+    rejection_note,
 )
 from kiln_harness_tuner.report import render_spend_header
 from kiln_harness_tuner.schemas import BaselineRef, BatchPlanInput
@@ -43,6 +46,7 @@ TEMPLATE_SKILLS = {
     "promote_best": "kiln-harness-tuner-promote",
     "report_writer": "kiln-harness-tuner-report",
     "probe": "kiln-harness-tuner-probe",
+    "baseline_review": "kiln-harness-tuner-baseline-review",
 }
 
 
@@ -278,6 +282,40 @@ def test_merge_eligible_wins_admit_val_rejected_rcs_as_ingredients_only():
     # `MergeWork.wins` needs the rc id from the record's head lines, which an
     # append can clamp away — no guessing an rc when they are gone.
     assert "the rc id is not recoverable from the record" in normalized
+
+
+def _reason_heads() -> list[str]:
+    """Each reason's text as code writes it, cut after its first id: the
+    part a skill or a playbook can quote whatever the ids."""
+    heads = []
+    for kind in ValRejectionKind:
+        reason = ValRejection(kind, promoted_rc_id="<id>", dropped_eval_ids=("<id>",))
+        text = rejection_note("07-22", "rc", reason).split(" — ", 1)[1]
+        heads.append(text.split("<id>", 1)[0] + "<id>" if "<id>" in text else text)
+    return heads
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md",
+        SKILLS_DIR
+        / "kiln-harness-tuner-knowledge"
+        / "references"
+        / "playbooks"
+        / "dealing-with-train-wins-rejected-at-val.md",
+    ],
+    ids=["planner", "playbook"],
+)
+def test_the_val_rejection_readers_quote_every_reason_code_writes(doc):
+    # The reason lines are read by text: a reworded line in code that the
+    # planner's skill and the playbook still quote the old way would leave
+    # the planner unable to tell the cases apart.
+    normalized = _normalized_doc(doc)
+    for head in _reason_heads():
+        assert head in normalized, head
+    # The line written before the reasons, for records in an older store.
+    assert "did not beat it; details in the run report." in normalized
 
 
 def test_rejection_stamp_is_in_the_memory_vocabulary():
@@ -1470,18 +1508,22 @@ def test_the_gateway_rule_does_not_leak_out_of_the_kiln_harness_tuner_lane():
         assert GATEWAY_RULE not in _normalized_skill(skill_dir.name), skill_dir.name
 
 
-def test_planner_skill_names_the_lever_attempts_input_and_the_ladder():
-    skill = (SKILLS_DIR / "kiln-harness-tuner-batch-selection" / "SKILL.md").read_text()
+def test_planner_skill_names_the_lever_attempts_input_and_the_knowledge():
+    skill = _normalized_skill("kiln-harness-tuner-batch-selection")
     assert "`lever_attempts`" in skill
-    assert "references/lever-ladder.md" in skill
     assert set(BatchPlanInput.model_fields) >= {"lever_attempts"}
-    ladder = (
-        SKILLS_DIR
-        / "kiln-harness-tuner-batch-selection"
-        / "references"
-        / "lever-ladder.md"
-    ).read_text()
-    # The second rule is stated on the count the code supplies, with its
+    # The text-arm rule is stated on the count the code supplies, with its
     # limit (any outcome, not "failed") said out loud.
-    assert "ANY outcome" in ladder and "which arms failed" in ladder
-    assert "wrappers/README.md" in ladder
+    assert "ANY outcome" in skill and "which arms failed" in skill
+    # What to try comes from the knowledge skill, which took over the lever
+    # ladder; its lever `new_tool` links the wrapper templates.
+    assert "`kiln-harness-tuner-knowledge`" in skill
+    assert "references/planner.md" in skill
+    new_tool = _normalized_doc(
+        SKILLS_DIR
+        / "kiln-harness-tuner-knowledge"
+        / "references"
+        / "levers"
+        / "new_tool.md"
+    )
+    assert "wrappers/README.md" in new_tool

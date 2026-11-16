@@ -381,7 +381,7 @@ def test_detectability_and_noise_flags(tmp_path):
     )
 
 
-def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
+def test_the_baseline_audit_and_review_are_on_unless_turned_off(tmp_path):
     from kiln_harness_tuner.cli import build_ctx
     from kiln_harness_tuner.kiln import KilnClient
 
@@ -405,6 +405,11 @@ def test_the_baseline_audit_is_on_unless_turned_off(tmp_path):
 
     assert ctx_with().baseline_audit is True
     assert ctx_with(baseline_audit=False).baseline_audit is False
+    # The design review: the same shape, `--no-design-review`.
+    assert build_parser().parse_args(ARGS).no_design_review is False
+    assert build_parser().parse_args([*ARGS, "--no-design-review"]).no_design_review
+    assert ctx_with().baseline_review is True
+    assert ctx_with(baseline_review=False).baseline_review is False
 
 
 @pytest.mark.parametrize(
@@ -1247,6 +1252,7 @@ class TestRenderRunConfigs:
             "probe",
             "analyze_experiment_results",
             "eval_build",
+            "baseline_review",
         }
         (mcp_path, settings_path), run_dir = self.make(tmp_path)
         traces = (run_dir / "scratch" / "traces").resolve()

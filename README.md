@@ -206,7 +206,7 @@ Evals need direct API access and can't run on a coding agent subscription, so th
 - [Costs](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/costs.md): estimate a run before you start it.
 - [Limitations](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/limitations.md): what it doesn't do. Read it before planning a long run.
 - [Architecture](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/architecture.md): the wave loop, the gate, measurement, memory and the sandbox.
-- [Agents](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/agents.md): the ten agent roles and what each one does.
+- [Agents](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/agents.md): the eleven agent roles and what each one does.
 - [Agent CLIs](https://github.com/Kiln-AI/harness-tuner/blob/main/docs/agent-cli.md): how it runs on Claude Code, Codex and OpenCode.
 
 ## Contributing
