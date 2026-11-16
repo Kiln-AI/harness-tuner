@@ -1,7 +1,7 @@
 ---
 title: Attach the knowledge source
 description: Give the agent the knowledge its answers need - attach an existing search or RAG tool, or write the knowledge into a skill - when the answers are not grounded.
-reviewed: 2026-11-13
+reviewed: 2026-11-16
 status: active
 levers:
   - tool_config
@@ -103,7 +103,11 @@ that failure.
 
 It must move an eval. The source exists to fix measured answers that are
 not grounded. When the agent reads the source and the answers do not
-improve, the source does not hold what the answers need.
+improve, the source does not hold what the answers need, or the agent
+answers past it. When the traces show that the agent read the source and
+still answered past it, the source can be right. Plan the source together
+with the rule of [answer only from the source](answer-only-from-the-source.md)
+on one arm, and name both in the hypothesis.
 
 ## Priors
 

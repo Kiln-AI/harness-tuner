@@ -602,7 +602,15 @@ passes or fails. Two sources name the smells of the **present** baseline:
   number, the reference it was compared with and where that reference comes
   from, and names a smell document. Code runs the detectors again after each
   promotion, so `detections` always describes the baseline you plan
-  against.
+  against. Each one also carries the design reviewer's reading of it on
+  this baseline: `reviewer_holds` and `reviewer_note`. `true`: the
+  reviewer confirmed the smell in the design, so the detection has more
+  weight. `false`: the reviewer found that the smell's "How to confirm it"
+  does not agree, so the detection has less weight; read the note before
+  you plan an arm on it. `null`: no reading, because no review of this
+  baseline was done in this run, it did not read this detection, or it could
+  not tell (the note then says why); weigh the fact alone. A reading is one
+  agent's judgment, not a measurement.
 - The `smell` issues in memory are the findings of the baseline reviewer,
   an agent that reads the design of each baseline before you plan. Each
   carries the tags `smell`, `smell_<smell id>` and `audited_rc_<rc id>`: the

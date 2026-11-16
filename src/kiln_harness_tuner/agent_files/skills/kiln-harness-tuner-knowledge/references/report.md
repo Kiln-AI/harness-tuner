@@ -41,7 +41,7 @@ means that the shape does not matter.
 | Playbook | Kind | Applies to | Description |
 |---|---|---|---|
 | [answers-not-grounded](playbooks/answers-not-grounded.md) | failure | all | The answers need knowledge that is not in the agent's context - attach the source, then add scope discipline. A source behind a lookup tool can move into a skill. |
-| [change-the-surface-not-the-words](playbooks/change-the-surface-not-the-words.md) | failure | all | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception - procedure text comes first. |
+| [change-the-surface-not-the-words](playbooks/change-the-surface-not-the-words.md) | failure | all | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed. |
 | [cheaper-or-faster](playbooks/cheaper-or-faster.md) | goal | all | The user wants the agent to cost less or answer sooner, with quality held - each step is marked cheaper, faster or both, because the two goals do not always agree. |
 | [dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md) | eval | all | A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items. |
 | [dealing-with-a-saturated-eval](playbooks/dealing-with-a-saturated-eval.md) | eval | all | The baseline passes almost every item of an eval, so an arm has no room to show a gain on it. Keep the eval as a guard, put the effort elsewhere, and ask its owner for harder items. |

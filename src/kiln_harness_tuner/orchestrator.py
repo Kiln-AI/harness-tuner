@@ -173,7 +173,7 @@ from kiln_harness_tuner.setup import (
     measurable_evals,
     run_setup,
 )
-from kiln_harness_tuner.smells import ensure_baseline_reviewed
+from kiln_harness_tuner.smells import ensure_baseline_reviewed, planner_detections
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
@@ -435,7 +435,8 @@ class Ctx:
     # The baseline reviewer (`smells.ensure_baseline_reviewed`): once for each
     #   baseline, after the detectors (cli: on, unless `--no-design-review`;
     #   other tests leave it off). `reviewed_rc_id`: the baseline the step
-    #   last ran on. `baseline_reviews`: each review, for the report.
+    #   last ran on. `baseline_reviews`: each review, for the report, and
+    #   for each planner its reading of each detection.
     baseline_review: bool = False
     reviewed_rc_id: str | None = None
     baseline_reviews: list[BaselineReview] = field(default_factory=list)
@@ -1020,7 +1021,9 @@ async def _dispatch_plan(
                 train_noise=list(ctx.train_noise),
                 eval_building=ctx.eval_building,
                 dropped_eval_items=list(ctx.dropped_eval_lines),
-                detections=list(ctx.detections),
+                detections=planner_detections(
+                    ctx.detections, ctx.baseline_reviews, ctx.detected_rc_id
+                ),
             ),
             backoffs=LOOP_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,

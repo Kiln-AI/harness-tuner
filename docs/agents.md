@@ -164,7 +164,10 @@ are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
 `detections` are the facts that the smell detectors in code found in the
 present baseline's harness (the `baseline_review` section below): each names a
 smell document and states a number and the reference it was compared with,
-never a verdict.
+never a verdict. Each also carries the baseline reviewer's reading of it
+(`reviewer_holds` and `reviewer_note`), matched by smell and detector on the
+present baseline; both are `null` when no review of that baseline is done or
+the review did not read that detection.
 `eval_building` says if the plan may build a new eval: `false` unless the
 run has `--experimental-eval-building`. While it is `false`, the template
 and the skill tell the planner to give each fix arm an eval that exists,

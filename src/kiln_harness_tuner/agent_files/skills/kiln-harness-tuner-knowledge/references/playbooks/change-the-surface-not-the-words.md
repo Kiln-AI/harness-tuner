@@ -1,7 +1,7 @@
 ---
 title: Change the surface, not the words
-description: Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure is the exception - procedure text comes first.
-reviewed: 2026-11-13
+description: Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed.
+reviewed: 2026-11-16
 kind: failure
 applies_to: all
 ---
@@ -55,10 +55,16 @@ and [faulty inherited skill](../smells/faulty-inherited-skill.md).
    [long prompt into a skill](../techniques/long-prompt-into-a-skill.md),
    or a new version of an inherited skill,
    [rewrite an inherited skill](../techniques/rewrite-an-inherited-skill.md).
-4. **The exception: a policy failure.** When the agent breaks a rule of
-   the business that only words can carry (who gets a refund, which case
-   needs a person), procedure text comes first:
-   [policy as step-by-step procedures](../techniques/policy-as-step-by-step-procedures.md).
+4. **A policy failure, after two failed text arms.** A policy failure is
+   not mechanical: the agent breaks a rule of the business that only words
+   can carry (who gets a refund, which case needs a person). Its first
+   text arm is
+   [policy as step-by-step procedures](../techniques/policy-as-step-by-step-procedures.md),
+   through the normal path, not through this playbook. When two text arms
+   already failed on a policy issue, change the structure: put the
+   procedures in a skill, with one reference file for each procedure
+   ([long prompt into a skill](../techniques/long-prompt-into-a-skill.md)).
+   Or defer the issue (step 5).
 5. When no surface change fits the issue, defer the issue with the reason
    in `rejected_summary`.
 

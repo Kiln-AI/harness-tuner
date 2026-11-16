@@ -238,9 +238,11 @@ Per wave, in order:
    of the wave: the clock is not checked again after it, so a review that
    ends past the time limit is still followed by this wave's plan.
 5. **Plan.** One `batch_plan` dispatch. Its input carries the present
-   baseline's detections (`BatchPlanInput.detections`), and it reads the
-   `smell` issues from memory with the other issues. A hard failure exits the run
-   (`planner_failed`) — it is the loop's brain, and another attempt after the
+   baseline's detections (`BatchPlanInput.detections`), each with the
+   baseline reviewer's reading of it (`smells.run.planner_detections`),
+   and it reads the `smell` issues from memory with the other issues. A
+   hard failure exits the run (`planner_failed`) — it is the loop's
+   brain, and another attempt after the
    retry ladder only burns budget. **The eval-building guard**
    (`items.drop_eval_building_items`): eval building is experimental and off
    by default. While it is off (no `--experimental-eval-building`), code
