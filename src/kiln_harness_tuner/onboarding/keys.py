@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from kiln_harness_tuner.analysis import KilnApi
-from kiln_harness_tuner.job_drives import MULTI_TURN_MODE
+from kiln_harness_tuner.job_drives import MULTI_TURN_MODE, run_config_tool_ids
 from kiln_harness_tuner.memory import BaselineRecordMissingError, MemoryWriter
 from kiln_harness_tuner.model_policy import ModelPolicy, run_config_pair
 from kiln_harness_tuner.onboarding import kiln_urls
@@ -96,6 +96,7 @@ class Baseline:
     provider: str | None  # Kiln's display name
     rc_id: str
     provider_id: str | None = None  # Kiln's provider id
+    tools: tuple[str, ...] = ()  # the tool ids its run config lists
 
     @property
     def pair(self) -> tuple[str, str] | None:
@@ -201,6 +202,7 @@ def _baseline(row: dict[str, Any] | None) -> Baseline | None:
         provider_name(provider) if provider else None,
         _run_config_id(row),
         provider or None,
+        tuple(run_config_tool_ids(row.get("run_config_properties"))),
     )
 
 

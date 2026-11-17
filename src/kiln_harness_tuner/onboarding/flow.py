@@ -44,6 +44,12 @@ from kiln_harness_tuner.onboarding.kiln_check import (
     check_kiln,
     kiln_passed_text,
 )
+from kiln_harness_tuner.onboarding.openenv_check import (
+    OpenEnvCheck,
+    ServerUse,
+    check_openenv,
+    used_servers,
+)
 from kiln_harness_tuner.onboarding.questions import (
     Answers,
     QuestionContext,
@@ -137,9 +143,10 @@ def prepare_start(
 ) -> argparse.Namespace:
     """Check that Kiln answers and is new enough, make and import a copy of
     the demo when `args.demo_project` asks for one, choose the project and
-    the task, check that the task is ready to tune, and check that Kiln has
-    a key for every provider the run calls, asking the user to fix each
-    problem when they can. A guided start then asks every question no flag
+    the task, check that the task is ready to tune, check that Kiln has a
+    key for every provider the run calls, and check that every OpenEnv
+    server the task uses answers, asking the user to fix each problem when
+    they can. A guided start then asks every question no flag
     answered, and shows the summary and the command that runs the start
     again, until the user starts the run; a start that isn't guided shows
     the summary only. Returns `args` with the project, the task, the folder
@@ -180,6 +187,7 @@ def prepare_start(
         )
         keys = _KeyCheck(run, terminal, host, selection, policy_loader)
         keys.check(args.model_policy)
+        _check_openenv(run, terminal, selection, keys.baseline)
         answers = Answers.from_args(args)
 
         def summary() -> str:
@@ -389,6 +397,42 @@ def _check_ready(
         for warning in readiness.warnings:
             terminal.warn(warning)
     return action
+
+
+def _check_openenv(
+    run: KilnRunner,
+    terminal: Terminal,
+    selection: Selection,
+    baseline: Baseline | None,
+) -> None:
+    """The OpenEnv check, through the action menu. A task that uses no
+    OpenEnv server shows nothing and asks Kiln nothing; a Kiln with no
+    OpenEnv servers shows no step line. Each run of the check reads the
+    train inputs again, so a fix made in Kiln counts on `r`."""
+    tool_ids = baseline.tools if baseline is not None else ()
+
+    def uses() -> dict[str, ServerUse]:
+        return used_servers(tool_ids, selection.project_path, selection.task.id)
+
+    first = uses()
+    if not first:
+        return
+    pending = [first]  # the first run uses this read; each retry reads again
+    result = OpenEnvCheck()
+
+    def check() -> Problem | None:
+        nonlocal result
+        servers = pending.pop() if pending else uses()
+        result = run(
+            lambda kiln: check_openenv(
+                kiln, project_id=selection.project.id, uses=servers
+            )
+        )
+        return result.problem
+
+    resolve_problem(check, terminal, busy="Checking the OpenEnv servers…")
+    if result.servers:
+        terminal.step("ok", "OpenEnv", result.step_text)
 
 
 @dataclass

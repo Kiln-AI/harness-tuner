@@ -39,11 +39,22 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import EvalJobDriver
+from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 
 Call = Callable[..., Awaitable[Any]]
+RAG_TOOL_PREFIX = "kiln_tool::rag::"
+KILN_TASK_TOOL_PREFIX = "kiln_task::"
+# The prompts of a called task that the gateway renders: a saved prompt, a
+# run config's frozen prompt, a fine-tune's prompt, and the generators that
+# use only the task's own fields. Every other generator (few-shot,
+# multi-shot, repairs) builds its text from the task's stored runs.
+RUN_FREE_PROMPT_PREFIXES = ("id::", "task_run_config::", "fine_tune_prompt::")
+RUN_FREE_PROMPT_GENERATORS = frozenset(
+    {"simple_prompt_builder", "simple_chain_of_thought_prompt_builder"}
+)
 
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
@@ -91,6 +102,11 @@ ANSWER_MAX_CHARS = 40_000
 # How much of a train result's output an answer shows; the trace file has
 # all of it.
 OUTPUT_PREVIEW_CHARS = 300
+# The longest wait for an OpenEnv server's tool list. Kiln gives up on a
+# connect to the server after 30s and then answers 502; a server that
+# accepts the connect but does not answer would keep Kiln waiting far
+# longer, so the gateway stops waiting first.
+OPENENV_LIST_TIMEOUT_SECS = 45.0
 # How many over-cap answers a gateway process keeps for `get_answer_part`.
 KEPT_ANSWERS = 16
 
@@ -292,6 +308,25 @@ def _output_text(run: dict[str, Any]) -> str | None:
     return out if isinstance(out, str) else None
 
 
+def _rag_part(value: Any) -> m.RagPart | None:
+    if not isinstance(value, dict):
+        return None
+    props = value.get("properties") if isinstance(value.get("properties"), dict) else {}
+    return m.project(m.RagPart, value, properties=props)
+
+
+def _rag_view(row: dict[str, Any]) -> m.RagConfigView:
+    return m.project(
+        m.RagConfigView,
+        row,
+        extractor=_rag_part(row.get("extractor_config")),
+        chunker=_rag_part(row.get("chunker_config")),
+        embedding=_rag_part(row.get("embedding_config")),
+        vector_store=_rag_part(row.get("vector_store_config")),
+        reranker=_rag_part(row.get("reranker_config")),
+    )
+
+
 def _rc_view(row: dict[str, Any]) -> m.RunConfigView:
     props = row.get("run_config_properties") or {}
     props = props if isinstance(props, dict) else {}
@@ -319,6 +354,9 @@ class Gateway:
         self._job_driver: EvalJobDriver | None = None
         # Over-cap answers this process gave, for `get_answer_part`.
         self._answers: OrderedDict[str, str] = OrderedDict()
+        # Each OpenEnv server's tool list, read once per process: a list is a
+        # new connection to the server and a fresh read of its metadata.
+        self._openenv_lists: dict[str, list[dict[str, Any]]] = {}
 
     def _writer(self) -> TraceWriter | None:
         root = self.s.trace_root
@@ -886,11 +924,180 @@ class Gateway:
                 tools=[m.project(m.ToolView, t) for t in _rows(s.get("tools"))],
             )
             for s in _rows(response)
-        ]
+        ] + await self._openenv_tool_sets()
+
+    async def _openenv_tool_sets(self) -> list[m.ToolSetView]:
+        """One set per OpenEnv server of the project, with the tools its
+        environment serves. Kiln's `available_tools` leaves them out: it
+        knows them only while an episode runs. So each server is asked, and
+        one that does not answer gets a note, not an error."""
+        try:
+            servers = _rows(await self.call("GET", f"{self.s.project}/openenv_servers"))
+        except KilnAPIError as exc:
+            if exc.status_code in (404, 405):  # a Kiln with no OpenEnv servers
+                return []
+            raise
+        # The servers are asked at once: a dead one waits for its connect
+        # failure, and the others need not wait behind it.
+        return list(await asyncio.gather(*(self._openenv_set(s) for s in servers)))
+
+    async def _openenv_set(self, server: dict[str, Any]) -> m.ToolSetView:
+        name = str(server.get("name") or server.get("id"))
+        try:
+            tools = await self._openenv_tools(str(server.get("id")))
+        except KilnError as exc:  # an HTTP error, a timeout or a lost connection
+            detail = exc.body if isinstance(exc, KilnAPIError) else exc
+            note = f"the OpenEnv server did not list its tools: {detail!r}"
+            return m.ToolSetView(type="openenv", set_name=name, note=note[:500])
+        return m.ToolSetView(
+            type="openenv",
+            set_name=name,
+            tools=[
+                m.ToolView(
+                    id=t.get("tool_id"),
+                    name=t.get("name"),
+                    description=t.get("description"),
+                    function_name=t.get("name"),
+                )
+                for t in tools
+            ],
+        )
+
+    async def _openenv_tools(self, server_id: str) -> list[dict[str, Any]]:
+        """The tools the OpenEnv server's environment serves, read from the
+        running server (Kiln asks it; no episode starts). Read once per
+        process; a failed read is not kept, so the next call asks again.
+
+        The read is not retried, and it waits a little longer than Kiln's
+        own connect timeout. A server that is down or does not answer then
+        costs one wait, not the retry ladder's four."""
+        if server_id not in self._openenv_lists:
+            path = f"{self.s.project}/openenv_servers/{server_id}/tools"
+            rows = await self.call(
+                "GET", path, timeout_secs=OPENENV_LIST_TIMEOUT_SECS, retries=False
+            )
+            self._openenv_lists[server_id] = _rows(rows)
+        return self._openenv_lists[server_id]
 
     async def get_tool_definition(self, req: m.ById) -> m.ToolDefinition:
+        parts = openenv_tool_parts(req.id)
+        if parts is not None:
+            # Kiln's definition endpoint answers "not found" for an OpenEnv
+            # tool outside an episode, so the server itself is asked.
+            server_id, tool_name = parts
+            tools = await self._openenv_tools(server_id)
+            tool = next((t for t in tools if t.get("name") == tool_name), None)
+            if tool is None:
+                served = ", ".join(sorted(str(t.get("name")) for t in tools))
+                raise GatewayError(
+                    f"OpenEnv server {server_id} serves no tool named"
+                    f" {tool_name!r}; it serves: {served or 'no tools'}"
+                )
+            return m.ToolDefinition(
+                definition={
+                    "tool_id": req.id,
+                    "function_name": tool_name,
+                    "description": tool.get("description") or "",
+                    "parameters": tool.get("input_schema") or {},
+                }
+            )
         row = await self.call("GET", f"{self.s.base}/tools/{req.id}/definition")
         return m.ToolDefinition(definition=row if isinstance(row, dict) else {})
+
+    # ------------------------------------------------------------ RAG, documents
+
+    async def list_rag_configs(self, req: m.NoArgs) -> list[m.RagConfigView]:
+        rows = _rows(await self.call("GET", f"{self.s.project}/rag_configs"))
+        return [_rag_view(r) for r in rows]
+
+    async def get_rag_config(self, req: m.ById) -> m.RagConfigView:
+        rag_id = req.id.removeprefix(RAG_TOOL_PREFIX)
+        row = await self.call("GET", f"{self.s.project}/rag_configs/{rag_id}")
+        return _rag_view(row if isinstance(row, dict) else {})
+
+    async def rag_search(self, req: m.RagSearchRequest) -> list[m.RagSearchResult]:
+        """What the RAG config's search tool returns for a query: the same
+        retrieval a model's tool call gets. It embeds the query, so it costs
+        one embedding call."""
+        rag_id = req.id.removeprefix(RAG_TOOL_PREFIX)
+        response = await self.call(
+            "POST",
+            f"{self.s.project}/rag_configs/{rag_id}/search",
+            body={"query": req.query},
+        )
+        return [m.project(m.RagSearchResult, r) for r in _rows(response, "results")]
+
+    async def list_documents(self, req: m.NoArgs) -> list[m.DocumentView]:
+        rows = _rows(await self.call("GET", f"{self.s.project}/documents"))
+        return [
+            m.project(
+                m.DocumentView,
+                {**r, **(r.get("original_file") or {})},
+                name=r.get("name_override") or r.get("friendly_name") or r.get("name"),
+                tags=[str(t) for t in r.get("tags") or []],
+            )
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------ Kiln task tools
+
+    async def get_kiln_task_tool(self, req: m.ById) -> m.KilnTaskToolView:
+        """The Kiln task a `kiln_task::` tool calls, and the run config it
+        calls it with. Only the task's own fields and that one run config:
+        the task's runs and evals can hold items of this task's held-out
+        splits, so they are never read."""
+        server_id = req.id.removeprefix(KILN_TASK_TOOL_PREFIX)
+        # `/config` reads the saved record only. The plain route also asks an
+        # MCP server for its tools: it connects to a remote one, starts a
+        # local one, and answers a failure with its command, URL and stderr.
+        server = await self.call(
+            "GET", f"{self.s.project}/tool_servers/{server_id}/config"
+        )
+        server = server if isinstance(server, dict) else {}
+        props = (
+            server.get("properties")
+            if isinstance(server.get("properties"), dict)
+            else {}
+        )
+        if server.get("type") != "kiln_task" or not props.get("task_id"):
+            raise GatewayError(f"{req.id} is not a Kiln task tool")
+        task_id = str(props["task_id"])
+        sub_base = f"{self.s.project}/tasks/{task_id}"
+        task, rc_rows = await asyncio.gather(
+            self.call("GET", sub_base), self.call("GET", f"{sub_base}/run_configs")
+        )
+        task = task if isinstance(task, dict) else {}
+        reqs = [m.project(m.Requirement, r) for r in _rows(task.get("requirements"))]
+        view = m.KilnTaskToolView(
+            tool_id=f"{KILN_TASK_TOOL_PREFIX}{server_id}",
+            tool_name=props.get("name") or server.get("name"),
+            tool_description=props.get("description") or server.get("description"),
+            task=m.project(m.TaskView, task, requirements=reqs),
+        )
+        rc_id = str(props.get("run_config_id") or "")
+        row = next((r for r in _rows(rc_rows) if str(r.get("id")) == rc_id), None)
+        if row is None:
+            view.note = f"the tool's run config {rc_id or '(none)'} was not found"
+            return view
+        view.run_config = _rc_view(row)
+        prompt_id = view.run_config.prompt_id
+        if view.run_config.prompt is not None or not prompt_id:
+            return view
+        if prompt_id not in RUN_FREE_PROMPT_GENERATORS and not prompt_id.startswith(
+            RUN_FREE_PROMPT_PREFIXES
+        ):
+            # A generator such as few-shot or repairs builds its text from
+            # the called task's stored runs, which the loop does not split:
+            # one made while a held-out item was driven would show here.
+            view.note = (
+                f"the prompt is the generator {prompt_id!r}; its text is built"
+                " from the task's stored runs, so it is not shown"
+            )
+            return view
+        view.prompt = m.project(
+            m.PromptText, await self.call("GET", f"{sub_base}/gen_prompt/{prompt_id}")
+        )
+        return view
 
     # ------------------------------------------------------------ writes
 
@@ -926,9 +1133,9 @@ class Gateway:
         """Drive a saved run config on ONE train item. The input comes from
         the item itself, never from the caller.
 
-        A multi-turn task, a run config with a world tool, or an item with a
-        `world_reset` is driven as a one-item TRAIN eval job
-        (`kiln_harness_tuner.job_drives`): the run endpoint starts no world episode
+        A multi-turn task, a run config with an OpenEnv tool, or an item with
+        an `openenv_reset` is driven as a one-item TRAIN eval job
+        (`kiln_harness_tuner.job_drives`): the run endpoint starts no OpenEnv episode
         and no simulated user. That task run is the job's trace, so it
         carries no caller tags."""
         _tags_ok(req.tags, self.s)
@@ -1313,6 +1520,19 @@ OPS = _ops(
     ("get_skill_content", m.ById, "One skill's SKILL.md."),
     ("list_available_tools", m.NoArgs, "The tools a run config can attach."),
     ("get_tool_definition", m.ById, "One tool's definition."),
+    ("list_rag_configs", m.NoArgs, "The project's RAG configs and their stages."),
+    ("get_rag_config", m.ById, "One RAG config (id, or its kiln_tool::rag:: id)."),
+    (
+        "rag_search",
+        m.RagSearchRequest,
+        "What a RAG config's search tool returns for a query (one embedding call).",
+    ),
+    ("list_documents", m.NoArgs, "The project's documents: names, kinds, tags."),
+    (
+        "get_kiln_task_tool",
+        m.ById,
+        "The task a kiln_task:: tool calls, and its run config and prompt.",
+    ),
     (
         "create_run_config",
         m.RunConfigCreate,
@@ -1361,14 +1581,26 @@ _MODELS = ("list_models", "get_model_details", "list_providers")
 _EVALS = ("list_evals", "get_eval", "get_eval_config", "list_specs", "get_spec")
 _MEM_READ = ("memory_list", "memory_get", "memory_summary")
 _MEM_WRITE = ("memory_create", "memory_update")
+# What every tool kind a run config attaches is and does: definitions
+# (OpenEnv ones from their servers), RAG configs and what they retrieve, the
+# document library, and the task behind a Kiln task tool. No held-out item
+# is in any of them.
+_TOOL_READS = (
+    "list_available_tools",
+    "get_tool_definition",
+    "list_rag_configs",
+    "get_rag_config",
+    "rag_search",
+    "list_documents",
+    "get_kiln_task_tool",
+)
 _ARTIFACTS = (
     "list_code_tools",
     "get_code_tool",
     "list_skills",
     "get_skill",
     "get_skill_content",
-    "list_available_tools",
-    "get_tool_definition",
+    *_TOOL_READS,
 )
 _CODE_TOOLS = ("create_code_tool", "test_code_tool", "trust_code_tools")
 
@@ -1410,8 +1642,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         "get_task_run",
         "list_train_items",
         "get_train_expected",
-        "list_code_tools",
-        "list_skills",
+        *_ARTIFACTS,
         *_MEM_READ,
         "memory_create",
         "create_run_config",
@@ -1424,9 +1655,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         "get_train_results",
         "get_train_expected",
         "get_task_run",
-        "get_code_tool",
-        "get_skill",
-        "get_skill_content",
+        *_ARTIFACTS,
         *_MEM_READ,
         *_MEM_WRITE,
     ),

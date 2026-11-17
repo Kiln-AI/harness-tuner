@@ -34,6 +34,7 @@ from kiln_harness_tuner.gateway.trainset import (
     TrainSetError,
     compute,
 )
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import (
     Catalog,
     CatalogModel,
@@ -139,9 +140,12 @@ class FakeKiln:
     def __init__(self, routes: dict[tuple[str, str], Any]):
         self.routes = routes
         self.calls: list[tuple[str, str, Any, Any]] = []
+        # The keyword options of each call (timeout, retries), by path.
+        self.options: dict[str, dict[str, Any]] = {}
 
-    async def __call__(self, method, path, query_params=None, body=None, **_):
+    async def __call__(self, method, path, query_params=None, body=None, **options):
         self.calls.append((method, path, query_params, body))
+        self.options[path] = options
         value = self.routes.get((method, path))
         if callable(value):
             return value(query_params, body)
@@ -922,6 +926,7 @@ class TestDocumentedShapes:
                     "tools": [{"id": "t1", "name": "T", "function_name": "kestrel"}],
                 }
             ],
+            ("GET", f"/api/projects/{PROJECT}/openenv_servers"): [],
         }
         gateway, _ = _gateway(tmp_path, routes)
         model = _run(gateway, "get_model_details", model="gpt")
@@ -929,6 +934,351 @@ class TestDocumentedShapes:
         (tool_set,) = _run(gateway, "list_available_tools")
         assert tool_set["type"] == "code"
         assert tool_set["tools"][0]["function_name"] == "kestrel"
+
+    def test_openenv_tools_are_listed_from_their_servers(self, tmp_path):
+        """Kiln's `available_tools` leaves out the tools an OpenEnv server
+        serves: it knows them only during an episode. The gateway asks each
+        server, and a server that does not answer gets a note."""
+        servers = f"/api/projects/{PROJECT}/openenv_servers"
+
+        def down(_query, _body):
+            raise KilnAPIError("GET", f"{servers}/s2/tools", 502, "connection refused")
+
+        def hangs(_query, _body):  # the client's timeout: not an HTTP answer
+            raise KilnError("GET s3/tools timed out after 45s")
+
+        routes = {
+            ("GET", f"/api/projects/{PROJECT}/available_tools"): [],
+            ("GET", servers): [
+                {"id": "s1", "name": "Depot", "url": "http://localhost:8000"},
+                {"id": "s2", "name": "Down", "url": "http://localhost:8001"},
+                {"id": "s3", "name": "Hangs", "url": "http://localhost:8002"},
+            ],
+            ("GET", f"{servers}/s1/tools"): [
+                {
+                    "tool_id": "kiln_tool::openenv::s1::append_note",
+                    "name": "append_note",
+                    "description": "Add a note to a ticket.",
+                    "input_schema": {"type": "object"},
+                }
+            ],
+            ("GET", f"{servers}/s2/tools"): down,
+            ("GET", f"{servers}/s3/tools"): hangs,
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        depot, down_set, hung_set = _run(gateway, "list_available_tools")
+        # A server that is down costs one short wait, not the retry ladder.
+        for server in ("s1", "s2", "s3"):
+            assert kiln.options[f"{servers}/{server}/tools"] == {
+                "timeout_secs": gw.OPENENV_LIST_TIMEOUT_SECS,
+                "retries": False,
+            }
+        assert depot["type"] == "openenv" and depot["set_name"] == "Depot"
+        (tool,) = depot["tools"]
+        assert tool["id"] == "kiln_tool::openenv::s1::append_note"
+        assert tool["function_name"] == "append_note"
+        assert tool["description"] == "Add a note to a ticket."
+        assert down_set["tools"] == [] and "connection refused" in down_set["note"]
+        assert hung_set["tools"] == [] and "timed out" in hung_set["note"]
+
+    def test_a_kiln_without_openenv_servers_lists_its_tools_as_before(self, tmp_path):
+        def missing(_query, _body):
+            raise KilnAPIError("GET", "openenv_servers", 404, "Not Found")
+
+        routes = {
+            ("GET", f"/api/projects/{PROJECT}/available_tools"): [
+                {"type": "code", "set_name": "Code tools", "tools": []}
+            ],
+            ("GET", f"/api/projects/{PROJECT}/openenv_servers"): missing,
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        assert [s["type"] for s in _run(gateway, "list_available_tools")] == ["code"]
+
+    def test_an_openenv_tool_definition_comes_from_its_server(self, tmp_path):
+        """Kiln's definition endpoint answers 404 for an OpenEnv tool outside
+        an episode, so the gateway reads it from the server's tool list."""
+        tools = f"/api/projects/{PROJECT}/openenv_servers/s1/tools"
+        routes = {
+            ("GET", tools): [
+                {
+                    "tool_id": "kiln_tool::openenv::s1::append_note",
+                    "name": "append_note",
+                    "description": "Add a note to a ticket.",
+                    "input_schema": {"properties": {"text": {"type": "string"}}},
+                }
+            ],
+            ("GET", f"{BASE}/tools/kiln_tool::code::c1/definition"): {
+                "function_name": "kestrel"
+            },
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        out = _run(
+            gateway, "get_tool_definition", id="kiln_tool::openenv::s1::append_note"
+        )
+        assert out["definition"] == {
+            "tool_id": "kiln_tool::openenv::s1::append_note",
+            "function_name": "append_note",
+            "description": "Add a note to a ticket.",
+            "parameters": {"properties": {"text": {"type": "string"}}},
+        }
+        assert all("/definition" not in path for _m, path, *_ in kiln.calls)
+        with pytest.raises(gw.GatewayError, match="it serves: append_note"):
+            _run(gateway, "get_tool_definition", id="kiln_tool::openenv::s1::nope")
+        # One list per server per process: a list is a fresh read of the server.
+        assert sum(path == tools for _m, path, *_ in kiln.calls) == 1
+        # Any other tool: Kiln's own definition endpoint, as before.
+        code = _run(gateway, "get_tool_definition", id="kiln_tool::code::c1")
+        assert code["definition"]["function_name"] == "kestrel"
+
+    def test_rag_configs_documents_and_search(self, tmp_path):
+        """A RAG search tool's config and what it retrieves, and the library
+        it indexes: the document's facts, not its file path."""
+        project = f"/api/projects/{PROJECT}"
+        rag = {
+            "id": "r1",
+            "name": "Handbook",
+            "tool_name": "search_handbook",
+            "tool_description": "Search the handbook.",
+            "is_archived": False,
+            "tags": ["handbook"],
+            "chunker_config": {
+                "name": "fixed",
+                "chunker_type": "fixed_window",
+                "properties": {
+                    "chunk_size": 512,
+                    "chunk_overlap": 64,
+                },
+                "path": "/secret/path/chunker.kiln",
+            },
+            "embedding_config": {
+                "model_provider_name": "openai",
+                "model_name": "text-embedding-3-small",
+                "properties": {},
+            },
+            "vector_store_config": {
+                "store_type": "lancedb_hybrid",
+                "properties": {"text_key": "text", "doc_id_key": "doc_id"},
+            },
+            "reranker_config": None,
+        }
+        searches = []
+
+        def search(_query, body):
+            searches.append(body)
+            return {
+                "results": [
+                    {
+                        "document_id": "d1",
+                        "chunk_idx": 3,
+                        "chunk_text": "Returns take 30 days.",
+                        "similarity": 0.82,
+                    }
+                ]
+            }
+
+        routes = {
+            ("GET", f"{project}/rag_configs"): [rag],
+            ("GET", f"{project}/rag_configs/r1"): rag,
+            ("POST", f"{project}/rag_configs/r1/search"): search,
+            ("GET", f"{project}/documents"): [
+                {
+                    "id": "d1",
+                    "name": "handbook.pdf",
+                    "friendly_name": "Handbook",
+                    "description": "Policies",
+                    "kind": "document",
+                    "tags": ["handbook"],
+                    "path": "/Users/x/Kiln Projects/p/documents/d1/document.kiln",
+                    "original_file": {
+                        "filename": "handbook.pdf",
+                        "size": 2048,
+                        "mime_type": "application/pdf",
+                        "attachment": {"path": "/Users/x/secret.pdf"},
+                    },
+                }
+            ],
+        }
+        gateway, _ = _gateway(tmp_path, routes, role="analyze_experiment_results")
+        (listed,) = _run(gateway, "list_rag_configs")
+        assert listed["tool_name"] == "search_handbook"
+        assert listed["chunker"]["properties"]["chunk_size"] == 512
+        assert listed["embedding"]["model_name"] == "text-embedding-3-small"
+        assert listed["reranker"] is None
+        # Field names that look like keys are settings, not secrets.
+        assert listed["vector_store"]["properties"] == {
+            "text_key": "text",
+            "doc_id_key": "doc_id",
+        }
+        assert "/secret/path" not in json.dumps(listed)
+        assert "SECRET" not in json.dumps(listed)
+        one = _run(gateway, "get_rag_config", id="kiln_tool::rag::r1")
+        assert one["id"] == "r1"
+        (hit,) = _run(gateway, "rag_search", id="kiln_tool::rag::r1", query="returns")
+        assert hit["chunk_text"] == "Returns take 30 days." and searches == [
+            {"query": "returns"}
+        ]
+        (doc,) = _run(gateway, "list_documents")
+        assert doc == {
+            "id": "d1",
+            "name": "Handbook",
+            "description": "Policies",
+            "kind": "document",
+            "tags": ["handbook"],
+            "filename": "handbook.pdf",
+            "mime_type": "application/pdf",
+            "size": 2048,
+        }
+
+    def test_a_kiln_task_tool_shows_its_task_and_run_config_only(self, tmp_path):
+        """The task behind a `kiln_task::` tool and the run config it is
+        called with. Its runs and evals are never read: they can hold this
+        task's held-out items."""
+        project = f"/api/projects/{PROJECT}"
+        sub = f"{project}/tasks/t2"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9/config"): {
+                "id": "s9",
+                "type": "kiln_task",
+                "name": "triage",
+                "properties": {
+                    "task_id": "t2",
+                    "run_config_id": "rc7",
+                    "name": "triage",
+                    "description": "Triage a ticket.",
+                },
+            },
+            ("GET", sub): {
+                "id": "t2",
+                "name": "Triage",
+                "instruction": "Sort the ticket.",
+                "requirements": [],
+            },
+            ("GET", f"{sub}/run_configs"): [
+                {
+                    "id": "rc7",
+                    "name": "fast",
+                    "run_config_properties": {
+                        "model_name": "m",
+                        "model_provider_name": "p",
+                        "prompt_id": "id::p1",
+                    },
+                }
+            ],
+            ("GET", f"{sub}/gen_prompt/id::p1"): {
+                "prompt_id": "id::p1",
+                "prompt": "You triage tickets.",
+            },
+            ("GET", f"{project}/tool_servers/m1/config"): {
+                "id": "m1",
+                "type": "remote_mcp",
+                "properties": {"server_url": "https://x", "headers": {"k": "SECRET"}},
+            },
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="kiln_task::s9")
+        assert out["tool_id"] == "kiln_task::s9"
+        assert out["tool_description"] == "Triage a ticket."
+        assert out["task"]["instruction"] == "Sort the ticket."
+        assert out["run_config"]["id"] == "rc7"
+        assert out["prompt"]["prompt"] == "You triage tickets."
+        paths = [path for _m, path, *_ in kiln.calls]
+        assert not any("/runs" in p or "/evals" in p for p in paths)
+        # An MCP server is not a Kiln task tool, and its secrets stay out.
+        with pytest.raises(gw.GatewayError, match="not a Kiln task tool") as err:
+            _run(gateway, "get_kiln_task_tool", id="m1")
+        assert "SECRET" not in str(err.value)
+        # Only the saved record is read: the plain route would connect to an
+        # MCP server, or start a local one, to list its tools.
+        servers = [
+            p for p in (path for _m, path, *_ in kiln.calls) if "tool_servers" in p
+        ]
+        assert servers and all(p.endswith("/config") for p in servers)
+
+    @pytest.mark.parametrize(
+        "prompt_id, frozen",
+        [
+            ("few_shot_prompt_builder", None),
+            ("repairs_prompt_builder", None),
+            ("id::p1", {"base_prompt": "Frozen."}),
+        ],
+    )
+    def test_a_kiln_task_tool_renders_no_prompt_built_from_runs(
+        self, tmp_path, prompt_id, frozen
+    ):
+        """A generator such as few-shot builds its text from the called
+        task's stored runs, which can come from held-out drives: it is named,
+        not rendered. A frozen prompt is already on the run config: nothing
+        is rendered."""
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9/config"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "rc7"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [
+                {
+                    "id": "rc7",
+                    "run_config_properties": {"prompt_id": prompt_id},
+                    "prompt": frozen,
+                }
+            ],
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["prompt"] is None
+        assert not any("gen_prompt" in path for _m, path, *_ in kiln.calls)
+        if frozen is None:
+            assert prompt_id in out["note"]
+        else:
+            assert out["run_config"]["prompt"] is not None and out["note"] is None
+
+    @pytest.mark.parametrize(
+        "prompt_id",
+        [
+            "simple_prompt_builder",
+            "simple_chain_of_thought_prompt_builder",
+            "fine_tune_prompt::p::t2::ft1",
+            "task_run_config::p::t2::rc1",
+        ],
+    )
+    def test_a_kiln_task_tool_renders_a_prompt_that_reads_no_runs(
+        self, tmp_path, prompt_id
+    ):
+        """These prompts use the task's own fields, a fine-tune's prompt or a
+        run config's frozen prompt, never the task's stored runs."""
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9/config"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "rc7"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [
+                {"id": "rc7", "run_config_properties": {"prompt_id": prompt_id}}
+            ],
+            ("GET", f"{project}/tasks/t2/gen_prompt/{prompt_id}"): {
+                "prompt_id": prompt_id,
+                "prompt": "Sort the ticket.",
+            },
+        }
+        gateway, _ = _gateway(tmp_path, routes, role="batch_plan")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["prompt"]["prompt"] == "Sort the ticket." and out["note"] is None
+
+    def test_a_kiln_task_tool_with_a_missing_run_config_says_so(self, tmp_path):
+        project = f"/api/projects/{PROJECT}"
+        routes = {
+            ("GET", f"{project}/tool_servers/s9/config"): {
+                "type": "kiln_task",
+                "properties": {"task_id": "t2", "run_config_id": "gone"},
+            },
+            ("GET", f"{project}/tasks/t2"): {"id": "t2", "instruction": "x"},
+            ("GET", f"{project}/tasks/t2/run_configs"): [],
+        }
+        gateway, _ = _gateway(tmp_path, routes, role="probe")
+        out = _run(gateway, "get_kiln_task_tool", id="s9")
+        assert out["run_config"] is None and "gone" in out["note"]
 
     def test_statistics_accept_the_documented_nulls(self, tmp_path):
         routes = {("POST", "/api/statistics"): {"n": 1}}
@@ -958,6 +1308,13 @@ class TestRoles:
         for role, ops in gw.ROLE_OPS.items():
             if role not in gw.VAL_READERS:
                 assert "get_val_summary" not in ops, role
+        # Every role that plans, builds, probes or analyses an arm can read
+        # every tool kind a run config attaches.
+        for role in ("batch_plan", "create_experiment_rc", "probe"):
+            assert set(gw._ARTIFACTS) <= set(gw.ROLE_OPS[role]), role
+        assert set(gw._ARTIFACTS) <= set(gw.ROLE_OPS["analyze_experiment_results"])
+        for reader in ("promote_best", "report_writer"):
+            assert not set(gw._TOOL_READS) & set(gw.ROLE_OPS[reader]), reader
 
     def test_the_model_roles_are_served_the_model_operations(self):
         models = {"list_models", "get_model_details", "list_providers"}

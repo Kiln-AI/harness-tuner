@@ -37,7 +37,7 @@ compares drives made at different times, so its `method` says so.
 `compare_eval_run_costs` is the same passive read for the per-request cost
 of the task call.
 
-A drive goes through `POST …/run`, or, when the task needs a world episode
+A drive goes through `POST …/run`, or, when the task needs an OpenEnv episode
 or a simulated user, through a one-item eval job (`kiln_harness_tuner.job_drives`).
 The pairing is the same on both routes.
 """
@@ -677,8 +677,8 @@ async def timed_drives(
     the arms back to back per item with the order rotating. A failed drive
     is retried ONCE; one still failing is recorded with its reason.
 
-    When the task needs it (`EvalJobDriver.needed`: a multi-turn task, a
-    world tool, an input with a `world_reset`), each drive is a one-item
+    When the task needs it (`EvalJobDriver.needed`: a multi-turn task, an
+    OpenEnv tool, an input with an `openenv_reset`), each drive is a one-item
     eval job on the input's eval and `split`, and its usage is read from
     the task run the job drove. The job's errors carry the provider's
     text, so no diagnosis job follows.

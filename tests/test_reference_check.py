@@ -33,7 +33,7 @@ JUDGE = "Score PASS when the reply answers the operator's question."
 SQL = "kiln_tool::code::t_sql"
 API = "kiln_tool::code::t_api"
 WRAP = "kiln_tool::code::t_wrap"
-WORLD = "kiln_tool::world::424242500001::append_note"
+WORLD = "kiln_tool::openenv::424242500001::append_note"
 
 
 # ---- the matcher ----

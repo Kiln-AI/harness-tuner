@@ -233,19 +233,19 @@ check cannot evaluate (anything but `all` and `tag::<name>`)
 stops the run at startup with the fix, and so does a `--project-path` that
 does not name a readable directory.
 
-### 1.6 A multi-turn task, or a task in a world
+### 1.6 A multi-turn task, or a task with an OpenEnv server
 
 The loop drives items itself: the baseline timing, the timing chunks of a
 measurement, the probes, and an agent's `run_task`. For a single-turn task
 these drives use `POST …/tasks/{t}/run`. That endpoint runs one input once.
-It starts no world episode and no simulated user.
+It starts no OpenEnv episode and no simulated user.
 
 So the loop drives an item through a one-item eval job when one of these is
 true:
 
 - the task's `turn_mode` is `multiturn`;
-- a run config of the drive lists a world tool (`kiln_tool::world::…`);
-- the item's input has a `world_reset`.
+- a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`);
+- the item's input has an `openenv_reset`.
 
 The eval job starts the episode and runs the synthetic user, as a
 measurement does. The loop then reads the drive's cost and latency from the
@@ -260,6 +260,33 @@ has the detail.
 
 Multi-turn items need a synthetic-user drive config, as an eval needs it.
 An item that the eval job cannot drive fails its drive and says why.
+
+You start each OpenEnv server yourself. Kiln saves only its URL, and it
+never starts the server. Start the server before you start the tuner.
+
+The start checks each OpenEnv server that the task uses. It finds them in
+the baseline run config's OpenEnv tools and in the `openenv_reset` of the
+train eval inputs. It does not read val or test items. It asks Kiln for
+each server's tools (`GET …/openenv_servers/{id}/tools`). That call starts
+no episode. The tuner does not connect to an OpenEnv server itself. The
+start stops before the baseline measurement when:
+
+- a server does not answer, or it has no URL in Kiln;
+- a server does not serve a tool that the baseline run config lists.
+
+The message names the server, its URL and the tools it serves. Start the
+environment at that URL, then check again. A Kiln with no OpenEnv servers,
+or a task that uses none, skips the check.
+
+Keep each OpenEnv server running for the whole run. The agents read its
+tools (names, descriptions, parameters) from the running server, because
+Kiln knows them only during an episode. If a server stops during the run,
+the agents see its tools as missing and work from the traces only. Its
+eval items fail as measurement errors.
+
+Use Kiln v1.2.1 or later for an OpenEnv task. The loop finds OpenEnv tools
+by `kiln_tool::openenv::` and inputs by `openenv_reset`, the names that
+v1.2.1 uses.
 
 ## 2. What setup does for you
 
@@ -407,10 +434,12 @@ steps come before any agent session, model call or run folder, in this order:
    (section 1.5).
 4. The readiness check (section 1).
 5. The API-key check ([install.md](install.md) section 5).
-6. The questions, guided start only.
-7. The API-key check again, only when an answer set or changed the model
+6. The OpenEnv check, only for a task that uses an OpenEnv server
+   (section 1.6).
+7. The questions, guided start only.
+8. The API-key check again, only when an answer set or changed the model
    policy.
-8. The summary. A guided start then shows the command that runs it again, and
+9. The summary. A guided start then shows the command that runs it again, and
    asks whether to start.
 
 Then the run itself starts. It runs waves until the budget, the clock or the

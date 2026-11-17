@@ -41,6 +41,15 @@ wrap-up wave runs. A run therefore ends later than `--timeout-mins`, by the
 wave in flight plus the wrap-up. A long wave makes this stretch long. The
 budget is the hard ceiling for money: the run never starts a wave past it.
 
+**You start each OpenEnv server.** Kiln saves only the server's URL and
+never starts it. The start asks Kiln for the tools of each OpenEnv server
+that the baseline run config or a train eval input uses. It stops when one
+does not answer ([your-own-task.md](your-own-task.md) section 1.6).
+That check is made once, at the start. A server that stops during the run
+is not found until its items fail as measurement errors. A server that
+only a val or test item uses is not checked, because the start does not
+read those items.
+
 **Per-eval progress inside one eval job is not live.** The status model and
 the tracker have an `eval_progress` count, and nothing emits one: an eval job
 is driven by a single long poll that returns only at a terminal state. What is
@@ -266,9 +275,9 @@ on disk (the API documents no eval-input route), so `run_task` and
 `list_train_items` cover eval-input items only, not a new eval's dataset
 items.
 
-**Drives through eval jobs.** On a multi-turn task, a run
-config with a world tool, or an item with a `world_reset`, every drive is a
-one-item eval job ([architecture.md](architecture.md) section 16). These
+**Drives through eval jobs.** On a multi-turn task, a run config with an
+OpenEnv tool, or an item with an `openenv_reset`, every drive is a one-item
+eval job ([architecture.md](architecture.md) section 16). These
 limits follow.
 
 - **An older Kiln server times less fairly.** Without judge-free eval jobs
@@ -280,8 +289,8 @@ limits follow.
   config is a legacy judge gets judged jobs.
 - **Each drive is a whole job.** A one-item job has the job's own set-up
   cost: the server loads the eval and the run config, and reads the
-  world's tool list again. On many short items this is slower than the run
-  endpoint.
+  OpenEnv server's tool list again. On many short items this is slower than
+  the run endpoint.
 - **The gateway's cap is per process.** Each gateway process caps its own
   eval jobs at `--max-concurrent-evals`. Several agent sessions at once can
   together run more jobs than that number.
