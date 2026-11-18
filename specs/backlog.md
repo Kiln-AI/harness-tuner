@@ -821,3 +821,13 @@ train items. Today only `--noise-check` repeats a measurement, one time, before 
 
 A hard read fence in code, so that the design reviewer cannot read `traces/_expected/`. Today only
 the text of its skill keeps it out.
+
+### Feature engineering on the data that reaches the model
+
+- Kind: technique
+- Where: knowledge
+- Depends on: Input transforms
+- Source: owner, 2026-11-18; [input-transforms.md](projects/biological_bootloader/research/harness-optimization/architecture-levers/input-transforms.md)
+
+One technique for two surfaces: the input transform, and a code wrapper on a tool result. Remove,
+dedupe, rename or compute fields; cut long text; wrap user text in tags. Research still to do.
