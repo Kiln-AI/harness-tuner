@@ -827,7 +827,8 @@ the text of its skill keeps it out.
 - Kind: technique
 - Where: knowledge
 - Depends on: Input transforms
-- Source: owner, 2026-11-18; [input-transforms.md](projects/biological_bootloader/research/harness-optimization/architecture-levers/input-transforms.md)
+- Source: owner, 2026-11-18; [feature-engineering](projects/feature-engineering/project_overview.md)
 
-One technique for two surfaces: the input transform, and a code wrapper on a tool result. Remove,
-dedupe, rename or compute fields; cut long text; wrap user text in tags. Research still to do.
+Fix the data before the model reads it: via the input transform, or a code wrapper on a tool result.
+Drop and dedupe fields, compute `is_open`, cut long text, wrap user text in tags, rename a wrong
+field. The owner's notes, the moves, the risks and the research to do are in the overview.
