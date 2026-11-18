@@ -20,9 +20,11 @@ interpreter that was refused.
 
 > **Linux (x86_64 and arm64) and macOS on Apple silicon are supported.**
 >
-> **Windows is not supported.** `cli.py` imports `fcntl`, which is Unix only,
-> so `harness-tuner` cannot start. The agent sandbox fences are Seatbelt
-> on macOS and bubblewrap on Linux.
+> **Native Windows is not supported.** `cli.py` imports `fcntl`, which is Unix
+> only, and the agent sandbox fences are Seatbelt on macOS and bubblewrap on
+> Linux. On native Windows, `harness-tuner` stops at once with a message that
+> recommends WSL. Use WSL 2 (Windows Subsystem for Linux): install and run the
+> tuner in a WSL shell. WSL reports itself as Linux, so the tuner starts there.
 >
 > **macOS on Intel (x86_64) is not supported.** The lock pins `lancedb` and
 > `pylance` versions that publish no macOS x86_64 wheel and no source
