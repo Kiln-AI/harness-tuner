@@ -821,3 +821,14 @@ train items. Today only `--noise-check` repeats a measurement, one time, before 
 
 A hard read fence in code, so that the design reviewer cannot read `traces/_expected/`. Today only
 the text of its skill keeps it out.
+
+### Feature engineering on the data that reaches the model
+
+- Kind: technique
+- Where: knowledge
+- Depends on: Input transforms
+- Source: owner, 2026-11-18; [feature-engineering](projects/feature-engineering/project_overview.md)
+
+Fix the data before the model reads it: via the input transform, or a code wrapper on a tool result.
+Drop and dedupe fields, compute `is_open`, cut long text, wrap user text in tags, rename a wrong
+field. The owner's notes, the moves, the risks and the research to do are in the overview.
