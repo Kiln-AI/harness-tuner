@@ -120,16 +120,6 @@ Size each experiment so that it can pass its own test; do not split a small budg
 experiments; probe for room to improve before a wording change; measure the baseline again in each
 wave; a gate that uses support across repeats. The knowledge side is `spending-the-budget`.
 
-### OpenEnv worlds
-
-- Kind: gap
-- Where: tuner, kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 9; overview 7.7
-
-Operations to read and change a world: an environment for a stateful agent. Refresh the vendored
-API reference, which lacks the `/worlds` routes.
-
 ### Collect restrictions at the start
 
 - Kind: code
@@ -832,3 +822,14 @@ the text of its skill keeps it out.
 Fix the data before the model reads it: via the input transform, or a code wrapper on a tool result.
 Drop and dedupe fields, compute `is_open`, cut long text, wrap user text in tags, rename a wrong
 field. The owner's notes, the moves, the risks and the research to do are in the overview.
+
+### Prompt cache usage
+
+- Kind: technique
+- Where: knowledge
+- Depends on: None
+- Source: owner, 2026-11-19; see also `Smell: a low cache hit rate`
+
+On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
+caching is off; the account or provider does not have it; the agent edits its own history. That
+edit saves a few tokens, but it breaks the cache and can cost 10x more.
