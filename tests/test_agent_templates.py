@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 from conftest import make_tracker
 
 from kiln_harness_tuner.dispatch.claude_cli import (
@@ -118,6 +119,25 @@ def test_skill_dirs_exist_with_matching_names():
         assert _frontmatter_name(skill_dir) == skill, (
             f"{skill}/SKILL.md frontmatter name does not match its directory"
         )
+
+
+@pytest.mark.parametrize(
+    "skill_md",
+    sorted(SKILLS_DIR.glob("*/SKILL.md")),
+    ids=lambda path: path.parent.name,
+)
+def test_skill_frontmatter_is_strict_yaml(skill_md: Path):
+    # Agent CLIs parse the frontmatter with their own YAML loaders. A plain
+    # scalar that holds ": " is not valid YAML: Claude Code then lists the
+    # skill with no description, and a strict loader can skip the skill.
+    # Use a block scalar (`description: |`) for long text.
+    match = re.match(r"---\n(.*?)\n---\n", skill_md.read_text(), re.DOTALL)
+    assert match, f"{skill_md.parent.name}/SKILL.md has no frontmatter block"
+    data = yaml.safe_load(match.group(1))
+    assert isinstance(data, dict)
+    assert data.get("name") == skill_md.parent.name
+    description = data.get("description")
+    assert isinstance(description, str) and description.strip()
 
 
 def test_merging_reference_exists():
