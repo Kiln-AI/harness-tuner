@@ -568,7 +568,9 @@ One prompt and one tool set for requests that need different handling.
 - Depends on: None
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
-The traces show that little of the prompt is read from the cache.
+The traces show that little of the prompt is read from the cache. Important for a long prompt or a
+multi-turn agent, where the cache saves the most; less critical for a single turn with a short
+prompt. The diagnosis is the technique `Prompt cache usage`.
 
 ### Smell: evals that do not cover the product
 
