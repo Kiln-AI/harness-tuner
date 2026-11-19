@@ -31,17 +31,15 @@ In the harness:
 - a tool that creates, changes or deletes records on a production or
   shared host;
 - a tool that reads a production or shared host that people change;
-- an eval item whose expected answer is a count, a status or a date range
-  of such data ("last week", "open tickets");
-- an eval item that expects one exact web result, not a stable fact.
+- an eval item whose expected answer moves with the data that a tool
+  reads: a count of "last week", one exact web result.
 
 In how the agent runs:
 
 - writes in a trace of an eval run, on a live or shared host;
 - a result that shows an earlier run's write, for example a record that an
   earlier eval item created;
-- different results for the same input in two stored runs, from a tool
-  that is not a web search.
+- different results for the same input in two stored runs.
 
 A write tool alone is not a sign. It needs evidence that the system is
 real: a production host name, or a result that shows an earlier write.
@@ -66,10 +64,11 @@ No arm can fix the drift.
 - [Dealing with a wrong eval](../playbooks/dealing-with-a-wrong-eval.md),
   first: report the issue in `open_questions` and in the report. Name the
   tools, the host, the case from the table and the evidence.
-  - **For a web search, check first:** read the eval expectations. A
-    general one is fine ("confirms that the sixth king of England is X").
-    Report only the items that expect a result that can change ("returns
-    the web site X"), and ask the owner to make them general.
+  - **For a read of data that changes, check first:** read the eval
+    expectations. One that stays true when the data changes is fine ("the
+    sixth king of England is X"). Report only the items whose answer moves
+    with the data ("42 tickets closed last week", "returns the web site
+    X"), and ask the owner to make them general.
   - **Otherwise, ask the owner for the fix:** run the agent against an
     OpenEnv world, so that the data is reproducible and isolated. The
     alternative: the owner confirms that the system is static (a read-only
