@@ -69,6 +69,7 @@ PLACEHOLDER = "{{"
 # check reads these as well.
 USER_DOCS = (
     ".github/CONTRIBUTING.md",
+    ".github/RELEASING.md",
     "examples/moderation/README.md",
 )
 

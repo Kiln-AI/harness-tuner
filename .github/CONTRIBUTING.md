@@ -54,6 +54,10 @@ python tests/packaging/smoke_installed_wheel.py --dist dist
 The tool is installed on the Python that runs the script, which must be 3.11
 or later.
 
+## Releasing
+
+[RELEASING.md](RELEASING.md) has the steps to publish a new version to PyPI.
+
 ## Where things are
 
 ```
