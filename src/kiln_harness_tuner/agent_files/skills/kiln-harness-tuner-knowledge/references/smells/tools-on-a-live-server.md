@@ -50,8 +50,7 @@ real: a production host name, or a result that shows an earlier write.
 
 - Read the tool definitions and the code of each code tool: the system
   that they reach, and any write.
-- Compare the results of one input in two stored runs, where there are two.
-- For a web search, report only the eval items whose answer can change.
+- Compare the results of one input in two stored runs, where they exist.
 - **Not this smell:** a read of fixed data; a web search with eval items on
   stable facts; a test system that is reset before each run.
 
@@ -62,19 +61,19 @@ times on data that can have changed. A write also blocks a safe run.
 
 ## Remedies
 
-No arm can fix the drift. The fix is the owner's.
+No arm can fix the drift.
 
 - [Dealing with a wrong eval](../playbooks/dealing-with-a-wrong-eval.md),
   first: report the issue in `open_questions` and in the report. Name the
-  tools, the host, the case from the table and the evidence. Ask the owner
-  for one of these, in this order:
-  1. **Fix:** run the agent against an OpenEnv world, so that the data is
-     reproducible and isolated on each run.
-  2. **Alternative:** confirm that the system is static: a read-only test
-     system with the same data on each run. Then it is not this smell.
-  3. **Alternative**, for a web search: make the eval expectations
-     general. "Confirms that the sixth king of England is X", not "returns
-     the web site X".
+  tools, the host, the case from the table and the evidence.
+  - **For a web search, check first:** read the eval expectations. A
+    general one is fine ("confirms that the sixth king of England is X").
+    Report only the items that expect a result that can change ("returns
+    the web site X"), and ask the owner to make them general.
+  - **Otherwise, ask the owner for the fix:** run the agent against an
+    OpenEnv world, so that the data is reproducible and isolated. The
+    alternative: the owner confirms that the system is static (a read-only
+    test system, the same data on each run). Then it is not this smell.
 - [Dealing with a noisy eval](../playbooks/dealing-with-a-noisy-eval.md),
   when scores move between repeats with no change to the agent: repeat
   before you trust a small difference, until the owner fixes it.
