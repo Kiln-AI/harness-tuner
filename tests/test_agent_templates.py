@@ -128,8 +128,8 @@ def test_skill_dirs_exist_with_matching_names():
 )
 def test_skill_frontmatter_is_strict_yaml(skill_md: Path):
     # Agent CLIs parse the frontmatter with their own YAML loaders. A plain
-    # scalar that holds ": " is not valid YAML: Claude Code then lists the
-    # skill with no description, and a strict loader can skip the skill.
+    # scalar that holds ": " is not valid YAML. Claude Code, Codex and
+    # OpenCode accept it today, but a strict loader can reject the skill.
     # Use a block scalar (`description: |`) for long text.
     match = re.match(r"---\n(.*?)\n---\n", skill_md.read_text(), re.DOTALL)
     assert match, f"{skill_md.parent.name}/SKILL.md has no frontmatter block"
