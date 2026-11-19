@@ -17,8 +17,9 @@ only when it is clearly past the noise.
 3. **Take each failure and each eval problem to its playbook.** Find the
    playbook whose situation fits the issue, in the tables of the kinds
    `failure` and `eval`. Its steps are in order, and each step states its
-   condition. The order is the priority. Skip a step whose condition does
-   not hold. Take the first step whose condition holds. When the budget
+   condition. The order is the default priority: change it when the
+   evidence of this agent says so. Skip a step whose condition does not
+   hold. Otherwise, start from the first step whose condition holds. When the budget
    allows, the next steps whose conditions hold can run as parallel arms
    in the same wave. The outcome of a measured step sets what comes next:
    - **Landed**: go to the next step only if the issue is still open.
@@ -34,6 +35,11 @@ only when it is clearly past the noise.
    technique, find it in [technique-index.md](technique-index.md). The
    technique document says how to build it, how to check that it took
    effect, and what to do when it does not move the evals.
+5. **Plan your own idea when the documents do not fit.** No playbook fits
+   the issue, its steps do not fit this agent, or each step is tried. Then
+   plan the change that the traces and the results point to. Set
+   `technique` to the lever that it changes, and write "not in the
+   knowledge" in the hypothesis.
 
 The `technique` field of an experiment is the id of a lever document where
 one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `params`,

@@ -25,6 +25,15 @@ reach the Kiln server; the allowlist and the shared-tool rules of a code
 tool; no value from a train item in a change. No measurement overrides a
 hard limit, and you do not change one to fit the agent.
 
+**The documents are not complete.** They are a source of ideas, not a list
+of every option. You have context that their authors did not have: this
+agent, its goal, its traces and the results of this run. When the evidence
+of this agent says that a document does not fit, do not follow it to the
+letter: that is an error, not care. Propose a new solution when it fits
+this agent better than the documents do. A new idea meets the same bar as
+a documented one: a hypothesis, a predicted effect, the val gate and the
+hard limits.
+
 **A clear measurement outranks a document.** A result measured on this task
 outranks what a document suggests only when it is clearly past the noise,
 as the stop rules and the val gate judge it. A result inside the noise does
