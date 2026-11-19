@@ -257,7 +257,8 @@ cheapest or fastest rows with what they lost (see `screen_results`).>
 ## Suggested next steps
 <from the experiments' next: lines, pooled unmerged wins (say which are
 val-rejected: ingredients for a different combination, not re-runs), starved
-issues, and, while eval building is off, the issues no eval measures (create
+issues, each promoted change whose hypothesis says "not in the knowledge" (a
+candidate for the knowledge system), and, while eval building is off, the issues no eval measures (create
 their evals in the Kiln app — see the "Issues with no eval (code-computed)"
 section).>
 ```

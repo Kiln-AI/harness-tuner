@@ -122,13 +122,14 @@ wave; a gate that uses support across repeats. The knowledge side is `spending-t
 
 ### OpenEnv worlds
 
-- Kind: gap
-- Where: tuner, kiln
+- Kind: lever
+- Where: knowledge, tuner
 - Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 9; overview 7.7
+- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 9; overview 7.7; owner
 
-Operations to read and change a world: an environment for a stateful agent. Refresh the vendored
-API reference, which lacks the `/worlds` routes.
+A world is hard to change, so the tuner does not change it: it wraps it in Kiln code tools. Teach
+what a world is, which worlds and fixtures a project has, and how to read them. The vendored API
+reference lacks the `/worlds` routes.
 
 ### Collect restrictions at the start
 
@@ -567,7 +568,9 @@ One prompt and one tool set for requests that need different handling.
 - Depends on: None
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
-The traces show that little of the prompt is read from the cache.
+The traces show that little of the prompt is read from the cache. Important for a long prompt or a
+multi-turn agent, where the cache saves the most; less critical for a single turn with a short
+prompt. The diagnosis is the technique `Prompt cache usage`.
 
 ### Smell: evals that do not cover the product
 
@@ -832,3 +835,14 @@ the text of its skill keeps it out.
 Fix the data before the model reads it: via the input transform, or a code wrapper on a tool result.
 Drop and dedupe fields, compute `is_open`, cut long text, wrap user text in tags, rename a wrong
 field. The owner's notes, the moves, the risks and the research to do are in the overview.
+
+### Prompt cache usage
+
+- Kind: technique
+- Where: knowledge
+- Depends on: None
+- Source: owner, 2026-11-19; see also `Smell: a low cache hit rate`
+
+On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
+caching is off; the account or provider does not have it; the agent edits its own history. That
+edit saves a few tokens, but it breaks the cache and can cost 10x more.

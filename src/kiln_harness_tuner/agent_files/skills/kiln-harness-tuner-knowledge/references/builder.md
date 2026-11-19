@@ -6,7 +6,9 @@ Use this file to build the technique of your work item.
 
 1. **Open the technique of your item.** Find it in the table "Techniques",
    or follow the link that the planner's hypothesis gives. Read its "How"
-   and its "Check that it took effect" before you build.
+   and its "Check that it took effect" before you build. When the
+   hypothesis says "not in the knowledge", no technique covers the idea:
+   build it from the hypothesis, with the levers that it changes.
 2. **Open each lever that the technique links.** A lever document says how
    the tuner creates and changes that part of the harness: the gateway
    operations, the rules of the object and the limits.

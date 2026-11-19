@@ -1,7 +1,7 @@
 ---
 title: Tools on a live server
-description: The agent's tools read or write a staging or live system, so the right answer to an eval item can change with time, and a measurement cannot be repeated.
-reviewed: 2026-11-13
+description: The agent's tools write to a real system, or read data that changes, so the right answer to an eval item moves and a measurement cannot be repeated. A read of fixed data (RAG) is fine.
+reviewed: 2026-11-19
 applies_to:
   - tools
 detected_by:
@@ -12,56 +12,70 @@ detected_by:
 
 ## What it is
 
-The agent's tools read or write a staging or a live system, not a fixed
-copy of the data. The data changes between runs. So the right answer to an
-eval item can change with time. A write by one run can change what the
-next run reads. Two measurements of the same agent then differ for a
-reason that is not the agent. This is a property of the design, whether an
-eval passes or fails.
+An eval item has one right answer. A tool on a live or shared system can
+make that answer move: two measurements of the same agent then differ for
+a reason that is not the agent. This is a property of the design, whether
+an eval passes or fails. Each tool is in one of four cases:
+
+| The tool | Verdict |
+|---|---|
+| Reads fixed data: RAG over a document store, a fixed copy of a database | Fine. Not this smell. |
+| Reads the real world: a web search | Usually fine: there is no fixed copy of the web. A smell only for an eval item whose answer depends on a result that can change: "returns the web site X" (the site can go away) is bad; "confirms that the sixth king of England is X" is fine. |
+| Reads data that moves: a live or staging system that people change | Usually bad. "How many tickets did we close last week" has no fixed answer: people change the data, and "last week" moves. |
+| Writes to a real system: create, change or delete | Always bad, for evals and for tuner runs. One run changes what the next run reads, and a write can do real harm. |
 
 ## How to recognise it
 
 In the harness:
 
-- tools that call a host name of a production or shared system;
-- tools that create, change or delete records on such a host.
+- a tool that creates, changes or deletes records on a production or
+  shared host;
+- a tool that reads a production or shared host that people change;
+- an eval item whose expected answer moves with the data that a tool
+  reads: a count of "last week", one exact web result.
 
 In how the agent runs:
 
-- different tool results for the same input, between two stored runs;
-- writes in a trace of an eval run, on a host that is live or shared.
+- writes in a trace of an eval run, on a live or shared host;
+- a result that shows an earlier run's write, for example a record that an
+  earlier eval item created;
+- different results for the same input in two stored runs.
 
 A write tool alone is not a sign. It needs evidence that the system is
-live or shared: a production host name, or different results for the
-same input.
+real: a production host name, or a result that shows an earlier write.
 
 ## How to confirm it
 
-- Read the tool definitions and the code of each code tool for the system
-  they reach.
-- Compare the tool results of one input in two stored runs, where the
-  store has two.
-- **Not this smell:** a tool that reads a fixed copy of the data, or a test
-  system that is reset before each run.
+- Read the tool definitions and the code of each code tool: the system
+  that they reach, and any write.
+- Compare the results of one input in two stored runs, where they exist.
+- **Not this smell:** a read of fixed data; a web search with eval items on
+  stable facts; a test system that is reset before each run.
 
 ## What it blocks
 
-A decision on a small difference between two arms. The two were measured
-at different times, and the data can have changed between them.
+A decision on a small difference between two arms, measured at different
+times on data that can have changed. A write also blocks a safe run.
 
 ## Remedies
 
-No arm can fix the drift. Only the owner can give a fixed copy of the data
-or a system that is reset before each run.
+No arm can fix the drift.
 
 - [Dealing with a wrong eval](../playbooks/dealing-with-a-wrong-eval.md),
-  first: report the issue to the owner in `open_questions` and in the
-  report, as for an eval-data failure. Name the tools, the host and the
-  evidence.
+  first: report the issue in `open_questions` and in the report. Name the
+  tools, the host, the case from the table and the evidence.
+  - **For a read of data that changes, check first:** read the eval
+    expectations. One that stays true when the data changes is fine ("the
+    sixth king of England is X"). Report only the items whose answer moves
+    with the data ("42 tickets closed last week", "returns the web site
+    X"), and ask the owner to make them general.
+  - **Otherwise, ask the owner for the fix:** run the agent against an
+    OpenEnv world, so that the data is reproducible and isolated. The
+    alternative: the owner confirms that the system is static (a read-only
+    test system, the same data on each run). Then it is not this smell.
 - [Dealing with a noisy eval](../playbooks/dealing-with-a-noisy-eval.md),
   when scores move between repeats with no change to the agent: repeat
-  before you trust a small difference, until the owner fixes the data.
+  before you trust a small difference, until the owner fixes it.
 - [Guard tool calls at the boundary](../techniques/guard-tool-calls-at-the-boundary.md),
-  when the agent can write to the live system: a wrapper that refuses a
-  write that the task does not allow. It limits the harm. It does not fix
-  the drift.
+  when the agent can write to a real system: a wrapper that refuses a write
+  that the task does not allow. It limits the harm, not the drift.

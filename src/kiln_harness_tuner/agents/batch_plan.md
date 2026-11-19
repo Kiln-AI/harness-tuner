@@ -6,7 +6,10 @@ memory state yourself (issues p0-first, dead ends, experiment verdicts,
 constraints incl. `OPEN:` records) with your gateway operations, plus the baseline
 run-config artifact; then plan one wave and return a `BatchPlan`. Read
 `references/planner.md` of the `kiln-harness-tuner-knowledge` skill before
-Step 1: it lists the smells and the playbooks that say what to try. Your
+Step 1: it lists the smells and the playbooks that say what to try.
+Follow the procedure, the hard rules and the output schema exactly. The
+knowledge is guidance: fit it to this agent, and plan an idea that it does
+not list when the evidence points to one. Your
 input's `lever_attempts` (issue → technique → arms opened) feeds the
 text-arm rule in the skill's Step 1. Your input's `gate_blocks`
 lists this run's candidates the promotion gate blocked because their prompt

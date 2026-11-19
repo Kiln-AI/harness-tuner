@@ -17,8 +17,9 @@ only when it is clearly past the noise.
 3. **Take each failure and each eval problem to its playbook.** Find the
    playbook whose situation fits the issue, in the tables of the kinds
    `failure` and `eval`. Its steps are in order, and each step states its
-   condition. The order is the priority. Skip a step whose condition does
-   not hold. Take the first step whose condition holds. When the budget
+   condition. The order is the default priority: change it when the
+   evidence of this agent says so. Skip a step whose condition does not
+   hold. Otherwise, start from the first step whose condition holds. When the budget
    allows, the next steps whose conditions hold can run as parallel arms
    in the same wave. The outcome of a measured step sets what comes next:
    - **Landed**: go to the next step only if the issue is still open.
@@ -34,6 +35,11 @@ only when it is clearly past the noise.
    technique, find it in [technique-index.md](technique-index.md). The
    technique document says how to build it, how to check that it took
    effect, and what to do when it does not move the evals.
+5. **Plan your own idea when the documents do not fit.** No playbook fits
+   the issue, its steps do not fit this agent, or each step is tried. Then
+   plan the change that the traces and the results point to. Set
+   `technique` to the lever that it changes, and write "not in the
+   knowledge" in the hypothesis.
 
 The `technique` field of an experiment is the id of a lever document where
 one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `params`,
@@ -58,7 +64,7 @@ does not matter.
 | [too-many-tools](smells/too-many-tools.md) | tools | The run config attaches more than 40 tools, and every tool definition is in the context of every call. A code detector counts them. |
 | [tool-results-flood-the-context](smells/tool-results-flood-the-context.md) | tools | A tool returns a very large result - a list with every field, a full schema, many pages - or the agent makes one call for each item of a list. |
 | [tool-search](smells/tool-search.md) | tools | The tools are listed nowhere the model can read, so the agent must guess that a tool exists and guess the raw search terms that find it. |
-| [tools-on-a-live-server](smells/tools-on-a-live-server.md) | tools | The agent's tools read or write a staging or live system, so the right answer to an eval item can change with time, and a measurement cannot be repeated. |
+| [tools-on-a-live-server](smells/tools-on-a-live-server.md) | tools | The agent's tools write to a real system, or read data that changes, so the right answer to an eval item moves and a measurement cannot be repeated. A read of fixed data (RAG) is fine. |
 | [unnecessary-tools](smells/unnecessary-tools.md) | tools | Tools that overlap - two tools used for the same kind of request - or tools never called in the traces. One tool for each job, and each tool needed. |
 | [very-long-prompt](smells/very-long-prompt.md) | all | The system prompt is longer than the reference length, or it holds many unrelated topics and each request needs a few. Code measures the length. |
 | [very-long-skill-description](smells/very-long-skill-description.md) | all | A skill description is longer than the reference length, or it holds rules that the agent needs only after it opens the skill. Code measures the length. |

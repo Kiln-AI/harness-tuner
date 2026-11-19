@@ -466,7 +466,9 @@ smells and the playbooks, grouped by kind, and says how to use them. For
 every issue you consider, read the decision point (before / with / after
 which tool call) and the failure pattern that the analyst wrote in the
 content of its experiment memories, take the failure to the playbook whose
-situation fits, and take the first step whose condition holds. The decision
+situation fits, and start from the first step whose condition holds. The
+playbooks are a source of ideas, not every option: when none fits this
+agent, plan your own idea (`references/planner.md`, step 5). The decision
 point names the surface to change: before or with a call, that tool's
 description (a new one is a code-tool clone or a wrapper); after a call,
 the tool's response, with a rule about the reply in the tool's description;
