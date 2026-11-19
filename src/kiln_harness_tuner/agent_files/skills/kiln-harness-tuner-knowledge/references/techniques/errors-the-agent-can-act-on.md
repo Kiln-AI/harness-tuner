@@ -1,7 +1,7 @@
 ---
 title: Errors the agent can act on
 description: A wrapper that turns a raw tool error into an error the agent can correct from - what was wrong, the valid values or nearest matches, and what to do next.
-reviewed: 2026-11-13
+reviewed: 2026-11-19
 status: active
 levers:
   - new_tool
@@ -17,6 +17,8 @@ cost: medium
 - A tool returns raw errors: a status code, a stack trace, a body written
   for software. The traces show the agent retry the same call, guess, or
   give up after such an error.
+- An error gives an internal code with no meaning to a reader ("Issue
+  8734334"), or names a state with no way out (`token_expired`).
 - The agent ends with an answer that hides a failed call, or says that no
   data exists when the call failed.
 - A tool reports an error as a success: a result with an error field that
@@ -57,6 +59,13 @@ exceptions.
    - the valid values, or the nearest matches of a value that does not
      exist;
    - what to do next ("wait and call again", "call `list_orders` first").
+     For an error that can be resolved, say how: not `token_expired`, but
+     "token expired: refresh it with `refresh_token`", or "token expired:
+     the user must log in again";
+   - the meaning of an internal code, in place of the code alone;
+   - if the error is temporary (a call again can work) or permanent (it
+     cannot, for example "this account has no access to this resource").
+     A bare "Unavailable" does not tell the agent if it must retry or stop.
 3. **Return an error as data**, in the result, with a field that marks it
    as an error. A raised exception reaches the agent as text that it
    cannot use.
@@ -113,5 +122,7 @@ None yet.
 
 Medium. It is field practice from public guidance on tool design. It
 follows from what the agent reads: a tool error is the last text before
-the next call, so it works as a prompt at that moment. Low, for the size
+the next call, so it works as a prompt at that moment. An engineer learns
+the quirks of an API one time. An agent learns each tool again on every
+run, so an unclear error costs it on every run. Low, for the size
 of the gain on a given agent: no measured case is recorded here yet.

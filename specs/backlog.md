@@ -120,6 +120,17 @@ Size each experiment so that it can pass its own test; do not split a small budg
 experiments; probe for room to improve before a wording change; measure the baseline again in each
 wave; a gate that uses support across repeats. The knowledge side is `spending-the-budget`.
 
+### OpenEnv worlds
+
+- Kind: lever
+- Where: knowledge, tuner
+- Depends on: None
+- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 9; overview 7.7; owner
+
+A world is hard to change, so the tuner does not change it: it wraps it in Kiln code tools. Teach
+what a world is, which worlds and fixtures a project has, and how to read them. The vendored API
+reference lacks the `/worlds` routes.
+
 ### Collect restrictions at the start
 
 - Kind: code
@@ -833,14 +844,3 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
-
-### Errors the agent can act on: three more cases
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: owner, 2026-11-19; extends the technique `errors-the-agent-can-act-on`
-
-Give an opaque code ("Issue 8734334") its meaning; say how to resolve ("token expired: refresh with
-`/refresh_token`"); say if it is temporary or permanent. Engineers learn API quirks one time. An
-agent learns each tool again on every run, so each quirk costs it on every run.
