@@ -6,6 +6,15 @@ folder (`install_agents.install_for_run`), so its `.claude/skills/` and
 servers come from the per-run rendered config (`--mcp-config` +
 `--strict-mcp-config`, host-injected), NOT the installed
 `.mcp.json`; write tools are sandboxed by the per-run rendered `--settings`.
+
+The user's own Claude Code setup does not reach a loop session:
+`--setting-sources project` loads the agents folder's settings and skills and
+not the user's, so the user's skills (`~/.claude/skills`), plugins,
+permissions and hooks stay out. The user's model-access settings (`env`,
+`apiKeyHelper` and the others in `USER_MODEL_ACCESS_KEYS`) are copied into the
+run's settings files (`with_user_model_access`), so a session reaches its model
+as the user's own Claude Code does.
+
 Shared plumbing lives in two private helpers (`_run` → `_dispatch`) that each
 public method calls with its concrete types.
 
@@ -29,6 +38,7 @@ import logging
 import os
 import re
 import signal
+import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -208,6 +218,64 @@ FINISH_UP_PROMPT = (
 )
 
 DEFAULT_CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+# The Claude Code setting sources a loop session loads. `project` is the
+# agents folder: its `.claude/skills/` and `CLAUDE.md`. `user` is left out,
+# so the user's skills, plugins, permissions and hooks do not reach the
+# session: they fill its skill listing and can shadow a tuner skill of the
+# same name. `local` is left out: the agents folder has no
+# `.claude/settings.local.json`. The `--settings` file and managed settings
+# load whatever this names.
+SETTING_SOURCES = "project"
+
+# The keys of the user's Claude Code settings that decide how a session
+# reaches its model: the provider and endpoint (`env`, for example
+# `CLAUDE_CODE_USE_BEDROCK` or `ANTHROPIC_BASE_URL`), the credential helpers,
+# the model ids of a provider, and the sign-in method. Without `user` in
+# `SETTING_SOURCES` the session does not read them, so the run copies them
+# into its own settings files. `enabledPlugins`, `permissions` and `hooks` are
+# not copied.
+USER_MODEL_ACCESS_KEYS = (
+    "env",
+    "apiKeyHelper",
+    "awsAuthRefresh",
+    "awsCredentialExport",
+    "gcpAuthRefresh",
+    "proxyAuthHelper",
+    "modelOverrides",
+    "forceLoginMethod",
+    "forceLoginOrgUUID",
+)
+
+
+def claude_config_dir(environ: dict[str, str] | None = None) -> Path:
+    """The user's Claude Code folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`."""
+    source = os.environ if environ is None else environ
+    configured = source.get("CLAUDE_CONFIG_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / ".claude"
+
+
+def user_model_access_settings(
+    environ: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """The `USER_MODEL_ACCESS_KEYS` of the user's Claude Code settings file.
+    Empty when there is no file, or when it is not a JSON object."""
+    path = claude_config_dir(environ) / "settings.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {key: data[key] for key in USER_MODEL_ACCESS_KEYS if key in data}
+
+
+def with_user_model_access(
+    settings: dict[str, Any], environ: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """`settings` with the user's model-access settings added. A key that
+    `settings` sets itself is kept as it is."""
+    return {**user_model_access_settings(environ), **settings}
 
 
 class DispatchTimeoutError(Exception):
@@ -945,6 +1013,9 @@ class ClaudeCliDispatcher:
             *self._cli_options,
             "--output-format",
             "json",
+            # Not the user's skills, plugins or settings (`SETTING_SOURCES`).
+            "--setting-sources",
+            SETTING_SOURCES,
         ]
         model = self._model_for(agent)
         if model:
@@ -1014,6 +1085,22 @@ class ClaudeCliDispatcher:
     def _effort_for(self, agent: str) -> str:
         return self._efforts.get(agent, self._default_effort)
 
+    def _cli_check_argv(self, folder: Path, label: str) -> list[str]:
+        """The start-up check's command. The check runs before the run
+        directory exists, so it has no run settings file. The user's
+        model-access settings then go into a file in `folder`, which the
+        caller deletes: the check reaches the model as the loop sessions do."""
+        argv = self._argv(CLI_CHECK_ROLE, label=label)
+        if "--settings" in argv:
+            return argv
+        carried = user_model_access_settings()
+        if not carried:
+            return argv
+        path = folder / "settings.json"
+        path.write_text(json.dumps(carried, indent=2, ensure_ascii=False) + "\n")
+        path.chmod(0o600)
+        return [*argv, "--settings", str(path)]
+
     async def check_cli(self, command: str) -> Usage:
         """Send one short prompt through the agent CLI before the run starts. The loop
         does not manage the CLI's sign-in, so this is where a CLI that is not installed,
@@ -1021,17 +1108,17 @@ class ClaudeCliDispatcher:
         printed, instead of as an `agent_crash` on every session. `command` is the
         `--agent-cli` text, for the message. Raises PreflightError."""
         label = "cli-check"
-        argv = self._argv(CLI_CHECK_ROLE, label=label)
         problem: str | None = None
         output = ""
         usage = Usage()
         try:
-            proc = await self._runner.run(
-                argv,
-                stdin_text=CLI_CHECK_PROMPT,
-                timeout_secs=CLI_CHECK_TIMEOUT_SECS,
-                cwd=str(self._cwd(label)),
-            )
+            with tempfile.TemporaryDirectory(prefix="kiln-harness-tuner-") as tmp:
+                proc = await self._runner.run(
+                    self._cli_check_argv(Path(tmp), label),
+                    stdin_text=CLI_CHECK_PROMPT,
+                    timeout_secs=CLI_CHECK_TIMEOUT_SECS,
+                    cwd=str(self._cwd(label)),
+                )
         except DispatchTimeoutError:
             problem = f"no answer in {CLI_CHECK_TIMEOUT_SECS // 60} minutes"
         except OSError as exc:

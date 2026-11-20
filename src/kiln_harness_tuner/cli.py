@@ -51,6 +51,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     READ_ONLY_ROLES,
     ClaudeCliDispatcher,
     PreflightError,
+    with_user_model_access,
 )
 from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
@@ -886,7 +887,9 @@ def render_run_configs(
     via permission rules; Bash OS-sandboxed the same way), one file per role
     (`settings.<role>.json`) whose hook admits only that role's MCP tools,
     and `settings.readonly.json` for the val readers (no write grant).
-    `model_policy` = the copy of `--model-policy` inside the run directory,
+    Each also holds the user's Claude Code model-access settings
+    (`claude_cli.USER_MODEL_ACCESS_KEYS`), which sessions do not otherwise
+    read. `model_policy` = the copy of `--model-policy` inside the run directory,
     which the gateway reads. `max_concurrent_evals` caps the eval jobs each
     gateway process runs at once (its drives through eval jobs); None or 0
     = no cap."""
@@ -1084,6 +1087,10 @@ def render_run_configs(
         # This file is the `--settings` layer, which overrides both.
         "verbose": False,
     }
+    # Sessions do not read the user's Claude Code settings
+    # (`claude_cli.SETTING_SOURCES`), so the keys that decide how a session
+    # reaches its model are copied here from them. A key set above wins.
+    settings = with_user_model_access(settings)
     settings_path = run_dir / "settings.json"
     settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
 

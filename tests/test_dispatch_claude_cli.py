@@ -18,13 +18,19 @@ from kiln_harness_tuner.dispatch.base import AgentDispatcher
 from kiln_harness_tuner.dispatch.claude_cli import (
     AGENT_MODEL_DEFAULTS,
     AGENT_TIMEOUTS_SECS,
+    CLI_CHECK_WORD,
     DEFAULT_ALLOWED_TOOLS,
     DEFAULT_TEMPLATES_DIR,
+    SETTING_SOURCES,
+    USER_MODEL_ACCESS_KEYS,
     AsyncioSubprocessRunner,
     ClaudeCliDispatcher,
     DispatchTimeoutError,
     PreflightError,
     SubprocessResult,
+    claude_config_dir,
+    user_model_access_settings,
+    with_user_model_access,
 )
 from kiln_harness_tuner.paths import StatePaths
 from kiln_harness_tuner.schemas import (
@@ -2327,3 +2333,144 @@ class TestTheGeneralityReviewer:
         await dispatcher.batch_plan(BATCH_PLAN_INPUT)
         argv = runner.calls[0].argv
         assert argv[argv.index("--model") + 1] == "opus"
+
+
+class TestTheUsersOwnSetup:
+    """A loop session loads the agents folder's settings and skills, not the
+    user's: `--setting-sources project`. The user's model-access settings
+    are copied into the run's settings files, so the session still reaches
+    its model as the user's own Claude Code does."""
+
+    USER_SETTINGS = {
+        "env": {"CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_MODEL": "m"},
+        "apiKeyHelper": "/bin/key-helper",
+        "awsAuthRefresh": "aws sso login",
+        "modelOverrides": {"opus": "arn:aws:bedrock:model"},
+        # Not model access: never copied.
+        "enabledPlugins": {"posthog@claude-plugins-official": True},
+        "permissions": {"defaultMode": "auto", "allow": ["Bash"]},
+        "hooks": {"PreToolUse": []},
+        "model": "haiku",
+        "verbose": True,
+    }
+    CARRIED = {
+        "env": {"CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_MODEL": "m"},
+        "apiKeyHelper": "/bin/key-helper",
+        "awsAuthRefresh": "aws sso login",
+        "modelOverrides": {"opus": "arn:aws:bedrock:model"},
+    }
+
+    def _write_user_settings(self, folder: Path, settings: object) -> None:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "settings.json").write_text(json.dumps(settings))
+
+    @pytest.mark.parametrize(
+        "role", ["batch_plan", "promote_best", "integrity_review", "cli_check"]
+    )
+    def test_every_session_loads_the_project_sources_only(self, tmp_path, role):
+        assert SETTING_SOURCES == "project"
+        for dispatcher, _ in (make_dispatcher([]), make_wired_dispatcher(tmp_path, [])):
+            argv = dispatcher._argv(role, label=role)
+            assert argv[argv.index("--setting-sources") + 1] == "project"
+            # Both turn off more than the user's setup: the run's own
+            # skills, or the CLI's sign-in.
+            assert "--bare" not in argv
+            assert "--disable-slash-commands" not in argv
+
+    def test_the_model_access_keys_are_read(self, agent_cli_homes):
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        assert user_model_access_settings() == self.CARRIED
+
+    def test_claude_config_dir_names_the_folder(self, tmp_path):
+        folder = tmp_path / "elsewhere"
+        self._write_user_settings(folder, self.USER_SETTINGS)
+        environ = {"CLAUDE_CONFIG_DIR": str(folder), "HOME": str(tmp_path / "h")}
+        assert claude_config_dir(environ) == folder
+        assert user_model_access_settings(environ) == self.CARRIED
+
+    def test_the_default_folder_is_in_home(self, agent_cli_homes, monkeypatch):
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+        assert claude_config_dir() == agent_cli_homes / ".claude"
+
+    @pytest.mark.parametrize("content", [None, "not json", "[1, 2]"])
+    def test_no_usable_file_carries_nothing(self, agent_cli_homes, content):
+        if content is not None:
+            folder = agent_cli_homes / ".claude"
+            folder.mkdir(parents=True)
+            (folder / "settings.json").write_text(content)
+        assert user_model_access_settings() == {}
+
+    def test_a_key_the_run_sets_wins(self, agent_cli_homes):
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        merged = with_user_model_access({"env": {"RUN": "1"}, "verbose": False})
+        assert merged["env"] == {"RUN": "1"}
+        assert merged["verbose"] is False
+        assert merged["apiKeyHelper"] == "/bin/key-helper"
+
+    def test_every_rendered_settings_file_carries_them(self, tmp_path, agent_cli_homes):
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        render_into(tmp_path, TARGET)
+        files = sorted((tmp_path / "run").glob("settings*.json"))
+        assert len(files) > 2  # the shared, the read-only and one per role
+        for path in files:
+            settings = json.loads(path.read_text())
+            for key, value in self.CARRIED.items():
+                assert settings[key] == value, (path.name, key)
+            for key in ("enabledPlugins", "model"):
+                assert key not in settings, (path.name, key)
+            # The run's own keys are the run's.
+            assert settings["verbose"] is False
+            assert "defaultMode" not in settings["permissions"]
+            assert "Bash" not in settings["permissions"]["allow"]
+            assert settings["hooks"]["PreToolUse"]
+
+    def test_no_user_settings_renders_as_before(self, tmp_path):
+        render_into(tmp_path, TARGET)
+        settings = json.loads((tmp_path / "run" / "settings.json").read_text())
+        for key in USER_MODEL_ACCESS_KEYS:
+            assert key not in settings
+
+    def test_the_cli_check_gets_them_in_a_file_of_its_own(
+        self, tmp_path, agent_cli_homes
+    ):
+        """The check runs before the run directory exists, with no run
+        settings file."""
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        dispatcher, _ = make_dispatcher([])
+        argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
+        path = Path(argv[argv.index("--settings") + 1])
+        assert path.parent == tmp_path
+        assert json.loads(path.read_text()) == self.CARRIED
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert argv[argv.index("--setting-sources") + 1] == "project"
+
+    def test_the_cli_check_without_user_settings_gets_no_file(self, tmp_path):
+        dispatcher, _ = make_dispatcher([])
+        argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
+        assert "--settings" not in argv
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_wired_cli_check_uses_the_runs_settings(self, tmp_path, agent_cli_homes):
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        dispatcher, _ = make_wired_dispatcher(tmp_path, [])
+        folder = tmp_path / "check"
+        folder.mkdir()
+        argv = dispatcher._cli_check_argv(folder, "cli-check")
+        assert argv.count("--settings") == 1
+        assert argv[argv.index("--settings") + 1] == str(
+            tmp_path / "run" / "settings.json"
+        )
+        assert list(folder.iterdir()) == []
+
+    async def test_the_cli_checks_file_is_deleted_after_the_check(
+        self, agent_cli_homes
+    ):
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        answer = json.dumps(
+            {"session_id": "s", "result": CLI_CHECK_WORD, "total_cost_usd": 0.0}
+        )
+        dispatcher, runner = make_dispatcher([ok_proc(answer)])
+        await dispatcher.check_cli("claude -p")
+        (call,) = runner.calls
+        path = Path(call.argv[call.argv.index("--settings") + 1])
+        assert not path.exists()

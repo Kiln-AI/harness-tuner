@@ -30,9 +30,11 @@ from kiln_harness_tuner.dispatch.codex_cli import (
     DISABLED_FEATURES,
     CodexCliDispatcher,
     codex_install_paths,
+    disabled_user_skills,
     permission_profile,
     read_codex_output,
     toml_value,
+    user_skill_roots,
 )
 from kiln_harness_tuner.gateway.ops import ROLE_OPS
 from kiln_harness_tuner.paths import StatePaths
@@ -344,6 +346,102 @@ class TestTheMcpServers:
         env = dispatcher._mcp_servers("batch_plan")["kiln_harness_tuner_gateway"]["env"]
         assert env["UV_FROZEN"] == "1" and env["PYTHONPATH"] == "/somewhere/src"
         assert "OPENAI_API_KEY" not in env
+
+
+def skill(folder: Path) -> Path:
+    """A skill folder holding a SKILL.md; returns the file."""
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "SKILL.md"
+    path.write_text(f"---\nname: {folder.name}\ndescription: d\n---\n")
+    return path
+
+
+def disabled_paths(argv: list[str]) -> list[str]:
+    """The paths a session's `skills.config` turns off, from its TOML form."""
+    value = config_of(argv).get("skills.config")
+    if value is None:
+        return []
+    assert value.startswith("[{") and '"enabled" = false' in value
+    return [part.split('"', 1)[0] for part in value.split('"path" = "')[1:]]
+
+
+class TestTheUserSkills:
+    """Codex lists the user's own skills (`~/.agents/skills`,
+    `$CODEX_HOME/skills`) under `--ignore-user-config` and
+    `--disable plugins`. Each session turns each of them off by path."""
+
+    def test_each_user_skill_is_turned_off_by_path(self, tmp_path, agent_cli_homes):
+        home = agent_cli_homes
+        agents_skill = skill(home / ".agents" / "skills" / "memory")
+        codex_skill = skill(home / ".codex" / "skills" / "spec")
+        nested = skill(home / ".codex" / "skills" / "group" / "nested")
+        # Codex's bundled skills, in a hidden folder, stay.
+        bundled = skill(home / ".codex" / "skills" / ".system" / "imagegen")
+        # The run's own skill of the same name as a user skill stays.
+        own = skill(agents_dir(tmp_path) / ".agents" / "skills" / "memory")
+        dispatcher, _ = make(tmp_path, [])
+        paths = disabled_paths(dispatcher._argv("batch_plan", label="b"))
+        assert sorted(paths) == sorted(
+            str(p) for p in (agents_skill, codex_skill, nested)
+        )
+        assert str(bundled) not in paths
+        assert str(own) not in paths and str(own.resolve()) not in paths
+
+    def test_codex_home_moves_the_codex_skills(
+        self, tmp_path, agent_cli_homes, monkeypatch
+    ):
+        codex_home = tmp_path / "codex-home"
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        moved = skill(codex_home / "skills" / "spec")
+        skill(agent_cli_homes / ".codex" / "skills" / "unread")
+        assert user_skill_roots() == [
+            agent_cli_homes / ".agents" / "skills",
+            codex_home / "skills",
+        ]
+        dispatcher, _ = make(tmp_path, [])
+        assert disabled_paths(dispatcher._argv("batch_plan", label="b")) == [str(moved)]
+
+    def test_a_link_into_the_runs_skills_is_never_turned_off(
+        self, tmp_path, agent_cli_homes
+    ):
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        skill(own / "memory")
+        user_skills = agent_cli_homes / ".agents" / "skills"
+        user_skills.mkdir(parents=True)
+        (user_skills / "memory").symlink_to(own / "memory", target_is_directory=True)
+        assert disabled_user_skills(own) == []
+        # The whole skills folder linked in: still none.
+        (agent_cli_homes / ".codex").mkdir()
+        (agent_cli_homes / ".codex" / "skills").symlink_to(
+            own, target_is_directory=True
+        )
+        assert disabled_user_skills(own) == []
+
+    def test_a_linked_user_skill_is_turned_off_by_both_paths(
+        self, tmp_path, agent_cli_homes
+    ):
+        real = skill(tmp_path / "elsewhere" / "spec")
+        user_skills = agent_cli_homes / ".agents" / "skills"
+        user_skills.mkdir(parents=True)
+        (user_skills / "spec").symlink_to(real.parent, target_is_directory=True)
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        assert disabled_user_skills(own) == [
+            {"path": str(user_skills / "spec" / "SKILL.md"), "enabled": False},
+            {"path": str(real.resolve()), "enabled": False},
+        ]
+
+    def test_no_user_skill_no_key(self, tmp_path):
+        dispatcher, _ = make(tmp_path, [])
+        assert "skills.config" not in config_of(dispatcher._argv("batch_plan"))
+
+    def test_every_role_and_the_cli_check(self, tmp_path, agent_cli_homes):
+        user = skill(agent_cli_homes / ".agents" / "skills" / "spec")
+        dispatcher, _ = make(tmp_path, [])
+        for role in (*ROLE_OPS, "integrity_review", "cli_check"):
+            assert disabled_paths(dispatcher._argv(role, label=role)) == [str(user)]
+        argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
+        assert disabled_paths(argv) == [str(user)]
+        assert "--settings" not in argv
 
 
 class TestTomlValues:

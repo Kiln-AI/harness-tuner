@@ -294,3 +294,17 @@ def state_dir(monkeypatch, tmp_path):
     state = tmp_path / "state"
     monkeypatch.setenv("KILN_HARNESS_TUNER_HOME", str(state))
     return state
+
+
+@pytest.fixture(autouse=True)
+def agent_cli_homes(monkeypatch, tmp_path):
+    """Every test's agent-CLI folders are its own, and empty: the dispatchers
+    read the user's Claude Code settings (`CLAUDE_CONFIG_DIR`) and Codex's
+    user skill folders (`~/.agents/skills`, `$CODEX_HOME/skills`) when they
+    build a command or a run's settings. A test never reads the real ones.
+    Returns the home folder."""
+    home = tmp_path / "agent-cli-home"  # not created: an empty home
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home / ".claude"))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    return home

@@ -36,6 +36,13 @@ instructions in `AGENTS.md` under its working directory. Each workspace holds
 (`install_agents.install_for_run`), which the profile makes readable, and a
 copy of the agents folder's `AGENTS.md` (`stage_workspace`).
 
+Codex also lists the user's own skills, from `~/.agents/skills` and
+`$CODEX_HOME/skills`, and neither `--ignore-user-config` nor
+`--disable plugins` stops that. So each session gets
+`-c skills.config=[{path=…, enabled=false}, …]`, one entry for each user skill
+file found at spawn time (`disabled_user_skills`). The run's own skills are
+never in it. Codex's bundled skills (`$CODEX_HOME/skills/.system`) stay.
+
 **What it does not have.** Codex reports tokens, not cost. The loop shows
 the agents in tokens for every agent CLI, so nothing is missing. A session
 id cannot be chosen before the spawn, so a session killed at its wall-clock
@@ -74,6 +81,10 @@ DEFAULT_CODEX_SESSIONS_DIR = Path.home() / ".codex" / "sessions"
 SKILLS_LINK = Path(".agents") / "skills"
 # The environment variables an MCP server receives from the run.
 MCP_ENV_PREFIXES = ("UV_", "PYTHON", "VIRTUAL_ENV")
+
+# Codex finds the user's skills to this depth under each user skill root.
+USER_SKILL_SCAN_DEPTH = 6
+SKILL_FILE = "SKILL.md"
 
 # Codex features the permission profile does not govern, each a way around
 # the file fence or out of the session: connectors, plugins, the browser,
@@ -175,6 +186,62 @@ def codex_install_paths(codex_bin: str) -> list[Path]:
                 paths.append(folder)
             break
     return paths
+
+
+def user_skill_roots(environ: dict[str, str] | None = None) -> list[Path]:
+    """The folders Codex reads the user's own skills from: `~/.agents/skills`
+    and `$CODEX_HOME/skills` (`~/.codex/skills` when `CODEX_HOME` is not
+    set)."""
+    source = os.environ if environ is None else environ
+    home = Path(source["HOME"]) if source.get("HOME") else Path.home()
+    codex_home = (
+        Path(source["CODEX_HOME"]).expanduser()
+        if source.get("CODEX_HOME")
+        else home / ".codex"
+    )
+    return [home / ".agents" / "skills", codex_home / "skills"]
+
+
+def user_skill_files(roots: Sequence[Path], own_skills: Path) -> list[Path]:
+    """Every `SKILL.md` under `roots`, as Codex finds them: in sub-folders to
+    `USER_SKILL_SCAN_DEPTH`, through links, not in hidden folders (Codex keeps
+    its bundled skills in `.system`). A file that resolves into `own_skills`,
+    the run's own skills folder, is left out."""
+    own = own_skills.resolve()
+    found: list[Path] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for folder, subfolders, files in os.walk(root, followlinks=True):
+            depth = len(Path(folder).relative_to(root).parts)
+            subfolders[:] = (
+                sorted(d for d in subfolders if not d.startswith("."))
+                if depth < USER_SKILL_SCAN_DEPTH
+                else []
+            )
+            if depth == 0 or SKILL_FILE not in files:
+                continue
+            path = Path(folder) / SKILL_FILE
+            if path.resolve().is_relative_to(own):
+                continue
+            found.append(path)
+    return found
+
+
+def disabled_user_skills(
+    own_skills: Path, environ: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The `skills.config` entries that take the user's own skills out of a
+    session: one per user skill file, by the path Codex finds it at and, for
+    a file reached through a link, by its real path too."""
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for path in user_skill_files(user_skill_roots(environ), own_skills):
+        for form in (str(path), str(path.resolve())):
+            if form not in seen:
+                seen.add(form)
+                entries.append({"path": form, "enabled": False})
+    return entries
 
 
 def stage_workspace(workspace: Path, skills_dir: Path, instructions: Path) -> None:
@@ -412,6 +479,10 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
             ("web_search", "disabled"),
             ("model_reasoning_effort", self._effort_for(agent)),
         ]
+        # The user's own skills, off by path; read at each spawn.
+        disabled = disabled_user_skills(self._skills_dir)
+        if disabled:
+            config.append(("skills.config", disabled))
         config += [
             (f"mcp_servers.{name}", spec)
             for name, spec in self._mcp_servers(agent).items()
@@ -441,6 +512,10 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
                 "-",
             ]
         return [self._codex_bin, "exec", *options, "-C", str(workspace), "-"]
+
+    def _cli_check_argv(self, folder: Path, label: str) -> list[str]:
+        # Codex reads no Claude Code settings file.
+        return self._argv(CLI_CHECK_ROLE, label=label)
 
     # ---- what it printed ----
 
