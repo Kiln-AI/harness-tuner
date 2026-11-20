@@ -778,9 +778,14 @@ def normalize(value: float, spec: ScoreSpec) -> float:
 # Each score type's pass line, as a raw value. An item passes when its
 # value is at the line or on the good side of it (`passes`).
 # pass_fail and five_star use the midpoint of the domain.
-# pass_fail_critical uses 0.5, the line the statistics read (`_stats_row`):
-# only 1 passes, and a plain fail (0) is a fail. Its midpoint is 0, and a
-# pass line at 0 counts a plain fail as a pass.
+# pass_fail_critical uses 0.5: only 1 passes, and a plain fail (0) is a
+# fail. Its midpoint is 0, and a pass line at 0 counts a plain fail as a
+# pass.
+# The statistics (`_stats_row`) count a raw value at or above 0.5 as a pass.
+# For every stored value (0 or 1, or -1, 0 or 1) the two decisions agree.
+# They do not agree on one tie: a mean of exactly 0.5 under
+# lower_is_better. The engine counts it as a pass. The statistics count it
+# as a bad outcome.
 _PASS_LINES: dict[str, float] = {
     "pass_fail": 0.5,
     "pass_fail_critical": 0.5,
@@ -805,7 +810,8 @@ def pass_line(spec: ScoreSpec) -> float:
 
 def passes(value: float, spec: ScoreSpec) -> bool:
     """Does this raw score value (one row, or a mean of replicates) pass?
-    This is the one pass/fail decision of the measurement engine."""
+    The engine decides on a raw value here. It decides on a normalized value
+    in `TrialResult.passed`. Both compare to `pass_line`."""
     return normalize(value, spec) >= pass_line(spec)
 
 
@@ -2126,6 +2132,9 @@ class Analyzer:
         eval_def = await self.fetch_eval(target.eval_id)
         eval_config_id = self.default_eval_config_id(eval_def)
         spec = expand_targets(eval_def, target)[0]
+        # Before the job: a score type with no pass line fails here, and
+        # no money is spent.
+        line = pass_line(spec)
         wanted = [str(i) for i in target_items]
         async with self._job_slot():
             job_id = await self._start_job(
@@ -2142,7 +2151,6 @@ class Analyzer:
             scores[item_id] = (
                 normalize(float(value), spec) if value is not None else None
             )
-        line = pass_line(spec)
         if all(v is None for v in scores.values()):
             error = ErrorInfo(
                 error_class="provider_error",
@@ -2159,7 +2167,7 @@ class Analyzer:
             target_items=wanted,
             scores=scores,
             pass_line=line,
-            landed=all(v is not None and v >= line for v in scores.values()),
+            landed=False,  # set below, from `passed`
             spend_usd=self.fresh_runs_cost(
                 run for run in runs if _item_id(run) in set(wanted)
             ),
@@ -2181,12 +2189,14 @@ class Analyzer:
                 if i in by_item and _row_output(by_item[i]) is not None
             },
         )
+        result.landed = all(result.passed(i) for i in wanted)
         self.log.event(
             "trial",
             eval_id=target.eval_id,
             rc_id=rc_id,
             landed=result.landed,
             scores=scores,
+            pass_line=line,
         )
         return result
 

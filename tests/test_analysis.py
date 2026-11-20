@@ -39,6 +39,7 @@ from kiln_harness_tuner.schemas import (
     ExperimentItem,
     FixWork,
     MergeWork,
+    TrialResult,
     WinRef,
 )
 
@@ -2544,6 +2545,9 @@ async def test_trial_a_plain_fail_under_pass_fail_critical_does_not_land():
     assert trial.scores == {"i1": 1.0, "i2": 0.5, "i3": 0.0}
     assert trial.pass_line == 0.75
     assert trial.landed is False
+    # The log records the line beside the normalized scores: 0.5 is a fail.
+    (event,) = [f for k, f in analyzer.log.events if k == "trial"]
+    assert event["pass_line"] == 0.75 and event["landed"] is False
     # `passed` is the candidate's pass (`cand_pass`) the engine records.
     assert [trial.passed(i) for i in ("i1", "i2", "i3")] == [True, False, False]
     assert trial.fixed == ["i1"] and trial.summary == "1/3 targets fixed"
@@ -2571,6 +2575,41 @@ async def test_trial_with_no_stored_row_at_all_is_infra_not_a_verdict():
         await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
 
 
+async def test_trial_on_a_score_with_no_pass_line_fails_before_the_job():
+    # A custom score type has no pass line. The trial fails before it
+    # starts a job, so it spends nothing.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval(scores=[make_score(type="custom")])
+    kiln.pending[("eval_1", "rc_cand", "train")] = [make_run("i1", accuracy=1.0)]
+    analyzer, _ = make_analyzer(kiln)
+    with pytest.raises(UnsupportedScoreTypeError):
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+    assert not [c for c in kiln.calls if c[1] == "/api/jobs/evals/run"]
+
+
+def test_a_trial_result_of_an_older_wave_log_keeps_its_decision():
+    # An older wave log has no `pass_line`. It reads as 0.5, the old line
+    # (`normalize(v) >= 0.5`), so `fixed` and `passed` are the same as
+    # before.
+    old = TrialResult.model_validate(
+        {
+            "eval_id": "eval_1",
+            "score_key": "accuracy",
+            "target_items": ["i1", "i2", "i3", "i4"],
+            "scores": {"i1": 1.0, "i2": 0.5, "i3": 0.0, "i4": None},
+            "landed": False,
+        }
+    )
+    assert old.pass_line == 0.5
+    assert old.fixed == ["i1", "i2"]
+    assert [old.passed(i) for i in ("i1", "i2", "i3", "i4")] == [
+        True,
+        True,
+        False,
+        None,
+    ]
+
+
 # ---- the pass line (`passes`)
 
 
@@ -2594,9 +2633,8 @@ def test_the_pass_line_keeps_the_old_decision(score_type, direction):
         old = normalize(value, s) >= 0.5
         if score_type == "pass_fail_critical" and 0.0 < value <= 0.5:
             # lower_is_better pass_fail_critical: the line moves from 0 to
-            # 0.5, the line the statistics read. No stored value (-1, 0, 1)
-            # is in this band. Only a continuous judge score or a mean of
-            # replicates can be.
+            # 0.5. No stored value (-1, 0, 1) is in this band. Only a
+            # continuous judge score or a mean of replicates can be.
             assert passes(value, s) is True and old is False
             continue
         assert passes(value, s) is old, value

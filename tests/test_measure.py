@@ -191,6 +191,45 @@ class TestThePassLineOfPassFailCritical:
         counts = fragility_counts(rows, self.CRITICAL, {"i1", "i2", "i3"}, set())
         assert counts == {"i1": [1, 2], "i2": [2, 2], "i3": [0, 1]}
 
+    @pytest.mark.parametrize(
+        ("cand_value", "cand_pass"), [(1.0, True), (0.0, False), (-1.0, False)]
+    )
+    async def test_the_engine_judges_the_candidate_on_the_pass_line(
+        self, tmp_path, cand_value, cand_pass
+    ):
+        """The parent scores train0 0 (a plain fail). The candidate scores it
+        `cand_value`. The judged row's cand_pass comes from the pass line:
+        a 0 stays a fail, and the engine does not count it as a fix."""
+        from conftest import fix_item
+
+        ctx = _speed_ctx(tmp_path, cand_ms=1000.0, objective="quality", train_n=30)
+        ctx.kiln.evals["eval_1"] = make_eval(
+            "eval_1", "ec_1", scores=[make_score(type="pass_fail_critical")]
+        )
+        _seed_rows(ctx.kiln, "rc_cand", [cand_value] + [1.0] * 29)
+        ctx.dispatch.queues["create_experiment_rc"].clear()
+        ctx.dispatch.queue("create_experiment_rc", rc_ok("rc_cand"))
+        ctx.dispatch.queues["batch_plan"].clear()
+        ctx.dispatch.queue(
+            "batch_plan",
+            ok(make_plan(fix_item("w1-1", residual_gate=False))),
+            ok(make_plan(loop_exit="done")),
+        )
+        await orchestrate(ctx, "better", timeout_mins=180)
+        cells = [
+            cell
+            for k, f in ctx.log.events
+            if k == "measure_chunk" and f["rc_id"] == "rc_cand"
+            for cell in f["cells"]
+        ]
+        assert ["eval_1", "train0", False, cand_pass] in cells
+        (m,) = [f for k, f in ctx.log.events if k == "measurement"]
+        if cand_pass:
+            assert m["stop_kind"] != "futility"
+        else:
+            # No fix is in reach: the arm stops for futility.
+            assert m["stop_kind"] == "futility"
+
     def test_fragility_of_pass_fail_is_unchanged(self):
         spec = ScoreSpec("accuracy", "pass_fail", "higher_is_better")
         rows = [
