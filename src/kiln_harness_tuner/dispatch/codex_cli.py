@@ -36,6 +36,13 @@ instructions in `AGENTS.md` under its working directory. Each workspace holds
 (`install_agents.install_for_run`), which the profile makes readable, and a
 copy of the agents folder's `AGENTS.md` (`stage_workspace`).
 
+Codex also lists the user's own skills, from `~/.agents/skills` and
+`$CODEX_HOME/skills`, and neither `--ignore-user-config` nor
+`--disable plugins` stops that. So each session gets
+`-c skills.config=[{path=…, enabled=false}, …]`, one entry for each user skill
+file found at spawn time (`disabled_user_skills`). The run's own skills are
+never in it. Codex's bundled skills (`$CODEX_HOME/skills/.system`) stay.
+
 **What it does not have.** Codex reports tokens, not cost. The loop shows
 the agents in tokens for every agent CLI, so nothing is missing. A session
 id cannot be chosen before the spawn, so a session killed at its wall-clock
@@ -75,6 +82,10 @@ SKILLS_LINK = Path(".agents") / "skills"
 # The environment variables an MCP server receives from the run.
 MCP_ENV_PREFIXES = ("UV_", "PYTHON", "VIRTUAL_ENV")
 
+# Codex finds the user's skills to this depth under each user skill root.
+USER_SKILL_SCAN_DEPTH = 6
+SKILL_FILE = "SKILL.md"
+
 # Codex features the permission profile does not govern, each a way around
 # the file fence or out of the session: connectors, plugins, the browser,
 # Computer Use, sub-agents, installs. Off by name; `--strict-config` fails
@@ -102,6 +113,38 @@ MCP_TOOL_TIMEOUT_SECS = 30 * 60
 MCP_STARTUP_TIMEOUT_SECS = 120
 
 
+# The TOML basic-string escapes. Every other control character (U+0000 to
+# U+001F, and U+007F) gets a `\uXXXX` escape.
+_TOML_ESCAPES = {
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\f": "\\f",
+    "\r": "\\r",
+}
+
+
+def toml_string(value: str) -> str:
+    """`value` as a TOML basic string. Characters outside ASCII stay as they
+    are: TOML takes UTF-8 text, and a `\\u` escape of a UTF-16 surrogate
+    pair (what `json.dumps` writes for an emoji) is not valid TOML. Raises
+    ValueError for a lone surrogate, which no TOML text can hold."""
+    out: list[str] = []
+    for char in value:
+        code = ord(char)
+        if char in _TOML_ESCAPES:
+            out.append(_TOML_ESCAPES[char])
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\u{code:04X}")
+        elif 0xD800 <= code <= 0xDFFF:
+            raise ValueError(f"no TOML form for the lone surrogate U+{code:04X}")
+        else:
+            out.append(char)
+    return '"' + "".join(out) + '"'
+
+
 def toml_value(value: Any) -> str:
     """`value` as a TOML inline value, for `codex -c key=<value>`."""
     if isinstance(value, bool):
@@ -109,15 +152,14 @@ def toml_value(value: Any) -> str:
     if isinstance(value, (int, float)):
         return repr(value)
     if isinstance(value, str):
-        # A JSON string is a valid TOML basic string.
-        return json.dumps(value)
+        return toml_string(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(toml_value(v) for v in value) + "]"
     if isinstance(value, dict):
         return (
             "{"
             + ", ".join(
-                f"{json.dumps(str(k))} = {toml_value(v)}" for k, v in value.items()
+                f"{toml_string(str(k))} = {toml_value(v)}" for k, v in value.items()
             )
             + "}"
         )
@@ -175,6 +217,79 @@ def codex_install_paths(codex_bin: str) -> list[Path]:
                 paths.append(folder)
             break
     return paths
+
+
+def user_skill_roots(environ: dict[str, str] | None = None) -> list[Path]:
+    """The folders Codex reads the user's own skills from: `~/.agents/skills`
+    and `$CODEX_HOME/skills` (`~/.codex/skills` when `CODEX_HOME` is not
+    set)."""
+    source = os.environ if environ is None else environ
+    home = Path(source["HOME"]) if source.get("HOME") else Path.home()
+    codex_home = (
+        Path(source["CODEX_HOME"]).expanduser()
+        if source.get("CODEX_HOME")
+        else home / ".codex"
+    )
+    return [home / ".agents" / "skills", codex_home / "skills"]
+
+
+def user_skill_files(roots: Sequence[Path], own_skills: Path) -> list[Path]:
+    """Every `SKILL.md` under `roots`, as Codex finds them: in sub-folders to
+    `USER_SKILL_SCAN_DEPTH`, through links, not in hidden folders (Codex keeps
+    its bundled skills in `.system`). A file that resolves into `own_skills`,
+    the run's own skills folder, is left out. A folder the run cannot read is
+    skipped: Codex runs as the same user, so it cannot load skills from that
+    folder either. A file that does not resolve (a link loop, which raises
+    RuntimeError on Python 3.11 and 3.12) is skipped too, and so is a path
+    that is not valid UTF-8: no TOML text can name it."""
+    own = own_skills.resolve()
+    found: list[Path] = []
+    for root in roots:
+        try:
+            if not root.is_dir():
+                continue
+        except OSError:
+            continue
+        for folder, subfolders, files in os.walk(root, followlinks=True):
+            depth = len(Path(folder).relative_to(root).parts)
+            subfolders[:] = (
+                sorted(d for d in subfolders if not d.startswith("."))
+                if depth < USER_SKILL_SCAN_DEPTH
+                else []
+            )
+            if depth == 0 or SKILL_FILE not in files:
+                continue
+            path = Path(folder) / SKILL_FILE
+            try:
+                real = path.resolve()
+                str(path).encode("utf-8")
+                str(real).encode("utf-8")
+            except (OSError, RuntimeError, UnicodeEncodeError):
+                continue
+            if real.is_relative_to(own):
+                continue
+            found.append(path)
+    return found
+
+
+def disabled_user_skills(
+    own_skills: Path, environ: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """The `skills.config` entries that take the user's own skills out of a
+    session: one per user skill file, by the path Codex finds it at and, for
+    a file reached through a link, by its real path too."""
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for path in user_skill_files(user_skill_roots(environ), own_skills):
+        try:
+            real = path.resolve()
+        except (OSError, RuntimeError):
+            continue  # it changed after the scan
+        for form in (str(path), str(real)):
+            if form not in seen:
+                seen.add(form)
+                entries.append({"path": form, "enabled": False})
+    return entries
 
 
 def stage_workspace(workspace: Path, skills_dir: Path, instructions: Path) -> None:
@@ -412,6 +527,10 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
             ("web_search", "disabled"),
             ("model_reasoning_effort", self._effort_for(agent)),
         ]
+        # The user's own skills, off by path; read at each spawn.
+        disabled = disabled_user_skills(self._skills_dir)
+        if disabled:
+            config.append(("skills.config", disabled))
         config += [
             (f"mcp_servers.{name}", spec)
             for name, spec in self._mcp_servers(agent).items()
@@ -441,6 +560,10 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
                 "-",
             ]
         return [self._codex_bin, "exec", *options, "-C", str(workspace), "-"]
+
+    def _cli_check_argv(self, folder: Path, label: str) -> list[str]:
+        # Codex reads no Claude Code settings file.
+        return self._argv(CLI_CHECK_ROLE, label=label)
 
     # ---- what it printed ----
 

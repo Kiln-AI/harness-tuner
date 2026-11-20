@@ -16,7 +16,9 @@ the CLI has it) and the reasoning effort (`--effort` for Claude,
 `-c model_reasoning_effort=…` for Codex, `--variant` for OpenCode).
 Everything else passes through unchanged. An option the loop sets itself
 (the output format, the MCP config, the permissions) must not be repeated in
-the text: the CLI then sees it twice.
+the text: the CLI then sees it twice. Claude Code's `--settings` is refused
+(`CLAUDE_SETTINGS_PROBLEM`): Claude Code reads only the last `--settings`,
+and that is always the run's own file.
 """
 
 from __future__ import annotations
@@ -118,6 +120,17 @@ def _pop_codex_effort(tokens: list[str]) -> tuple[str | None, list[str]]:
     return value, rest
 
 
+# Claude Code reads only the last `--settings` of a command. Every loop
+# session and the start-up check get the run's own settings file last, so a
+# `--settings` in `--agent-cli` would have no effect.
+CLAUDE_SETTINGS_PROBLEM = (
+    "--settings has no effect here: Claude Code reads only the last"
+    " --settings, and every session gets the run's own settings file. Remove"
+    " it, and put model-access keys (env, apiKeyHelper, ...) in your Claude"
+    " Code settings.json: the run copies them."
+)
+
+
 def parse_agent_cli(text: str) -> AgentCli:
     """Parse `--agent-cli`. Raises ValueError with the supported forms."""
     try:
@@ -150,6 +163,10 @@ def parse_agent_cli(text: str) -> AgentCli:
         problem = claude_effort_problem(effort)
         if problem is not None:
             raise ValueError(problem)
+    if kind == "claude" and any(
+        t == "--settings" or t.startswith("--settings=") for t in rest
+    ):
+        raise ValueError(CLAUDE_SETTINGS_PROBLEM)
     return AgentCli(
         text=text,
         kind=kind,

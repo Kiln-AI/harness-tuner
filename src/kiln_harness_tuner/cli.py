@@ -51,9 +51,12 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     READ_ONLY_ROLES,
     ClaudeCliDispatcher,
     PreflightError,
+    claude_md_excludes,
+    with_user_model_access,
 )
 from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
+from kiln_harness_tuner.dispatch.run_fence import write_settings
 from kiln_harness_tuner.gateway.hook import MCP_MATCHER, SKILL_INSTALLER_TOOLS
 from kiln_harness_tuner.gateway.hook import hook_command as gateway_hook_command
 from kiln_harness_tuner.gateway.ops import (
@@ -868,6 +871,7 @@ def render_run_configs(
     agents_dir: Path,
     model_policy: Path | None = None,
     max_concurrent_evals: int | None = None,
+    agent_cli_kind: str = "claude",
 ) -> tuple[Path, Path]:
     """Render the per-run MCP configs and settings the dispatcher passes to
     every `claude -p`. `state` is the state folder the run lives in, and
@@ -886,10 +890,16 @@ def render_run_configs(
     via permission rules; Bash OS-sandboxed the same way), one file per role
     (`settings.<role>.json`) whose hook admits only that role's MCP tools,
     and `settings.readonly.json` for the val readers (no write grant).
-    `model_policy` = the copy of `--model-policy` inside the run directory,
-    which the gateway reads. `max_concurrent_evals` caps the eval jobs each
-    gateway process runs at once (its drives through eval jobs); None or 0
-    = no cap."""
+    Each names the memory files that are not the run's own in
+    `claudeMdExcludes` (`claude_cli.claude_md_excludes`). When
+    `agent_cli_kind` is "claude", each also holds the user's Claude Code
+    model-access settings (`claude_cli.USER_MODEL_ACCESS_KEYS`), which
+    sessions do not otherwise read. Codex and OpenCode read no settings
+    file, so for them nothing is copied. Each settings file has mode 0600
+    (`run_fence.write_settings`). `model_policy` = the copy of
+    `--model-policy` inside the run directory, which the gateway reads.
+    `max_concurrent_evals` caps the eval jobs each gateway process runs at
+    once (its drives through eval jobs); None or 0 = no cap."""
     run_dir.mkdir(parents=True, exist_ok=True)
     prepare_run_dir(run_dir)
 
@@ -1083,9 +1093,19 @@ def render_run_configs(
         # project's Claude Code settings makes it print a list of events.
         # This file is the `--settings` layer, which overrides both.
         "verbose": False,
+        # `--setting-sources project` stops the user memory type only. The
+        # `CLAUDE.md` files and rules of the folders above the agents folder,
+        # `~/.claude` included, load as project memory unless named here.
+        "claudeMdExcludes": claude_md_excludes(agents_dir),
     }
+    if agent_cli_kind == "claude":
+        # Sessions do not read the user's Claude Code settings
+        # (`claude_cli.SETTING_SOURCES`), so the keys that decide how a
+        # session reaches its model are copied here from them. A key set
+        # above wins. Codex and OpenCode never read this file.
+        settings = with_user_model_access(settings)
     settings_path = run_dir / "settings.json"
-    settings_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    write_settings(settings_path, settings)
 
     # The val readers: the same read fence and sandbox, no write
     # grant at all, and the hook in read-only mode. What they hold is val
@@ -1101,24 +1121,23 @@ def render_run_configs(
     readonly["sandbox"]["filesystem"]["allowWrite"] = []
     readonly["hooks"] = hook("none")
     readonly_path = run_dir / "settings.readonly.json"
-    readonly_path.write_text(json.dumps(readonly, indent=2, ensure_ascii=False) + "\n")
+    write_settings(readonly_path, readonly)
     for role in ROLE_OPS:
         per_role = json.loads(
             json.dumps(readonly if role in READ_ONLY_ROLES else settings)
         )
         per_role["hooks"] = hook(role)
         if role in TRACE_READER_ROLES:
-            # An explicit allow for the trace folder, so neither
-            # the read fence nor auto mode refuses a Read of a trace file.
+            # An explicit allow for the trace folder, so neither the read
+            # fence nor auto mode (when the `--agent-cli` options turn it on)
+            # refuses a Read of a trace file.
             # A Read rule covers Grep and Glob too: Claude Code applies Read
             # rules to every built-in tool that reads files, and a Grep(…)
             # or Glob(…) path rule never matches.
             per_role["permissions"]["allow"].append(
                 f"Read(//{str(traces_root).lstrip('/')}/**)"
             )
-        (run_dir / f"settings.{role}.json").write_text(
-            json.dumps(per_role, indent=2, ensure_ascii=False) + "\n"
-        )
+        write_settings(run_dir / f"settings.{role}.json", per_role)
     return mcp_config_path, settings_path
 
 
@@ -1478,6 +1497,7 @@ async def _run(
             agents_dir=agents_dir,
             model_policy=policy_copy,
             max_concurrent_evals=args.max_concurrent_evals,
+            agent_cli_kind=agent_cli.kind,
         )
         # Crash debris from a dead run's skill install (the janitor reasoning:
         # the run lock guarantees no live install is racing this).

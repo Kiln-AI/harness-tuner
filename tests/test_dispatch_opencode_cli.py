@@ -28,6 +28,7 @@ from kiln_harness_tuner.dispatch.opencode_cli import (
     OpenCodeCliDispatcher,
     path_patterns,
     read_opencode_output,
+    run_skill_names,
 )
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER
 from kiln_harness_tuner.paths import StatePaths
@@ -204,7 +205,8 @@ class TestThePermissions:
         dispatcher, _ = make(tmp_path, [])
         permission = config_of(dispatcher._argv("batch_plan", label="b"))["permission"]
         assert permission["*"] == "deny"
-        assert permission["skill"] == "allow"
+        # No skill in the agents folder: every skill is denied.
+        assert permission["skill"] == {"*": "deny"}
         read = permission["read"]
         assert read["*"] == "deny"
         # No git root above the state folder: relative to `/`, the form
@@ -218,6 +220,54 @@ class TestThePermissions:
         assert under(skills) not in permission["edit"]
         for tool in ("bash", "webfetch", "websearch", "grep", "glob", "task"):
             assert tool not in permission  # left to "*": deny
+
+    def test_only_the_runs_own_skills_are_allowed(self, tmp_path, agent_cli_homes):
+        """OpenCode lists the user's own skills too, under `--pure`. The
+        `skill` rule denies every skill and then allows the run's own, by the
+        name in each SKILL.md: OpenCode applies the last rule that matches,
+        and leaves a denied skill out of the session's list."""
+        skills = agents_dir(tmp_path) / ".agents" / "skills"
+        for folder, front in (
+            ("memory", "---\nname: memory\ndescription: d\n---\nbody\n"),
+            ("kiln-api", "---\nname: 'kiln-api'\ndescription: d\n---\n"),
+            ("no-front-matter", "just text\n"),
+        ):
+            (skills / folder).mkdir()
+            (skills / folder / "SKILL.md").write_text(front)
+        (skills / "not-a-skill").mkdir()  # no SKILL.md
+        # A user skill of the same name, and one the run does not have.
+        for name in ("memory", "user-only"):
+            user = agent_cli_homes / ".claude" / "skills" / name
+            user.mkdir(parents=True)
+            (user / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+        dispatcher, _ = make(tmp_path, [])
+        permission = config_of(dispatcher._argv("batch_plan", label="b"))["permission"]
+        assert permission["skill"] == {
+            "*": "deny",
+            "kiln-api": "allow",
+            "memory": "allow",
+            "no-front-matter": "allow",
+        }
+        assert list(permission["skill"])[0] == "*"
+
+    def test_the_skill_names_are_read_at_each_spawn(self, tmp_path):
+        dispatcher, _ = make(tmp_path, [])
+        skills = agents_dir(tmp_path) / ".agents" / "skills"
+        assert run_skill_names(skills) == []
+        (skills / "memory").mkdir()
+        (skills / "memory" / "SKILL.md").write_text("---\nname: memory\n---\n")
+        permission = config_of(dispatcher._argv("batch_plan", label="b"))["permission"]
+        assert permission["skill"] == {"*": "deny", "memory": "allow"}
+
+    def test_a_no_tool_role_gets_no_skill(self, tmp_path):
+        skills = agents_dir(tmp_path) / ".agents" / "skills"
+        (skills / "memory").mkdir()
+        (skills / "memory" / "SKILL.md").write_text("---\nname: memory\n---\n")
+        dispatcher, _ = make(tmp_path, [])
+        permission = config_of(dispatcher._argv("integrity_review", label="i"))[
+            "permission"
+        ]
+        assert permission == {"*": "deny"}
 
     def test_a_truncated_tool_output_file_is_readable(self, tmp_path, monkeypatch):
         """OpenCode moves the tail of a long tool answer (a skill, often) to

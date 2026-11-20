@@ -16,7 +16,8 @@ dispatcher writes for it (`OPENCODE_CONFIG`):
   gateway's trace folder, and nowhere else;
 - `edit` is allowed in the workspace except its `.agents/` (the link to the
   shared skills), and denied for the val readers;
-- `skill` is allowed, so the skills load as they do under Claude Code;
+- `skill` is allowed for the run's own skills, by name, and denied for every
+  other skill (`skill_permission`);
 - the role's MCP tools are allowed by name.
 
 This is a tool-level allow list, not an OS one: it is as strong as
@@ -28,6 +29,13 @@ there is none), so each rule is written in that form and in the absolute form.
 in its workspace. As for Codex (`codex_cli.stage_workspace`), each workspace
 holds `.agents/skills`, a link to the agents folder's skills, and a copy of
 the agents folder's `AGENTS.md`.
+
+OpenCode also finds the user's own skills (`~/.claude/skills`,
+`~/.agents/skills`, `~/.config/opencode/skills`), and `--pure` does not stop
+that. `OPENCODE_DISABLE_EXTERNAL_SKILLS` is not used: it also hides the
+workspace's `.agents/skills`. The `skill` rule denies every skill but the
+run's own: OpenCode leaves a denied skill out of the session's skill list
+and refuses to load it.
 
 **What it does not have.** A session id cannot be chosen before the spawn,
 so a session killed at its wall-clock cap is not resumed; the ladder re-runs
@@ -53,6 +61,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     child_env,
 )
 from kiln_harness_tuner.dispatch.codex_cli import (
+    SKILL_FILE,
     SKILLS_LINK,
     mcp_tool_names,
     stage_workspace,
@@ -104,6 +113,47 @@ def tool_output_patterns(worktree: Path | None, environ: dict[str, str]) -> list
     return [p.removesuffix("/**") + "/tool_*" for p in path_patterns(folder, worktree)]
 
 
+def run_skill_names(skills_dir: Path) -> list[str]:
+    """The names of the run's own skills: each folder of `skills_dir` that
+    holds a `SKILL.md`, by the `name` in its front matter, else by the
+    folder's name."""
+    if not skills_dir.is_dir():
+        return []
+    names: list[str] = []
+    for folder in sorted(skills_dir.iterdir()):
+        skill_file = folder / SKILL_FILE
+        if not skill_file.is_file():
+            continue
+        name = _front_matter_name(skill_file) or folder.name
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _front_matter_name(skill_file: Path) -> str | None:
+    """The `name:` of a SKILL.md's front matter, or None."""
+    try:
+        lines = skill_file.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        key, colon, value = line.partition(":")
+        if colon and key.strip() == "name":
+            return value.strip().strip("\"'") or None
+    return None
+
+
+def skill_permission(skills_dir: Path) -> dict[str, str]:
+    """The `skill` rule: every skill denied, the run's own allowed by name.
+    OpenCode applies the last rule that matches, so the names come after
+    `*`."""
+    return {"*": "deny", **dict.fromkeys(run_skill_names(skills_dir), "allow")}
+
+
 def opencode_config(
     *,
     workspace: Path,
@@ -149,7 +199,8 @@ def opencode_config(
             "*": "deny",
             **dict.fromkeys(ws + skills + extra, "allow"),
         }
-        permission["skill"] = "allow"
+        # The run's own skills only: not the user's (`skill_permission`).
+        permission["skill"] = skill_permission(skills_dir)
         permission.update(dict.fromkeys(mcp_tools, "allow"))
     config: dict[str, Any] = {
         "$schema": "https://opencode.ai/config.json",
@@ -354,6 +405,10 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
         if resume_session_id:
             argv += ["--session", resume_session_id]
         return argv
+
+    def _cli_check_argv(self, folder: Path, label: str) -> list[str]:
+        # OpenCode reads no Claude Code settings file.
+        return self._argv(CLI_CHECK_ROLE, label=label)
 
     # ---- what it printed ----
 

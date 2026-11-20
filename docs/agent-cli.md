@@ -248,6 +248,53 @@ worth, so the decision is informed.
   and the dispatcher copies it from there. The fence denies the file tools
   any write to the agents folder ([architecture.md](architecture.md) section
   12). Worth: the skills load with no file in any folder of yours.
+- **Not your own Claude Code setup.** Every session runs with
+  `--setting-sources project`. It loads the agents folder's skills and
+  `CLAUDE.md`, and Claude Code's built-in skills. It does not load your
+  skills (`~/.claude/skills`), your plugins, or your `~/.claude/settings.json`.
+  So your permission rules, your `permissions.defaultMode`, your hooks and
+  your `sandbox` settings do not reach a loop session either. A session runs
+  in the default permission mode. If you want another mode, for example
+  `auto`, put `--permission-mode` in the `--agent-cli` options. The run's
+  `--settings` file and managed settings still load.
+
+  Claude Code also goes up from the working folder to `/`, and loads each
+  `CLAUDE.md`, `.claude/CLAUDE.md` and `.claude/rules/*.md` on the way as
+  project memory. `--setting-sources project` does not stop that, and the
+  agents folder is usually under your home folder. So every settings file
+  of the run names these files in `claudeMdExcludes`: those of every folder
+  above the agents folder, and the `CLAUDE.md` and `rules/` of your Claude
+  Code folder (`~/.claude`, and also `CLAUDE_CONFIG_DIR` when it is set)
+  (`claude_cli.claude_md_excludes`). Each glob character in a folder name,
+  for example `(`, is written in a bracket class (`[(]`), so a folder such
+  as `Drive (work)` matches. Your own `CLAUDE.md` and rules do not
+  load. The agents folder's `CLAUDE.md` loads.
+
+  Your model-access settings are copied from your `settings.json` (in
+  `CLAUDE_CONFIG_DIR` when it is set) into every settings file of a Claude
+  run: `env` (for example `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`,
+  `ANTHROPIC_MODEL`), `apiKeyHelper`, `awsAuthRefresh`,
+  `awsCredentialExport`, `gcpAuthRefresh`, `proxyAuthHelper`,
+  `modelOverrides`, `forceLoginMethod` and `forceLoginOrgUUID`
+  (`claude_cli.USER_MODEL_ACCESS_KEYS`). A key the run sets itself is kept.
+  A Codex or OpenCode run does not read these files, so nothing is copied
+  for it. `env` is copied as a whole, also a secret in it: see
+  "Environment stripping" below. Each settings file of the run has mode
+  0600, so only you can read it. The files stay in the run folder after the
+  run. Do not share a run folder that holds a key. The start-up check has
+  no run settings file, so it gets these keys and the `claudeMdExcludes`
+  list in a temporary file with mode 0600, which is deleted after the
+  check. The run's file is always the last `--settings` of the command, in
+  the check and in every session. Claude Code reads only the last
+  `--settings`, so a `--settings` in the `--agent-cli` options would have
+  no effect. The start refuses it (section 9). `--bare` is
+  not used, because it changes the sign-in. `--disable-slash-commands` is
+  not used, because it also turns off the run's own skills. Worth: on one machine a
+  session listed 236 skills and 9 plugins before, and lists 36 skills and
+  Claude Code's 3 built-in plugins after (the 14 skills of the run and
+  Claude Code's built-in skills). Four of the run's skill names were also user
+  skills, and two of the run's skills lost their descriptions to the
+  listing's size limit.
 - **Transcript copying, redacted.** Every session's transcript is copied to
   `<state>/traces/`, through a redactor that blanks known credential shapes —
   an agent's tool result can carry whatever it read, including a configuration
@@ -259,6 +306,14 @@ worth, so the decision is informed.
   present, the CLI bills the API instead of the operator's login, and the
   agents' use becomes real API money, which the tuner neither shows in
   dollars nor counts.
+  One exception: the `env` of your Claude Code `settings.json` is copied
+  as it is into the settings files of a Claude run (see "Not your own
+  Claude Code setup" above), and Claude Code gives it to the session and
+  to its Bash commands. A secret-looking name there is not withheld. Some
+  users sign in to their provider through `env`, and a filter would stop
+  their sessions. Your own Claude Code sessions get the same `env`. So an
+  `ANTHROPIC_API_KEY` in that `env` reaches every loop session, and the
+  agents bill the API. To prevent this, remove the key from that `env`.
   `--budget-usd` never counts the agents, for any agent CLI: the loop shows
   their tokens for information ([costs.md](costs.md)).
 - **Per-role model and effort.** Pinned in code so that runs do not differ
@@ -353,6 +408,12 @@ Every other option goes, unchanged, into every session's command. Do not
 repeat an option the dispatcher sets itself (the output format, the MCP
 config, the permissions): the CLI then sees it twice.
 
+For Claude, the start refuses `--settings` in the text. Claude Code reads
+only the last `--settings` of a command, and every session gets the run's
+own settings file last, so your file would have no effect. Put the keys that
+reach your model (`env`, `apiKeyHelper` and the others of section 7) in your
+Claude Code `settings.json`: the run copies them.
+
 With no model in the text, Claude keeps its pinned defaults (`opus`, and
 `sonnet` for `generality_review`). Codex and OpenCode then pass no model
 option, so the CLI's own default model is used. A model in the text replaces
@@ -361,7 +422,9 @@ Claude's per-role defaults too.
 **Credentials are the CLI's.** The loop does not take an API key and does not
 manage a sign-in. Secret-looking environment variables are still withheld
 from every session (section 7), so a CLI that reads its key from one needs
-that name in `KILN_HARNESS_TUNER_CHILD_ENV_KEEP`.
+that name in `KILN_HARNESS_TUNER_CHILD_ENV_KEEP`. The exception is the `env`
+of your Claude Code `settings.json`: a Claude run copies it as it is, a
+secret in it too (section 7).
 
 **The start-up check.** Before the run lock and the run directory, `cli.py`
 sends one short prompt through the command, with no tools and no MCP server
@@ -410,6 +473,23 @@ and the features `apps`, `plugins`, `remote_plugin`, `browser_use`,
 servers and settings — out of every session, and `--strict-config` makes an
 unknown key or feature fail the session rather than pass unnoticed.
 
+Neither `--ignore-user-config` nor `--disable plugins` stops Codex from
+listing the user's own skills, from `~/.agents/skills` and
+`$CODEX_HOME/skills` (`~/.codex/skills` by default). So every session also
+gets `-c skills.config=[{path="…/SKILL.md", enabled=false}, …]`, one entry
+for each user skill file (`codex_cli.disabled_user_skills`). The list is
+made at each spawn. It finds the files as Codex does: in sub-folders, through
+links, and not in hidden folders. It leaves out `.system`, where Codex keeps
+its bundled skills, and every file that resolves into the run's own skills
+folder. A file reached through a link is listed by both of its paths. A
+file that does not resolve (a link loop) is skipped, and so is a path that is
+not valid UTF-8, because the TOML value cannot name it. Each path is written
+as a TOML string, with its non-ASCII characters as they are. With
+codex-cli 0.162.1, a session in a folder with one project skill listed 45
+skills before (29 from `~/.agents/skills`, 11 from `~/.codex/skills`, 4
+bundled, 1 project) and 5 after (the 4 bundled skills and the project
+skill). `--strict-config` accepts the key.
+
 Codex finds skills in `.agents/skills` and instructions in `AGENTS.md`
 under its working directory. Before its first session, a run installs both
 into the agents folder, `<state>/agents/codex/<version>/`. Each workspace
@@ -440,11 +520,8 @@ What else differs:
   exit with no such event is `agent_crash`, as for Claude.
 - **Transcripts** are copied, redacted, from
   `~/.codex/sessions/<date>/rollout-…-<thread id>.jsonl`.
-- **The user's global instructions and skills.** `~/.codex/AGENTS.md` and
-  the user's own skills are still offered to the session, as
-  `~/.claude/CLAUDE.md` is to a Claude session. The skills' files sit under
-  the home directory, which the profile denies, so only their descriptions
-  reach the session.
+- **The user's global instructions.** `~/.codex/AGENTS.md` is still offered
+  to the session. The user's own skills are not (see above).
 - **Credentials.** A Codex session authenticates with the `codex login`
   state. `CODEX_API_KEY` is withheld like every other secret-looking name,
   unless `KILN_HARNESS_TUNER_CHILD_ENV_KEEP` names it.
@@ -472,7 +549,7 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 | `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces. Also allowed for the `tool_*` files in OpenCode's own `tool-output` folder (`<XDG data>/opencode/tool-output`): when OpenCode cuts a long tool answer, it puts the rest there and names the file. The agent cannot list that folder. Denied everywhere else. |
 | `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers, the two reviewers and the baseline reviewer). |
 | `external_directory` | Denied, except the workspace, the skills, the `tool_*` files in OpenCode's `tool-output` folder and, for the roles that read traces, the trace folder. |
-| `skill` | Allowed, so the skills load as they do under Claude Code. |
+| `skill` | `{"*": "deny", "<name>": "allow", …}`: denied, except the run's own skills, by the name in each `SKILL.md` of the agents folder's `.agents/skills`. The names are read at each spawn. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |
 | `skill_installer_<tool>` | Allowed by name, for the two roles that hold the installer. |
 
@@ -518,8 +595,19 @@ What else differs:
 - **Instructions and skills.** OpenCode finds `.agents/skills` and
   `AGENTS.md` in its workspace. As for Codex, each workspace holds a link to
   the agents folder's skills (`<state>/agents/opencode/<version>/`) and a copy
-  of its `AGENTS.md`. OpenCode also loads the user's own skills, as Claude
-  Code does. OpenCode takes its project folder from the `PWD` variable, not
+  of its `AGENTS.md`. OpenCode also finds the user's own skills
+  (`~/.claude/skills`, `~/.agents/skills`, `~/.config/opencode/skills`), and
+  `--pure` does not stop that. The `skill` rule above takes them out:
+  OpenCode leaves a skill that its agent's rules deny out of the session's
+  skill list, and refuses to load it. `OPENCODE_DISABLE_EXTERNAL_SKILLS` is
+  not used, because it also hides the workspace's `.agents/skills`. When a
+  user skill has the name of a run skill, OpenCode keeps the workspace's
+  copy. With opencode 1.19.3, in a folder with one project skill, a session
+  under `--pure` listed 54 skills (29 from `~/.agents/skills`, 12 from
+  `~/.claude/skills`, 11 from `~/.config/opencode`, 1 built-in, 1 project).
+  Under the `skill` rule it listed 1, the project skill. OpenCode's built-in
+  `customize-opencode` skill is denied too.
+  OpenCode takes its project folder from the `PWD` variable, not
   from the working directory of its process. So every session gets its
   workspace twice: as `--dir <workspace>`, as Codex gets `-C`, and as
   `PWD`. With the `PWD` of the folder that `harness-tuner` was started in
