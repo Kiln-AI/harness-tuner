@@ -284,13 +284,26 @@ def with_user_model_access(
     return {**user_model_access_settings(environ), **settings}
 
 
-# The memory files Claude Code loads from one folder as project memory.
+# The memory files Claude Code loads from one folder as project memory, as
+# glob patterns relative to that folder.
 _FOLDER_MEMORY_FILES = (
-    Path("CLAUDE.md"),
-    Path("CLAUDE.local.md"),
-    Path(".claude") / "CLAUDE.md",
-    Path(".claude") / "rules" / "**",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".claude/CLAUDE.md",
+    ".claude/rules/**",
 )
+
+# The characters that Claude Code's glob matcher (picomatch) reads as glob
+# syntax in a `claudeMdExcludes` pattern.
+_GLOB_SPECIAL = frozenset("()[]{}*?!+@|")
+
+
+def glob_literal(path: Path) -> str:
+    """`path` as a glob pattern that matches only `path`. Each glob character
+    goes in a bracket class of its own, for example `(` becomes `[(]`. A
+    backslash escape does not work: Claude Code changes `\\` to `/` before
+    it matches."""
+    return "".join(f"[{c}]" if c in _GLOB_SPECIAL else c for c in str(path))
 
 
 def claude_md_excludes(
@@ -305,15 +318,18 @@ def claude_md_excludes(
     `~/.claude/rules`. So this names the user's Claude Code folder (also when
     `CLAUDE_CONFIG_DIR` moves it) and the memory files of every folder above
     the agents folder, by its path as given and by its real path. The agents
-    folder's own `CLAUDE.md` is not in the list."""
+    folder's own `CLAUDE.md` is not in the list. Each folder name is written
+    with `glob_literal`, so a name such as `Drive (work)` matches."""
     source = os.environ if environ is None else environ
     home = Path(source["HOME"]) if source.get("HOME") else Path.home()
     patterns: list[str] = []
     for config in (claude_config_dir(environ), home / ".claude"):
-        patterns += [str(config / "CLAUDE.md"), str(config / "rules" / "**")]
+        folder = glob_literal(config)
+        patterns += [f"{folder}/CLAUDE.md", f"{folder}/rules/**"]
     for form in (agents_dir.absolute(), agents_dir.resolve()):
-        for folder in form.parents:
-            patterns += [str(folder / name) for name in _FOLDER_MEMORY_FILES]
+        for parent in form.parents:
+            folder = glob_literal(parent).rstrip("/")
+            patterns += [f"{folder}/{name}" for name in _FOLDER_MEMORY_FILES]
     return list(dict.fromkeys(patterns))
 
 
@@ -1129,9 +1145,10 @@ class ClaudeCliDispatcher:
         directory exists, so it has no run settings file. The user's
         model-access settings and the `claudeMdExcludes` of the run's
         settings then go into a file in `folder`, which the caller deletes:
-        the check reaches the model as the loop sessions do. A `--settings`
-        in the `--agent-cli` options comes before this file, as it comes
-        before the run's own settings file in a loop session."""
+        the check reaches the model as the loop sessions do. This file is the
+        last `--settings` of the command, as the run's file is in a loop
+        session. Claude Code reads only the last one, so `parse_agent_cli`
+        refuses a `--settings` in the `--agent-cli` options."""
         argv = self._argv(CLI_CHECK_ROLE, label=label)
         if self._settings_path is not None:
             return argv  # `_argv` gave it the run's settings file

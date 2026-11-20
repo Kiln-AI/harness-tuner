@@ -265,7 +265,9 @@ worth, so the decision is informed.
   of the run names these files in `claudeMdExcludes`: those of every folder
   above the agents folder, and the `CLAUDE.md` and `rules/` of your Claude
   Code folder (`~/.claude`, and also `CLAUDE_CONFIG_DIR` when it is set)
-  (`claude_cli.claude_md_excludes`). Your own `CLAUDE.md` and rules do not
+  (`claude_cli.claude_md_excludes`). Each glob character in a folder name,
+  for example `(`, is written in a bracket class (`[(]`), so a folder such
+  as `Drive (work)` matches. Your own `CLAUDE.md` and rules do not
   load. The agents folder's `CLAUDE.md` loads.
 
   Your model-access settings are copied from your `settings.json` (in
@@ -282,8 +284,10 @@ worth, so the decision is informed.
   run. Do not share a run folder that holds a key. The start-up check has
   no run settings file, so it gets these keys and the `claudeMdExcludes`
   list in a temporary file with mode 0600, which is deleted after the
-  check. When the `--agent-cli` options have a `--settings` file, it comes
-  before the run's file, in the check and in every session. `--bare` is
+  check. The run's file is always the last `--settings` of the command, in
+  the check and in every session. Claude Code reads only the last
+  `--settings`, so a `--settings` in the `--agent-cli` options would have
+  no effect. The start refuses it (section 9). `--bare` is
   not used, because it changes the sign-in. `--disable-slash-commands` is
   not used, because it also turns off the run's own skills. Worth: on one machine a
   session listed 236 skills and 9 plugins before, and lists 36 skills and
@@ -403,6 +407,12 @@ A level the CLI does not have is handled like this:
 Every other option goes, unchanged, into every session's command. Do not
 repeat an option the dispatcher sets itself (the output format, the MCP
 config, the permissions): the CLI then sees it twice.
+
+For Claude, the start refuses `--settings` in the text. Claude Code reads
+only the last `--settings` of a command, and every session gets the run's
+own settings file last, so your file would have no effect. Put the keys that
+reach your model (`env`, `apiKeyHelper` and the others of section 7) in your
+Claude Code `settings.json`: the run copies them.
 
 With no model in the text, Claude keeps its pinned defaults (`opus`, and
 `sonnet` for `generality_review`). Codex and OpenCode then pass no model

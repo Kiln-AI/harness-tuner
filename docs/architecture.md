@@ -1033,23 +1033,6 @@ Claude Code settings, so a `"verbose": true` there has no effect on a loop
 session. A `--verbose` in the CLI options still wins, so the dispatcher also
 reads a list: it takes the last `"type": "result"` event.
 
-Every session runs with `--setting-sources project`, so the user's own
-Claude Code settings, skills and plugins do not load
-([agent-cli.md](agent-cli.md) section 7). For that, the settings files
-have three more properties:
-
-- `claudeMdExcludes`: the `CLAUDE.md` files and `.claude/rules` of every
-  folder above the agents folder, and those of the user's Claude Code
-  folder (`claude_cli.claude_md_excludes`). Claude Code loads them as
-  project memory under `--setting-sources project` too.
-- For a Claude run only: the user's model-access settings, copied from
-  their Claude Code `settings.json` (`claude_cli.USER_MODEL_ACCESS_KEYS`:
-  `env`, the credential helpers, `modelOverrides` and the sign-in method).
-  A key the run sets itself wins. Codex and OpenCode do not read these
-  files, so nothing is copied for them.
-- Mode 0600 (`run_fence.write_settings`), because the copied `env` can hold
-  a key. The read fence's rewrite before each session keeps the mode.
-
 1. **File writes.** One path-scoped allow rule for the run's scratch tree, and
    an explicit deny over the Kiln project tree. The session's working directory
    is the agents folder (`<state>/agents/claude/<version>/`), which Claude Code
@@ -1239,6 +1222,26 @@ have three more properties:
 
 What each of these is worth, and what happens when an agent CLI has none of
 them, is [agent-cli.md](agent-cli.md) section 6.
+
+**The user's own Claude Code setup.** Every session runs with
+`--setting-sources project`, so the user's own Claude Code settings, skills
+and plugins do not load ([agent-cli.md](agent-cli.md) section 7). For that,
+the settings files have two more properties and one file mode:
+
+- `claudeMdExcludes`: the `CLAUDE.md` files and `.claude/rules` of every
+  folder above the agents folder, and those of the user's Claude Code
+  folder (`claude_cli.claude_md_excludes`). Claude Code loads them as
+  project memory under `--setting-sources project` too. Each glob character
+  in a folder name is written in a bracket class, for example `[(]`.
+- For a Claude run only: the user's model-access settings, copied from
+  their Claude Code `settings.json` (`claude_cli.USER_MODEL_ACCESS_KEYS`:
+  `env`, the credential helpers, `modelOverrides` and the sign-in method).
+  These keep the session's access to its model. A key the run sets itself
+  wins. Codex and OpenCode do not read these files, so nothing is copied
+  for them.
+- Each settings file is written with mode 0600, so only its owner can read
+  it (`run_fence.write_settings`), because the copied `env` can hold a key.
+  The read fence's rewrite before each session keeps the mode.
 
 ## 13. Layout
 

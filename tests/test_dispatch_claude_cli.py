@@ -5,6 +5,7 @@ calls."""
 
 import asyncio
 import json
+import re
 import signal
 import sys
 import uuid
@@ -2447,6 +2448,29 @@ class TestTheUsersOwnSetup:
             assert path.stat().st_mode & 0o777 == 0o600, path.name
             assert "Read(//" in path.read_text()
 
+    def test_an_existing_open_settings_file_becomes_the_owners_only(
+        self, tmp_path, agent_cli_homes
+    ):
+        """A run folder can hold settings files from before (a resumed or
+        older run) with mode 0644. The render and the fence rewrite both
+        set 0600 on a file that exists."""
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        names = ("settings.json", "settings.readonly.json", "settings.batch_plan.json")
+        for name in names:
+            (run_dir / name).write_text("{}\n")
+            (run_dir / name).chmod(0o644)
+        render_into(tmp_path, TARGET)
+        files = [run_dir / name for name in names]
+        for path in files:
+            assert path.stat().st_mode & 0o777 == 0o600, path.name
+            path.chmod(0o644)
+        (run_dir / "new-entry.txt").write_text("")
+        assert refresh_run_dir_denials(run_dir, files)
+        for path in files:
+            assert path.stat().st_mode & 0o777 == 0o600, path.name
+
     @pytest.mark.parametrize("kind", ["codex", "opencode"])
     def test_another_agent_cli_carries_nothing(self, tmp_path, agent_cli_homes, kind):
         """Codex and OpenCode read no Claude Code settings file, so the
@@ -2490,19 +2514,18 @@ class TestTheUsersOwnSetup:
             "claudeMdExcludes": claude_md_excludes(AGENTS_DIR)
         }
 
-    def test_a_settings_option_does_not_change_the_cli_check(
-        self, tmp_path, agent_cli_homes
-    ):
-        """A `--settings` in `--agent-cli` comes first in a loop session, and
-        the run's settings file comes after it. The check gets the same
-        order, with the same copied keys."""
+    def test_the_cli_checks_file_is_the_last_settings(self, tmp_path, agent_cli_homes):
+        """Claude Code reads only the last `--settings`. The check's file is
+        last, as the run's file is in a loop session. (`parse_agent_cli`
+        refuses a `--settings` in `--agent-cli`; the dispatcher is given one
+        here directly.)"""
         self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
         dispatcher, _ = make_dispatcher(
             [], cli_options=["--settings", "/somewhere/own.json"]
         )
         argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
-        settings = [argv[i + 1] for i, a in enumerate(argv) if a == "--settings"]
-        assert settings == ["/somewhere/own.json", str(tmp_path / "settings.json")]
+        last = max(i for i, a in enumerate(argv) if a == "--settings")
+        assert argv[last + 1] == str(tmp_path / "settings.json")
         check = json.loads((tmp_path / "settings.json").read_text())
         assert check["env"] == self.CARRIED["env"]
 
@@ -2532,39 +2555,81 @@ class TestTheUsersOwnSetup:
         assert not path.exists()
 
 
+def glob_matches(pattern: str, path: Path) -> bool:
+    """Whether a `claudeMdExcludes` pattern matches an absolute path, with
+    the picomatch rules the patterns use: `**` matches across folders, `*`
+    and `?` inside one folder name, and `[...]` is a class whose first
+    character is always a member (so `[]]`, `[!]` and `[[]` are one
+    literal character). Dot files match (`dot: true`)."""
+    out = []
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif char == "*":
+            out.append("[^/]*")
+            i += 1
+        elif char == "?":
+            out.append("[^/]")
+            i += 1
+        elif char == "[":
+            end = pattern.index("]", i + 2)
+            members = pattern[i + 1 : end]
+            out.append("[" + "".join(re.escape(m) for m in members) + "]")
+            i = end + 1
+        else:
+            out.append(re.escape(char))
+            i += 1
+    return re.fullmatch("".join(out), str(path)) is not None
+
+
+def excluded(excludes: list[str], path: Path) -> bool:
+    return any(glob_matches(pattern, path) for pattern in excludes)
+
+
 class TestTheUsersMemoryFiles:
     """`--setting-sources project` stops the user memory type only. Claude
     Code also loads the `CLAUDE.md` files and `.claude/rules` of every folder
     above the working folder as project memory, and the agents folder is
     under the home folder. The run's settings files name them in
-    `claudeMdExcludes`."""
+    `claudeMdExcludes`. Each test matches the patterns against paths, as
+    Claude Code does."""
 
-    def _agents_dir(self, home: Path) -> Path:
-        agents = home / ".kiln_ai" / "harness_tuner" / "agents" / "claude" / "1.0"
+    def _agents_dir(self, base: Path) -> Path:
+        agents = base / ".kiln_ai" / "harness_tuner" / "agents" / "claude" / "1.0"
         agents.mkdir(parents=True)
         return agents
+
+    def _assert_the_runs_own_files_load(self, excludes: list[str], agents: Path):
+        for own in (
+            agents / "CLAUDE.md",
+            agents / "AGENTS.md",
+            agents / ".claude" / "CLAUDE.md",
+            agents / ".claude" / "rules" / "r.md",
+            agents / ".claude" / "skills" / "memory" / "SKILL.md",
+            agents / ".agents" / "skills" / "memory" / "SKILL.md",
+        ):
+            assert not excluded(excludes, own), own
 
     def test_the_users_claude_folder_is_excluded(self, agent_cli_homes):
         agents = self._agents_dir(agent_cli_homes)
         excludes = claude_md_excludes(agents)
         claude = agent_cli_homes / ".claude"
-        for pattern in (
+        for path in (
             claude / "CLAUDE.md",
-            claude / "rules" / "**",
+            claude / "rules" / "r.md",
+            claude / "rules" / "a" / "b.md",
             agent_cli_homes / "CLAUDE.md",
             agent_cli_homes / "CLAUDE.local.md",
             agent_cli_homes / ".kiln_ai" / "CLAUDE.md",
-            agents.parent / ".claude" / "rules" / "**",
+            agents.parent / ".claude" / "CLAUDE.md",
+            agents.parent / ".claude" / "rules" / "r.md",
             Path("/CLAUDE.md"),
         ):
-            assert str(pattern) in excludes, pattern
-        # The run's own instructions load.
-        for own in (
-            agents / "CLAUDE.md",
-            agents / ".claude" / "CLAUDE.md",
-            agents / ".claude" / "rules" / "**",
-        ):
-            assert str(own) not in excludes, own
+            assert excluded(excludes, path), path
+        self._assert_the_runs_own_files_load(excludes, agents)
 
     def test_claude_config_dir_is_excluded_too(
         self, tmp_path, agent_cli_homes, monkeypatch
@@ -2573,8 +2638,36 @@ class TestTheUsersMemoryFiles:
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(moved))
         excludes = claude_md_excludes(self._agents_dir(agent_cli_homes))
         for config in (moved, agent_cli_homes / ".claude"):
-            assert str(config / "CLAUDE.md") in excludes
-            assert str(config / "rules" / "**") in excludes
+            assert excluded(excludes, config / "CLAUDE.md")
+            assert excluded(excludes, config / "rules" / "a" / "r.md")
+
+    @pytest.mark.parametrize(
+        ("name", "other"),
+        [
+            ("Drive (work)", "Drive work"),
+            ("x{y,z}", "xy"),
+            ("a@(b)", "ab"),
+            ("a[c]", "ac"),
+            ("a*b", "aXb"),
+            ("q?r", "qXr"),
+            ("e!(f)", "ef"),
+            ("p+(q)|r", "pq"),
+            ("br]ack", "br"),
+        ],
+    )
+    def test_glob_characters_in_a_folder_name_match_as_they_are(
+        self, tmp_path, agent_cli_homes, name, other
+    ):
+        """Claude Code reads `(`, `{`, `@(`, `[`, `*` and the others as glob
+        syntax. Each is written in a bracket class, so the folder matches
+        itself and nothing else."""
+        folder = tmp_path / name
+        agents = self._agents_dir(folder)
+        excludes = claude_md_excludes(agents)
+        for memory in (Path("CLAUDE.md"), Path(".claude") / "rules" / "r.md"):
+            assert excluded(excludes, folder / memory), memory
+            assert not excluded(excludes, tmp_path / other / memory), other
+        self._assert_the_runs_own_files_load(excludes, agents)
 
     def test_a_linked_agents_folder_is_excluded_by_both_paths(
         self, tmp_path, agent_cli_homes
@@ -2583,15 +2676,17 @@ class TestTheUsersMemoryFiles:
         link = tmp_path / "linked"
         link.symlink_to(agents.parent, target_is_directory=True)
         excludes = claude_md_excludes(link / agents.name)
-        assert str(tmp_path / "CLAUDE.md") in excludes
-        assert str(agent_cli_homes / ".kiln_ai" / "CLAUDE.md") in excludes
+        assert excluded(excludes, tmp_path / "CLAUDE.md")
+        assert excluded(excludes, agent_cli_homes / ".kiln_ai" / "CLAUDE.md")
         assert len(excludes) == len(set(excludes))
+        self._assert_the_runs_own_files_load(excludes, link / agents.name)
+        self._assert_the_runs_own_files_load(excludes, agents.resolve())
 
     def test_every_rendered_settings_file_names_them(self, tmp_path):
         render_into(tmp_path, TARGET)
         agents = StatePaths(tmp_path / "state").agents / "claude"
         expected = claude_md_excludes(agents)
-        assert str(Path.home() / ".claude" / "CLAUDE.md") in expected
+        assert excluded(expected, Path.home() / ".claude" / "CLAUDE.md")
         for path in sorted((tmp_path / "run").glob("settings*.json")):
             settings = json.loads(path.read_text())
             assert settings["claudeMdExcludes"] == expected, path.name
