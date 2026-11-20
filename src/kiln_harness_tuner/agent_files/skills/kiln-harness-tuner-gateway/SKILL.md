@@ -268,9 +268,10 @@ names a held-out split (`val`, `test`, `val_…`, `test_…`, `holdout…`, `hel
 
 `scope` is `project` or `task::<this task id>` — nothing else. The loop's
 `val` record is not listed or fetched, except by the promotion agent and
-the report writer. No agent can write a record with the `val` tag or the
-`baseline` tag, and no agent can change the `baseline` record: the loop's
-code writes both. The `memory` skill says what to write.
+the report writer. The memory operations refuse a record with the `val`
+tag or the `baseline` tag. They also refuse any change to the `baseline`
+record. Only the loop's code writes these records. The `memory` skill says
+what to write.
 
 ### Building a candidate
 

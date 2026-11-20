@@ -59,7 +59,7 @@ RUN_FREE_PROMPT_GENERATORS = frozenset(
 )
 
 PROJECT_SCOPE = "project"
-VAL_MEMORY_TAG = "val"
+VAL_MEMORY_TAG = RecordKind.VAL.value
 # The `baseline` record names the run config each run starts from. Loop code
 # writes it (setup seeds it, a promotion moves it). An agent that wrote it
 # could make a candidate the baseline with no val gate.
