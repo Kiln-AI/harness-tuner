@@ -2086,18 +2086,17 @@ class Analyzer:
         any other and the later full run skips them). `landed` = every
         target stored a row at or above the pass line on the primary
         targeted score. A job that stores nothing at all is infra
-        (`MeasurementFailed`), never "not landed"."""
+        (`MeasurementFailed`), never "not landed". So is a job that a
+        transient Kiln failure stops on each attempt (`_run_narrowed_job`)."""
         if self.rc_guard is not None:
             await self.rc_guard(rc_id)
         eval_def = await self.fetch_eval(target.eval_id)
         eval_config_id = self.default_eval_config_id(eval_def)
         spec = expand_targets(eval_def, target)[0]
         wanted = [str(i) for i in target_items]
-        async with self._job_slot():
-            job_id = await self._start_job(
-                target.eval_id, eval_config_id, rc_id, "train", item_ids=wanted
-            )
-            record = await self._wait_for_job(job_id)
+        job_id, record = await self._run_narrowed_job(
+            target.eval_id, eval_config_id, rc_id, wanted
+        )
         await self._trial_quota_check(target.eval_id, rc_id, job_id, record)
         runs = await self.stored_results(target.eval_id, eval_config_id, rc_id, "train")
         by_item = _runs_by_item(runs)
@@ -2167,19 +2166,99 @@ class Analyzer:
         config), so a fresh answer needs a run config or an eval config
         that has never scored the item — the caller's job, not this one.
         A quota or auth failure raises `ProviderQuotaError`, as in
-        `trial`; a job that stores nothing returns an empty list."""
+        `trial`; a job that stores nothing returns an empty list. A
+        transient Kiln failure on each attempt raises `MeasurementFailed`
+        (`_run_narrowed_job`)."""
         if self.rc_guard is not None:
             await self.rc_guard(rc_id)
         wanted = [str(i) for i in item_ids]
-        async with self._job_slot():
-            job_id = await self._start_job(
-                eval_id, eval_config_id, rc_id, "train", item_ids=wanted
-            )
-            record = await self._wait_for_job(job_id)
+        job_id, record = await self._run_narrowed_job(
+            eval_id, eval_config_id, rc_id, wanted
+        )
         await self._trial_quota_check(eval_id, rc_id, job_id, record)
         runs = await self.stored_results(eval_id, eval_config_id, rc_id, "train")
         keep = set(wanted)
         return [run for run in runs if _item_id(run) in keep]
+
+    async def _run_narrowed_job(
+        self,
+        eval_id: str,
+        eval_config_id: str,
+        rc_id: str,
+        item_ids: Sequence[str],
+    ) -> tuple[str, dict[str, Any]]:
+        """Start one train eval job narrowed to `item_ids`, wait for it, and
+        return (job id, job record). Used by `trial` and `judge_items`.
+
+        A transient failure gets the same treatment as in the `_measure`
+        ladder: a wait timeout, a 504 on the wait, another 5xx, or a
+        transport error cancels this attempt's job and starts a new one,
+        up to `job_attempts` attempts. After the last attempt it raises
+        `MeasurementFailed`, which the callers record as a hole. A 4xx is a
+        real answer from Kiln and is raised unchanged.
+
+        A retry does not judge an item twice. Kiln skips an item that is
+        already stored for this (eval config, run config), so a new job runs
+        only the items that the cancelled job did not complete."""
+        last_error: ErrorInfo | None = None
+        for attempt in range(1, max(1, self.job_attempts) + 1):
+            if attempt > 1 and self.job_retry_sleep_secs > 0:
+                await self._sleep(self.job_retry_sleep_secs)
+            # This attempt's job: a failed wait cancels this job only.
+            attempt_job_id: str | None = None
+            try:
+                async with self._job_slot():
+                    attempt_job_id = await self._start_job(
+                        eval_id, eval_config_id, rc_id, "train", item_ids=item_ids
+                    )
+                    record = await self._wait_for_job(attempt_job_id)
+                return attempt_job_id, record
+            except TimeoutError:
+                await self._cancel_job(attempt_job_id)
+                last_error = ErrorInfo(
+                    error_class="timeout",
+                    detail=(
+                        f"narrowed eval job wait exceeded "
+                        f"{self.job_wait_timeout_secs}s (eval {eval_id} rc {rc_id})"
+                    ),
+                )
+            except KilnAPIError as exc:
+                if exc.status_code == 504:
+                    await self._cancel_job(attempt_job_id)
+                    last_error = ErrorInfo(
+                        error_class="timeout", detail=f"jobs/wait 504: {exc.body!r}"
+                    )
+                    continue
+                if exc.status_code < 500:
+                    raise  # a real answer from Kiln (422, 404, …)
+                await self._cancel_job(attempt_job_id)  # None when start failed
+                last_error = ErrorInfo(
+                    error_class="provider_error",
+                    detail=f"HTTP {exc.status_code}: {exc.body!r}",
+                )
+            except KilnTransportError as exc:
+                await self._cancel_job(attempt_job_id)
+                last_error = ErrorInfo(error_class="provider_error", detail=str(exc))
+            except asyncio.CancelledError:
+                # The caller was cancelled during the wait. The server job
+                # does not stop with the waiter, so cancel it, as `_measure`
+                # does.
+                with contextlib.suppress(BaseException):
+                    await asyncio.shield(self._cancel_job(attempt_job_id))
+                raise
+        error = last_error or ErrorInfo(
+            error_class="provider_error", detail="narrowed eval job never ran"
+        )
+        logger.error(
+            "narrowed eval job failed: eval %s rc %s on %d item(s) after %d "
+            "attempt(s) — %s",
+            eval_id,
+            rc_id,
+            len(item_ids),
+            self.job_attempts,
+            error.detail,
+        )
+        raise MeasurementFailed(error)
 
     def fresh_judge_cost(self, runs: Iterable[dict[str, Any]]) -> float:
         """`fresh_runs_cost` for rows that re-judged an output already paid

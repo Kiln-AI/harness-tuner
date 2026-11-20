@@ -2529,3 +2529,72 @@ async def test_trial_with_no_stored_row_at_all_is_infra_not_a_verdict():
     analyzer, _ = make_analyzer(kiln)
     with pytest.raises(MeasurementFailed):
         await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+
+
+@pytest.mark.parametrize("first", ["http502", "http504"])
+async def test_trial_retries_a_transient_wait_failure_and_cancels_the_orphan(first):
+    # A 502 on the wait, or the 504 of a trial that runs longer than the
+    # long-poll, cancels that job and starts a new one. The run continues.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.pending[key] = [make_run("i1", accuracy=1.0)]
+    kiln.job_behaviors[key] = [first, "ok"]
+    analyzer, sleeps = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    trial = await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+
+    assert trial.landed is True and trial.job_id == "job_2"
+    assert kiln.job_invocations == [key, key]
+    assert kiln.job_cancels == ["job_1"]
+    assert sleeps == []
+
+
+@pytest.mark.parametrize(
+    ("behavior", "error_class"),
+    [("http502", "provider_error"), ("http504", "timeout")],
+)
+async def test_trial_with_transient_failures_on_every_attempt_is_a_hole(
+    behavior, error_class
+):
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.job_behaviors[key] = [behavior, behavior]
+    analyzer, _ = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    with pytest.raises(MeasurementFailed) as excinfo:
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+
+    assert excinfo.value.error.error_class == error_class
+    assert len(kiln.job_invocations) == analyzer.job_attempts == 2
+    assert kiln.job_cancels == ["job_1", "job_2"]  # no job is left running
+
+
+async def test_trial_4xx_is_raised_and_not_retried():
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.job_behaviors[key] = ["http422"]
+    analyzer, sleeps = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    with pytest.raises(KilnAPIError) as excinfo:
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+
+    assert excinfo.value.status_code == 422
+    assert kiln.job_invocations == [key]
+    assert kiln.job_cancels == [] and sleeps == []
+
+
+async def test_judge_items_retries_a_transient_wait_failure():
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.pending[key] = [make_run("i1", accuracy=1.0), make_run("i2", accuracy=0.0)]
+    kiln.job_behaviors[key] = ["http502", "ok"]
+    analyzer, _ = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    rows = await analyzer.judge_items("eval_1", "ec_1", "rc_cand", ["i1"])
+
+    assert [r["dataset_id"] for r in rows] == ["i1"]
+    assert kiln.job_cancels == ["job_1"]

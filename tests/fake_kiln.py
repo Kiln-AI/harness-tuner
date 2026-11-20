@@ -244,7 +244,8 @@ class FakeKiln:
       eval job for that combo succeeds (simulates measurement).
     - `job_behaviors[(eval_id, rc_id, split)]` — per-invocation queue:
       "ok" (default) | "fail" | "errored_items" | "hang" | "http504" |
-      "http422" (raised at job creation). "errored_items" publishes
+      "http502" (both raised by the wait) | "http422" (raised at job
+      creation). "errored_items" publishes
       `partial_results[key]` (if scripted) into the results cache — the
       errored job stored SOME EvalRuns — and reports progress totals
       (`{success, error, total}`).
@@ -918,6 +919,8 @@ class FakeKiln:
             await asyncio.Event().wait()  # forever — only wait_for cancels it
         if behavior == "http504":
             raise KilnAPIError("POST", "/api/jobs/wait", 504, {"detail": "timeout"})
+        if behavior == "http502":
+            raise KilnAPIError("POST", "/api/jobs/wait", 502, {"detail": "bad gateway"})
         if behavior == "drive":
             return [{"id": body["ids"][0], **self._drive_job(job)}]
         key = job["key"]
