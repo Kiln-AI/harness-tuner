@@ -121,23 +121,35 @@ def test_skill_dirs_exist_with_matching_names():
         )
 
 
+# The skills the loop installs, and the skills for coding agents that work
+# on this repository.
+REPO_SKILLS_DIR = Path(__file__).resolve().parents[1] / ".agents" / "skills"
+# The Agent Skills limits on the two frontmatter fields.
+SKILL_NAME_MAX_CHARS = 64
+SKILL_DESCRIPTION_MAX_CHARS = 1024
+
+
 @pytest.mark.parametrize(
     "skill_md",
-    sorted(SKILLS_DIR.glob("*/SKILL.md")),
+    sorted([*SKILLS_DIR.glob("*/SKILL.md"), *REPO_SKILLS_DIR.glob("*/SKILL.md")]),
     ids=lambda path: path.parent.name,
 )
-def test_skill_frontmatter_is_strict_yaml(skill_md: Path):
+def test_skill_frontmatter_parses_as_yaml(skill_md: Path):
     # Agent CLIs parse the frontmatter with their own YAML loaders. A plain
     # scalar that holds ": " is not valid YAML. Claude Code, Codex and
     # OpenCode accept it today, but a strict loader can reject the skill.
     # Use a block scalar (`description: |`) for long text.
+    # The installer's `parse_skill_md` is not used here: it refuses keys
+    # such as `metadata:` that a loop skill can have.
     match = re.match(r"---\n(.*?)\n---\n", skill_md.read_text(), re.DOTALL)
     assert match, f"{skill_md.parent.name}/SKILL.md has no frontmatter block"
     data = yaml.safe_load(match.group(1))
     assert isinstance(data, dict)
     assert data.get("name") == skill_md.parent.name
+    assert len(data["name"]) <= SKILL_NAME_MAX_CHARS
     description = data.get("description")
     assert isinstance(description, str) and description.strip()
+    assert len(description.strip()) <= SKILL_DESCRIPTION_MAX_CHARS
 
 
 def test_merging_reference_exists():
