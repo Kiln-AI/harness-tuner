@@ -84,12 +84,12 @@ going looking.
    return `failed_expected` naming the refusal, and do not try another
    model.
 
-   **Every skill** is authored as a complete bundle under your
-   `scratch_dir` and installed atomically with the `install_skill_bundle`
-   MCP tool — never `POST /skills` plus per-file writes (writes into the
-   project tree are denied); wire the returned `tool_id` into the new run
-   config, then smoke. A flat skill is a bundle that holds only `SKILL.md`.
-   You have no tool that sends `POST /skills`. The full contract —
+   **Every skill** goes through the `install_skill_bundle` MCP tool.
+   Write the complete bundle under your `scratch_dir`, then install it.
+   A flat skill is a bundle that holds only `SKILL.md`. You have no tool
+   that sends `POST /skills`, and writes into the project tree are denied.
+   Then wire the returned `tool_id` into the new run config, and smoke.
+   The full contract —
    bundle layout, name/description rules, the clone procedure, install
    semantics — is
    [references/skill-authoring.md](references/skill-authoring.md).

@@ -1179,10 +1179,13 @@ def test_build_skill_names_the_skill_bundle_installer_lane():
     normalized = _normalized_skill("kiln-harness-tuner-experiment-build")
     assert "`install_skill_bundle`" in normalized
     assert "wire the returned `tool_id`" in normalized
-    assert "never `POST /skills` plus per-file" in normalized
+    assert "writes into the project tree are denied" in normalized
     # kiln-task-setup is loaded by the same builders for the skill procedure;
-    # its disk-workaround sentence must keep redirecting Kiln Harness Tuner sessions.
-    assert "`install_skill_bundle`" in _normalized_skill("kiln-task-setup")
+    # its disk-workaround sentence must keep redirecting Kiln Harness Tuner
+    # sessions, flat skills included.
+    setup = _normalized_skill("kiln-task-setup")
+    assert "`install_skill_bundle`" in setup
+    assert "Every skill, a flat one too, is a bundle" in setup
 
 
 def test_build_skill_sends_a_flat_skill_through_the_installer():
@@ -1200,7 +1203,13 @@ def test_build_skill_sends_a_flat_skill_through_the_installer():
         assert "a bundle that holds only `SKILL.md`" in doc
         assert "You have no tool that sends `POST /skills`" in doc
         assert "may still go through `POST /skills`" not in doc
+        # Every mention of the call says the builder cannot send it.
+        assert doc.count("POST /skills") == doc.count("sends `POST /skills`")
     assert "Done — the rest of this file is not for you" not in authoring
+    # The rest of the file now applies to a flat skill too: the progressive
+    # disclosure section and the smoke must say what a flat skill does.
+    assert "When the item asks for a flat skill" in authoring
+    assert "A flat skill has no reference file" in authoring
 
 
 def test_skill_authoring_reference_exists_and_is_routed():
