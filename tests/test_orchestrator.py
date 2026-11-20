@@ -523,7 +523,7 @@ async def test_refused_verdict_and_stamp_writes_are_logged_and_the_run_goes_on()
     _promotion_scenario(ctx)
     ctx.dispatch.queue("promote_best", decision("rc_cand"))
 
-    async def refuse(exp_mem_id, res):
+    async def refuse(exp_mem_id, res, code_lines=()):
         raise ExperimentStateError(
             f"experiment {exp_mem_id} is verdict — refusing to record a verdict"
             " (allowed moves: none)"

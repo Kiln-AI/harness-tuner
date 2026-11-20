@@ -2007,6 +2007,11 @@ class AnalysisInput(BaseModel):
     #   names and does not attach. A failure on the cases that use such a
     #   name can be the build's breakage, not the lever.
     reference_findings: list[str] = []
+    # The chars `memory_content` can take: the content cap less the lines
+    # code adds at the verdict (`memory.verdict_room`). Over it, the
+    # dispatcher asks the session to shorten, then code clamps. The default
+    # is the whole cap (`memory_schema.CONTENT_MAX_CHARS`).
+    content_budget: int = 4000
 
 
 class DescribeEvalInput(BaseModel):
