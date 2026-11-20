@@ -355,6 +355,19 @@ class TestInstall:
         # No staging debris after a successful install.
         assert not list((project / "skills").glob(".staging-*"))
 
+    def test_skill_md_only_bundle_installs(self, tmp_path):
+        # A flat skill is a bundle that holds only SKILL.md. The builder has
+        # no other lane for it, so the installer must accept it.
+        bundle, scratch = make_bundle(tmp_path)
+        assert sorted(p.name for p in bundle.iterdir()) == ["SKILL.md"]
+        project = make_project(tmp_path)
+        result = install_bundle(bundle, scratch, project, "notes", [])
+        assert result["ok"] is True, result
+        dest = project / "skills" / f"{result['skill_id']} - fresh-skill"
+        assert (dest / "SKILL.md").read_bytes() == (bundle / "SKILL.md").read_bytes()
+        assert (dest / "references").is_dir() and (dest / "assets").is_dir()
+        assert (dest / "skill.kiln").is_file()
+
     def test_rejection_writes_nothing(self, tmp_path):
         bundle, scratch = make_bundle(tmp_path, name="existing-skill")
         project = make_project(tmp_path, existing_name="existing-skill")

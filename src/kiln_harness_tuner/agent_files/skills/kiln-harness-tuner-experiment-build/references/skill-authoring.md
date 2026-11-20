@@ -1,15 +1,14 @@
 # Skill authoring (skill-lever items)
 
-How to build the skill artifact when the item's lever is `skill`. Two shapes:
+How to build the skill artifact when the item's lever is `skill`.
 
-- **Flat** (a single instruction page, no resource files): `POST /skills`
-  with `{name, description, body, provenance}` as `kiln-task-setup`
-  documents. Done — the rest of this file is not for you.
-- **Bundle** (the skill carries `references/` and/or `assets/`): author the
-  complete bundle under your `scratch_dir` and install it with the
-  `install_skill_bundle` MCP tool. Never `POST /skills` plus per-file disk
-  writes — the project tree is write-denied for every file tool, and the
-  installer is the only lane into `skills/`.
+Every skill goes through the `install_skill_bundle` MCP tool. This applies to
+a flat skill (one instruction page) and to a skill with `references/` or
+`assets/`. A flat skill is a bundle that holds only `SKILL.md`. Author the
+bundle under your `scratch_dir`, then install it. You have no tool that sends
+`POST /skills`: the gateway has no create-skill operation for your role.
+Do not write skill files into the project tree. Every file tool is denied
+there, and the installer is the only way into `skills/`.
 
 ## 1. Author the bundle in scratch
 
@@ -57,6 +56,11 @@ conversation pays for exactly the topics it touches — a task about
 returns loads `references/returns.md`, not the whole corpus. A
 monolithic SKILL.md defeats the tiering: everything loads on every
 invocation. The shape that works is a short body mapping 6–8 topic files.
+
+This section is for a skill with `references/` files. When the item asks
+for a flat skill, write only the description and the `SKILL.md` body. Do
+not split it into reference files: that is a different mechanism from the
+one the item tests.
 
 ### When the model is lost in a long prompt or one big skill
 
@@ -169,10 +173,13 @@ install_skill_bundle(
 
 - Success: `{"ok": true, "skill_id", "skill_name", "tool_id"}`. Wire
   `tool_id` (`kiln_tool::skill::<id>`) into the new run config's
-  `tools_config.tools`, then sanity-smoke as usual — a smoke turn that reads
-  one reference file proves the resource lane end-to-end. To see the read,
-  `Grep` the smoke's trace file (`run_task`'s `trace_path`) for the
-  reference file's name.
+  `tools_config.tools`, then sanity-smoke as usual. For a skill with
+  reference files, a smoke turn that reads one reference file proves the
+  resource lane end-to-end. To see the read, `Grep` the smoke's trace file
+  (`run_task`'s `trace_path`) for the reference file's name. A flat skill
+  has no reference file: a smoke turn that loads the skill
+  (`skill(name='<name>')`) is the proof. `Grep` the trace for the skill's
+  name.
 - Rejection: `{"ok": false, "errors": [...]}` lists **every** problem at
   once and **nothing was written** — fix the bundle in scratch and call
   again. No cleanup needed, no half-created skill exists.
