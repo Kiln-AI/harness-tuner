@@ -6,6 +6,7 @@ copy. No live calls."""
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -429,6 +430,25 @@ class TestTheUserSkills:
             {"path": str(user_skills / "spec" / "SKILL.md"), "enabled": False},
             {"path": str(real.resolve()), "enabled": False},
         ]
+
+    @pytest.mark.skipif(
+        sys.platform == "win32" or os.geteuid() == 0,
+        reason="a folder with no permissions is still readable here",
+    )
+    def test_an_unreadable_user_folder_is_skipped(self, tmp_path, agent_cli_homes):
+        skill(agent_cli_homes / ".agents" / "skills" / "spec")
+        codex_skill = skill(agent_cli_homes / ".codex" / "skills" / "review")
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        locked = agent_cli_homes / ".agents"
+        locked.chmod(0)
+        try:
+            assert disabled_user_skills(own) == [
+                {"path": str(codex_skill), "enabled": False}
+            ]
+            dispatcher, _ = make(tmp_path, [])
+            assert disabled_paths(dispatcher._argv("batch_plan")) == [str(codex_skill)]
+        finally:
+            locked.chmod(0o755)
 
     def test_no_user_skill_no_key(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])

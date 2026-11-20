@@ -206,11 +206,16 @@ def user_skill_files(roots: Sequence[Path], own_skills: Path) -> list[Path]:
     """Every `SKILL.md` under `roots`, as Codex finds them: in sub-folders to
     `USER_SKILL_SCAN_DEPTH`, through links, not in hidden folders (Codex keeps
     its bundled skills in `.system`). A file that resolves into `own_skills`,
-    the run's own skills folder, is left out."""
+    the run's own skills folder, is left out. A folder the run cannot read is
+    skipped: Codex runs as the same user, so it cannot load skills from that
+    folder either."""
     own = own_skills.resolve()
     found: list[Path] = []
     for root in roots:
-        if not root.is_dir():
+        try:
+            if not root.is_dir():
+                continue
+        except OSError:
             continue
         for folder, subfolders, files in os.walk(root, followlinks=True):
             depth = len(Path(folder).relative_to(root).parts)
