@@ -772,6 +772,16 @@ it would be refused. Four rules keep the state readable:
 - An experiment append keeps every line code reads back
   (`EXPERIMENT_HEAD_KEYS`, the gate notes) and drops other lines, oldest
   first.
+- The verdict clamp (`_fit_verdict_content`) also keeps every head line,
+  and the `next:`, `measurement:`, latency and cost lines. It keeps the
+  analyzer's other lines from the top (its opening and its numbers table),
+  so its interpretation prose drops first. Code adds lines after the analyzer's content: the `measurement:` line,
+  the latency and cost lines, and each carried line the analyzer did not
+  re-cite. So the analyzer gets the room that is left, as
+  `AnalysisInput.content_budget` (`memory.verdict_room`). A content over
+  that room gets up to `SHORTEN_TURNS` (2) turns in the same session, which
+  ask for a shorter content and take only the new `memory_content` from the
+  reply. The clamp is the last step.
 - No suffix is a verdict only in the verdict's shape (`EXP <id>: …`). An
   overview still in the opening's shape (`EXP <id> (…`) with no suffix reads
   `UNKNOWN`. `UNKNOWN` takes the forward moves of `RUNNING` and is not
