@@ -213,7 +213,8 @@ flowchart TD
       fill, coverage under the floor, an incomplete speed or cost pass) is
       not judged: it gets no stamp and stays pooled. At its second holed
       gate of one run, code rejects it. A gate where every hole is on the
-      baseline side does not count.
+      baseline side does not count, until the baseline itself has holes at
+      two gates of the run. From then on, these holes count too.
 6. **The next wave** starts from the baseline, which can now be new. A new
    baseline gets its own smell step.
 

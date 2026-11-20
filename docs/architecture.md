@@ -883,12 +883,34 @@ Code does not refuse a resubmission of a pooled rc (`existing_rc_id`), so
 an rc whose val pass fails each time could come back in every wave. At its
 second holed gate of one run (`HOLED_GATE_LIMIT`), code stamps each of its
 records from those gates `— REJECTED AT VAL` with the reason "val
-incomplete again". The gates need not be consecutive. A gate counts only
-when a hole can be the candidate's: a gate where every hole of the
-candidate is on the baseline side (the baseline fill failed, or the
-baseline-side coverage is under the floor) does not count. The bound
-stamps before the decision, so also in a wave with no decision. The wave's
-`rejected_incomplete` list in RunStatus names these rcs.
+incomplete again". The gates need not be consecutive. At each later
+counted gate, code stamps each record that is not stamped yet, so a write
+that failed is written again. An rc with a failed write stays in the
+wave's `pooled` list. The bound stamps before the decision, so also in a
+wave with no decision. The wave's `rejected_incomplete` list in RunStatus
+names these rcs.
+
+Which gates count against a candidate:
+
+- A speed or cost hole (a paired pass that is missing or `incomplete`) is
+  never put on a side. It always counts against the candidate.
+- A hole in the eval fills is put on a side, per eval. A failed candidate
+  fill, a failed comparison or a candidate-side coverage under the floor is
+  the candidate's. A cached candidate fill has no job total of its own, so
+  its coverage is read against the baseline's job total when the baseline
+  has one. A failed baseline fill or a baseline-side coverage under the
+  floor is the baseline's. A pair hole (no paired items, a paired coverage
+  under the floor) is the baseline's only when the baseline side of that
+  eval is under the floor and the candidate side is not. Else it counts as
+  the candidate's.
+- A gate where every hole of the candidate is the baseline's does not
+  count, while the baseline is under its own limit. Code counts the gates
+  where the baseline side had a hole, per baseline rc
+  (`Ctx.baseline_holed_gates`). At the `HOLED_GATE_LIMIT`-th such gate, code emits `baseline_val_holes`
+  once, and the wave's `baseline_val_holes` in RunStatus names the
+  baseline rc. From that gate on, the baseline-side holes count against
+  the candidates too. Without this limit, a baseline whose val fill fails
+  each time would pool every candidate at every gate until the run ends.
 
 **There is no rollback, deliberately.** The ordering is the recovery design:
 the baseline record is the authoritative pointer and is written first, so any

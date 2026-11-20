@@ -7,8 +7,10 @@ run is rejected, so that it cannot come back to the gate in every wave."""
 
 from __future__ import annotations
 
+import pytest
 from conftest import fix_item, make_ctx, make_plan, make_result
 from fake_dispatcher import infra, ok
+from fake_kiln import make_run
 from test_orchestrator import (
     decision,
     rc_ok,
@@ -20,6 +22,7 @@ from test_orchestrator import (
 )
 
 from kiln_harness_tuner import orchestrator
+from kiln_harness_tuner.analysis import JobHealth, MeasurementFailed
 from kiln_harness_tuner.latency import compare_latencies
 from kiln_harness_tuner.orchestrator import (
     HOLED_GATE_LIMIT,
@@ -28,7 +31,7 @@ from kiln_harness_tuner.orchestrator import (
     orchestrate,
 )
 from kiln_harness_tuner.report import render_fallback_report
-from kiln_harness_tuner.schemas import ItemOutcome, LatencyComparison
+from kiln_harness_tuner.schemas import ErrorInfo, ItemOutcome, LatencyComparison
 from kiln_harness_tuner.status import RunStatusTracker
 
 STAMP = " — REJECTED AT VAL 07-22"
@@ -255,34 +258,102 @@ async def test_a_third_holed_gate_stamps_only_its_own_record():
     assert _status(ctx).waves[2].rejected_incomplete == ["rc_cand"]
 
 
-async def test_a_baseline_side_fill_failure_does_not_count_against_the_bound():
-    # The baseline's val fill fails at every gate. The candidate's own val
-    # runs are complete: the holes are not its own, so the bound does not
-    # reject it. It stays pooled at each gate.
-    ctx = make_ctx(gate_agent="auto")
+def _resubmitted_three_times(ctx, *, fails: str) -> None:
+    """Three gates of one rc, rc_cand, through the single-candidate rule:
+    built in wave 1, resubmitted unchanged in waves 2 and 3. The val fill
+    of `fails` (the candidate or the baseline) fails at every gate."""
     kiln = ctx.kiln
     seed_baseline(kiln)
     seed_active_eval(kiln)
     seed_issue(kiln)
     seed_train(kiln, "rc_cand")
-    seed_val(kiln, "rc_cand")
-    _always_fails(kiln, "rc_base")
+    seed_val(kiln, *({"rc_base", "rc_cand"} - {fails}))
+    _always_fails(kiln, fails)
     d = ctx.dispatch
     d.queue(
         "batch_plan",
         ok(make_plan(fix_item("w1-1"))),
         ok(make_plan(_resubmit("w2-1", "rc_cand"))),
+        ok(make_plan(_resubmit("w3-1", "rc_cand"))),
         ok(make_plan(loop_exit="done")),
     )
     d.queue("create_experiment_rc", rc_ok("rc_cand"))
-    d.queue("analyze_experiment_results", ok(make_result()), ok(make_result()))
+    d.queue("analyze_experiment_results", *([ok(make_result())] * 3))
+
+
+def _records(ctx) -> list[str]:
+    return [
+        f["outcome"].experiment_memory_id
+        for k, f in ctx.log.events
+        if k == "item_outcome"
+    ]
+
+
+async def test_baseline_side_holes_count_once_the_baseline_reaches_the_limit():
+    # The baseline's val fill fails at every gate; the candidate's own val
+    # runs are complete.
+    # - Gate 1: the baseline is under its limit. The hole is not the
+    #   candidate's, so it does not count. The candidate stays pooled.
+    # - Gate 2: the baseline reaches the limit. One `baseline_val_holes`
+    #   event, and from this gate on, the hole counts against the candidate.
+    # - Gate 3: the second counted gate of rc_cand: the bound rejects it.
+    #   The record of gate 1 was not counted, so it is not stamped.
+    ctx = make_ctx(gate_agent="auto")
+    _resubmitted_three_times(ctx, fails="rc_base")
 
     assert await orchestrate(ctx, "", timeout_mins=180) == "done"
 
-    assert ctx.holed_gates == {}
-    assert not [k for k, _ in ctx.log.events if k == "rejection_recorded"]
-    assert not any(STAMP in m["overview"] for m in kiln.memories.values())
+    first, second, third = _records(ctx)
+    assert ctx.baseline_holed_gates == {"rc_base": 3}
+    assert ctx.holed_gates == {"rc_cand": [second, third]}
+    events = [f for k, f in ctx.log.events if k == "baseline_val_holes"]
+    assert [(f["baseline_rc_id"], f["holed_gates"]) for f in events] == [
+        ("rc_base", HOLED_GATE_LIMIT)
+    ]
     assert _pooled_events(ctx) == ["rc_cand", "rc_cand"]
+    recorded = [f["exp_mem_id"] for k, f in ctx.log.events if k == "rejection_recorded"]
+    assert sorted(recorded) == sorted([second, third])
+    assert not ctx.kiln.memories[first]["overview"].endswith(STAMP)
+    status = _status(ctx)
+    assert [w.baseline_val_holes for w in status.waves] == [None, "rc_base", None]
+    assert [w.pooled for w in status.waves] == [["rc_cand"], ["rc_cand"], []]
+    assert status.waves[2].rejected_incomplete == ["rc_cand"]
+    text = render_fallback_report(status)
+    assert "baseline val evidence incomplete at repeated gates: rc_base" in text
+
+
+async def test_a_failed_bound_write_stays_pooled_and_is_written_again():
+    # At gate 2 the stamp of the gate-1 record fails. The rc is not in
+    # `rejected_incomplete` alone: it stays in `pooled` too, since one of
+    # its records is not stamped. Gate 3 writes the gate-1 record again.
+    ctx = make_ctx(gate_agent="auto")
+    _resubmitted_three_times(ctx, fails="rc_cand")
+    stamp = ctx.memory.stamp_rejected
+    calls = []
+
+    async def flaky_stamp(memory_id):
+        calls.append(memory_id)
+        if len(calls) == 1:
+            raise RuntimeError("memory write failed")
+        return await stamp(memory_id)
+
+    ctx.memory.stamp_rejected = flaky_stamp
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    first, second, third = _records(ctx)
+    assert calls == [first, second, first, third]
+    recorded = [f["exp_mem_id"] for k, f in ctx.log.events if k == "rejection_recorded"]
+    assert recorded == [second, first, third]
+    for mem_id in (first, second, third):
+        assert ctx.kiln.memories[mem_id]["overview"].endswith(STAMP)
+    status = _status(ctx)
+    assert [w.pooled for w in status.waves] == [["rc_cand"], ["rc_cand"], []]
+    assert [w.rejected_incomplete for w in status.waves] == [
+        [],
+        ["rc_cand"],
+        ["rc_cand"],
+    ]
 
 
 # ---- the other gate paths ----
@@ -570,3 +641,73 @@ def test_val_holes_leaves_out_a_quote_block_and_a_measured_verdict():
     # Under quality the speed pass is not read.
     ctx.objective = "quality"
     assert orchestrator._val_holes(ctx, tables, {"rc_fill"}) == {"rc_fill"}
+
+
+# ---- the side of a hole, in `_assemble_val_tables` ----
+
+
+def _rows(*item_ids: str) -> list[dict]:
+    return [make_run(i, accuracy=1.0) for i in item_ids]
+
+
+FULL = ("v1", "v2", "v3", "v4")
+
+
+@pytest.mark.parametrize(
+    ("candidate", "baseline", "baseline_side_only", "baseline_holed"),
+    [
+        # A partial candidate fill (2 of 4 stored): the candidate's hole.
+        ((_rows("v1", "v2"), 4), (_rows(*FULL), 4), set(), False),
+        # Both sides complete, on different items: a pair hole with neither
+        # side under the floor. The sides cannot be told apart: it counts.
+        ((_rows(*FULL), 4), (_rows("v1", "v2", "v5", "v6"), 4), set(), False),
+        # Both sides under the floor: it counts.
+        ((_rows("v1", "v2"), 4), (_rows("v1", "v2"), 4), set(), True),
+        # Only the baseline is under the floor: the baseline's hole.
+        ((_rows(*FULL), 4), (_rows("v1", "v2"), 4), {"rc_cand"}, True),
+        # A cached candidate fill (no job total) with the same 3 items as a
+        # baseline whose job planned 4: read against the baseline's total,
+        # the candidate is short too.
+        ((_rows("v1", "v2", "v3"), None), (_rows("v1", "v2", "v3"), 4), set(), True),
+        # The baseline fill failed: the baseline's hole.
+        ((_rows(*FULL), 4), "fail", {"rc_cand"}, True),
+    ],
+)
+async def test_the_side_of_a_val_hole(
+    monkeypatch, candidate, baseline, baseline_side_only, baseline_holed
+):
+    ctx = make_ctx()
+    seed_active_eval(ctx.kiln)
+    fills = {"rc_cand": candidate, "rc_base": baseline}
+
+    async def ensure_measured(eval_id, eval_config_id, rc_id, split):
+        fill = fills[rc_id]
+        if fill == "fail":
+            raise MeasurementFailed(
+                ErrorInfo(error_class="provider_error", detail="boom")
+            )
+        runs, n_expected = fill
+        return runs, JobHealth(n_expected=n_expected)
+
+    monkeypatch.setattr(ctx.analyzer, "ensure_measured", ensure_measured)
+    mem = ctx.kiln.add_memory("EXP 0722-w1-1: x", "task::t1", ["experiment"])
+    outcome = ItemOutcome(
+        item=fix_item("w1-1"),
+        status="completed",
+        rc_id="rc_cand",
+        experiment_memory_id=mem,
+        result=make_result(),
+        infra_error=None,
+    )
+    candidates = [
+        orchestrator.GateCandidate(
+            rc_id="rc_cand", experiment_memory_id=mem, outcome=outcome
+        )
+    ]
+
+    assembly = await orchestrator._assemble_val_tables(ctx, candidates, "rc_base")
+
+    (table,) = assembly.tables
+    assert table.ineligible
+    assert assembly.baseline_side_only == baseline_side_only
+    assert assembly.baseline_holed is baseline_holed

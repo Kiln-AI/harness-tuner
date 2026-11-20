@@ -126,7 +126,12 @@ going looking.
   `rejected_incomplete` (the rc ids that code rejected at this gate because
   their val evidence had holes at repeated gates of the run: each is
   stamped `— REJECTED AT VAL`, also in a wave with `promotion_skipped` or
-  with no decision), `tripwire` (aborted wave, infra class).
+  with no decision), `baseline_val_holes` (set only at the gate where the
+  baseline's own val evidence had holes at repeated gates of the run; it
+  names the baseline rc. From that gate on, those holes count against the
+  candidates. Report it: the gate could not measure the baseline on val,
+  and that is why the wins stayed pooled), `tripwire` (aborted wave, infra
+  class).
 - `items[]`: `item_id`/`kind` (`fix` / `merge` / `eval` = build a new eval /
   `measure` = run an existing eval against the baseline to settle an
   `UNMEASURED:` issue)/`label`, `outcome` (`status`:

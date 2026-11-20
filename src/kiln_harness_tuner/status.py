@@ -425,6 +425,14 @@ class RunStatusTracker:
         if str(rc_id) not in rejected:
             rejected.append(str(rc_id))
 
+    def _on_baseline_val_holes(
+        self, baseline_rc_id: object = None, **_: object
+    ) -> None:
+        # The baseline's val evidence had holes at repeated gates: from
+        # here on, those holes count against the candidates.
+        if self._status.waves and baseline_rc_id:
+            self._status.waves[-1].baseline_val_holes = str(baseline_rc_id)
+
     def _on_gate_block(
         self,
         rc_id: object = None,

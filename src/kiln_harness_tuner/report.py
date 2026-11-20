@@ -1084,6 +1084,12 @@ def render_fallback_report(status: RunStatus) -> str:
                 "- not judged, val evidence incomplete (stays pooled): "
                 + ", ".join(wave.pooled)
             )
+        if wave.baseline_val_holes:
+            lines.append(
+                "- baseline val evidence incomplete at repeated gates: "
+                f"{wave.baseline_val_holes} (its holes now count against "
+                "the candidates)"
+            )
         if wave.rejected_incomplete:
             lines.append(
                 "- rejected, val evidence incomplete at repeated gates: "

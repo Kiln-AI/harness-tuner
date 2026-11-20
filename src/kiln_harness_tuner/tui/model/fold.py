@@ -1211,6 +1211,13 @@ class RunModel:
                     values.setdefault(key, value)
             self.start_val = values
 
+    def _on_baseline_val_holes(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        # The baseline's val evidence had holes at repeated gates. A
+        # warning: from here on, its holes count against the candidates.
+        text = _text(f.get("line"))
+        if text:
+            self._say(s, "warn", text)
+
     def _on_gate_block(self, s: Stamped, f: Mapping[str, Any]) -> None:
         gate = self._open_gate()
         if gate is not None and f.get("rc_id"):

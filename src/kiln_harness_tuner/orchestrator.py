@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import fmean
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from kiln_harness_tuner.analysis import (
     BINARY_SCORE_TYPES,
@@ -379,10 +379,20 @@ class Ctx:
     # text, for the planner (`schemas.GateBlock`).
     gate_blocks: list[GateBlock] = field(default_factory=list)
     # rc id -> the experiment records of each gate of this run where that
-    # rc's val evidence had holes (`_val_holes`) that were not all on the
-    # baseline side. It bounds the re-gating of an rc whose val measurement
-    # fails each time (`HOLED_GATE_LIMIT`).
+    # rc's val evidence had holes (`_val_holes`) that count against it. It
+    # bounds the re-gating of an rc whose val measurement fails each time
+    # (`HOLED_GATE_LIMIT`). The side rule applies to the eval fills only: a
+    # fill hole that is all on the baseline side does not count, until the
+    # baseline's own count below reaches the limit. A speed or cost hole (a
+    # paired pass that is missing or `incomplete`) is never put on a side,
+    # and always counts against the candidate.
     holed_gates: dict[str, list[str]] = field(default_factory=dict)
+    # Baseline rc id -> the count of gates of this run where its val fills
+    # had a hole (a failed fill, a baseline-side coverage under the floor).
+    baseline_holed_gates: dict[str, int] = field(default_factory=dict)
+    # The experiment records that the bound stamped `— REJECTED AT VAL`
+    # (both writes landed). The bound writes again only the others.
+    bound_stamped: set[str] = field(default_factory=set)
     screening_notes: list[str] = field(default_factory=list)
     screen_rounds_this_wave: int = 0
     screen_round_count: int = 0
@@ -1431,9 +1441,8 @@ async def _run_promotion_gate(
     ctx: Ctx, candidates: list[GateCandidate], record: MemoryRecord
 ) -> PromotionDecision | None:
     baseline = BaselineRef(rc_id=ctx.memory.baseline_rc_id(record))
-    tables, baseline_side_holes = await _assemble_val_tables(
-        ctx, candidates, baseline.rc_id
-    )
+    assembly = await _assemble_val_tables(ctx, candidates, baseline.rc_id)
+    tables = assembly.tables
     # The fill and coverage holes. Read here, before the integrity checks,
     # because a quote block also sets `ineligible`, and a block is a
     # verdict, not a hole.
@@ -1452,9 +1461,13 @@ async def _run_promotion_gate(
     # Only a candidate judged on complete evidence is rejected.
     holed = _val_holes(ctx, tables, fill_holed)
     # A hole that is only on the baseline side is not the candidate's: it
-    # does not count against the candidate's bound.
+    # does not count against the candidate's bound, until the baseline's own
+    # holes reach the limit (`_holes_not_counted`).
     bounded = await _bound_holed_gates(
-        ctx, candidates, holed - baseline_side_holes, baseline.rc_id
+        ctx,
+        candidates,
+        holed - _holes_not_counted(ctx, baseline.rc_id, assembly),
+        baseline.rc_id,
     )
     # Every other holed candidate stays pooled, whatever path the gate takes
     # below. Each path leaves the holed candidates unstamped.
@@ -2293,9 +2306,20 @@ def decide_single_candidate(
     )
 
 
+class ValAssembly(NamedTuple):
+    """What `_assemble_val_tables` returns."""
+
+    tables: list[CandidateValTable]
+    # The holed rc ids whose holes are all on the baseline side.
+    baseline_side_only: set[str]
+    # The baseline side had a hole at this gate: a failed baseline fill, or
+    # a baseline-side coverage under the floor for some candidate.
+    baseline_holed: bool
+
+
 async def _assemble_val_tables(
     ctx: Ctx, candidates: list[GateCandidate], baseline_rc_id: str
-) -> tuple[list[CandidateValTable], set[str]]:
+) -> ValAssembly:
     """(code) Full val pass per candidate rc — every active eval, split=val —
     plus the current baseline's val fill (both cached). This is the
     ONLY place the loop reads val: it runs after the analyzer, so no
@@ -2317,18 +2341,24 @@ async def _assemble_val_tables(
     `ctx.coverage_floor` marks the candidate `ineligible` — enforced by
     `_run_promotion_gate` regardless of the agent's decision.
 
-    Returns the tables, and the rc ids whose holes are all on the baseline
-    side (`_bound_holed_gates` does not count those). Per eval, a hole is on
-    the candidate side when the candidate fill failed, the comparison
-    failed, or the candidate-side coverage is under the floor. A pair hole
-    (a score with nothing to pair, a paired coverage under the floor) goes
-    to the baseline side only when the baseline-side coverage of that eval
-    is under the floor and the candidate side is not. Else the two sides
-    cannot be told apart, and the hole counts as the candidate's."""
+    Returns the tables, the rc ids whose holes are all on the baseline side,
+    and whether the baseline side had a hole (`ValAssembly`). The side rule
+    applies to the eval fills only. Per eval, a hole is on the candidate
+    side when the candidate fill failed, the comparison failed, or the
+    candidate-side coverage is under the floor. For this attribution only, a
+    candidate fill with no job total (a cached fill) is measured against the
+    baseline's job total when it has one, so a short baseline cannot hide a
+    short candidate. A pair hole (a score with nothing to pair, a paired
+    coverage under the floor) goes to the baseline side only when the
+    baseline-side coverage of that eval is under the floor and the
+    candidate side is not. Else the two sides cannot be told apart, and the
+    hole counts as the candidate's. `_holes_not_counted` decides when the
+    baseline-side holes count after all."""
     rows_by_rc: dict[str, list] = {o.rc_id: [] for o in candidates}
     errors_by_rc: dict[str, list[ErrorInfo]] = {o.rc_id: [] for o in candidates}
     ineligible: dict[str, bool] = {o.rc_id: False for o in candidates}
     candidate_side: dict[str, bool] = {o.rc_id: False for o in candidates}
+    baseline_holed = False
     gate_evals: list[tuple[str, str, list[ScoreSpec]]] = []
     # Gate isolation: an eval the gate cannot compare is SKIPPED
     # with its reason on every candidate's table, never a crash — a crash
@@ -2468,6 +2498,8 @@ async def _assemble_val_tables(
 
     for k, (eval_id, _eval_config_id, specs) in enumerate(gate_evals, start=1):
         baseline_fill = fills.get((eval_id, baseline_rc_id))
+        if baseline_fill is None and candidates:
+            baseline_holed = True
         for outcome in candidates:
             candidate_fill = fills.get((eval_id, outcome.rc_id))
             if candidate_fill is None:
@@ -2561,6 +2593,23 @@ async def _assemble_val_tables(
                         )
                     )
                     ineligible[outcome.rc_id] = True
+            if (
+                "candidate" not in short_sides
+                and not candidate_health.n_expected
+                and baseline_health.n_expected
+                and _coverage_shortfall(
+                    candidate_runs,
+                    candidate_health,
+                    ctx.coverage_floor,
+                    fallback_total=baseline_health.n_expected,
+                )
+                is not None
+            ):
+                # A cached candidate fill read against the baseline's stored
+                # count: the baseline's job total shows its own shortfall.
+                short_sides.add("candidate")
+            if "baseline" in short_sides:
+                baseline_holed = True
             if "candidate" in short_sides or (
                 pair_hole and "baseline" not in short_sides
             ):
@@ -2601,7 +2650,7 @@ async def _assemble_val_tables(
         for o in candidates
         if ineligible[o.rc_id] and not candidate_side[o.rc_id]
     }
-    return tables, baseline_side_only
+    return ValAssembly(tables, baseline_side_only, baseline_holed)
 
 
 def _coverage_shortfall(
@@ -3578,17 +3627,19 @@ async def _bound_holed_gates(
     baseline_rc_id: str,
 ) -> set[str]:
     """Count this gate against each candidate in `counted`: the holed
-    candidates, less those whose holes are all on the baseline side. At the
-    `HOLED_GATE_LIMIT`-th counted gate of the run, reject the rc: stamp each
-    of its experiment records from those gates `— REJECTED AT VAL`, with the
-    `val incomplete` reason. After the limit (a rejected rc that comes back),
-    stamp only the record of this gate: the earlier ones carry the stamp.
-    The counted gates need not be consecutive: a complete gate between two
-    holed ones does not reset the count.
+    candidates, less those whose holes do not count (`_holes_not_counted`).
+    At the `HOLED_GATE_LIMIT`-th counted gate of the run, reject the rc:
+    stamp each of its experiment records from those gates `— REJECTED AT
+    VAL`, with the `val incomplete` reason. At each later counted gate (a
+    rejected rc that comes back), stamp each record that is not stamped yet:
+    the record of this gate, and an earlier record whose write failed. The
+    counted gates need not be consecutive: a complete gate between two holed
+    ones does not reset the count.
 
     Called once per gate, before the decision, so every path of the gate
-    applies the bound. Returns the rc ids it rejected at this gate. The
-    other holed candidates stay pooled (`_emit_pooled`)."""
+    applies the bound. Returns the rc ids it rejected at this gate: each
+    write landed. An rc with a failed write is not returned, so it stays
+    pooled (`_emit_pooled`), and the next counted gate writes again."""
     reason = ValRejection(ValRejectionKind.VAL_INCOMPLETE)
     rejected: set[str] = set()
     for candidate in candidates:
@@ -3598,14 +3649,11 @@ async def _bound_holed_gates(
         records.append(candidate.experiment_memory_id)
         if len(records) < HOLED_GATE_LIMIT:
             continue
-        rejected.add(candidate.rc_id)
-        to_stamp = (
-            records
-            if len(records) == HOLED_GATE_LIMIT
-            else [candidate.experiment_memory_id]
-        )
-        for exp_mem_id in dict.fromkeys(to_stamp):
-            await _write_rejection(
+        landed = True
+        for exp_mem_id in dict.fromkeys(records):
+            if exp_mem_id in ctx.bound_stamped:
+                continue
+            if await _write_rejection(
                 ctx,
                 GateCandidate(
                     rc_id=candidate.rc_id,
@@ -3614,8 +3662,45 @@ async def _bound_holed_gates(
                 ),
                 baseline_rc_id,
                 reason,
-            )
+            ):
+                ctx.bound_stamped.add(exp_mem_id)
+            else:
+                landed = False
+        if landed:
+            rejected.add(candidate.rc_id)
     return rejected
+
+
+def _holes_not_counted(
+    ctx: Ctx, baseline_rc_id: str, assembly: ValAssembly
+) -> set[str]:
+    """The holed candidates whose holes do not count against their bound at
+    this gate: those whose holes are all on the baseline side.
+
+    This gate counts against the baseline when the baseline side had a
+    hole. At the `HOLED_GATE_LIMIT`-th such gate of the run for one baseline
+    rc, the gate emits `baseline_val_holes` once. From that gate on,
+    baseline-side holes count against the candidates again, so the
+    candidate's bound applies. Else a baseline whose val fill fails each
+    time would pool every candidate at every gate, with no end."""
+    count = ctx.baseline_holed_gates.get(baseline_rc_id, 0)
+    if assembly.baseline_holed:
+        count += 1
+        ctx.baseline_holed_gates[baseline_rc_id] = count
+        if count == HOLED_GATE_LIMIT:
+            ctx.log.event(
+                "baseline_val_holes",
+                baseline_rc_id=baseline_rc_id,
+                holed_gates=count,
+                line=(
+                    f"gate: the val evidence of baseline {baseline_rc_id} had"
+                    f" holes at {count} gates; from now on, these holes count"
+                    " against the candidates"
+                ),
+            )
+    if count >= HOLED_GATE_LIMIT:
+        return set()
+    return assembly.baseline_side_only
 
 
 def _emit_pooled(ctx: Ctx, pooled: set[str]) -> None:
@@ -3634,8 +3719,9 @@ def _emit_pooled(ctx: Ctx, pooled: set[str]) -> None:
 
 async def _write_rejection(
     ctx: Ctx, candidate: GateCandidate, baseline_rc_id: str, reason: ValRejection
-) -> None:
-    """The `— REJECTED AT VAL` stamp and the reason line on one record."""
+) -> bool:
+    """The `— REJECTED AT VAL` stamp and the reason line on one record.
+    True when both writes landed."""
     exp_mem_id = candidate.experiment_memory_id
     stamped = await _rejection_write(
         ctx, lambda i=exp_mem_id: ctx.memory.stamp_rejected(i), "stamp", candidate
@@ -3653,6 +3739,7 @@ async def _write_rejection(
             exp_mem_id=exp_mem_id,
             reason=str(reason.kind),
         )
+    return stamped and noted
 
 
 async def _record_rejections(

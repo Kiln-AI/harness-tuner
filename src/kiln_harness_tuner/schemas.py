@@ -2145,6 +2145,11 @@ class WaveStatus(BaseModel):
     # reason). Code stamps them `— REJECTED AT VAL` before the decision, so
     # also in a wave with `promotion_skipped` or with no decision.
     rejected_incomplete: list[str] = []
+    # The baseline rc whose val evidence had holes at `HOLED_GATE_LIMIT`
+    # gates of the run, set at the gate that reached the limit
+    # (`baseline_val_holes`). From that gate on, the baseline-side holes
+    # count against the candidates' bound. None in every other wave.
+    baseline_val_holes: str | None = None
 
 
 class RunStatus(BaseModel):
