@@ -1,15 +1,15 @@
 # Skill authoring (skill-lever items)
 
-How to build the skill artifact when the item's lever is `skill`. Two shapes:
+How to build the skill artifact when the item's lever is `skill`.
 
-- **Flat** (a single instruction page, no resource files): `POST /skills`
-  with `{name, description, body, provenance}` as `kiln-task-setup`
-  documents. Done — the rest of this file is not for you.
-- **Bundle** (the skill carries `references/` and/or `assets/`): author the
-  complete bundle under your `scratch_dir` and install it with the
-  `install_skill_bundle` MCP tool. Never `POST /skills` plus per-file disk
-  writes — the project tree is write-denied for every file tool, and the
-  installer is the only lane into `skills/`.
+Every skill goes through the `install_skill_bundle` MCP tool. This applies to
+a flat skill (one instruction page) and to a skill with `references/` or
+`assets/`. A flat skill is a bundle that holds only `SKILL.md`. Author the
+bundle under your `scratch_dir`, then install it. You have no tool that sends
+`POST /skills`: the gateway has no create-skill operation for your role.
+Never `POST /skills` plus per-file disk writes — the project tree is
+write-denied for every file tool, and the installer is the only lane into
+`skills/`.
 
 ## 1. Author the bundle in scratch
 

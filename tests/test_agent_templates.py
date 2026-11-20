@@ -1185,6 +1185,24 @@ def test_build_skill_names_the_skill_bundle_installer_lane():
     assert "`install_skill_bundle`" in _normalized_skill("kiln-task-setup")
 
 
+def test_build_skill_sends_a_flat_skill_through_the_installer():
+    # Finding B11: a builder has no tool that sends `POST /skills` (no gateway
+    # create-skill operation for its role, no `call_kiln_api`). So a flat skill
+    # must go through `install_skill_bundle` too, as a SKILL.md-only bundle.
+    authoring = _normalized_doc(
+        SKILLS_DIR
+        / "kiln-harness-tuner-experiment-build"
+        / "references"
+        / "skill-authoring.md"
+    )
+    build_skill = _normalized_skill("kiln-harness-tuner-experiment-build")
+    for doc in (authoring, build_skill):
+        assert "a bundle that holds only `SKILL.md`" in doc
+        assert "You have no tool that sends `POST /skills`" in doc
+        assert "may still go through `POST /skills`" not in doc
+    assert "Done — the rest of this file is not for you" not in authoring
+
+
 def test_skill_authoring_reference_exists_and_is_routed():
     # The merging.md pattern: one reference file per work shape, loaded only
     # when the lever calls for it. The SKILL.md routes to it, the Related
