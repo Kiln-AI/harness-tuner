@@ -29,7 +29,7 @@ from kiln_harness_tuner.analysis import (
     runs_cost,
     score_json_key,
 )
-from kiln_harness_tuner.kiln import KilnAPIError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnTransportError
 from kiln_harness_tuner.schemas import (
     AnalysisBundle,
     BaselineRef,
@@ -2697,6 +2697,38 @@ async def test_trial_exhaustion_keeps_the_rows_earlier_attempts_stored():
     [failed] = [f for k, f in analyzer.log.events if k == "narrowed_job_failed"]
     assert failed["attempts"] == 2 and failed["stored"] == 1
     assert failed["items"] == 2 and failed["error_class"] == "provider_error"
+
+
+async def test_trial_exhaustion_with_rows_only_for_other_items_is_a_hole():
+    # A stored row of an item the trial did not ask for is not evidence for
+    # this trial: the exhaustion is still a hole.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.partial_results[key] = [make_run("i9", accuracy=1.0, cost=0.25)]
+    kiln.job_behaviors[key] = ["stored_then_http502", "http502"]
+    analyzer, _ = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    with pytest.raises(MeasurementFailed):
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+    [failed] = [f for k, f in analyzer.log.events if k == "narrowed_job_failed"]
+    assert failed["stored"] == 0
+
+
+async def test_trial_exhaustion_with_a_failed_results_read_is_a_hole():
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.job_behaviors[key] = ["http502", "http502"]
+    analyzer, _ = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    async def unreachable(*_args, **_kwargs):
+        raise KilnTransportError("connection reset")
+
+    analyzer.stored_results = unreachable
+    with pytest.raises(MeasurementFailed) as excinfo:
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+    assert excinfo.value.error.error_class == "provider_error"
 
 
 async def test_judge_items_exhaustion_returns_the_stored_rows():

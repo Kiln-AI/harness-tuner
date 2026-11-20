@@ -1094,7 +1094,8 @@ class Analyzer:
         or a transport error. A 4xx is a real answer from Kiln (422 missing
         split, 404, …) and is raised unchanged. If the caller is cancelled,
         a shielded cancel stops the server job, and the cancellation goes
-        on."""
+        on. Every cancel is shielded: a caller cancelled while the cancel
+        request is in flight must not leave the job running."""
         attempt = _JobAttempt()
         try:
             async with self._job_slot():
@@ -1105,7 +1106,7 @@ class Analyzer:
             # while the retry starts a second job racing the same items.
             # Cancel it best-effort: completed items persist
             # regardless, so the retry re-runs only what is missing.
-            await self._cancel_job(attempt.job_id)
+            await asyncio.shield(self._cancel_job(attempt.job_id))
             raise _TransientJobFailure(
                 ErrorInfo(
                     error_class="timeout",
@@ -1117,7 +1118,9 @@ class Analyzer:
             ) from exc
         except KilnAPIError as exc:
             if exc.status_code == 504:
-                await self._cancel_job(attempt.job_id)  # same orphan case
+                await asyncio.shield(
+                    self._cancel_job(attempt.job_id)
+                )  # same orphan case
                 raise _TransientJobFailure(
                     ErrorInfo(
                         error_class="timeout", detail=f"jobs/wait 504: {exc.body!r}"
@@ -1125,7 +1128,9 @@ class Analyzer:
                 ) from exc
             if exc.status_code < 500:
                 raise  # a real answer (422 missing split, 404, …)
-            await self._cancel_job(attempt.job_id)  # None when start failed
+            await asyncio.shield(
+                self._cancel_job(attempt.job_id)
+            )  # None when start failed
             raise _TransientJobFailure(
                 ErrorInfo(
                     error_class="provider_error",
@@ -1133,7 +1138,7 @@ class Analyzer:
                 )
             ) from exc
         except KilnTransportError as exc:
-            await self._cancel_job(attempt.job_id)
+            await asyncio.shield(self._cancel_job(attempt.job_id))
             raise _TransientJobFailure(
                 ErrorInfo(error_class="provider_error", detail=str(exc))
             ) from exc
