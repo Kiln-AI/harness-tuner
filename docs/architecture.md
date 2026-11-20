@@ -858,9 +858,9 @@ successful on train.
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
    winner's `— PROMOTED` stamp, then one `— REJECTED AT VAL` stamp per
-   candidate passed over on complete val evidence, with its reason line. With no winner, the
-   rejection stamps and their reason lines are the only writes: no issue
-   record changes, because the baseline did not change.
+   candidate passed over on complete val evidence, with its reason line.
+   With no winner, the rejection stamps and their reason lines are the only
+   writes: no issue record changes, because the baseline did not change.
 
 Every candidate's table carries `errors` — every hole in its val assembly — and
 `ineligible`. A candidate whose fill failed on either side, or whose coverage
@@ -874,11 +874,21 @@ and cost a paired pass that is missing or `incomplete` (`_val_holes`). A
 quote block is a verdict, not a hole. Such a candidate gets no stamp and no
 reason line: a `promotion_blocked` event ("val evidence incomplete — stays
 pooled") and the wave's `pooled` list in RunStatus say so, and it stays
-pooled for a later wave. Code does not refuse a resubmission of a pooled rc
-(`existing_rc_id`), so an rc whose val pass fails each time could come back
-in every wave. At its second holed gate of one run (`HOLED_GATE_LIMIT`),
-code stamps each of its records from those gates `— REJECTED AT VAL` with
-the reason "val incomplete again".
+pooled for a later wave. Every path of the gate emits this event, the
+single-candidate rule included. When `promote_best` picks a holed
+candidate, the gate also refuses it as a winner (`promotion_blocked`
+without `pooled`).
+
+Code does not refuse a resubmission of a pooled rc (`existing_rc_id`), so
+an rc whose val pass fails each time could come back in every wave. At its
+second holed gate of one run (`HOLED_GATE_LIMIT`), code stamps each of its
+records from those gates `— REJECTED AT VAL` with the reason "val
+incomplete again". The gates need not be consecutive. A gate counts only
+when a hole can be the candidate's: a gate where every hole of the
+candidate is on the baseline side (the baseline fill failed, or the
+baseline-side coverage is under the floor) does not count. The bound
+stamps before the decision, so also in a wave with no decision. The wave's
+`rejected_incomplete` list in RunStatus names these rcs.
 
 **There is no rollback, deliberately.** The ordering is the recovery design:
 the baseline record is the authoritative pointer and is written first, so any

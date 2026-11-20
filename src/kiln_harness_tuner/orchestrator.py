@@ -379,8 +379,9 @@ class Ctx:
     # text, for the planner (`schemas.GateBlock`).
     gate_blocks: list[GateBlock] = field(default_factory=list)
     # rc id -> the experiment records of each gate of this run where that
-    # rc's val evidence had holes (`_val_holes`). It bounds the re-gating of
-    # an rc whose val measurement fails each time (`HOLED_GATE_LIMIT`).
+    # rc's val evidence had holes (`_val_holes`) that were not all on the
+    # baseline side. It bounds the re-gating of an rc whose val measurement
+    # fails each time (`HOLED_GATE_LIMIT`).
     holed_gates: dict[str, list[str]] = field(default_factory=dict)
     screening_notes: list[str] = field(default_factory=list)
     screen_rounds_this_wave: int = 0
@@ -1430,7 +1431,9 @@ async def _run_promotion_gate(
     ctx: Ctx, candidates: list[GateCandidate], record: MemoryRecord
 ) -> PromotionDecision | None:
     baseline = BaselineRef(rc_id=ctx.memory.baseline_rc_id(record))
-    tables = await _assemble_val_tables(ctx, candidates, baseline.rc_id)
+    tables, baseline_side_holes = await _assemble_val_tables(
+        ctx, candidates, baseline.rc_id
+    )
     # The fill and coverage holes. Read here, before the integrity checks,
     # because a quote block also sets `ineligible`, and a block is a
     # verdict, not a hole.
@@ -1448,7 +1451,14 @@ async def _run_promotion_gate(
     # or cost pass) block without a verdict: those candidates stay pooled.
     # Only a candidate judged on complete evidence is rejected.
     holed = _val_holes(ctx, tables, fill_holed)
-    await _bound_holed_gates(ctx, candidates, holed, baseline.rc_id)
+    # A hole that is only on the baseline side is not the candidate's: it
+    # does not count against the candidate's bound.
+    bounded = await _bound_holed_gates(
+        ctx, candidates, holed - baseline_side_holes, baseline.rc_id
+    )
+    # Every other holed candidate stays pooled, whatever path the gate takes
+    # below. Each path leaves the holed candidates unstamped.
+    _emit_pooled(ctx, holed - bounded)
     # Under --objective quality the gate times nothing. Each
     # row's passive `latency` and `cost` (the stored eval runs) show the
     # speed and the cost. There is no per-request ceiling.
@@ -1506,6 +1516,10 @@ async def _run_promotion_gate(
             decision=decision,
             skipped=tables[0].skipped,
         )
+        if decision is None and tables[0].rc_id in holed:
+            # Not a refused winner: its val evidence has holes. The pooled
+            # event, or the bound's rejection, already says so.
+            return None
         if decision is None and (tables[0].ineligible or not tables[0].per_eval):
             reasons = [e.detail for e in tables[0].errors]
             ctx.log.event(
@@ -1601,7 +1615,10 @@ async def _run_promotion_gate(
         # change which config ships, in both
         # directions. No promotion, no rejection stamps: the candidates'
         # wins stay pooled and a later wave (with a `remeasure` top-up) can
-        # re-nominate on complete evidence.
+        # re-nominate on complete evidence. A holed winner also has its
+        # pooled event (`_emit_pooled`). This event stays: the `promotion`
+        # event above named it the winner, and this one says that the gate
+        # refused it.
         reasons = [e.detail for e in winner_table.errors]
         ctx.log.event(
             "promotion_blocked",
@@ -2278,7 +2295,7 @@ def decide_single_candidate(
 
 async def _assemble_val_tables(
     ctx: Ctx, candidates: list[GateCandidate], baseline_rc_id: str
-) -> list[CandidateValTable]:
+) -> tuple[list[CandidateValTable], set[str]]:
     """(code) Full val pass per candidate rc — every active eval, split=val —
     plus the current baseline's val fill (both cached). This is the
     ONLY place the loop reads val: it runs after the analyzer, so no
@@ -2298,10 +2315,20 @@ async def _assemble_val_tables(
     hole lands on the candidate's `errors`, and any active eval whose
     fill failed (either side) or whose stored coverage sits below
     `ctx.coverage_floor` marks the candidate `ineligible` — enforced by
-    `_run_promotion_gate` regardless of the agent's decision."""
+    `_run_promotion_gate` regardless of the agent's decision.
+
+    Returns the tables, and the rc ids whose holes are all on the baseline
+    side (`_bound_holed_gates` does not count those). Per eval, a hole is on
+    the candidate side when the candidate fill failed, the comparison
+    failed, or the candidate-side coverage is under the floor. A pair hole
+    (a score with nothing to pair, a paired coverage under the floor) goes
+    to the baseline side only when the baseline-side coverage of that eval
+    is under the floor and the candidate side is not. Else the two sides
+    cannot be told apart, and the hole counts as the candidate's."""
     rows_by_rc: dict[str, list] = {o.rc_id: [] for o in candidates}
     errors_by_rc: dict[str, list[ErrorInfo]] = {o.rc_id: [] for o in candidates}
     ineligible: dict[str, bool] = {o.rc_id: False for o in candidates}
+    candidate_side: dict[str, bool] = {o.rc_id: False for o in candidates}
     gate_evals: list[tuple[str, str, list[ScoreSpec]]] = []
     # Gate isolation: an eval the gate cannot compare is SKIPPED
     # with its reason on every candidate's table, never a crash — a crash
@@ -2447,6 +2474,7 @@ async def _assemble_val_tables(
                 _fill_hole(
                     outcome.rc_id, eval_id, "candidate", (eval_id, outcome.rc_id)
                 )
+                candidate_side[outcome.rc_id] = True
                 continue
             if baseline_fill is None:
                 _fill_hole(
@@ -2480,12 +2508,14 @@ async def _assemble_val_tables(
                     )
                 )
                 ineligible[outcome.rc_id] = True
+                candidate_side[outcome.rc_id] = True
                 continue
             rows_by_rc[outcome.rc_id].extend(eval_rows)
             _gate_line(outcome.rc_id, k, eval_id, eval_rows)
             # Score pairs with nothing to pair are recorded as holes
             # (`_holes`), not discarded: a shorter table could be read
             # as "no regressions".
+            pair_hole = bool(holes)
             for hole in holes:
                 errors_by_rc[outcome.rc_id].append(hole)
                 ineligible[outcome.rc_id] = True
@@ -2505,6 +2535,8 @@ async def _assemble_val_tables(
                         )
                     )
                     ineligible[outcome.rc_id] = True
+                    pair_hole = True
+            short_sides: set[str] = set()
             for side, side_runs, side_health, other_runs in (
                 ("candidate", candidate_runs, candidate_health, baseline_runs),
                 ("baseline", baseline_runs, baseline_health, candidate_runs),
@@ -2517,6 +2549,7 @@ async def _assemble_val_tables(
                 )
                 if shortfall is not None:
                     stored, total = shortfall
+                    short_sides.add(side)
                     errors_by_rc[outcome.rc_id].append(
                         ErrorInfo(
                             error_class="provider_error",
@@ -2528,6 +2561,10 @@ async def _assemble_val_tables(
                         )
                     )
                     ineligible[outcome.rc_id] = True
+            if "candidate" in short_sides or (
+                pair_hole and "baseline" not in short_sides
+            ):
+                candidate_side[outcome.rc_id] = True
     for o in candidates:
         if ineligible[o.rc_id]:
             reasons = [e.detail for e in errors_by_rc[o.rc_id]]
@@ -2548,7 +2585,7 @@ async def _assemble_val_tables(
             row.evidence_spend_usd for rows in rows_by_rc.values() for row in rows
         ),
     )
-    return [
+    tables = [
         CandidateValTable(
             rc_id=o.rc_id,
             experiment_memory_id=o.experiment_memory_id,
@@ -2559,6 +2596,12 @@ async def _assemble_val_tables(
         )
         for o in candidates
     ]
+    baseline_side_only = {
+        o.rc_id
+        for o in candidates
+        if ineligible[o.rc_id] and not candidate_side[o.rc_id]
+    }
+    return tables, baseline_side_only
 
 
 def _coverage_shortfall(
@@ -3531,24 +3574,37 @@ def _val_holes(
 async def _bound_holed_gates(
     ctx: Ctx,
     candidates: list[GateCandidate],
-    holed: set[str],
+    counted: set[str],
     baseline_rc_id: str,
-) -> None:
-    """Count this gate against each holed candidate's rc. At the
-    `HOLED_GATE_LIMIT`-th holed gate of the run, reject the rc: stamp each
+) -> set[str]:
+    """Count this gate against each candidate in `counted`: the holed
+    candidates, less those whose holes are all on the baseline side. At the
+    `HOLED_GATE_LIMIT`-th counted gate of the run, reject the rc: stamp each
     of its experiment records from those gates `— REJECTED AT VAL`, with the
-    `val incomplete` reason. Called once per gate, before the decision, so
-    every path of the gate applies the bound. A holed rc under the limit
-    stays pooled (`_record_rejections`)."""
+    `val incomplete` reason. After the limit (a rejected rc that comes back),
+    stamp only the record of this gate: the earlier ones carry the stamp.
+    The counted gates need not be consecutive: a complete gate between two
+    holed ones does not reset the count.
+
+    Called once per gate, before the decision, so every path of the gate
+    applies the bound. Returns the rc ids it rejected at this gate. The
+    other holed candidates stay pooled (`_emit_pooled`)."""
     reason = ValRejection(ValRejectionKind.VAL_INCOMPLETE)
+    rejected: set[str] = set()
     for candidate in candidates:
-        if candidate.rc_id not in holed:
+        if candidate.rc_id not in counted:
             continue
         records = ctx.holed_gates.setdefault(candidate.rc_id, [])
         records.append(candidate.experiment_memory_id)
         if len(records) < HOLED_GATE_LIMIT:
             continue
-        for exp_mem_id in dict.fromkeys(records):
+        rejected.add(candidate.rc_id)
+        to_stamp = (
+            records
+            if len(records) == HOLED_GATE_LIMIT
+            else [candidate.experiment_memory_id]
+        )
+        for exp_mem_id in dict.fromkeys(to_stamp):
             await _write_rejection(
                 ctx,
                 GateCandidate(
@@ -3559,10 +3615,21 @@ async def _bound_holed_gates(
                 baseline_rc_id,
                 reason,
             )
+    return rejected
 
 
-def _holes_exhausted(ctx: Ctx, rc_id: str) -> bool:
-    return len(ctx.holed_gates.get(rc_id, ())) >= HOLED_GATE_LIMIT
+def _emit_pooled(ctx: Ctx, pooled: set[str]) -> None:
+    """One `promotion_blocked` event with `pooled=True` for each candidate
+    whose val evidence has holes and that the bound did not reject. The gate
+    did not judge it: it gets no stamp, and it stays pooled for a later
+    wave. RunStatus lists it in the wave's `pooled`."""
+    for rc_id in sorted(pooled):
+        ctx.log.event(
+            "promotion_blocked",
+            winner_rc_id=rc_id,
+            reasons=[POOLED_REASON],
+            pooled=True,
+        )
 
 
 async def _write_rejection(
@@ -3604,10 +3671,10 @@ async def _record_rejections(
     and get nothing.
 
     `holed` (`_val_holes`): the candidates whose val evidence is incomplete.
-    The decision did not judge them, so they get no stamp and no note: each
-    gets a `promotion_blocked` event and stays pooled for a later wave. At
-    its `HOLED_GATE_LIMIT`-th holed gate an rc is rejected instead, by
-    `_bound_holed_gates`, which already wrote its stamp.
+    The decision did not judge them, so they get no stamp, no note and no
+    HELD stamp here. The gate already emitted their pooled event
+    (`_emit_pooled`), or the bound already wrote their rejection
+    (`_bound_holed_gates`).
 
     The note carries one code-chosen, metric-free reason
     (`_rejection_reason`). It goes on the candidate's record only: with no
@@ -3629,13 +3696,6 @@ async def _record_rejections(
         if outcome.rc_id == decision.winner_rc_id or outcome.rc_id in blocked:
             continue
         if outcome.rc_id in holed:
-            if not _holes_exhausted(ctx, outcome.rc_id):
-                ctx.log.event(
-                    "promotion_blocked",
-                    winner_rc_id=outcome.rc_id,
-                    reasons=[POOLED_REASON],
-                    pooled=True,
-                )
             continue
         exp_mem_id = outcome.experiment_memory_id
         if held_on is not None:

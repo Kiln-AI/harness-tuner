@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from kiln_harness_tuner.memory_schema import ValRejectionKind
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
@@ -411,6 +412,18 @@ class RunStatusTracker:
             ].promotion_skipped = (
                 f"blocked: winner {winner_rc_id} ineligible — {summary}"
             )
+
+    def _on_rejection_recorded(
+        self, rc_id: object = None, reason: object = None, **_: object
+    ) -> None:
+        # Only the bound's rejection: the other reasons follow from the
+        # wave's `promotion` decision. The bound stamps whatever path the
+        # gate takes, also when the gate makes no decision.
+        if reason != str(ValRejectionKind.VAL_INCOMPLETE) or not self._status.waves:
+            return
+        rejected = self._status.waves[-1].rejected_incomplete
+        if str(rc_id) not in rejected:
+            rejected.append(str(rc_id))
 
     def _on_gate_block(
         self,

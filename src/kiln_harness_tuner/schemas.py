@@ -2140,6 +2140,11 @@ class WaveStatus(BaseModel):
     # coverage under the floor, an incomplete speed or cost pass): neither
     # promoted nor rejected, they stay pooled. Never a rejection.
     pooled: list[str] = []
+    # The rc ids that code rejected at this gate because their val evidence
+    # had holes at `HOLED_GATE_LIMIT` gates of the run (the `val incomplete`
+    # reason). Code stamps them `— REJECTED AT VAL` before the decision, so
+    # also in a wave with `promotion_skipped` or with no decision.
+    rejected_incomplete: list[str] = []
 
 
 class RunStatus(BaseModel):

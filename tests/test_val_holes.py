@@ -8,7 +8,7 @@ run is rejected, so that it cannot come back to the gate in every wave."""
 from __future__ import annotations
 
 from conftest import fix_item, make_ctx, make_plan, make_result
-from fake_dispatcher import ok
+from fake_dispatcher import infra, ok
 from test_orchestrator import (
     decision,
     rc_ok,
@@ -81,6 +81,22 @@ def _pooled_events(ctx) -> list[str]:
         for k, f in ctx.log.events
         if k == "promotion_blocked" and f.get("pooled")
     ]
+
+
+def _refusals(ctx) -> list[str]:
+    """The `promotion_blocked` events without `pooled`: a refused winner."""
+    return [
+        f["winner_rc_id"]
+        for k, f in ctx.log.events
+        if k == "promotion_blocked" and not f.get("pooled")
+    ]
+
+
+def _status(ctx):
+    tracker = RunStatusTracker(project_id="p", task_id="t", guidance="g")
+    for kind, fields in ctx.log.events:
+        tracker.event(kind, **fields)
+    return tracker.snapshot()
 
 
 async def test_no_winner_stamps_only_the_candidate_with_complete_evidence():
@@ -189,6 +205,216 @@ async def test_a_single_holed_candidate_is_pooled_then_rejected_at_the_bound():
         assert record["overview"].endswith(STAMP)
         assert "val incomplete again" in record["content"]
     assert ctx.holed_gates == {"rc_cand": records}
+    # RunStatus: pooled at the first gate, rejected at the second. Never a
+    # refused winner.
+    assert _pooled_events(ctx) == ["rc_cand"]
+    assert _refusals(ctx) == []
+    status = _status(ctx)
+    first, second = status.waves
+    assert (first.pooled, first.rejected_incomplete) == (["rc_cand"], [])
+    assert (second.pooled, second.rejected_incomplete) == ([], ["rc_cand"])
+    assert first.promotion_skipped is None and second.promotion_skipped is None
+    text = render_fallback_report(status)
+    assert "rejected, val evidence incomplete at repeated gates: rc_cand" in text
+
+
+async def test_a_third_holed_gate_stamps_only_its_own_record():
+    # A rejected rc that comes back again: the earlier records carry the
+    # stamp already, so only the new record is written and logged.
+    ctx = make_ctx(gate_agent="auto")
+    kiln = ctx.kiln
+    seed_baseline(kiln)
+    seed_active_eval(kiln)
+    seed_issue(kiln)
+    seed_train(kiln, "rc_cand")
+    seed_val(kiln, "rc_base")
+    _always_fails(kiln, "rc_cand")
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(fix_item("w1-1"))),
+        ok(make_plan(_resubmit("w2-1", "rc_cand"))),
+        ok(make_plan(_resubmit("w3-1", "rc_cand"))),
+        ok(make_plan(loop_exit="done")),
+    )
+    d.queue("create_experiment_rc", rc_ok("rc_cand"))
+    d.queue("analyze_experiment_results", *([ok(make_result())] * 3))
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    records = [
+        f["outcome"].experiment_memory_id
+        for k, f in ctx.log.events
+        if k == "item_outcome"
+    ]
+    assert len(set(records)) == 3
+    recorded = [f["exp_mem_id"] for k, f in ctx.log.events if k == "rejection_recorded"]
+    # Gate 2 stamps the records of gates 1 and 2; gate 3 stamps its own.
+    assert sorted(recorded) == sorted(records)
+    assert all(kiln.memories[m]["overview"].endswith(STAMP) for m in records)
+    assert _status(ctx).waves[2].rejected_incomplete == ["rc_cand"]
+
+
+async def test_a_baseline_side_fill_failure_does_not_count_against_the_bound():
+    # The baseline's val fill fails at every gate. The candidate's own val
+    # runs are complete: the holes are not its own, so the bound does not
+    # reject it. It stays pooled at each gate.
+    ctx = make_ctx(gate_agent="auto")
+    kiln = ctx.kiln
+    seed_baseline(kiln)
+    seed_active_eval(kiln)
+    seed_issue(kiln)
+    seed_train(kiln, "rc_cand")
+    seed_val(kiln, "rc_cand")
+    _always_fails(kiln, "rc_base")
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(make_plan(fix_item("w1-1"))),
+        ok(make_plan(_resubmit("w2-1", "rc_cand"))),
+        ok(make_plan(loop_exit="done")),
+    )
+    d.queue("create_experiment_rc", rc_ok("rc_cand"))
+    d.queue("analyze_experiment_results", ok(make_result()), ok(make_result()))
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    assert ctx.holed_gates == {}
+    assert not [k for k, _ in ctx.log.events if k == "rejection_recorded"]
+    assert not any(STAMP in m["overview"] for m in kiln.memories.values())
+    assert _pooled_events(ctx) == ["rc_cand", "rc_cand"]
+
+
+# ---- the other gate paths ----
+
+
+async def test_a_refused_holed_winner_and_the_other_holed_candidates_stay_pooled():
+    # `promote_best` picks a candidate whose val fill failed. The gate
+    # refuses it and returns before the rejections. Every holed candidate
+    # still gets its pooled event, and nothing is stamped.
+    ctx = make_ctx()
+    _scenario(ctx, 3, holed=("rc_w1-2", "rc_w1-3"))
+    ctx.dispatch.queue("promote_best", decision("rc_w1-2"))
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    assert ctx.kiln.memories["mem_baseline"]["tags"] == ["baseline", "rc_rc_base"]
+    assert _pooled_events(ctx) == ["rc_w1-2", "rc_w1-3"]
+    assert _refusals(ctx) == ["rc_w1-2"]
+    assert not any(_stamped(ctx, rc) for rc in ("rc_w1-1", "rc_w1-2", "rc_w1-3"))
+    (wave,) = _status(ctx).waves
+    assert wave.pooled == ["rc_w1-2", "rc_w1-3"]
+
+
+async def test_a_held_gate_does_not_hold_a_holed_candidate():
+    # The gate escalates on an OPEN constraint. The judged candidate is
+    # HELD. The holed one was not judged: no HELD stamp, it stays pooled.
+    ctx = make_ctx()
+    _scenario(ctx, 2, holed=("rc_w1-2",))
+    ctx.dispatch.queue(
+        "promote_best",
+        decision(
+            None, rationale="blocked on OPEN 424242093572", blocked_on="424242093572"
+        ),
+    )
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    held = ctx.kiln.memories[_exp_mem(ctx, "rc_w1-1")]
+    assert held["overview"].endswith(" — HELD (constraint 424242093572) 07-22")
+    holed = ctx.kiln.memories[_exp_mem(ctx, "rc_w1-2")]
+    assert "HELD" not in holed["overview"]
+    assert "held at the val gate" not in (holed["content"] or "")
+    holds = [f["rc_id"] for k, f in ctx.log.events if k == "hold_recorded"]
+    assert holds == ["rc_w1-1"]
+    assert _pooled_events(ctx) == ["rc_w1-2"]
+    assert not [k for k, _ in ctx.log.events if k == "rejection_recorded"]
+
+
+def _two_gates(ctx, second_gate) -> None:
+    """Two waves of two candidates, through `promote_best`. The val fill of
+    rc_x fails each time. Wave 1: rc_x and rc_y. Wave 2: rc_x again (an
+    unchanged resubmission) and rc_z. `second_gate`: the second answer of
+    `promote_best`."""
+    kiln = ctx.kiln
+    seed_baseline(kiln)
+    seed_active_eval(kiln)
+    for issue in ("issue_1", "issue_2", "issue_3"):
+        seed_issue(kiln, issue)
+    for rc in ("rc_x", "rc_y", "rc_z"):
+        seed_train(kiln, rc)
+    seed_val(kiln, "rc_base", "rc_y", "rc_z")
+    _always_fails(kiln, "rc_x")
+    built = {"w1-1": "rc_x", "w1-2": "rc_y", "w2-2": "rc_z"}
+    d = ctx.dispatch
+    d.queue(
+        "batch_plan",
+        ok(
+            make_plan(
+                fix_item("w1-1", issue_memory_id="issue_1"),
+                fix_item("w1-2", issue_memory_id="issue_2"),
+            )
+        ),
+        ok(
+            make_plan(
+                _resubmit("w2-1", "rc_x"),
+                fix_item("w2-2", issue_memory_id="issue_3"),
+            )
+        ),
+        ok(make_plan(loop_exit="done")),
+    )
+    d.queue(
+        "create_experiment_rc",
+        *([lambda req: rc_ok(built[req.item.id])] * 3),
+    )
+    d.queue("analyze_experiment_results", *([ok(make_result())] * 4))
+    d.queue("promote_best", decision(None, rationale="no winner"), *second_gate)
+
+
+async def test_the_bound_on_the_promote_best_path():
+    ctx = make_ctx()
+    _two_gates(ctx, [decision(None, rationale="no winner")])
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    recorded = [
+        (f["rc_id"], f["reason"])
+        for k, f in ctx.log.events
+        if k == "rejection_recorded"
+    ]
+    assert sorted(recorded) == sorted(
+        [
+            ("rc_y", "no gain"),
+            ("rc_x", "val incomplete"),
+            ("rc_x", "val incomplete"),
+            ("rc_z", "no gain"),
+        ]
+    )
+    assert _pooled_events(ctx) == ["rc_x"]
+    first, second = _status(ctx).waves
+    assert (first.pooled, first.rejected_incomplete) == (["rc_x"], [])
+    assert (second.pooled, second.rejected_incomplete) == ([], ["rc_x"])
+
+
+async def test_the_bound_stamps_on_a_promote_best_hard_fail():
+    # `promote_best` fails at the second gate: the gate stamps no decision.
+    # The bound stamped rc_x before the decision, and RunStatus says so next
+    # to the skipped promotion.
+    ctx = make_ctx()
+    _two_gates(ctx, [infra("provider_error")] * 5)
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    assert _stamped(ctx, "rc_y")
+    assert not _stamped(ctx, "rc_z")
+    for mem_id in ctx.holed_gates["rc_x"]:
+        assert ctx.kiln.memories[mem_id]["overview"].endswith(STAMP)
+    second = _status(ctx).waves[1]
+    assert second.promotion_skipped
+    assert second.rejected_incomplete == ["rc_x"]
+    assert second.pooled == []
+    text = render_fallback_report(_status(ctx))
+    assert "rejected, val evidence incomplete at repeated gates: rc_x" in text
 
 
 async def test_one_holed_gate_is_under_the_bound():
@@ -211,23 +437,31 @@ async def test_one_holed_gate_is_under_the_bound():
 
     assert not [k for k, _ in ctx.log.events if k == "rejection_recorded"]
     assert not any(STAMP in m["overview"] for m in kiln.memories.values())
+    # The single-candidate rule's path also says "pooled", and it does not
+    # report the candidate as a refused winner.
+    assert _pooled_events(ctx) == ["rc_cand"]
+    assert _refusals(ctx) == []
+    (wave,) = _status(ctx).waves
+    assert wave.pooled == ["rc_cand"]
+    assert wave.promotion_skipped is None
+    assert wave.rejected_incomplete == []
 
 
 # ---- the speed and cost objective ----
 
 
 def _paired(ratio: float, *, incomplete: bool = False) -> LatencyComparison:
+    """A paired pass of 12 items. `incomplete`: the pass planned 30, and 12
+    pairs are under the floor, so `compare_latencies` gives no verdict."""
     base = {f"i{k}": 1000.0 + k for k in range(12)}
     comparison = compare_latencies(
         base,
         {k: v * ratio for k, v in base.items()},
         method="paired_drive",
         split="val",
+        planned=30 if incomplete else None,
     )
-    if incomplete:
-        comparison = comparison.model_copy(
-            update={"incomplete": True, "clearly_faster": False, "planned_items": 30}
-        )
+    assert comparison.incomplete is incomplete
     return comparison
 
 

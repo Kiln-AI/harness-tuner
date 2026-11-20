@@ -122,8 +122,11 @@ going looking.
   — report it: the candidates' wins stayed pooled), `pooled` (the rc ids
   whose val evidence had holes — a failed fill, coverage under the floor,
   an incomplete speed or cost pass: the gate did not judge them, so they
-  are neither promoted nor rejected, and they stay pooled), `tripwire`
-  (aborted wave, infra class).
+  are neither promoted nor rejected, and they stay pooled),
+  `rejected_incomplete` (the rc ids that code rejected at this gate because
+  their val evidence had holes at repeated gates of the run: each is
+  stamped `— REJECTED AT VAL`, also in a wave with `promotion_skipped` or
+  with no decision), `tripwire` (aborted wave, infra class).
 - `items[]`: `item_id`/`kind` (`fix` / `merge` / `eval` = build a new eval /
   `measure` = run an existing eval against the baseline to settle an
   `UNMEASURED:` issue)/`label`, `outcome` (`status`:
@@ -204,9 +207,12 @@ eval out.>
 baseline lineage old → new. If nothing promoted, say what pooled instead —
 and when the gate returned a decision, every candidate it passed over is
 stamped `— REJECTED AT VAL`, so that rc returns only inside a different
-combination, never re-run as-is (a `promotion_skipped` wave stamps nothing:
-those wins are freely re-nominatable; nor does a candidate in a wave's
-`pooled`: its val evidence had holes, so it was not judged).>
+combination, never re-run as-is. In a `promotion_skipped` wave, the gate
+stamps no candidate: those wins are freely re-nominatable. A candidate in a
+wave's `pooled` is not stamped either: its val evidence had holes, so it
+was not judged. The exception is a wave's `rejected_incomplete`: code
+stamped those rcs `— REJECTED AT VAL` whatever the gate decided, also in a
+`promotion_skipped` wave, so they are not re-nominatable as-is.>
 
 ## Promotions
 <per promotion: winner rc, its experiment, the rationale/val summary,

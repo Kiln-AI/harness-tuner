@@ -1060,11 +1060,16 @@ The reason is one of:
 - `a gain at val, not clear: a targeted eval improved, but not beyond
   doubt.` — the val split can be too small to confirm a real gain.
 - `val incomplete again: its val measurement had holes at repeated gates
-  of one run, so it was never judged on its numbers.` — the val pass failed
-  for this rc each time (a provider error, coverage under the floor, an
-  incomplete speed or cost pass). It says nothing about the change. It
-  stays an eligible ingredient; before you build on it, find out why its
-  val runs fail.
+  of one run, so it was never judged on its numbers.` — the val runs of
+  this rc had errors or too few results at each gate. The gate has no
+  verdict on its numbers. The cause can be outside the change (a provider
+  error), or in it (a tool that fails on some inputs, a model with a
+  smaller context window or output limit). Look for a cause in the change
+  with train data only: read the rc's train results
+  (`get_train_results`) for runs with errors or a `skipped_reason`, and
+  compare the `context_window` and `max_output_tokens` of its model with
+  the baseline's (`get_model_details`). When you find a cause, fix it in a
+  new arm. When you find none, the win stays an eligible ingredient.
 - `not promoted at val; details in the run report.` — code could not tell
   the reason.
 

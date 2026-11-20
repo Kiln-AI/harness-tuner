@@ -212,7 +212,8 @@ flowchart TD
       block line instead. A candidate whose val evidence has holes (a failed
       fill, coverage under the floor, an incomplete speed or cost pass) is
       not judged: it gets no stamp and stays pooled. At its second holed
-      gate of one run, code rejects it.
+      gate of one run, code rejects it. A gate where every hole is on the
+      baseline side does not count.
 6. **The next wave** starts from the baseline, which can now be new. A new
    baseline gets its own smell step.
 

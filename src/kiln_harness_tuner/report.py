@@ -1084,6 +1084,11 @@ def render_fallback_report(status: RunStatus) -> str:
                 "- not judged, val evidence incomplete (stays pooled): "
                 + ", ".join(wave.pooled)
             )
+        if wave.rejected_incomplete:
+            lines.append(
+                "- rejected, val evidence incomplete at repeated gates: "
+                + ", ".join(wave.rejected_incomplete)
+            )
         if wave.tripwire:
             lines.append(f"- tripwire: {wave.tripwire}")
     return "\n".join(lines) + "\n"
