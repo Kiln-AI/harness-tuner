@@ -10,6 +10,7 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,9 +30,11 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     PreflightError,
     SubprocessResult,
     claude_config_dir,
+    claude_md_excludes,
     user_model_access_settings,
     with_user_model_access,
 )
+from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
 from kiln_harness_tuner.paths import StatePaths
 from kiln_harness_tuner.schemas import (
     AnalysisBundle,
@@ -1005,11 +1008,15 @@ class TestCliArgv:
         assert "Edit" not in tools
 
 
-def render_into(tmp_path: Path, target: TargetBlock) -> None:
+def render_into(tmp_path: Path, target: TargetBlock, **kwargs: Any) -> None:
     """A real run's render, into `tmp_path / "run"`."""
     state = StatePaths(tmp_path / "state")
     render_run_configs(
-        tmp_path / "run", target, state=state, agents_dir=state.agents / "claude"
+        tmp_path / "run",
+        target,
+        state=state,
+        agents_dir=state.agents / "claude",
+        **kwargs,
     )
 
 
@@ -2424,6 +2431,33 @@ class TestTheUsersOwnSetup:
             assert "Bash" not in settings["permissions"]["allow"]
             assert settings["hooks"]["PreToolUse"]
 
+    def test_every_rendered_settings_file_is_the_owners_only(
+        self, tmp_path, agent_cli_homes
+    ):
+        """The copied `env` can hold a key, so no other user reads the
+        files. The read fence rewrites them before each session: the mode
+        stays."""
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        render_into(tmp_path, TARGET)
+        run_dir = tmp_path / "run"
+        files = sorted(run_dir.glob("settings*.json"))
+        (run_dir / "new-entry.txt").write_text("")
+        assert refresh_run_dir_denials(run_dir, files)
+        for path in files:
+            assert path.stat().st_mode & 0o777 == 0o600, path.name
+            assert "Read(//" in path.read_text()
+
+    @pytest.mark.parametrize("kind", ["codex", "opencode"])
+    def test_another_agent_cli_carries_nothing(self, tmp_path, agent_cli_homes, kind):
+        """Codex and OpenCode read no Claude Code settings file, so the
+        user's Claude Code keys are not copied to disk for them."""
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        render_into(tmp_path, TARGET, agent_cli_kind=kind)
+        for path in sorted((tmp_path / "run").glob("settings*.json")):
+            settings = json.loads(path.read_text())
+            for key in USER_MODEL_ACCESS_KEYS:
+                assert key not in settings, (path.name, key)
+
     def test_no_user_settings_renders_as_before(self, tmp_path):
         render_into(tmp_path, TARGET)
         settings = json.loads((tmp_path / "run" / "settings.json").read_text())
@@ -2440,15 +2474,37 @@ class TestTheUsersOwnSetup:
         argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
         path = Path(argv[argv.index("--settings") + 1])
         assert path.parent == tmp_path
-        assert json.loads(path.read_text()) == self.CARRIED
+        check = json.loads(path.read_text())
+        assert check.pop("claudeMdExcludes") == claude_md_excludes(AGENTS_DIR)
+        assert check == self.CARRIED
         assert path.stat().st_mode & 0o777 == 0o600
         assert argv[argv.index("--setting-sources") + 1] == "project"
 
-    def test_the_cli_check_without_user_settings_gets_no_file(self, tmp_path):
+    def test_the_cli_check_without_user_settings_gets_the_excludes(self, tmp_path):
+        """The check reads no memory file that a loop session does not read:
+        a personal `CLAUDE.md` can change its answer."""
         dispatcher, _ = make_dispatcher([])
         argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
-        assert "--settings" not in argv
-        assert list(tmp_path.iterdir()) == []
+        path = Path(argv[argv.index("--settings") + 1])
+        assert json.loads(path.read_text()) == {
+            "claudeMdExcludes": claude_md_excludes(AGENTS_DIR)
+        }
+
+    def test_a_settings_option_does_not_change_the_cli_check(
+        self, tmp_path, agent_cli_homes
+    ):
+        """A `--settings` in `--agent-cli` comes first in a loop session, and
+        the run's settings file comes after it. The check gets the same
+        order, with the same copied keys."""
+        self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
+        dispatcher, _ = make_dispatcher(
+            [], cli_options=["--settings", "/somewhere/own.json"]
+        )
+        argv = dispatcher._cli_check_argv(tmp_path, "cli-check")
+        settings = [argv[i + 1] for i, a in enumerate(argv) if a == "--settings"]
+        assert settings == ["/somewhere/own.json", str(tmp_path / "settings.json")]
+        check = json.loads((tmp_path / "settings.json").read_text())
+        assert check["env"] == self.CARRIED["env"]
 
     def test_a_wired_cli_check_uses_the_runs_settings(self, tmp_path, agent_cli_homes):
         self._write_user_settings(agent_cli_homes / ".claude", self.USER_SETTINGS)
@@ -2474,3 +2530,68 @@ class TestTheUsersOwnSetup:
         (call,) = runner.calls
         path = Path(call.argv[call.argv.index("--settings") + 1])
         assert not path.exists()
+
+
+class TestTheUsersMemoryFiles:
+    """`--setting-sources project` stops the user memory type only. Claude
+    Code also loads the `CLAUDE.md` files and `.claude/rules` of every folder
+    above the working folder as project memory, and the agents folder is
+    under the home folder. The run's settings files name them in
+    `claudeMdExcludes`."""
+
+    def _agents_dir(self, home: Path) -> Path:
+        agents = home / ".kiln_ai" / "harness_tuner" / "agents" / "claude" / "1.0"
+        agents.mkdir(parents=True)
+        return agents
+
+    def test_the_users_claude_folder_is_excluded(self, agent_cli_homes):
+        agents = self._agents_dir(agent_cli_homes)
+        excludes = claude_md_excludes(agents)
+        claude = agent_cli_homes / ".claude"
+        for pattern in (
+            claude / "CLAUDE.md",
+            claude / "rules" / "**",
+            agent_cli_homes / "CLAUDE.md",
+            agent_cli_homes / "CLAUDE.local.md",
+            agent_cli_homes / ".kiln_ai" / "CLAUDE.md",
+            agents.parent / ".claude" / "rules" / "**",
+            Path("/CLAUDE.md"),
+        ):
+            assert str(pattern) in excludes, pattern
+        # The run's own instructions load.
+        for own in (
+            agents / "CLAUDE.md",
+            agents / ".claude" / "CLAUDE.md",
+            agents / ".claude" / "rules" / "**",
+        ):
+            assert str(own) not in excludes, own
+
+    def test_claude_config_dir_is_excluded_too(
+        self, tmp_path, agent_cli_homes, monkeypatch
+    ):
+        moved = tmp_path / "claude-config"
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(moved))
+        excludes = claude_md_excludes(self._agents_dir(agent_cli_homes))
+        for config in (moved, agent_cli_homes / ".claude"):
+            assert str(config / "CLAUDE.md") in excludes
+            assert str(config / "rules" / "**") in excludes
+
+    def test_a_linked_agents_folder_is_excluded_by_both_paths(
+        self, tmp_path, agent_cli_homes
+    ):
+        agents = self._agents_dir(agent_cli_homes)
+        link = tmp_path / "linked"
+        link.symlink_to(agents.parent, target_is_directory=True)
+        excludes = claude_md_excludes(link / agents.name)
+        assert str(tmp_path / "CLAUDE.md") in excludes
+        assert str(agent_cli_homes / ".kiln_ai" / "CLAUDE.md") in excludes
+        assert len(excludes) == len(set(excludes))
+
+    def test_every_rendered_settings_file_names_them(self, tmp_path):
+        render_into(tmp_path, TARGET)
+        agents = StatePaths(tmp_path / "state").agents / "claude"
+        expected = claude_md_excludes(agents)
+        assert str(Path.home() / ".claude" / "CLAUDE.md") in expected
+        for path in sorted((tmp_path / "run").glob("settings*.json")):
+            settings = json.loads(path.read_text())
+            assert settings["claudeMdExcludes"] == expected, path.name

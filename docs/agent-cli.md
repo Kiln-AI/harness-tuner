@@ -251,19 +251,41 @@ worth, so the decision is informed.
 - **Not your own Claude Code setup.** Every session runs with
   `--setting-sources project`. It loads the agents folder's skills and
   `CLAUDE.md`, and Claude Code's built-in skills. It does not load your
-  skills (`~/.claude/skills`), your plugins, or your `~/.claude/settings.json`
-  with its permissions and hooks. The run's `--settings` file and managed
-  settings still load. Your model-access settings are copied from your
-  `settings.json` (in `CLAUDE_CONFIG_DIR` when it is set) into every settings
-  file of the run: `env` (for example `CLAUDE_CODE_USE_BEDROCK`,
-  `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`), `apiKeyHelper`, `awsAuthRefresh`,
+  skills (`~/.claude/skills`), your plugins, or your `~/.claude/settings.json`.
+  So your permission rules, your `permissions.defaultMode`, your hooks and
+  your `sandbox` settings do not reach a loop session either. A session runs
+  in the default permission mode. If you want another mode, for example
+  `auto`, put `--permission-mode` in the `--agent-cli` options. The run's
+  `--settings` file and managed settings still load.
+
+  Claude Code also goes up from the working folder to `/`, and loads each
+  `CLAUDE.md`, `.claude/CLAUDE.md` and `.claude/rules/*.md` on the way as
+  project memory. `--setting-sources project` does not stop that, and the
+  agents folder is usually under your home folder. So every settings file
+  of the run names these files in `claudeMdExcludes`: those of every folder
+  above the agents folder, and the `CLAUDE.md` and `rules/` of your Claude
+  Code folder (`~/.claude`, and also `CLAUDE_CONFIG_DIR` when it is set)
+  (`claude_cli.claude_md_excludes`). Your own `CLAUDE.md` and rules do not
+  load. The agents folder's `CLAUDE.md` loads.
+
+  Your model-access settings are copied from your `settings.json` (in
+  `CLAUDE_CONFIG_DIR` when it is set) into every settings file of a Claude
+  run: `env` (for example `CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`,
+  `ANTHROPIC_MODEL`), `apiKeyHelper`, `awsAuthRefresh`,
   `awsCredentialExport`, `gcpAuthRefresh`, `proxyAuthHelper`,
   `modelOverrides`, `forceLoginMethod` and `forceLoginOrgUUID`
   (`claude_cli.USER_MODEL_ACCESS_KEYS`). A key the run sets itself is kept.
-  The start-up check has no run settings file, so it gets these keys in a
-  temporary file that is deleted after the check. `--bare` is not used,
-  because it changes the sign-in. `--disable-slash-commands` is not used,
-  because it also turns off the run's own skills. Worth: on one machine a
+  A Codex or OpenCode run does not read these files, so nothing is copied
+  for it. `env` is copied as a whole, also a secret in it: see
+  "Environment stripping" below. Each settings file of the run has mode
+  0600, so only you can read it. The files stay in the run folder after the
+  run. Do not share a run folder that holds a key. The start-up check has
+  no run settings file, so it gets these keys and the `claudeMdExcludes`
+  list in a temporary file with mode 0600, which is deleted after the
+  check. When the `--agent-cli` options have a `--settings` file, it comes
+  before the run's file, in the check and in every session. `--bare` is
+  not used, because it changes the sign-in. `--disable-slash-commands` is
+  not used, because it also turns off the run's own skills. Worth: on one machine a
   session listed 236 skills and 9 plugins before, and lists 36 skills and
   Claude Code's 3 built-in plugins after (the 14 skills of the run and
   Claude Code's built-in skills). Four of the run's skill names were also user
@@ -280,6 +302,14 @@ worth, so the decision is informed.
   present, the CLI bills the API instead of the operator's login, and the
   agents' use becomes real API money, which the tuner neither shows in
   dollars nor counts.
+  One exception: the `env` of your Claude Code `settings.json` is copied
+  as it is into the settings files of a Claude run (see "Not your own
+  Claude Code setup" above), and Claude Code gives it to the session and
+  to its Bash commands. A secret-looking name there is not withheld. Some
+  users sign in to their provider through `env`, and a filter would stop
+  their sessions. Your own Claude Code sessions get the same `env`. So an
+  `ANTHROPIC_API_KEY` in that `env` reaches every loop session, and the
+  agents bill the API. To prevent this, remove the key from that `env`.
   `--budget-usd` never counts the agents, for any agent CLI: the loop shows
   their tokens for information ([costs.md](costs.md)).
 - **Per-role model and effort.** Pinned in code so that runs do not differ
@@ -382,7 +412,9 @@ Claude's per-role defaults too.
 **Credentials are the CLI's.** The loop does not take an API key and does not
 manage a sign-in. Secret-looking environment variables are still withheld
 from every session (section 7), so a CLI that reads its key from one needs
-that name in `KILN_HARNESS_TUNER_CHILD_ENV_KEEP`.
+that name in `KILN_HARNESS_TUNER_CHILD_ENV_KEEP`. The exception is the `env`
+of your Claude Code `settings.json`: a Claude run copies it as it is, a
+secret in it too (section 7).
 
 **The start-up check.** Before the run lock and the run directory, `cli.py`
 sends one short prompt through the command, with no tools and no MCP server
@@ -439,7 +471,10 @@ for each user skill file (`codex_cli.disabled_user_skills`). The list is
 made at each spawn. It finds the files as Codex does: in sub-folders, through
 links, and not in hidden folders. It leaves out `.system`, where Codex keeps
 its bundled skills, and every file that resolves into the run's own skills
-folder. A file reached through a link is listed by both of its paths. With
+folder. A file reached through a link is listed by both of its paths. A
+file that does not resolve (a link loop) is skipped, and so is a path that is
+not valid UTF-8, because the TOML value cannot name it. Each path is written
+as a TOML string, with its non-ASCII characters as they are. With
 codex-cli 0.162.1, a session in a folder with one project skill listed 45
 skills before (29 from `~/.agents/skills`, 11 from `~/.codex/skills`, 4
 bundled, 1 project) and 5 after (the 4 bundled skills and the project

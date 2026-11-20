@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -29,12 +30,15 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 )
 from kiln_harness_tuner.dispatch.codex_cli import (
     DISABLED_FEATURES,
+    USER_SKILL_SCAN_DEPTH,
     CodexCliDispatcher,
     codex_install_paths,
     disabled_user_skills,
     permission_profile,
     read_codex_output,
+    toml_string,
     toml_value,
+    user_skill_files,
     user_skill_roots,
 )
 from kiln_harness_tuner.gateway.ops import ROLE_OPS
@@ -357,13 +361,20 @@ def skill(folder: Path) -> Path:
     return path
 
 
+def parse_toml_value(value: str) -> object:
+    """A `codex -c key=<value>` value, read as Codex reads it: TOML."""
+    return tomllib.loads(f"x = {value}")["x"]
+
+
 def disabled_paths(argv: list[str]) -> list[str]:
     """The paths a session's `skills.config` turns off, from its TOML form."""
     value = config_of(argv).get("skills.config")
     if value is None:
         return []
-    assert value.startswith("[{") and '"enabled" = false' in value
-    return [part.split('"', 1)[0] for part in value.split('"path" = "')[1:]]
+    entries = parse_toml_value(value)
+    assert isinstance(entries, list)
+    assert all(entry["enabled"] is False for entry in entries)
+    return [entry["path"] for entry in entries]
 
 
 class TestTheUserSkills:
@@ -450,6 +461,88 @@ class TestTheUserSkills:
         finally:
             locked.chmod(0o755)
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            'a "b"',
+            "with space",
+            "café",
+            "rocket-🚀",
+            "back\\slash",
+            "日本語",
+            'all of "it" café 🚀 \\ here',
+        ],
+    )
+    def test_any_folder_name_round_trips(self, tmp_path, agent_cli_homes, name):
+        """Codex reads the value as TOML. One path it cannot read makes
+        Codex refuse the whole `skills.config`, and every session exits 1."""
+        user = skill(agent_cli_homes / ".agents" / "skills" / name)
+        plain = skill(agent_cli_homes / ".codex" / "skills" / "plain")
+        dispatcher, _ = make(tmp_path, [])
+        assert disabled_paths(dispatcher._argv("batch_plan")) == [
+            str(user),
+            str(plain),
+        ]
+
+    def test_the_scan_stops_at_its_depth(self, tmp_path, agent_cli_homes):
+        root = agent_cli_homes / ".agents" / "skills"
+        deepest = root.joinpath(*[f"d{i}" for i in range(USER_SKILL_SCAN_DEPTH)])
+        found = skill(deepest)
+        skill(deepest / "too-deep")
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        assert user_skill_files([root], own) == [found]
+
+    def test_a_folder_link_cycle_ends(self, tmp_path, agent_cli_homes):
+        root = agent_cli_homes / ".agents" / "skills"
+        real = skill(root / "spec")
+        (real.parent / "again").symlink_to(root, target_is_directory=True)
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        entries = disabled_user_skills(own)
+        paths = [entry["path"] for entry in entries]
+        assert str(real) in paths
+        assert len(paths) == len(set(paths))
+        assert all(Path(p).resolve() == real.resolve() for p in paths)
+
+    def test_a_skill_file_link_loop_is_skipped(self, tmp_path, agent_cli_homes):
+        """A link loop makes `Path.resolve()` raise RuntimeError on Python
+        3.11 and 3.12. The scan skips that file and keeps going."""
+        root = agent_cli_homes / ".agents" / "skills"
+        good = skill(root / "good")
+        looped = root / "looped"
+        looped.mkdir(parents=True)
+        (looped / "SKILL.md").symlink_to(looped / "SKILL.md")
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        # Python 3.13 resolves a loop without an error. The scan must not
+        # fail on any version.
+        assert str(good) in [e["path"] for e in disabled_user_skills(own)]
+
+    def test_a_resolve_error_skips_the_file(
+        self, tmp_path, agent_cli_homes, monkeypatch
+    ):
+        root = agent_cli_homes / ".agents" / "skills"
+        good = skill(root / "good")
+        looped = skill(root / "looped")
+        resolve = Path.resolve
+
+        def failing_resolve(self, strict=False):
+            if self == looped:
+                raise RuntimeError(f"Symlink loop from {self!r}")
+            return resolve(self, strict)
+
+        monkeypatch.setattr(Path, "resolve", failing_resolve)
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        assert disabled_user_skills(own) == [{"path": str(good), "enabled": False}]
+
+    @pytest.mark.skipif(
+        sys.platform != "linux", reason="needs a file system that takes any bytes"
+    )
+    def test_a_path_that_is_not_utf8_is_skipped(self, tmp_path, agent_cli_homes):
+        root = agent_cli_homes / ".agents" / "skills"
+        good = skill(root / "good")
+        skill(root / os.fsdecode(b"bad-\xff"))
+        own = agents_dir(tmp_path) / ".agents" / "skills"
+        assert disabled_user_skills(own) == [{"path": str(good), "enabled": False}]
+
     def test_no_user_skill_no_key(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
         assert "skills.config" not in config_of(dispatcher._argv("batch_plan"))
@@ -471,6 +564,35 @@ class TestTomlValues:
         assert toml_value('a "quoted" path\\x') == '"a \\"quoted\\" path\\\\x"'
         assert toml_value(["a", 1]) == '["a", 1]'
         assert toml_value({"k": {"n": False}}) == '{"k" = {"n" = false}}'
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            'a "quoted" path',
+            "C:\\back\\slashes\\",
+            "with space",
+            "café",
+            "rocket-🚀",
+            "𝄞 outside the BMP",
+            "tab\tnew\nline\rcr\bbs\fff",
+            "nul\x00 unit\x1f del\x7f",
+            "",
+        ],
+    )
+    def test_any_string_round_trips_through_toml(self, text):
+        assert parse_toml_value(toml_string(text)) == text
+        value = toml_value([{"path": text, "enabled": False}])
+        assert parse_toml_value(value) == [{"path": text, "enabled": False}]
+        assert parse_toml_value(toml_value({text: 1})) == {text: 1}
+
+    def test_non_ascii_is_written_as_it_is(self):
+        """Not as a `\\u` escape: the escape of an emoji is a surrogate
+        pair, which TOML refuses."""
+        assert toml_string("rocket-🚀") == '"rocket-🚀"'
+
+    def test_a_lone_surrogate_has_no_toml_form(self):
+        with pytest.raises(ValueError, match="surrogate"):
+            toml_string("bad-\udcff")
 
     def test_the_profile_is_an_allow_list(self, tmp_path):
         profile = permission_profile(tmp_path, writable=True)

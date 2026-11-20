@@ -13,7 +13,10 @@ not the user's, so the user's skills (`~/.claude/skills`), plugins,
 permissions and hooks stay out. The user's model-access settings (`env`,
 `apiKeyHelper` and the others in `USER_MODEL_ACCESS_KEYS`) are copied into the
 run's settings files (`with_user_model_access`), so a session reaches its model
-as the user's own Claude Code does.
+as the user's own Claude Code does. Claude Code still loads each `CLAUDE.md`
+and `.claude/rules` in the folders above the agents folder, `~/.claude`
+included, as project memory. The run's settings files name them in
+`claudeMdExcludes` (`claude_md_excludes`), so they do not load.
 
 Shared plumbing lives in two private helpers (`_run` → `_dispatch`) that each
 public method calls with its concrete types.
@@ -49,7 +52,10 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
+from kiln_harness_tuner.dispatch.run_fence import (
+    refresh_run_dir_denials,
+    write_settings,
+)
 from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
 from kiln_harness_tuner.provider_errors import (
     ProviderQuotaError,
@@ -276,6 +282,39 @@ def with_user_model_access(
     """`settings` with the user's model-access settings added. A key that
     `settings` sets itself is kept as it is."""
     return {**user_model_access_settings(environ), **settings}
+
+
+# The memory files Claude Code loads from one folder as project memory.
+_FOLDER_MEMORY_FILES = (
+    Path("CLAUDE.md"),
+    Path("CLAUDE.local.md"),
+    Path(".claude") / "CLAUDE.md",
+    Path(".claude") / "rules" / "**",
+)
+
+
+def claude_md_excludes(
+    agents_dir: Path, environ: dict[str, str] | None = None
+) -> list[str]:
+    """The `claudeMdExcludes` of a loop session: the memory files that are not
+    the run's own. `--setting-sources project` stops the user memory type
+    only. Claude Code also goes up from the working folder to `/` and loads
+    the `CLAUDE.md` files and `.claude/rules` of each folder on the way as
+    project memory. The agents folder is in the state folder, usually under
+    the home folder, so that walk gets to `~/.claude/CLAUDE.md` and
+    `~/.claude/rules`. So this names the user's Claude Code folder (also when
+    `CLAUDE_CONFIG_DIR` moves it) and the memory files of every folder above
+    the agents folder, by its path as given and by its real path. The agents
+    folder's own `CLAUDE.md` is not in the list."""
+    source = os.environ if environ is None else environ
+    home = Path(source["HOME"]) if source.get("HOME") else Path.home()
+    patterns: list[str] = []
+    for config in (claude_config_dir(environ), home / ".claude"):
+        patterns += [str(config / "CLAUDE.md"), str(config / "rules" / "**")]
+    for form in (agents_dir.absolute(), agents_dir.resolve()):
+        for folder in form.parents:
+            patterns += [str(folder / name) for name in _FOLDER_MEMORY_FILES]
+    return list(dict.fromkeys(patterns))
 
 
 class DispatchTimeoutError(Exception):
@@ -1088,17 +1127,19 @@ class ClaudeCliDispatcher:
     def _cli_check_argv(self, folder: Path, label: str) -> list[str]:
         """The start-up check's command. The check runs before the run
         directory exists, so it has no run settings file. The user's
-        model-access settings then go into a file in `folder`, which the
-        caller deletes: the check reaches the model as the loop sessions do."""
+        model-access settings and the `claudeMdExcludes` of the run's
+        settings then go into a file in `folder`, which the caller deletes:
+        the check reaches the model as the loop sessions do. A `--settings`
+        in the `--agent-cli` options comes before this file, as it comes
+        before the run's own settings file in a loop session."""
         argv = self._argv(CLI_CHECK_ROLE, label=label)
-        if "--settings" in argv:
-            return argv
-        carried = user_model_access_settings()
-        if not carried:
-            return argv
+        if self._settings_path is not None:
+            return argv  # `_argv` gave it the run's settings file
+        check_settings = with_user_model_access(
+            {"claudeMdExcludes": claude_md_excludes(self._agents_dir)}
+        )
         path = folder / "settings.json"
-        path.write_text(json.dumps(carried, indent=2, ensure_ascii=False) + "\n")
-        path.chmod(0o600)
+        write_settings(path, check_settings)
         return [*argv, "--settings", str(path)]
 
     async def check_cli(self, command: str) -> Usage:

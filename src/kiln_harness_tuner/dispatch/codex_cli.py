@@ -113,6 +113,38 @@ MCP_TOOL_TIMEOUT_SECS = 30 * 60
 MCP_STARTUP_TIMEOUT_SECS = 120
 
 
+# The TOML basic-string escapes. Every other control character (U+0000 to
+# U+001F, and U+007F) gets a `\uXXXX` escape.
+_TOML_ESCAPES = {
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\t": "\\t",
+    "\n": "\\n",
+    "\f": "\\f",
+    "\r": "\\r",
+}
+
+
+def toml_string(value: str) -> str:
+    """`value` as a TOML basic string. Characters outside ASCII stay as they
+    are: TOML takes UTF-8 text, and a `\\u` escape of a UTF-16 surrogate
+    pair (what `json.dumps` writes for an emoji) is not valid TOML. Raises
+    ValueError for a lone surrogate, which no TOML text can hold."""
+    out: list[str] = []
+    for char in value:
+        code = ord(char)
+        if char in _TOML_ESCAPES:
+            out.append(_TOML_ESCAPES[char])
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\u{code:04X}")
+        elif 0xD800 <= code <= 0xDFFF:
+            raise ValueError(f"no TOML form for the lone surrogate U+{code:04X}")
+        else:
+            out.append(char)
+    return '"' + "".join(out) + '"'
+
+
 def toml_value(value: Any) -> str:
     """`value` as a TOML inline value, for `codex -c key=<value>`."""
     if isinstance(value, bool):
@@ -120,15 +152,14 @@ def toml_value(value: Any) -> str:
     if isinstance(value, (int, float)):
         return repr(value)
     if isinstance(value, str):
-        # A JSON string is a valid TOML basic string.
-        return json.dumps(value)
+        return toml_string(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(toml_value(v) for v in value) + "]"
     if isinstance(value, dict):
         return (
             "{"
             + ", ".join(
-                f"{json.dumps(str(k))} = {toml_value(v)}" for k, v in value.items()
+                f"{toml_string(str(k))} = {toml_value(v)}" for k, v in value.items()
             )
             + "}"
         )
@@ -208,7 +239,9 @@ def user_skill_files(roots: Sequence[Path], own_skills: Path) -> list[Path]:
     its bundled skills in `.system`). A file that resolves into `own_skills`,
     the run's own skills folder, is left out. A folder the run cannot read is
     skipped: Codex runs as the same user, so it cannot load skills from that
-    folder either."""
+    folder either. A file that does not resolve (a link loop, which raises
+    RuntimeError on Python 3.11 and 3.12) is skipped too, and so is a path
+    that is not valid UTF-8: no TOML text can name it."""
     own = own_skills.resolve()
     found: list[Path] = []
     for root in roots:
@@ -227,7 +260,13 @@ def user_skill_files(roots: Sequence[Path], own_skills: Path) -> list[Path]:
             if depth == 0 or SKILL_FILE not in files:
                 continue
             path = Path(folder) / SKILL_FILE
-            if path.resolve().is_relative_to(own):
+            try:
+                real = path.resolve()
+                str(path).encode("utf-8")
+                str(real).encode("utf-8")
+            except (OSError, RuntimeError, UnicodeEncodeError):
+                continue
+            if real.is_relative_to(own):
                 continue
             found.append(path)
     return found
@@ -242,7 +281,11 @@ def disabled_user_skills(
     entries: list[dict[str, Any]] = []
     seen: set[str] = set()
     for path in user_skill_files(user_skill_roots(environ), own_skills):
-        for form in (str(path), str(path.resolve())):
+        try:
+            real = path.resolve()
+        except (OSError, RuntimeError):
+            continue  # it changed after the scan
+        for form in (str(path), str(real)):
             if form not in seen:
                 seen.add(form)
                 entries.append({"path": form, "enabled": False})
