@@ -562,6 +562,8 @@ class TestMemory:
     }
 
     def test_the_writer_roles_are_known(self):
+        # A tripwire: a new role with a memory write must be added here on
+        # purpose, so that its writes are checked by the tests below.
         assert self.WRITER_ROLES == [
             "analyze_experiment_results",
             "batch_plan",
@@ -607,6 +609,16 @@ class TestMemory:
                 tags=["lesson", "baseline", "rc_424242100099"],
             )
         assert not [c for c in kiln.calls if c[0] == "PATCH"]
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
+
+    @pytest.mark.parametrize("tag", ["val", "baseline"])
+    def test_no_update_adds_a_code_tag(self, tmp_path, tag):
+        # The update path checks the same tags as the create path.
+        gateway, kiln = _gateway(tmp_path, self._update_routes(), role="batch_plan")
+        with pytest.raises(gw.GatewayError, match=f"`{tag}` tag.*loop's code only"):
+            _run(gateway, "memory_update", id="m9", tags=["lesson", tag])
+        assert not [c for c in kiln.calls if c[0] == "PATCH"]
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
 
     @pytest.mark.parametrize(
         "change",

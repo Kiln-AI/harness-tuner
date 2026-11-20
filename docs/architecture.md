@@ -785,9 +785,11 @@ it would be refused. Four rules keep the state readable:
 
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
-only. Lifecycle writes are code's alone by contract: the gateway enforces
-the two scopes, refuses the `val` and `baseline` tags, and refuses any
-update of the `baseline` record. It does not check the record kind.
+only. Lifecycle writes are code's alone by contract: the memory operations
+enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
+any update of the `baseline` record. They do not check the record kind.
+The gateway does not refuse Kiln's own memory tools in a code tool or a
+run config, so this guard covers the memory operations only.
 
 ## 9. The promotion gate
 
