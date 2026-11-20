@@ -775,6 +775,40 @@ def normalize(value: float, spec: ScoreSpec) -> float:
     return 1.0 - scaled if spec.direction == "lower_is_better" else scaled
 
 
+# Each score type's pass line, as a raw value. An item passes when its
+# value is at the line or on the good side of it (`passes`).
+# pass_fail and five_star use the midpoint of the domain.
+# pass_fail_critical uses 0.5, the line the statistics read (`_stats_row`):
+# only 1 passes, and a plain fail (0) is a fail. Its midpoint is 0, and a
+# pass line at 0 counts a plain fail as a pass.
+_PASS_LINES: dict[str, float] = {
+    "pass_fail": 0.5,
+    "pass_fail_critical": 0.5,
+    "five_star": 3.0,
+}
+
+
+def pass_line(spec: ScoreSpec) -> float:
+    """The pass line of a score, normalized (`normalize`): a normalized
+    value at or above it passes. It is 0.5 for pass_fail and five_star in
+    both directions. For pass_fail_critical it is 0.75 (higher_is_better)
+    or 0.25 (lower_is_better).
+
+    An unmapped score type raises, as `normalize` does."""
+    line = _PASS_LINES.get(spec.type)
+    if line is None:
+        raise UnsupportedScoreTypeError(
+            f"score {spec.key} has type {spec.type!r} — no pass line"
+        )
+    return normalize(line, spec)
+
+
+def passes(value: float, spec: ScoreSpec) -> bool:
+    """Does this raw score value (one row, or a mean of replicates) pass?
+    This is the one pass/fail decision of the measurement engine."""
+    return normalize(value, spec) >= pass_line(spec)
+
+
 @dataclass(frozen=True)
 class ReproductionVerdict:
     """Does the baseline actually fail the issue's eval?
@@ -2108,6 +2142,7 @@ class Analyzer:
             scores[item_id] = (
                 normalize(float(value), spec) if value is not None else None
             )
+        line = pass_line(spec)
         if all(v is None for v in scores.values()):
             error = ErrorInfo(
                 error_class="provider_error",
@@ -2123,7 +2158,8 @@ class Analyzer:
             score_key=spec.key,
             target_items=wanted,
             scores=scores,
-            landed=all(v is not None and v >= 0.5 for v in scores.values()),
+            pass_line=line,
+            landed=all(v is not None and v >= line for v in scores.values()),
             spend_usd=self.fresh_runs_cost(
                 run for run in runs if _item_id(run) in set(wanted)
             ),
