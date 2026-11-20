@@ -2136,6 +2136,10 @@ class WaveStatus(BaseModel):
     tripwire: str | None
     promotion_skipped: str | None = None  # a promote_best hard-fail must
     #   be noted in RunStatus/the report
+    # The gate's candidates whose val evidence had holes (a failed fill,
+    # coverage under the floor, an incomplete speed or cost pass): neither
+    # promoted nor rejected, they stay pooled. Never a rejection.
+    pooled: list[str] = []
 
 
 class RunStatus(BaseModel):

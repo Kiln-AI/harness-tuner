@@ -1079,6 +1079,11 @@ def render_fallback_report(status: RunStatus) -> str:
             )
         if wave.promotion_skipped:  # Hard-fail noted in the report
             lines.append(f"- promotion skipped: {wave.promotion_skipped}")
+        if wave.pooled:
+            lines.append(
+                "- not judged, val evidence incomplete (stays pooled): "
+                + ", ".join(wave.pooled)
+            )
         if wave.tripwire:
             lines.append(f"- tripwire: {wave.tripwire}")
     return "\n".join(lines) + "\n"

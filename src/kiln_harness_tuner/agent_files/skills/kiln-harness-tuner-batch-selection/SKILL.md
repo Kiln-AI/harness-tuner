@@ -1059,8 +1059,17 @@ The reason is one of:
   carry to new items. Treat it as a weak ingredient.
 - `a gain at val, not clear: a targeted eval improved, but not beyond
   doubt.` — the val split can be too small to confirm a real gain.
+- `val incomplete again: its val measurement had holes at repeated gates
+  of one run, so it was never judged on its numbers.` — the val pass failed
+  for this rc each time (a provider error, coverage under the floor, an
+  incomplete speed or cost pass). It says nothing about the change. It
+  stays an eligible ingredient; before you build on it, find out why its
+  val runs fail.
 - `not promoted at val; details in the run report.` — code could not tell
   the reason.
+
+A candidate whose val evidence had holes at one gate gets no stamp and no
+line: the gate did not judge it, and it stays pooled.
 
 A record written before these reasons ends `— did not beat it; details in
 the run report.` Its reason is not known. A `— PROMOTED` record with the

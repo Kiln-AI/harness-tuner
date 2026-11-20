@@ -209,7 +209,10 @@ flowchart TD
       candidate won), an eval dropped beyond doubt (named), no gain on the
       target, a gain on the target that is not beyond doubt, or "not promoted
       at val" when code cannot tell. A candidate blocked in step 2 keeps its
-      block line instead.
+      block line instead. A candidate whose val evidence has holes (a failed
+      fill, coverage under the floor, an incomplete speed or cost pass) is
+      not judged: it gets no stamp and stays pooled. At its second holed
+      gate of one run, code rejects it.
 6. **The next wave** starts from the baseline, which can now be new. A new
    baseline gets its own smell step.
 
