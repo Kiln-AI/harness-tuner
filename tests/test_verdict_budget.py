@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fake_kiln import FakeKiln
 from test_dispatch_claude_cli import (
     cli_payload,
@@ -24,7 +25,11 @@ from test_memory import (
 )
 
 from kiln_harness_tuner.dispatch.claude_cli import SHORTEN_TURNS
-from kiln_harness_tuner.memory import verdict_content, verdict_room
+from kiln_harness_tuner.memory import (
+    _fit_verdict_content,
+    verdict_content,
+    verdict_room,
+)
 from kiln_harness_tuner.memory_schema import (
     CONTENT_MAX_CHARS,
     TRUNCATION_MARKER,
@@ -81,7 +86,9 @@ async def test_an_over_cap_verdict_keeps_the_ids_the_table_and_next():
     kiln = FakeKiln()
     mem_id = await _running_record(kiln)
     content = _analyzer_content(2600) + "\n" + "\n".join(CODE_LINES)
-    await make_writer(kiln).record_verdict(mem_id, make_verdict_result(content))
+    await make_writer(kiln).record_verdict(
+        mem_id, make_verdict_result(content), CODE_LINES
+    )
     stored = kiln.memories[mem_id]["content"]
     assert len(stored) <= CONTENT_MAX_CHARS
     assert TRUNCATION_MARKER in stored
@@ -109,21 +116,76 @@ async def test_a_content_within_the_room_is_stored_whole():
     analyzer = _analyzer_content(room - 60)
     assert len(analyzer) <= room
     content = analyzer + "\n" + "\n".join(CODE_LINES)
-    await writer.record_verdict(mem_id, make_verdict_result(content))
+    await writer.record_verdict(mem_id, make_verdict_result(content), CODE_LINES)
     stored = kiln.memories[mem_id]["content"]
     assert TRUNCATION_MARKER not in stored
     assert stored.startswith(analyzer)
 
 
-async def test_the_room_counts_every_carried_line():
+async def test_a_content_one_char_over_the_room_is_clamped():
+    # The room is exact: at the room the record is the cap, one more char
+    # is over it.
     kiln = FakeKiln()
     mem_id = await _running_record(kiln)
     view = _view(kiln.memories[mem_id])
     room = verdict_room(view, CODE_LINES)
-    composed = verdict_content(view, "\n".join(CODE_LINES))
-    assert room == CONTENT_MAX_CHARS - len(composed) - 1
-    for line in ("rc: rc_cand", "issue: issue_1", "technique: prompt"):
-        assert line in composed
+    for length, clamped in ((room, False), (room + 1, True)):
+        analyzer = "z" * length
+        composed = verdict_content(view, analyzer + "\n" + "\n".join(CODE_LINES))
+        assert (len(composed) > CONTENT_MAX_CHARS) is clamped
+
+
+def _record(prose: list[str], code_lines: list[str]) -> str:
+    return "\n".join(
+        [
+            "issue: issue_1",
+            "technique: prompt",
+            "rc: rc_cand",
+            *prose,
+            "next: rerun with n=80 against rc_cand",
+            *code_lines,
+        ]
+    )
+
+
+def test_analyzer_lines_that_look_like_code_lines_are_not_protected():
+    # Only the exact lines code added are kept; an analyzer line that starts
+    # with "latency" or "cost" is prose and drops first.
+    prose = [
+        "| eval_1 | delta=+0.05 n=40 |",
+        *[f"costly retries {i}: " + "c" * 90 for i in range(30)],
+        *[f"latency rose {i}: " + "l" * 90 for i in range(20)],
+    ]
+    text = _record(prose, CODE_LINES)
+    fitted = _fit_verdict_content(text, CODE_LINES)
+    assert len(fitted) <= CONTENT_MAX_CHARS
+    assert "latency rose 19:" not in fitted
+    assert "| eval_1 | delta=+0.05 n=40 |" in fitted
+    for line in [*CODE_LINES, "next: rerun with n=80 against rc_cand"]:
+        assert line in fitted
+
+
+def test_a_long_line_does_not_drop_the_shorter_lines_after_it():
+    prose = [
+        "x" * 3800,
+        "| eval_1 | delta=+0.05 n=40 |",
+        "| eval_2 | delta=-0.01 n=40 |",
+    ]
+    fitted = _fit_verdict_content(_record(prose, CODE_LINES), CODE_LINES)
+    assert "| eval_1 | delta=+0.05 n=40 |" in fitted
+    assert "| eval_2 | delta=-0.01 n=40 |" in fitted
+    assert "x" * 3800 not in fitted
+    assert fitted.count(TRUNCATION_MARKER) == 1
+
+
+def test_too_many_code_lines_still_keep_the_ids_and_next():
+    # Passive latency and cost lines for many evals can fill the cap on
+    # their own; then they lose their protection, and next: stays.
+    code_lines = [f"latency eval_{i} (train): " + "t" * 180 for i in range(24)]
+    fitted = _fit_verdict_content(_record(["prose"], code_lines), code_lines)
+    assert len(fitted) <= CONTENT_MAX_CHARS
+    for line in ("issue: issue_1", "rc: rc_cand", "next: rerun with n=80"):
+        assert line in fitted
 
 
 async def test_the_input_default_is_the_whole_cap():
@@ -228,6 +290,107 @@ async def test_a_bad_shorten_reply_keeps_the_first_content():
     assert result.status == "ok"
     assert result.data.memory_content == "a" * 1200
     assert len(runner.calls) == 2
+
+
+async def test_the_shorten_turns_add_their_usage():
+    dispatcher, _ = make_dispatcher(
+        [
+            ok_proc(
+                cli_payload(
+                    envelope_text(_result("a" * 1200)),
+                    session_id="sess-9",
+                    cost_usd=0.10,
+                )
+            ),
+            ok_proc(
+                cli_payload(
+                    envelope_text(_result("b" * 900)),
+                    session_id="sess-9",
+                    cost_usd=0.13,
+                )
+            ),
+        ]
+    )
+    result = await dispatcher.analyze_experiment_results(_input(1000))
+    # A resumed claude round reports the session's running total.
+    assert result.usage.cost_usd == pytest.approx(0.13)
+    assert result.data.memory_content == "b" * 900
+
+
+async def test_a_quota_error_in_a_shorten_turn_keeps_the_verdict():
+    dispatcher, runner = make_dispatcher(
+        [
+            _reply(_result("a" * 1200)),
+            ok_proc(
+                json.dumps(
+                    {
+                        "is_error": True,
+                        "result": "Claude AI usage limit reached|1757400000",
+                        "session_id": "sess-9",
+                    }
+                )
+            ),
+        ]
+    )
+    result = await dispatcher.analyze_experiment_results(_input(1000))
+    assert result.status == "ok"
+    assert result.data.memory_content == "a" * 1200
+    assert len(runner.calls) == 2
+
+
+async def test_a_failed_expected_result_with_data_is_shortened_too():
+    dispatcher, runner = make_dispatcher(
+        [
+            ok_proc(
+                cli_payload(
+                    envelope_text(
+                        _result("a" * 1200), status="failed_expected", detail="d"
+                    ),
+                    session_id="sess-9",
+                )
+            ),
+            _reply(_result("b" * 900)),
+        ]
+    )
+    result = await dispatcher.analyze_experiment_results(_input(1000))
+    assert result.status == "failed_expected"
+    assert result.data.memory_content == "b" * 900
+    assert len(runner.calls) == 2
+
+
+async def test_codex_shortens_in_the_same_thread(tmp_path):
+    from test_dispatch_codex_cli import THREAD, codex_events
+    from test_dispatch_codex_cli import make as make_codex
+
+    dispatcher, runner = make_codex(
+        tmp_path,
+        [
+            ok_proc(codex_events(envelope_text(_result("a" * 1200)))),
+            ok_proc(codex_events(envelope_text(_result("b" * 900)))),
+        ],
+    )
+    result = await dispatcher.analyze_experiment_results(_input(1000))
+    assert result.data.memory_content == "b" * 900
+    shorten = runner.calls[1].argv
+    assert shorten[:3] == ["codex", "exec", "resume"]
+    assert THREAD in shorten
+
+
+async def test_opencode_shortens_in_the_same_session(tmp_path):
+    from test_dispatch_opencode_cli import SESSION, opencode_events
+    from test_dispatch_opencode_cli import make as make_opencode
+
+    dispatcher, runner = make_opencode(
+        tmp_path,
+        [
+            ok_proc(opencode_events(envelope_text(_result("a" * 1200)))),
+            ok_proc(opencode_events(envelope_text(_result("b" * 900)))),
+        ],
+    )
+    result = await dispatcher.analyze_experiment_results(_input(1000))
+    assert result.data.memory_content == "b" * 900
+    shorten = runner.calls[1].argv
+    assert shorten[shorten.index("--session") + 1] == SESSION
 
 
 async def test_a_longer_shorten_reply_is_not_taken():

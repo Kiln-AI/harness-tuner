@@ -327,13 +327,14 @@ promotion pass together with the planner's `promotion_candidate` intent.
   After your content, code adds its own lines to the record: the
   `measurement:` line, the latency and cost lines, and each carried line
   you did not re-cite. `content_budget` is the room those lines leave you.
-  If your `memory_content` is over it, you are asked in the same session
-  to shorten it. If it is still over, code clamps it: the id lines and
-  `next:` stay, and your other lines drop oldest first, so the numbers
-  table and the interpretation go first. The MUST-cites (rc ids, issue
-  id, eval ids, the table, `next:`) fit in ~1200 chars. When the room is
-  tight, shrink the interpretation prose, never the ids, the table, or
-  `next:`.
+  It is never less than 1500 chars. If your `memory_content` is over it,
+  you are asked in the same session to shorten it. If it is still over,
+  code clamps it: the id lines and `next:` stay, and your other lines are
+  kept from the top until the room is full. So write your opening and the
+  numbers table first: the interpretation prose at the end drops first.
+  The MUST-cites (rc ids, issue id, eval ids, the table, `next:`) fit in
+  ~1200 chars. When the room is tight, shrink the interpretation prose,
+  never the ids, the table, or `next:`.
 - **`findings`**: what was learned, suspected culprits on failure, the
   caution/power reading — prose for the orchestrator log and report.
   **The planner never reads `findings`** — it reads `memory_content`. So

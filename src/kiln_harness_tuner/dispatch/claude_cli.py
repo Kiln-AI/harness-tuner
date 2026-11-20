@@ -1305,7 +1305,7 @@ class ClaudeCliDispatcher:
                 )
 
         status, data, detail = parsed
-        if content_budget is not None and status == "ok" and session_id:
+        if content_budget is not None and data is not None and session_id:
             data, usage = await self._shorten(
                 agent, label, output_model, usage, session_id, data, content_budget
             )
@@ -1327,7 +1327,9 @@ class ClaudeCliDispatcher:
         `SHORTEN_TURNS` times. Only the new `memory_content` is taken from a
         reply: the verdict stays as the session first gave it. A turn that
         fails, or a reply that does not parse, ends the turns with the last
-        content; code clamps it on the write."""
+        content; code clamps it on the write. A quota or sign-in error in a
+        turn also ends the turns: the verdict is already paid for, and the
+        next dispatch meets the same error and stops the run."""
         for turn in range(1, SHORTEN_TURNS + 1):
             content = getattr(data, "memory_content", None)
             if not isinstance(content, str) or len(content) <= budget:
@@ -1341,15 +1343,25 @@ class ClaudeCliDispatcher:
                 turn,
                 SHORTEN_TURNS,
             )
-            outcome, usage = await self._invoke(
-                agent,
-                label,
-                shorten_prompt(len(content), budget),
-                output_model,
-                usage,
-                resume=session_id,
-                timeout_secs=SHORTEN_TIMEOUT_SECS,
-            )
+            try:
+                outcome, usage = await self._invoke(
+                    agent,
+                    label,
+                    shorten_prompt(len(content), budget),
+                    output_model,
+                    usage,
+                    resume=session_id,
+                    timeout_secs=SHORTEN_TIMEOUT_SECS,
+                )
+            except ProviderQuotaError as exc:
+                logger.error(
+                    "dispatch %s: shorten turn stopped by %s; keeping the verdict",
+                    label,
+                    exc.error.error_class,
+                )
+                if isinstance(exc.usage, Usage):
+                    usage = exc.usage
+                break
             if isinstance(outcome, ErrorInfo):
                 break
             parsed, _, _ = outcome

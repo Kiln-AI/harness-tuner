@@ -773,9 +773,11 @@ it would be refused. Four rules keep the state readable:
   (`EXPERIMENT_HEAD_KEYS`, the gate notes) and drops other lines, oldest
   first.
 - The verdict clamp (`_fit_verdict_content`) also keeps every head line,
-  and the `next:`, `measurement:`, latency and cost lines. It keeps the
-  analyzer's other lines from the top (its opening and its numbers table),
-  so its interpretation prose drops first. Code adds lines after the analyzer's content: the `measurement:` line,
+  the `next:` line, and the exact lines code added (`measurement:`, the
+  latency and cost lines). It keeps the analyzer's other lines from the top
+  (its opening and its numbers table), so its interpretation prose drops
+  first. When the protected lines alone are over the cap, the code lines
+  lose their protection. Code adds lines after the analyzer's content: the `measurement:` line,
   the latency and cost lines, and each carried line the analyzer did not
   re-cite. So the analyzer gets the room that is left, as
   `AnalysisInput.content_budget` (`memory.verdict_room`). A content over

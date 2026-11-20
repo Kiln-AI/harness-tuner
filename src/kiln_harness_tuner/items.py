@@ -1007,7 +1007,10 @@ async def _execute_plan_item(
         res.data.memory_content.rstrip() + "\n" + "\n".join(code_lines)
     )
     await _experiment_write(
-        ctx, item.id, "record_verdict", ctx.memory.record_verdict(exp_mem, res.data)
+        ctx,
+        item.id,
+        "record_verdict",
+        ctx.memory.record_verdict(exp_mem, res.data, code_lines),
     )
     done = _outcome(
         item,
