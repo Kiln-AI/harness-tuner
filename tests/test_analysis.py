@@ -2569,6 +2569,8 @@ async def test_trial_with_transient_failures_on_every_attempt_is_a_hole(
     assert excinfo.value.error.error_class == error_class
     assert len(kiln.job_invocations) == analyzer.job_attempts == 2
     assert kiln.job_cancels == ["job_1", "job_2"]  # no job is left running
+    [failed] = [f for k, f in analyzer.log.events if k == "narrowed_job_failed"]
+    assert failed["attempts"] == 2 and failed["stored"] == 0
 
 
 async def test_trial_4xx_is_raised_and_not_retried():
@@ -2598,3 +2600,114 @@ async def test_judge_items_retries_a_transient_wait_failure():
 
     assert [r["dataset_id"] for r in rows] == ["i1"]
     assert kiln.job_cancels == ["job_1"]
+
+
+async def test_trial_caller_cancellation_cancels_the_server_job():
+    # A sibling's fatal error cancels the trial during the wait. The server
+    # job does not stop with the waiter, so the shielded cancel stops it.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.job_behaviors[key] = ["hang"]
+    analyzer, _ = make_analyzer(kiln)
+
+    task = asyncio.ensure_future(
+        analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+    )
+    await asyncio.sleep(0.05)  # let it start the job and enter the wait
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert kiln.job_cancels == ["job_1"]
+
+
+@pytest.mark.parametrize("first", ["hang", "transport"])
+async def test_trial_retries_a_wait_timeout_or_transport_error(first):
+    # A wait that runs past its hard cap, or a dropped connection, cancels
+    # that attempt's job and starts a new one, after the retry sleep.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.pending[key] = [make_run("i1", accuracy=1.0)]
+    kiln.job_behaviors[key] = [first, "ok"]
+    analyzer, sleeps = make_analyzer(
+        kiln, job_wait_timeout_secs=0.01, job_wait_margin_secs=0.005
+    )
+
+    trial = await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+
+    assert trial.landed is True and trial.job_id == "job_2"
+    assert kiln.job_cancels == ["job_1"]
+    assert sleeps == [analyzer.job_retry_sleep_secs]
+
+
+async def test_trial_4xx_on_the_wait_is_raised_and_not_retried():
+    # The job started, then the wait answered 404: a real answer from Kiln,
+    # raised unchanged, as in the measurement ladder.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.job_behaviors[key] = ["http404"]
+    analyzer, sleeps = make_analyzer(kiln)
+
+    with pytest.raises(KilnAPIError) as excinfo:
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+
+    assert excinfo.value.status_code == 404
+    assert kiln.job_invocations == [key]
+    assert kiln.job_cancels == [] and sleeps == []
+
+
+async def test_judge_items_with_transient_failures_on_every_attempt_is_a_hole():
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.job_behaviors[key] = ["http502", "transport"]
+    analyzer, sleeps = make_analyzer(kiln)
+
+    with pytest.raises(MeasurementFailed) as excinfo:
+        await analyzer.judge_items("eval_1", "ec_1", "rc_cand", ["i1"])
+
+    assert excinfo.value.error.error_class == "provider_error"
+    assert kiln.job_cancels == ["job_1", "job_2"]
+    assert sleeps == [analyzer.job_retry_sleep_secs]
+    [failed] = [f for k, f in analyzer.log.events if k == "narrowed_job_failed"]
+    assert failed["attempts"] == 2 and failed["stored"] == 0
+
+
+async def test_trial_exhaustion_keeps_the_rows_earlier_attempts_stored():
+    # Attempt 1 stores i1, then the gateway fails; attempt 2 fails too. The
+    # stored verdict and its spend are kept, as `_measure` keeps partial
+    # results. Only i2, with no row, is a hole.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.partial_results[key] = [make_run("i1", accuracy=1.0, cost=0.25)]
+    kiln.job_behaviors[key] = ["stored_then_http502", "http502"]
+    analyzer, _ = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    trial = await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1", "i2"])
+
+    assert trial.scores == {"i1": 1.0, "i2": None}
+    assert trial.landed is False
+    assert trial.spend_usd == pytest.approx(0.25)
+    assert trial.job_id == "job_2"
+    assert kiln.job_cancels == ["job_1", "job_2"]
+    [failed] = [f for k, f in analyzer.log.events if k == "narrowed_job_failed"]
+    assert failed["attempts"] == 2 and failed["stored"] == 1
+    assert failed["items"] == 2 and failed["error_class"] == "provider_error"
+
+
+async def test_judge_items_exhaustion_returns_the_stored_rows():
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval()
+    key = ("eval_1", "rc_cand", "train")
+    kiln.partial_results[key] = [make_run("i1", accuracy=0.0)]
+    kiln.job_behaviors[key] = ["stored_then_http502", "http504"]
+    analyzer, _ = make_analyzer(kiln, job_retry_sleep_secs=0.0)
+
+    rows = await analyzer.judge_items("eval_1", "ec_1", "rc_cand", ["i1", "i2"])
+
+    assert [r["dataset_id"] for r in rows] == ["i1"]
+    assert kiln.job_cancels == ["job_1", "job_2"]
