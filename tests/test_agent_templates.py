@@ -333,13 +333,15 @@ def test_report_skill_states_the_narrow_rule_where_it_names_pooled_wins():
     # The report is the human-facing account of what a run left behind. Its
     # three pooled-wins passages must not over-claim; the freeze
     # keeps both halves — stamped rcs return only inside a different
-    # combination, and a `promotion_skipped` wave stamps nothing at all
-    # (promote hard-fails before `_record_rejections`).
+    # combination, and in a `promotion_skipped` wave the gate stamps no
+    # candidate (promote hard-fails before `_record_rejections`). The one
+    # exception is the holed-gate bound, which stamps before the decision.
     normalized = _normalized_skill("kiln-harness-tuner-report")
     assert "when the gate returned a decision, every candidate it passed over" in (
         normalized
     )
-    assert "a `promotion_skipped` wave stamps nothing" in normalized
+    assert "In a `promotion_skipped` wave, the gate stamps no candidate" in normalized
+    assert "The exception is a wave's `rejected_incomplete`" in normalized
     assert f"any stamped `{REJECTION_STAMP}` only as ingredients" in normalized
     assert "say which are val-rejected: ingredients for a different" in normalized
 
