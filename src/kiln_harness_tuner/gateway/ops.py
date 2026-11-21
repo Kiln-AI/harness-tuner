@@ -12,7 +12,10 @@ the splits:
 - a WRITE is validated before Kiln sees it: run configs against the model
   policy, drives and eval jobs on train items only, memory in the two
   scopes and never with the `val` or `baseline` tag, new evals with splits
-  the gateway assigns.
+  the gateway assigns;
+- no code tool allowlist and no new run config gets a tool that reads or
+  writes Kiln's own state (`STATE_TOOL_KINDS`), except a run config that
+  keeps one the baseline run config already has.
 
 `ROLE_OPS` names the operations each agent role gets; a role's session is
 served those and no others. There is no operation that changes settings or
@@ -35,6 +38,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from kiln_harness_tuner import memory_schema
 from kiln_harness_tuner.gateway import model_info
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
@@ -49,6 +53,21 @@ from kiln_harness_tuner.model_policy import ModelPolicy
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 KILN_TASK_TOOL_PREFIX = "kiln_task::"
+CODE_TOOL_PREFIX = "kiln_tool::code::"
+# The tools that read or write Kiln's own state, not the subject task's
+# world. Kiln's memory tools (`kiln_tool::memory::<operation>`) read and
+# write the memory store the loop keeps its `baseline` and `val` records in.
+# A Kiln API tool (the built-in `kiln_tool::call_kiln_api`, or an MCP tool
+# named `call_kiln_api`) reaches every endpoint. In a code tool's allowlist
+# or a candidate's tools, either one goes around the memory operations'
+# guard: it could move the baseline pointer with no val gate, or read the
+# `val` record.
+MEMORY_TOOL_PREFIX = "kiln_tool::memory::"
+KILN_API_TOOL_NAME = "call_kiln_api"
+STATE_TOOL_KINDS = (
+    f"a Kiln memory tool ({MEMORY_TOOL_PREFIX}…), a Kiln API tool"
+    f" (…{KILN_API_TOOL_NAME})"
+)
 # The prompts of a called task that the gateway renders: a saved prompt, a
 # run config's frozen prompt, a fine-tune's prompt, and the generators that
 # use only the task's own fields. Every other generator (few-shot,
@@ -309,6 +328,20 @@ def _code_tags_refused(tags: list[str]) -> None:
     for tag in (VAL_MEMORY_TAG, BASELINE_MEMORY_TAG):
         if tag in tags:
             raise GatewayError(f"the `{tag}` tag is written by the loop's code only")
+
+
+def _state_tool(tool_id: str) -> bool:
+    """True for a tool that reads or writes Kiln's own state."""
+    return (
+        tool_id.startswith(MEMORY_TOOL_PREFIX)
+        or tool_id.rsplit("::", 1)[-1] == KILN_API_TOOL_NAME
+    )
+
+
+def _rc_tool_ids(props: dict[str, Any]) -> list[str]:
+    tools_config = props.get("tools_config")
+    tools = tools_config.get("tools") if isinstance(tools_config, dict) else None
+    return [str(t) for t in tools] if isinstance(tools, list) else []
 
 
 def _memory_hidden(row: dict[str, Any], state: State) -> bool:
@@ -1131,8 +1164,117 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _allowlist_of(
+        self, code_tool: str, cache: dict[str, list[str]]
+    ) -> list[str]:
+        """The stored allowlist of a `kiln_tool::code::<id>` tool, read once
+        per check."""
+        if code_tool not in cache:
+            code_tool_id = code_tool[len(CODE_TOOL_PREFIX) :]
+            row = await self.call("GET", f"{self.s.project}/code_tools/{code_tool_id}")
+            allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
+            cache[code_tool] = (
+                [str(t) for t in allowlist] if isinstance(allowlist, list) else []
+            )
+        return cache[code_tool]
+
+    async def _state_reach(
+        self, tool_id: str, seen: set[str], cache: dict[str, list[str]]
+    ) -> list[str] | None:
+        """The path from `tool_id` to a tool that reads or writes Kiln's own
+        state (`_state_tool`), or None. A code tool reaches what its stored
+        allowlist reaches, at any depth. `seen` holds the code tools already
+        searched from the same start, so a cycle ends."""
+        if _state_tool(tool_id):
+            return [tool_id]
+        if not tool_id.startswith(CODE_TOOL_PREFIX) or tool_id in seen:
+            return None
+        seen.add(tool_id)
+        for inner in await self._allowlist_of(tool_id, cache):
+            path = await self._state_reach(inner, seen, cache)
+            if path is not None:
+                return [tool_id, *path]
+        return None
+
+    async def _state_tools(self, tool_ids: list[str]) -> dict[str, list[str]]:
+        """Each tool of `tool_ids` that reaches Kiln's own state, with its
+        path."""
+        cache: dict[str, list[str]] = {}
+        found: dict[str, list[str]] = {}
+        for tool_id in dict.fromkeys(tool_ids):
+            path = await self._state_reach(tool_id, set(), cache)
+            if path is not None:
+                found[tool_id] = path
+        return found
+
+    async def _allowlist_check(self, allowlist: list[str]) -> None:
+        """Refuse a code tool allowlist that reaches Kiln's own state. A
+        code tool runs the agent's own code, so no baseline exception
+        applies here."""
+        found = await self._state_tools(allowlist)
+        if found:
+            paths = "; ".join(" -> ".join(p) for p in found.values())
+            raise GatewayError(
+                f"a code tool cannot allowlist {STATE_TOOL_KINDS}, or a code"
+                f" tool that allowlists one: {paths}. These tools read and"
+                " write the loop's own records. Allowlist the subject task's"
+                " tools only"
+            )
+
+    async def _baseline_tool_ids(self) -> tuple[str | None, set[str]]:
+        """The baseline run config's id and tools, read from the task's
+        `baseline` memory record (its `rc_<id>` tag). No record, or a record
+        that does not name one run config: no id and no tools."""
+        page = await self.call(
+            "GET",
+            f"{self.s.project}/memories",
+            query_params={
+                "scope": f"task::{self.s.task_id}",
+                "tags": [memory_schema.RecordKind.BASELINE.value],
+                "limit": 1,
+                "offset": 0,
+            },
+        )
+        rows = _rows(page if isinstance(page, dict) else {}, "listings")
+        rc_ids = (
+            memory_schema.rc_ids_from_tags(rows[0].get("tags") or []) if rows else []
+        )
+        if len(rc_ids) != 1:
+            return None, set()
+        rc = next(
+            (r for r in await self._run_configs() if str(r.get("id")) == rc_ids[0]),
+            None,
+        )
+        props = (rc or {}).get("run_config_properties")
+        return rc_ids[0], set(_rc_tool_ids(props if isinstance(props, dict) else {}))
+
+    async def _rc_tools_check(self, props: dict[str, Any]) -> None:
+        """Refuse a new run config that adds a tool which reaches Kiln's own
+        state. A tool the baseline run config already has may stay: the
+        subject agent can use Kiln memory by design, and a candidate must be
+        able to keep what its baseline has."""
+        found = await self._state_tools(_rc_tool_ids(props))
+        if not found:
+            return
+        baseline_id, kept = await self._baseline_tool_ids()
+        added = {t: p for t, p in found.items() if t not in kept}
+        if added:
+            paths = "; ".join(" -> ".join(p) for p in added.values())
+            baseline = (
+                f"the baseline run config {baseline_id} does not have"
+                if baseline_id
+                else "no baseline run config was found to have"
+            )
+            raise GatewayError(
+                f"a new run config cannot add {STATE_TOOL_KINDS}, or a code"
+                f" tool that allowlists one, which {baseline}: {paths}."
+                " These tools read and write the loop's own records. A tool"
+                " the baseline run config has may stay"
+            )
+
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
         self._policy_check(req.run_config_properties)
+        await self._rc_tools_check(req.run_config_properties)
         row = await self.call(
             "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
         )
@@ -1211,6 +1353,7 @@ class Gateway:
         return self._run_view(run, req.item_id)
 
     async def create_code_tool(self, req: m.CodeToolCreate) -> m.CodeToolView:
+        await self._allowlist_check(req.tool_allowlist)
         row = await self.call(
             "POST",
             f"{self.s.project}/code_tools",
@@ -1227,6 +1370,7 @@ class Gateway:
         return m.project(m.CodeToolView, row)
 
     async def test_code_tool(self, req: m.CodeToolTestRequest) -> m.CodeToolTest:
+        await self._allowlist_check(req.tool_allowlist)
         row = await self.call(
             "POST",
             f"{self.s.project}/test_code_tool",
