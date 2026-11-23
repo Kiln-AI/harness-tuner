@@ -788,8 +788,9 @@ through the gateway's `memory_create` / `memory_update`, in the two scopes
 only. Lifecycle writes are code's alone by contract: the memory operations
 enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
 any update of the `baseline` record. They do not check the record kind.
-The gateway does not refuse Kiln's own memory tools in a code tool or a
-run config, so this guard covers the memory operations only.
+An agent cannot go around this guard with Kiln's own memory tools: the
+gateway refuses them in a code tool allowlist and in a new run config
+(section 12, "No tool that reaches Kiln's own state").
 
 ## 9. The promotion gate
 
