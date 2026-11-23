@@ -614,6 +614,55 @@ async def test_an_unmeasured_speed_pass_is_a_hole(monkeypatch):
     assert _pooled_events(ctx) == ["rc_a"]
 
 
+async def test_a_speed_hole_counts_with_a_baseline_side_fill_hole(monkeypatch):
+    # Under speed the baseline's val fill fails: the fill hole of each
+    # candidate is on the baseline side, and the baseline is under its
+    # limit. rc_b has that hole only, so this gate does not count against
+    # it. rc_a has an incomplete paired pass too. A speed hole is never put
+    # on a side, so this gate counts against rc_a. Both stay pooled.
+    ctx = make_ctx(gate_agent="auto")
+    ctx.objective = "speed"
+    kiln = ctx.kiln
+    seed_baseline(kiln)
+    seed_active_eval(kiln)
+    seed_val(kiln, "rc_a", "rc_b")
+    _always_fails(kiln, "rc_base")
+    speeds = {"rc_a": _paired(0.5, incomplete=True), "rc_b": _paired(0.5)}
+
+    async def speed_pass(ctx, tables, baseline_rc_id):
+        for table in tables:
+            table.latency = speeds[table.rc_id]
+
+    monkeypatch.setattr(orchestrator, "_speed_val_pass", speed_pass)
+    outcomes = []
+    for rc in ("rc_a", "rc_b"):
+        mem = kiln.add_memory(
+            f"EXP 0722-{rc}: faster model — +0.0pp, p=1",
+            "task::t1",
+            ["experiment"],
+        )
+        outcomes.append(
+            ItemOutcome(
+                item=fix_item(rc),
+                status="completed",
+                rc_id=rc,
+                experiment_memory_id=mem,
+                result=make_result(),
+                infra_error=None,
+            )
+        )
+    record = await ctx.memory.require_baseline_record()
+
+    await maybe_promote(ctx, outcomes, record, wave=1)
+
+    by_rc = {o.rc_id: o.experiment_memory_id for o in outcomes}
+    assert ctx.baseline_holed_gates == {"rc_base": 1}
+    assert ctx.holed_gates == {"rc_a": [by_rc["rc_a"]]}
+    assert _pooled_events(ctx) == ["rc_a", "rc_b"]
+    assert not any(kiln.memories[m]["overview"].endswith(STAMP) for m in by_rc.values())
+    assert not [f for k, f in ctx.log.events if k == "rejection_recorded"]
+
+
 def test_val_holes_leaves_out_a_quote_block_and_a_measured_verdict():
     ctx = make_ctx()
     ctx.objective = "speed"

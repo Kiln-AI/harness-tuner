@@ -1460,14 +1460,14 @@ async def _run_promotion_gate(
     # or cost pass) block without a verdict: those candidates stay pooled.
     # Only a candidate judged on complete evidence is rejected.
     holed = _val_holes(ctx, tables, fill_holed)
-    # A hole that is only on the baseline side is not the candidate's: it
-    # does not count against the candidate's bound, until the baseline's own
-    # holes reach the limit (`_holes_not_counted`).
+    # A fill hole that is only on the baseline side is not the candidate's:
+    # it does not count against the candidate's bound, until the baseline's
+    # own holes reach the limit (`_holes_not_counted`). A speed or cost hole
+    # is never put on a side, so a candidate that has one is always counted.
+    not_counted = _holes_not_counted(ctx, baseline.rc_id, assembly)
+    not_counted -= _speed_holes(ctx, tables)
     bounded = await _bound_holed_gates(
-        ctx,
-        candidates,
-        holed - _holes_not_counted(ctx, baseline.rc_id, assembly),
-        baseline.rc_id,
+        ctx, candidates, holed - not_counted, baseline.rc_id
     )
     # Every other holed candidate stays pooled, whatever path the gate takes
     # below. Each path leaves the holed candidates unstamped.
@@ -3611,13 +3611,23 @@ def _val_holes(
     verdict with its own stamp (`_record_gate_blocks`). The other
     `ineligible` marks are verdicts too: `apply_speed_eligibility` on a
     measured comparison (not clearly better, quality not held)."""
-    holed = set(fill_holed)
-    if is_efficiency(ctx.objective):
-        for table in tables:
-            comparison = decisive(table, ctx.objective)
-            if comparison is None or comparison.incomplete:
-                holed.add(table.rc_id)
+    holed = fill_holed | _speed_holes(ctx, tables)
     return holed - {b.rc_id for b in ctx.gate_blocks}
+
+
+def _speed_holes(ctx: Ctx, tables: list[CandidateValTable]) -> set[str]:
+    """Under speed and cost: the rc ids whose decisive comparison is missing
+    (`None`: the pass did not measure it) or `incomplete` (too few pairs).
+    Empty under quality. This hole is never put on a side, so it always
+    counts against the candidate's bound (`_bound_holed_gates`)."""
+    if not is_efficiency(ctx.objective):
+        return set()
+    return {
+        table.rc_id
+        for table in tables
+        if (comparison := decisive(table, ctx.objective)) is None
+        or comparison.incomplete
+    }
 
 
 async def _bound_holed_gates(
