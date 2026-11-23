@@ -1164,33 +1164,69 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
-    async def _allowlist_of(
-        self, code_tool: str, cache: dict[str, list[str]]
-    ) -> list[str]:
-        """The stored allowlist of a `kiln_tool::code::<id>` tool, read once
-        per check."""
-        if code_tool not in cache:
-            code_tool_id = code_tool[len(CODE_TOOL_PREFIX) :]
-            row = await self.call("GET", f"{self.s.project}/code_tools/{code_tool_id}")
-            allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
-            cache[code_tool] = (
-                [str(t) for t in allowlist] if isinstance(allowlist, list) else []
-            )
-        return cache[code_tool]
+    async def _tools_of(self, tool_id: str, cache: dict[str, list[str]]) -> list[str]:
+        """The tools that `tool_id` can call, read once per check: the stored
+        allowlist of a `kiln_tool::code::<id>` tool, or the tools of the run
+        config that a `kiln_task::<id>` tool calls its task with."""
+        if tool_id not in cache:
+            if tool_id.startswith(CODE_TOOL_PREFIX):
+                code_tool_id = tool_id[len(CODE_TOOL_PREFIX) :]
+                row = await self.call(
+                    "GET", f"{self.s.project}/code_tools/{code_tool_id}"
+                )
+                allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
+                cache[tool_id] = (
+                    [str(t) for t in allowlist] if isinstance(allowlist, list) else []
+                )
+            else:
+                cache[tool_id] = await self._kiln_task_tool_ids(
+                    tool_id[len(KILN_TASK_TOOL_PREFIX) :]
+                )
+        return cache[tool_id]
+
+    async def _kiln_task_tool_ids(self, server_id: str) -> list[str]:
+        """The tools of the run config that the Kiln task tool `server_id`
+        calls its task with. Empty when the record is not a Kiln task tool,
+        or when its run config is not found: the tool then calls nothing.
+        Only the saved record and the called task's run configs are read, as
+        in `get_kiln_task_tool`."""
+        server = await self.call(
+            "GET", f"{self.s.project}/tool_servers/{server_id}/config"
+        )
+        server = server if isinstance(server, dict) else {}
+        props = (
+            server.get("properties")
+            if isinstance(server.get("properties"), dict)
+            else {}
+        )
+        if server.get("type") != "kiln_task" or not props.get("task_id"):
+            return []
+        rc_rows = await self.call(
+            "GET", f"{self.s.project}/tasks/{props['task_id']}/run_configs"
+        )
+        rc_id = str(props.get("run_config_id") or "")
+        row = next((r for r in _rows(rc_rows) if str(r.get("id")) == rc_id), None)
+        rc_props = (row or {}).get("run_config_properties")
+        return _rc_tool_ids(rc_props if isinstance(rc_props, dict) else {})
 
     async def _state_reach(
         self, tool_id: str, seen: set[str], cache: dict[str, list[str]]
     ) -> list[str] | None:
         """The path from `tool_id` to a tool that reads or writes Kiln's own
         state (`_state_tool`), or None. A code tool reaches what its stored
-        allowlist reaches, at any depth. `seen` holds the code tools already
-        searched from the same start, so a cycle ends."""
+        allowlist reaches. A Kiln task tool reaches what the tools of its
+        run config reach: the called task's agent can call them. Both at
+        any depth. `seen` holds the tools already searched from the same
+        start, so a cycle ends."""
         if _state_tool(tool_id):
             return [tool_id]
-        if not tool_id.startswith(CODE_TOOL_PREFIX) or tool_id in seen:
+        if (
+            not tool_id.startswith((CODE_TOOL_PREFIX, KILN_TASK_TOOL_PREFIX))
+            or tool_id in seen
+        ):
             return None
         seen.add(tool_id)
-        for inner in await self._allowlist_of(tool_id, cache):
+        for inner in await self._tools_of(tool_id, cache):
             path = await self._state_reach(inner, seen, cache)
             if path is not None:
                 return [tool_id, *path]
@@ -1216,9 +1252,9 @@ class Gateway:
             paths = "; ".join(" -> ".join(p) for p in found.values())
             raise GatewayError(
                 f"a code tool cannot allowlist {STATE_TOOL_KINDS}, or a code"
-                f" tool that allowlists one: {paths}. These tools read and"
-                " write the loop's own records. Allowlist the subject task's"
-                " tools only"
+                f" tool or a Kiln task tool that reaches one: {paths}. These"
+                " tools read and write the loop's own records. Allowlist the"
+                " subject task's tools only"
             )
 
     async def _baseline_tool_ids(self) -> tuple[str | None, set[str]]:
@@ -1267,7 +1303,8 @@ class Gateway:
             )
             raise GatewayError(
                 f"a new run config cannot add {STATE_TOOL_KINDS}, or a code"
-                f" tool that allowlists one, which {baseline}: {paths}."
+                f" tool or a Kiln task tool that reaches one, which {baseline}:"
+                f" {paths}."
                 " These tools read and write the loop's own records. A tool"
                 " the baseline run config has may stay"
             )

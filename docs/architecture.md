@@ -1144,8 +1144,11 @@ reads a list: it takes the last `"type": "result"` event.
      reaches every endpoint. With one of them, an agent could go around
      the memory operations: move the baseline pointer with no val gate, or
      read the `val` record. So `create_code_tool` and `test_code_tool`
-     refuse an allowlist that has one of these tools, or a code tool whose
-     stored allowlist reaches one at any depth. `create_run_config` refuses
+     refuse an allowlist that has one of these tools, or a tool that
+     reaches one at any depth. A code tool reaches what its stored
+     allowlist reaches. A Kiln task tool (`kiln_task::<id>`) reaches what
+     the tools of its run config reach, because the called task's agent
+     can call them. `create_run_config` refuses
      the same tools, with one exception: a tool that the baseline run
      config already has may stay. The subject agent can use Kiln memory by
      design, and a candidate must be able to keep what its baseline has.

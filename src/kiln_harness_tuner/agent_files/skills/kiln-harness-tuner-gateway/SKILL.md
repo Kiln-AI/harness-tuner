@@ -304,10 +304,12 @@ not the subject task's world. There are two kinds:
   `call_kiln_api`. It reaches every Kiln endpoint.
 
 `create_code_tool` and `test_code_tool` refuse an allowlist with a Kiln
-state tool in it. They also refuse a code tool whose stored allowlist
-reaches one, at any depth. `create_run_config` refuses a Kiln state tool,
-or a code tool that reaches one, when the baseline run config does not
-have that tool. A tool that the baseline run config has may stay in the
+state tool in it. They also refuse a tool that reaches one, at any depth:
+a code tool whose stored allowlist reaches one, and a Kiln task tool
+(`kiln_task::<id>`) whose run config has a tool that reaches one.
+`create_run_config` refuses a Kiln state tool, or a code tool or a Kiln
+task tool that reaches one, when the baseline run config does not have
+that tool. A tool that the baseline run config has may stay in the
 candidate. The refusal names each refused tool and its path. Remove the
 tool, and use the subject task's own tools.
 
