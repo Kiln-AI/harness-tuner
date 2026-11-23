@@ -57,7 +57,11 @@ from statistics import fmean
 from typing import Any, Literal, Protocol
 
 from kiln_harness_tuner.concurrency import first_error_or_done
-from kiln_harness_tuner.kiln import KilnAPIError, KilnTransportError
+from kiln_harness_tuner.kiln import (
+    JOB_WAIT_MARGIN_SECS,
+    KilnAPIError,
+    KilnTransportError,
+)
 from kiln_harness_tuner.latency import (
     compare_eval_run_costs,
     compare_eval_runs,
@@ -110,7 +114,7 @@ RATE_LIMIT_BACKOFF_CAP_SECS = 300.0
 # httpx read timeout sits one margin above so the server always answers
 # first, and the asyncio.wait_for hard cap one margin above that — it fires
 # only when server and transport both go silent.
-DEFAULT_JOB_WAIT_MARGIN_SECS = 30.0
+DEFAULT_JOB_WAIT_MARGIN_SECS = JOB_WAIT_MARGIN_SECS
 
 
 class AnalysisError(Exception):

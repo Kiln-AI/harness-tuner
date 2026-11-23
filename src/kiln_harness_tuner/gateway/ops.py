@@ -40,7 +40,7 @@ from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
 from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
-from kiln_harness_tuner.kiln import KilnAPIError, KilnError
+from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 
@@ -107,6 +107,10 @@ OUTPUT_PREVIEW_CHARS = 300
 # accepts the connect but does not answer would keep Kiln waiting far
 # longer, so the gateway stops waiting first.
 OPENENV_LIST_TIMEOUT_SECS = 45.0
+# The longest `run_train_eval` waits for its eval job: the `timeout` it sends
+# to `POST /api/jobs/wait`. Kiln answers 504 after that long, and the job
+# keeps running.
+TRAIN_EVAL_WAIT_TIMEOUT_SECS = 600.0
 # How many over-cap answers a gateway process keeps for `get_answer_part`.
 KEPT_ANSWERS = 16
 
@@ -1394,8 +1398,14 @@ class Gateway:
             },
         )
         job_id = str((job or {}).get("job_id") or (job or {}).get("id") or "")
+        # The read timeout is above the wait `timeout`, so Kiln answers first.
+        # The default 60 s read timeout would end the wait before the job does.
         records = await self.call(
-            "POST", "/api/jobs/wait", body={"ids": [job_id], "timeout": 600}
+            "POST",
+            "/api/jobs/wait",
+            body={"ids": [job_id], "timeout": TRAIN_EVAL_WAIT_TIMEOUT_SECS},
+            timeout_secs=TRAIN_EVAL_WAIT_TIMEOUT_SECS + JOB_WAIT_MARGIN_SECS,
+            retries=False,
         )
         record = records[0] if isinstance(records, list) and records else {}
         progress = record.get("progress") or {}

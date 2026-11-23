@@ -106,6 +106,13 @@ def _parse_body(response: httpx.Response) -> Any:
         return response.text
 
 
+# How long the HTTP read timeout of a `POST /api/jobs/wait` call sits above
+# the `timeout` in its body. The server holds the request for up to that
+# `timeout` and then answers 504, so the client must wait a little longer
+# than the server does. Every caller of the wait endpoint adds this margin.
+JOB_WAIT_MARGIN_SECS = 30.0
+
+
 class KilnClient:
     """call_kiln_api-shaped async REST client for the running Kiln app.
 

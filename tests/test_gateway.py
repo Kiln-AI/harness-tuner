@@ -34,7 +34,7 @@ from kiln_harness_tuner.gateway.trainset import (
     TrainSetError,
     compute,
 )
-from kiln_harness_tuner.kiln import KilnAPIError, KilnError
+from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import (
     Catalog,
     CatalogModel,
@@ -710,6 +710,26 @@ class TestWrites:
         assert job_body["split"] == "train"
         assert job_body["item_ids"] == ["tr1", "tr2"]
         assert out["success"] == 2
+
+    def test_an_eval_job_wait_outlasts_the_default_read_timeout(self, tmp_path):
+        """Kiln holds `POST /api/jobs/wait` for up to the `timeout` in the
+        body. The read timeout of the call must be longer, or the client's
+        default 60 s ends the wait while the job still runs."""
+        routes = {
+            ("GET", f"{BASE}/evals/e1"): {"id": "e1", "current_config_id": "ec1"},
+            ("POST", "/api/jobs/evals/run"): {"job_id": "j1"},
+            ("POST", "/api/jobs/wait"): [
+                {"status": "succeeded", "progress": {"success": 2, "total": 2}}
+            ],
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="eval_build")
+        _run(gateway, "run_train_eval", eval_id="e1", run_config_id="rc1")
+        wait_body = next(b for m, p, q, b in kiln.calls if p == "/api/jobs/wait")
+        options = kiln.options["/api/jobs/wait"]
+        assert wait_body == {"ids": ["j1"], "timeout": 600.0}
+        assert options["timeout_secs"] == wait_body["timeout"] + JOB_WAIT_MARGIN_SECS
+        assert options["timeout_secs"] > 60.0
+        assert options["retries"] is False
 
     def test_a_code_tool_dry_run_keeps_its_documented_fields(self, tmp_path):
         entry = {
