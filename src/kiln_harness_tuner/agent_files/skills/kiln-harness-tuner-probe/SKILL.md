@@ -1,6 +1,7 @@
 ---
 name: kiln-harness-tuner-probe
-description: The Kiln Harness Tuner probe agent's procedure: answer ONE yes/no question about a mechanism (does this model call a tool under this output mode, read a skill file, parse json_instructions, honour a parameter) by forking an ephemeral run config, driving at most `max_drives` train items and reading the traces — no judge, no measurement, no experiment record; return ProbeResult. Load when dispatched as the Kiln Harness Tuner probe agent (template `probe.md` — input is a ProbeInput with the ProbeItem + baseline rc id).
+description: |
+  The Kiln Harness Tuner probe agent's procedure: answer ONE yes/no question about a mechanism (does this model call a tool under this output mode, read a skill file, parse json_instructions, honour a parameter) by forking an ephemeral run config, driving at most `max_drives` train items and reading the traces — no judge, no measurement, no experiment record; return ProbeResult. Load when dispatched as the Kiln Harness Tuner probe agent (template `probe.md` — input is a ProbeInput with the ProbeItem + baseline rc id).
 metadata:
   version: "1.0"
 ---
