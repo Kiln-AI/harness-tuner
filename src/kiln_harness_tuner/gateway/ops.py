@@ -39,10 +39,19 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.job_drives import (
+    EvalJobDriver,
+    openenv_tool_parts,
+    run_config_tool_ids,
+)
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.restrictions import (
+    CODE_TOOL_PREFIX,
+    SKILL_TOOL_PREFIX,
+    ToolLock,
+)
 
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
@@ -124,6 +133,8 @@ class State:
     run_dir: Path | None = None
     project_path: Path | None = None
     policy: ModelPolicy | None = None
+    # The tools the owner locked (`restrictions.json`); empty = no lock.
+    tool_lock: ToolLock = field(default_factory=ToolLock)
     # The eval jobs this process runs at once (`--max-concurrent-evals`);
     # None = no cap.
     max_concurrent_evals: int | None = None
@@ -1115,8 +1126,27 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _tool_lock_check(self, props: dict[str, Any]) -> None:
+        """Refuse a run config that drops, replaces or wraps a tool the
+        owner locked (`restrictions.ToolLock`). A code tool that cannot be
+        read is refused with Kiln's error: the lock is never skipped."""
+        lock = self.s.tool_lock
+        if not lock:
+            return
+        tools = run_config_tool_ids(props)
+        refusal = lock.dropped(tools)
+        if refusal is not None:
+            raise GatewayError(refusal)
+        for tool_id in lock.new_code_tools(tools):
+            row = await self.call("GET", f"{self.s.project}/code_tools/{tool_id}")
+            allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
+            refusal = lock.wraps(allowlist)
+            if refusal is not None:
+                raise GatewayError(f"code tool {tool_id}: {refusal}")
+
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
         self._policy_check(req.run_config_properties)
+        await self._tool_lock_check(req.run_config_properties)
         row = await self.call(
             "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
         )
@@ -1195,6 +1225,11 @@ class Gateway:
         return self._run_view(run, req.item_id)
 
     async def create_code_tool(self, req: m.CodeToolCreate) -> m.CodeToolView:
+        # A wrapper of a locked tool is refused here, before it exists, and
+        # again when a run config attaches one (`_tool_lock_check`).
+        refusal = self.s.tool_lock.wraps(req.tool_allowlist)
+        if refusal is not None:
+            raise GatewayError(refusal)
         row = await self.call(
             "POST",
             f"{self.s.project}/code_tools",
@@ -1203,6 +1238,10 @@ class Gateway:
         return m.project(m.CodeToolView, row)
 
     async def archive_code_tool(self, req: m.Archive) -> m.CodeToolView:
+        if req.archived and f"{CODE_TOOL_PREFIX}{req.id}" in self.s.tool_lock.locked:
+            raise GatewayError(
+                f"the owner locked code tool {req.id}: it may not be archived"
+            )
         row = await self.call(
             "POST",
             f"{self.s.project}/code_tools/{req.id}/archive",
@@ -1250,6 +1289,10 @@ class Gateway:
         return m.Pong(ok=True)
 
     async def archive_skill(self, req: m.Archive) -> m.SkillView:
+        if req.archived and f"{SKILL_TOOL_PREFIX}{req.id}" in self.s.tool_lock.locked:
+            raise GatewayError(
+                f"the owner locked skill {req.id}: it may not be archived"
+            )
         row = await self.call(
             "PATCH",
             f"{self.s.project}/skills/{req.id}",
@@ -1546,7 +1589,7 @@ OPS = _ops(
     (
         "create_run_config",
         m.RunConfigCreate,
-        "A new run config (model policy checked).",
+        "A new run config (model policy and tool lock checked).",
     ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),

@@ -213,6 +213,49 @@ that no rule names, such as `ollama`, is refused, because nothing allows it.
   A policy set there gets the API-key check again, for the providers it
   names.
 
+## Restrictions that you state at the start
+
+Some limits are known only because you state them: "OpenAI only, by
+contract", "no models of some origin", "zero data retention only", "this
+tool must not change". State each one as a restriction, not in the
+guidance. Code enforces a restriction. Code has no check for a limit that
+only the guidance gives.
+
+The guided start asks "Do you have restrictions for this run?" after the
+Models question. A start with no terminal uses the flags, and
+`--no-restrictions` says that there are none. The summary shows
+the restrictions and what code cannot check for them, and the rerun command
+repeats the flags.
+
+| Restriction | Flag | What code enforces | What code cannot check |
+|---|---|---|---|
+| Providers | `--providers openai,anthropic` | A run config on another provider is refused. The start does not run when the baseline, a judge or the simulated user is on another provider. | The tuner's own agents read the train items through your agent CLI's account. No restriction covers that account. |
+| Model origin, by weights | `--model-weights open` or `closed` | Only models that the model catalogue marks as open-weight (or as closed-weight) are allowed. | A model that the catalogue has no fact for, such as a model that you added to Kiln. It is refused. |
+| Model origin, by family | `--exclude-model-families qwen,deepseek` | No model of these families, as the model catalogue names them. | The country or the company of a model. The catalogue has neither, so you state such a restriction as its families. A model with no family in the catalogue is refused. |
+| Data retention | `--zero-data-retention` | OpenRouter is refused: Kiln cannot ask it for zero retention. The start does not run when the baseline, a judge or the simulated user is on it. | The retention terms of every other provider. Those are your agreements with each provider. Give `--providers` too, with only the providers whose terms you checked. |
+| Tools that must not change | `--lock-tool <tool id>`, once for each tool | The tool stays attached to every candidate, with the same tool id. No new code tool may call it, so it cannot be wrapped. | The text that the prompt or a skill gives the agent about the tool. |
+
+A restriction narrows `--models` and `--model-policy`. It never widens
+them, and an exception in a policy file does not pass a restriction. The
+tuner tries only the models that pass both.
+
+- **`--models keep` with a restriction.** The task's own model must pass
+  the restriction. When it does not, the start stops and says so: no
+  candidate could be built.
+- **The baseline, the judges and the simulated user.** The run calls them
+  whatever model the tuner tries. A restriction on providers or on data
+  retention covers them: the start names each one that it refuses, and does
+  not run. An origin restriction does not cover them: it is about the
+  models that the task may move to. A baseline outside it is measured as
+  the reference, as for a policy file.
+- **The origin restrictions need the model catalogue.** With
+  `--no-model-catalog`, or when the catalogue cannot be fetched, the start
+  stops with an error.
+- **A tool id** is the id that the run config lists, such as
+  `kiln_tool::code::<id>` or `mcp::remote::<server id>::<tool name>`. The
+  guided start lists the baseline's tools to mark. A skill is attached as a
+  tool (`kiln_tool::skill::<id>`), so the flag locks a skill too.
+
 The policy covers the task's models. The agents that run the loop are set
 apart, with `--agent-cli` and `--agent-model`, and are billed to the agent
 CLI's own account.

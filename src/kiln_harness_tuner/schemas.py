@@ -1899,6 +1899,15 @@ class BatchPlanInput(BaseModel):
     #   "provider/model: reason". They are not in `allowed_models`, and code
     #   does not screen them.
     flagged_models: list[str] = []
+    # What the owner stated at the start (`restrictions.py`), in words: the
+    #   providers, the model origin, the data retention, the tools that must
+    #   not change. Code enforces each one. `restriction_limits`: what code
+    #   cannot check for them. `locked_tools`: the ids of the tools that must
+    #   not change: the gateway refuses a run config that drops, replaces or
+    #   wraps one.
+    restrictions: list[str] = []
+    restriction_limits: list[str] = []
+    locked_tools: list[str] = []
     # Every screening round's results this run, newest last, and
     # how many more rounds this wave may run (`screen` is refused at 0).
     screening_results: list[ScreenResult] = []

@@ -70,6 +70,24 @@ values they pre-fill, are in [your-own-task.md](your-own-task.md) section 5.2.
 | `--models` | not set: `keep` under `quality`, `any` under `speed` and `cost` | Which models the task may use. `keep`: the baseline's model and provider only; the thinking level, the temperature and `top_p` can still change. `any`: every model on the providers that have a key in Kiln, which can move the task to a more expensive model and raise the spend. Enforced in code. Not with `--model-policy`. [objectives.md](objectives.md#which-models-a-run-may-use) |
 | `--model-policy` | not set | A JSON file of allowed and denied (provider, model) pairs for the task's run configs: the task may use the models it allows, under every objective. In place of `--models`. The guided start writes one when you pick models. [objectives.md](objectives.md#a-model-policy-file---model-policy) has the file format, the rules and an example. |
 
+### Restrictions
+
+A restriction is a hard limit that you state at the start, and that code
+enforces. The guided start asks for them in one question. Each one narrows
+`--models` or `--model-policy`: it never widens them, and an exception in a
+policy file does not pass it.
+[objectives.md](objectives.md#restrictions-that-you-state-at-the-start) has
+what each one enforces, and what code cannot check.
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--no-restrictions` | off | States that the run has no restrictions, so the guided start does not ask. The rerun command that the start prints gives it when you state none. Not with a restriction flag (usage error, exit 2). |
+| `--providers` | not set | The task's data may go only to these Kiln provider ids, separated by commas (`--providers openai,anthropic`). Code refuses a run config on another provider. The start refuses a baseline, a judge or a simulated user on another provider: the run calls them whatever model the tuner tries. |
+| `--model-weights` | not set | The origin of the models, by their weights: `open` for open-weight models only, `closed` for closed-weight models only. The fact comes from the model catalogue. A model that the catalogue has no fact for is refused. Not with `--no-model-catalog`. |
+| `--exclude-model-families` | not set | The origin of the models, by family: no model of these families, separated by commas (`--exclude-model-families qwen,deepseek`), as the model catalogue names them. The catalogue has no country or company of origin, so state such a restriction as its families. A model with no family in the catalogue is refused. A family that the catalogue does not have is a start-up error that lists its families. Not with `--no-model-catalog`. |
+| `--zero-data-retention` | off | Zero data retention only. Code refuses the routes that cannot give it: OpenRouter, because Kiln cannot ask it for zero retention. Code cannot check the retention terms of another provider. Give `--providers` too, with only the providers whose terms you checked. |
+| `--lock-tool` | not set | A tool of the baseline run config that must not change, by its tool id as the run config lists it. Repeat the flag for each tool. Code refuses a run config that drops or replaces the tool, and one that wraps it: a new code tool that may call it. A skill is attached as a tool, so the flag locks a skill too. An id that the baseline does not attach is a start-up error. |
+
 ### Limits
 
 | Flag | Default | What it does |

@@ -79,6 +79,7 @@ from kiln_harness_tuner.items import (
     drop_eval_building_items,
     execute_plan_item,
 )
+from kiln_harness_tuner.job_drives import run_config_tool_ids
 from kiln_harness_tuner.judge_copy import read_eval_texts
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.latency import (
@@ -111,9 +112,12 @@ from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import (
     KEEP_SOURCE,
     ModelPolicy,
+    Restriction,
     allowed_models,
     keep_policy,
+    open_policy,
     run_config_pair,
+    with_restrictions,
 )
 from kiln_harness_tuner.model_preflight import flagged_reason, run_model_preflight
 from kiln_harness_tuner.noise import run_noise_check
@@ -137,6 +141,11 @@ from kiln_harness_tuner.quarantine import (
 )
 from kiln_harness_tuner.quarantine import eval_ids as quarantine_eval_ids
 from kiln_harness_tuner.reconcile import reconcile
+from kiln_harness_tuner.restrictions import (
+    Restrictions,
+    ToolLock,
+    write_restrictions,
+)
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
@@ -169,6 +178,7 @@ from kiln_harness_tuner.schemas import (
     lane_for_source,
 )
 from kiln_harness_tuner.setup import (
+    SetupPreconditionError,
     _require_rows,
     eval_rows_from_response,
     measurable_evals,
@@ -334,6 +344,16 @@ class Ctx:
     objective: str = "quality"
     model_policy: ModelPolicy | None = None
     keep_model: bool = False
+    # What the owner stated at the start (`restrictions.py`).
+    #   `model_restrictions`: its rules on models. A policy file and
+    #   `--models any` carry them in `model_policy` from the start;
+    #   `pin_baseline_model` adds them to the policy of `--models keep`.
+    #   `tool_lock`: the tools that must not change, with the baseline's
+    #   tools (`lock_baseline_tools`).
+    restrictions: Restrictions = field(default_factory=Restrictions)
+    model_restrictions: tuple[Restriction, ...] = ()
+    tool_lock: ToolLock = field(default_factory=ToolLock)
+    _rc_lock_refusals: dict[str, str | None] = field(default_factory=dict)
     # `model_catalog`: the run's catalogue snapshot (`model_catalog`), as
     #   written to the run directory; None = not fetched (other unit tests).
     #   `run_started_at`: the run's start, the date the old-model detector
@@ -658,6 +678,7 @@ async def _run_loop(
     )
     await pin_baseline_model(ctx, ctx.memory.baseline_rc_id(startup_record))
     await _note_baseline_policy(ctx, ctx.memory.baseline_rc_id(startup_record))
+    await lock_baseline_tools(ctx, ctx.memory.baseline_rc_id(startup_record))
     # $0 API-contract check: the evals envelope, both statistics
     # operations and one stored-results read, against the LIVE server, so a
     # response shape that moved past the reader fails here with the field
@@ -1019,6 +1040,9 @@ async def _dispatch_plan(
                     noise_rate=noise_flip_rate(ctx.train_noise),
                 ),
                 model_policy=(ctx.model_policy.summary() if ctx.model_policy else None),
+                restrictions=ctx.restrictions.statements(),
+                restriction_limits=ctx.restrictions.limits(),
+                locked_tools=list(ctx.restrictions.locked_tools),
                 allowed_models=models,
                 flagged_models=[
                     f"{provider}/{model}: {reason}"
@@ -3138,13 +3162,88 @@ async def _rc_pair(ctx: Ctx, rc_id: str) -> tuple[str | None, str | None]:
 
 
 async def policy_refusal(ctx: Ctx, rc_id: str) -> str | None:
-    """None when `rc_id` may be measured and promoted; else why not. The
+    """None when `rc_id` may be measured and promoted; else why not: its
+    model is outside the model policy, or it breaks the tool lock. The
     baseline chain is exempt (`Ctx.policy_exempt_rcs`)."""
-    if ctx.model_policy is None or rc_id in ctx.policy_exempt_rcs:
+    if rc_id in ctx.policy_exempt_rcs:
         return None
-    provider, model = await _rc_pair(ctx, rc_id)
-    refusal = ctx.model_policy.refusal(provider, model)
+    if ctx.model_policy is not None:
+        provider, model = await _rc_pair(ctx, rc_id)
+        refusal = ctx.model_policy.refusal(provider, model)
+        if refusal is not None:
+            return f"rc {rc_id}: {refusal}"
+    refusal = await tool_lock_refusal(ctx, rc_id)
     return None if refusal is None else f"rc {rc_id}: {refusal}"
+
+
+async def tool_lock_refusal(ctx: Ctx, rc_id: str) -> str | None:
+    """Why `rc_id` breaks the tool lock, or None. The gateway makes the same
+    check when an agent creates a run config (`Gateway._tool_lock_check`).
+    This one also covers a run config that no gateway of this run created.
+    A run config or a code tool that cannot be read is refused."""
+    lock = ctx.tool_lock
+    if not lock:
+        return None
+    if rc_id in ctx._rc_lock_refusals:
+        return ctx._rc_lock_refusals[rc_id]
+    row = next(
+        (r for r in await task_run_configs(ctx) if str(r.get("id")) == rc_id), None
+    )
+    if row is None:
+        return "the run config was not found, so the tool lock cannot be checked"
+    tools = run_config_tool_ids(row.get("run_config_properties"))
+    refusal = lock.dropped(tools)
+    for tool_id in [] if refusal is not None else lock.new_code_tools(tools):
+        try:
+            tool = await ctx.kiln.call(
+                "GET", f"/api/projects/{ctx.target.project_id}/code_tools/{tool_id}"
+            )
+        except KilnError as exc:
+            return f"code tool {tool_id} could not be read ({exc})"
+        wraps = lock.wraps(tool.get("tool_allowlist") if isinstance(tool, dict) else [])
+        if wraps is not None:
+            refusal = f"code tool {tool_id}: {wraps}"
+            break
+    ctx._rc_lock_refusals[rc_id] = refusal
+    return refusal
+
+
+async def lock_baseline_tools(ctx: Ctx, rc_id: str) -> None:
+    """Write the run's `restrictions.json`, where each gateway process reads
+    the tool lock, with the tools the baseline attaches: a code tool among
+    them is not a new wrapper. A locked tool that the baseline does not
+    attach stops the start: the lock would refuse every candidate."""
+    restrictions = ctx.restrictions
+    if not restrictions:
+        return
+    tools: list[str] = []
+    if restrictions.locked_tools:
+        try:
+            tools = run_config_tool_ids(await _parent_props(ctx, rc_id))
+        except (ProbeSetupError, KilnError) as exc:
+            raise SetupPreconditionError(
+                f"--lock-tool: the tools of the baseline {rc_id} could not be"
+                f" read ({exc}).\nfix: check that Kiln is running, then start"
+                " again."
+            ) from exc
+        missing = [t for t in restrictions.locked_tools if t not in tools]
+        if missing:
+            raise SetupPreconditionError(
+                f"--lock-tool: the baseline {rc_id} does not attach"
+                f" {', '.join(missing)}.\nIts tools: {', '.join(tools) or 'none'}."
+                "\nfix: give each tool id as the run config lists it, or drop"
+                " the flag."
+            )
+    if ctx.run_dir is not None:
+        ctx.tool_lock = write_restrictions(ctx.run_dir, restrictions, tools)
+    else:
+        ctx.tool_lock = ToolLock(restrictions.locked_tools, frozenset(tools))
+    ctx.log.event(
+        "restrictions",
+        statements=restrictions.statements(),
+        limits=restrictions.limits(),
+        locked_tools=list(restrictions.locked_tools),
+    )
 
 
 async def require_policy(ctx: Ctx, rc_id: str) -> None:
@@ -3187,14 +3286,32 @@ async def pin_baseline_model(ctx: Ctx, rc_id: str) -> None:
             KEEP_SOURCE,
             rc_id,
         )
-        return
-    data = keep_policy(provider, model)
+        if not ctx.model_restrictions:
+            return
+        # Nothing is pinned, but the stated restrictions still hold.
+        data = with_restrictions(
+            open_policy("The stated restrictions."), ctx.model_restrictions
+        )
+    else:
+        data = with_restrictions(keep_policy(provider, model), ctx.model_restrictions)
+        if not ctx.model_restrictions:
+            data.pop("restrictions")
     ctx.model_policy = ModelPolicy.from_json(data, source=KEEP_SOURCE)
+    if provider and model and ctx.model_restrictions:
+        refusal = ctx.model_policy.refusal(provider, model)
+        if refusal is not None:
+            raise SetupPreconditionError(
+                f"{KEEP_SOURCE} keeps the task's model, and a stated restriction"
+                f" refuses it: {refusal}.\nfix: let the task move to another"
+                " model (--models any, or a model policy), or change the"
+                " restriction."
+            )
     if ctx.run_dir is not None:
         (ctx.run_dir / "model_policy.json").write_text(
             json.dumps(data, indent=1) + "\n", encoding="utf-8"
         )
-    ctx.log.event("keep_model_pinned", rc_id=rc_id, provider=provider, model=model)
+    if provider and model:
+        ctx.log.event("keep_model_pinned", rc_id=rc_id, provider=provider, model=model)
 
 
 async def _note_baseline_policy(ctx: Ctx, rc_id: str) -> None:

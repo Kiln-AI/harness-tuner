@@ -1264,6 +1264,8 @@ src/kiln_harness_tuner/
   quarantine.py     the start-up split check: held-out ids, stored results
   latency.py        per-item latency, the paired comparison, the drive pass
   model_policy.py   the (provider, model) policy and its checks
+  restrictions.py   the restrictions the owner states at the start: their
+                    rules for the model policy, and the tool lock
   memory.py         when a record is written
   memory_schema.py  what a record says
   schemas.py        every agent input and output, and RunStatus
@@ -1954,7 +1956,9 @@ The baseline chain is exempt from the measurement checks: it is the
 operator's starting point, and every promotion after it is checked. A
 baseline outside the policy is named once at start-up
 (`baseline_outside_policy`). Judges are not subject to the policy: an eval
-config names its model under different keys, and evals are frozen. The
+config names its model under different keys, and evals are frozen. A
+restriction on providers or on data retention is the exception: the start
+refuses a baseline or a judge on a refused provider (section 17.2). The
 planner receives the policy and `allowed_models` — the server's
 `GET /api/available_models`, filtered by it.
 
@@ -2059,6 +2063,54 @@ Kiln's own advice has a `kiln_` prefix (`kiln_featured_rank`,
 own id, and `default_structured_output_mode` is Kiln's suggested default
 mode for the pair. Kiln's `reasoning_capable` (its flag for `<think>`
 tags) and `supports_doc_extraction` are not carried: a run uses neither.
+
+### 17.2 The restrictions stated at the start
+
+Some limits are known only because the owner states them. Each one is a
+flag, and the guided start asks for them in one question, after the Models
+question ([`onboarding/restrictions.py`](../src/kiln_harness_tuner/onboarding/restrictions.py)).
+[`restrictions.py`](../src/kiln_harness_tuner/restrictions.py) turns each
+answer into a check in code. A restriction that only text asks for is not a
+restriction.
+
+| Restriction | Flag | Where code enforces it | What code cannot check |
+|---|---|---|---|
+| Providers | `--providers` | The model policy. The start refuses a baseline, a judge or a simulated user on another provider (`route_problem`). | The account of the agent CLI, through which the tuner's own agents read the train items. |
+| Model origin, by weights | `--model-weights` | The model policy, from the catalogue's `open_weights`. | A model that the catalogue has no fact for. It is refused. |
+| Model origin, by family | `--exclude-model-families` | The model policy, from the catalogue's `family`. | The country or the company of a model: the catalogue has neither. A model with no family is refused. |
+| Data retention | `--zero-data-retention` | The model policy refuses the routes in `NO_ZERO_RETENTION` (OpenRouter: Kiln sets a fixed provider order and never sends `zdr`). The start refuses a baseline, a judge or a simulated user on such a route. | The retention terms of every other provider. The account of the agent CLI. |
+| Tools that must not change | `--lock-tool` | The tool lock: the gateway's `create_run_config`, `create_code_tool` and `archive_code_tool`, and `policy_refusal` before a run config is measured or promoted. | The text that the prompt or a skill gives about the tool. |
+
+**The model restrictions are part of the model policy.** `cli.restricted_policy`
+turns them into `model_policy.Restriction` records, with the run's catalogue
+snapshot, and writes them into `runs/<run_id>/model_policy.json` under
+`restrictions`. A restriction is a statement in words and its own `allow`
+and `deny` rules. The policy checks the restrictions before its own rules:
+a pair must pass every one, and an exception does not pass one. So every
+check of this section enforces them, with no other code path. A policy file
+gets them added. `--models any` becomes a policy that allows every pair, so
+that the restrictions decide. Under `--models keep`,
+`pin_baseline_model` adds them to the policy of the baseline's pair. Until
+the pin, the copy in the run directory holds the restrictions alone. When a
+restriction refuses the baseline's own model there, the start stops: no
+candidate could be built. An origin restriction with no catalogue
+(`--no-model-catalog`, or a failed fetch) is a start-up error, and so is a
+family that the catalogue does not have.
+
+**The tool lock** is `runs/<run_id>/restrictions.json`, which each gateway
+process reads (`restrictions.load_tool_lock`). `lock_baseline_tools` writes
+it at start-up with the tools the baseline attaches, and stops the start
+when a locked tool is not among them. A candidate breaks the lock when its
+run config does not list a locked tool id (it drops or replaces the tool),
+or when it attaches a code tool whose `tool_allowlist` names a locked tool
+(it wraps the tool). A code tool that the baseline attached at the start is
+not a new wrapper. A skill is attached as a tool, so the lock covers a
+skill too. A lock file that cannot be read refuses every candidate.
+
+**The planner reads them.** Its input has `restrictions` (each one in
+words), `restriction_limits` (what code cannot check) and `locked_tools`,
+and `model_policy.restrictions` repeats the statements on models. The
+`restrictions` event of the wave log records the same.
 
 ## 18. The knowledge system and smell detection
 

@@ -58,6 +58,7 @@ from kiln_harness_tuner.onboarding.questions import (
     parse_fraction,
     swap_note,
 )
+from kiln_harness_tuner.onboarding.restrictions import RESTRICTIONS_HINT
 from kiln_harness_tuner.onboarding.summary import parser_defaults
 
 DEFAULTS = parser_defaults(build_parser().option_dests)
@@ -66,6 +67,7 @@ ADVANCED_DESTS = frozenset().union(*(q.dests for q in QUESTIONS if q.advanced))
 CORE_QUESTIONS = [
     "What should the tuner improve?",
     "Which models may the tuner use?",
+    "Do you have restrictions for this run?",
     "Guidance for the tuner's planner (optional)",
     "Which agent CLI should run the tuner's agents?",
     "Model for the agents",
@@ -336,6 +338,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
         [
             "speed",
             "any",
+            "none",
             "Keep it short.",
             "opencode",
             "zai/glm",
@@ -350,6 +353,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
     assert terminal.step_lines() == [
         "Improve: Speed",
         "Models: any model Kiln offers",
+        "Restrictions: none",
         'Guidance: "Keep it short."',
         "Agents: OpenCode (opencode run) · zai/glm · effort max",
         "Budget: no cap",
@@ -360,6 +364,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
         objective="speed",
         models="any",
         guidance="Keep it short.",
+        no_restrictions=True,
         agent_cli="opencode run -m zai/glm --variant max",
         budget_usd=None,
         timeout_mins=90,
@@ -368,6 +373,7 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
     assert [asked.default for asked in terminal.asked[:-1]] == [
         "quality",
         "any",  # the objective's default, Speed's
+        "none",
         "",
         "claude",
         "",  # OpenCode's own default model
@@ -380,7 +386,8 @@ def test_ask_all_with_nothing_given_asks_every_question_in_order():
 
 def test_the_objective_rows_and_the_hints():
     terminal = ScriptedTerminal(
-        ["quality", "keep", "", "claude", "opus", "high", "50", "12h", "enter"]
+        ["quality", "keep", "none", "", "claude", "opus", "high", "50", "12h"]
+        + ["enter"]
     )
     ask_all(answers(), context(terminal), given=frozenset())
     assert [option.label for option in terminal.options[0]] == [
@@ -396,6 +403,7 @@ def test_the_objective_rows_and_the_hints():
         " run on the harness around it. Which other model it tries is its own"
         " judgment, so to try others, pick a few strong ones and say in the"
         " guidance how to try them.",
+        RESTRICTIONS_HINT,
         "These instructions guide the tuner when it plans new experiments. Some"
         " examples:\n"
         " · Where to focus: \"Start with the Correctness eval. It's our biggest"
@@ -421,12 +429,12 @@ def test_the_objective_rows_and_the_hints():
         " the wave in flight and one wrap-up wave finish, so the run can end"
         " later.",
     ]
-    assert [option.label for option in terminal.options[2]] == [
+    assert [option.label for option in terminal.options[3]] == [
         "Claude Code: claude -p",
         "Codex: codex exec",
         "OpenCode: opencode run",
     ]
-    assert terminal.step_lines()[3] == "Agents: Claude Code (claude -p) · opus"
+    assert terminal.step_lines()[4] == "Agents: Claude Code (claude -p) · opus"
 
 
 @pytest.mark.parametrize(
@@ -434,10 +442,11 @@ def test_the_objective_rows_and_the_hints():
     [
         ("objective", ["cost"], CORE_QUESTIONS[:1]),
         ("models", ["any"], CORE_QUESTIONS[1:2]),
-        ("guidance", ["x"], CORE_QUESTIONS[2:3]),
-        ("agents", ["codex", "", "high"], CORE_QUESTIONS[3:6]),
-        ("budget", ["9"], CORE_QUESTIONS[6:7]),
-        ("time", ["45"], CORE_QUESTIONS[7:8]),
+        ("restrictions", ["none"], CORE_QUESTIONS[2:3]),
+        ("guidance", ["x"], CORE_QUESTIONS[3:4]),
+        ("agents", ["codex", "", "high"], CORE_QUESTIONS[4:7]),
+        ("budget", ["9"], CORE_QUESTIONS[7:8]),
+        ("time", ["45"], CORE_QUESTIONS[8:9]),
     ],
 )
 def test_only_the_question_no_flag_answered_is_asked(name, typed, asked):
@@ -1057,6 +1066,7 @@ def test_changeable_lists_the_questions_no_flag_answered_in_order():
     names = [q.name for q in changeable({"objective", "noise_check", "kiln_host"})]
     assert names == [
         "models",
+        "restrictions",
         "guidance",
         "agents",
         "budget",
@@ -1075,30 +1085,33 @@ CORE_ONLY = ADVANCED_DESTS  # every advanced question answered by a flag
 
 def test_esc_asks_the_question_before_again_pre_filled_and_takes_its_line():
     terminal = ScriptedTerminal(
-        ["speed", "any", "Keep it short.", ESC, "Shorter.", "claude", "opus"]
-        + ["high", "50", "12h"]
+        ["speed", "any", "none", "Keep it short.", ESC, "Shorter.", "claude"]
+        + ["opus", "high", "50", "12h"]
     )
     got = ask_all(answers(), context(terminal), given=CORE_ONLY)
-    assert terminal.questions[:5] == [
+    assert terminal.questions[:6] == [
         CORE_QUESTIONS[0],
         CORE_QUESTIONS[1],
         CORE_QUESTIONS[2],
         CORE_QUESTIONS[3],
-        CORE_QUESTIONS[2],
+        CORE_QUESTIONS[4],
+        CORE_QUESTIONS[3],
     ]
-    assert terminal.asked[4].default == "Keep it short."
+    assert terminal.asked[5].default == "Keep it short."
     assert got.guidance == "Shorter."
     # The first Guidance line went with the Esc.
-    assert terminal.step_lines()[:3] == [
+    assert terminal.step_lines()[:4] == [
         "Improve: Speed",
         "Models: any model Kiln offers",
+        "Restrictions: none",
         'Guidance: "Shorter."',
     ]
-    assert len(terminal.step_lines()) == 6
+    assert len(terminal.step_lines()) == 7
 
 
 def test_the_first_question_does_not_offer_esc():
-    terminal = ScriptedTerminal(["speed", ESC, "cost", "any", "", "claude", "opus"])
+    terminal = ScriptedTerminal(["speed", ESC, "cost", "any", "none", "", "claude"])
+    terminal.answers += ["opus"]
     terminal.answers += ["high", "50", "12h"]
     got = ask_all(answers(), context(terminal), given=CORE_ONLY)
     assert [asked.back for asked in terminal.asked[:4]] == [False, True, False, True]
@@ -1111,11 +1124,11 @@ def test_the_first_question_does_not_offer_esc():
 
 def test_every_question_after_the_first_offers_esc():
     terminal = ScriptedTerminal(
-        ["speed", "any", "", "claude", "opus", "high", "50", "12h", "c", "", "4"]
-        + ["4", "0"]
+        ["speed", "any", "none", "", "claude", "opus", "high", "50", "12h", "c"]
+        + ["", "4", "4", "0"]
     )
     ask_all(answers(), context(terminal), given=frozenset())
-    assert [asked.back for asked in terminal.asked] == [False] + [True] * 12
+    assert [asked.back for asked in terminal.asked] == [False] + [True] * 13
 
 
 def test_esc_at_the_advanced_menu_asks_the_last_core_question_again():
@@ -1224,9 +1237,9 @@ def test_with_one_cli_esc_at_the_model_asks_the_question_before_again():
     given = EVERY_DEST - {"agent_cli", "guidance"}
     got = ask_all(answers(), context(terminal, which=installed("claude")), given=given)
     assert terminal.questions == [
-        CORE_QUESTIONS[2],
+        CORE_QUESTIONS[3],
         "Model for the agents",
-        CORE_QUESTIONS[2],
+        CORE_QUESTIONS[3],
         "Model for the agents",
         "Thinking level for the agents",
     ]

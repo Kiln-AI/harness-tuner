@@ -13,12 +13,19 @@ A policy is a JSON file passed with `--model-policy`:
   "description": "free text, shown to the planner",
   "allow":      [{"provider": "<glob>", "model": "<glob>"}, ...],
   "deny":       [{"provider": "<glob>", "model": "<glob>", "reason": "..."}],
-  "exceptions": [{"provider": "<exact>", "model": "<exact>", "reason": "..."}]
+  "exceptions": [{"provider": "<exact>", "model": "<exact>", "reason": "..."}],
+  "restrictions": [{"name": "...", "statement": "...", "allow": [...],
+                    "deny": [...], "otherwise": "..."}]
 }
 ```
 
 A pair is decided in this order, and the first step that matches decides:
 
+0. **restrictions** — what the owner stated at the start (`restrictions.py`
+   writes them: the providers, the model origin, the data retention). A pair
+   must pass every restriction: none of its `deny` rules matches, and one of
+   its `allow` rules does. A pair that fails one is refused, whatever the
+   rules below say. An exception does not pass a restriction.
 1. **exceptions** — an exact (provider, model) pair, no wildcards. Allowed,
    whatever the other rules say. This is how a one-off pair is let through
    that a general deny (or the absence of an allow) would refuse.
@@ -45,7 +52,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
@@ -122,11 +129,51 @@ class Decision:
 
 
 @dataclass(frozen=True)
+class Restriction:
+    """One restriction the owner stated, as rules. A pair passes when no
+    `deny` rule matches it and an `allow` rule does. `statement` is the
+    restriction in words, for a refusal and for the planner. `otherwise` is
+    why a pair that no rule matches is refused."""
+
+    name: str
+    statement: str
+    allow: tuple[Rule, ...]
+    deny: tuple[Rule, ...] = ()
+    otherwise: str = ""
+
+    def refusal(self, provider: str, model: str) -> str | None:
+        """None when the pair passes, else why it does not."""
+        for rule in self.deny:
+            if rule.matches(provider, model):
+                return rule.reason or f"denied by {rule.label()}"
+        if any(rule.matches(provider, model) for rule in self.allow):
+            return None
+        return self.otherwise or "no rule of the restriction allows it"
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "statement": self.statement,
+            "allow": [_rule_json(rule) for rule in self.allow],
+            "deny": [_rule_json(rule) for rule in self.deny],
+            "otherwise": self.otherwise,
+        }
+
+
+def _rule_json(rule: Rule) -> dict[str, str]:
+    row = {"provider": rule.provider, "model": rule.model}
+    if rule.reason:
+        row["reason"] = rule.reason
+    return row
+
+
+@dataclass(frozen=True)
 class ModelPolicy:
     allow: tuple[Rule, ...]
     deny: tuple[Rule, ...] = ()
     exceptions: tuple[Rule, ...] = ()
     description: str = ""
+    restrictions: tuple[Restriction, ...] = ()
 
     def decide(self, provider: str | None, model: str | None) -> Decision:
         if not provider or not model:
@@ -135,6 +182,10 @@ class ModelPolicy:
                 "the run config names no model provider and model, so the"
                 " policy cannot place it",
             )
+        for restriction in self.restrictions:
+            why = restriction.refusal(provider, model)
+            if why is not None:
+                return Decision(False, f"restriction '{restriction.statement}': {why}")
         for rule in self.exceptions:
             if rule.provider == provider and rule.model == model:
                 return Decision(True, f"exception {rule.label()}")
@@ -155,7 +206,17 @@ class ModelPolicy:
         return f"model {provider}/{model} is outside the model policy: {decision.why}"
 
     def summary(self) -> dict[str, Any]:
-        """The policy as the planner reads it (its input carries this)."""
+        """The policy as the planner reads it (its input carries this). The
+        restrictions are given as their statements: `allowed_models` has the
+        models that pass them."""
+        if self.restrictions:
+            return {
+                **replace(self, restrictions=()).summary(),
+                "restrictions": [r.statement for r in self.restrictions],
+                "order": "restrictions first: a pair that fails one is refused,"
+                " and no exception passes it. Then exceptions, then deny, then"
+                " allow; anything else is refused",
+            }
         return {
             "description": self.description,
             "allow": [r.label() for r in self.allow],
@@ -183,7 +244,13 @@ class ModelPolicy:
     def from_json(data: Any, source: str = "the policy") -> ModelPolicy:
         if not isinstance(data, dict):
             raise ModelPolicyError(f"{source} must be a JSON object")
-        unknown = set(data) - {"description", "allow", "deny", "exceptions"}
+        unknown = set(data) - {
+            "description",
+            "allow",
+            "deny",
+            "exceptions",
+            "restrictions",
+        }
         if unknown:
             raise ModelPolicyError(
                 f"{source} has unknown key(s) {sorted(unknown)} — a misspelled"
@@ -206,6 +273,7 @@ class ModelPolicy:
             deny=_rules(data.get("deny"), "deny", source),
             exceptions=exceptions,
             description=str(data.get("description") or ""),
+            restrictions=_restrictions(data.get("restrictions"), source),
         )
 
     @staticmethod
@@ -217,6 +285,63 @@ class ModelPolicy:
         except ValueError as exc:
             raise ModelPolicyError(f"{path} is not valid JSON ({exc})") from exc
         return ModelPolicy.from_json(data, str(path))
+
+
+def _restrictions(raw: Any, source: str) -> tuple[Restriction, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ModelPolicyError(f"{source}: 'restrictions' must be a list")
+    found: list[Restriction] = []
+    for entry in raw:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("name"), str)
+            or not entry["name"]
+            or not isinstance(entry.get("statement"), str)
+            or not entry["statement"]
+        ):
+            raise ModelPolicyError(
+                f"{source}: every restriction needs non-empty string 'name' and"
+                f" 'statement' fields, got {entry!r}"
+            )
+        extra = set(entry) - {"name", "statement", "allow", "deny", "otherwise"}
+        if extra:
+            raise ModelPolicyError(
+                f"{source}: restriction {entry['name']!r} has unknown key(s)"
+                f" {sorted(extra)}"
+            )
+        label = f"{source}: restriction {entry['name']!r}"
+        found.append(
+            Restriction(
+                name=entry["name"],
+                statement=entry["statement"],
+                allow=_rules(entry.get("allow"), "allow", label),
+                deny=_rules(entry.get("deny"), "deny", label),
+                otherwise=str(entry.get("otherwise") or ""),
+            )
+        )
+    return tuple(found)
+
+
+def with_restrictions(
+    data: dict[str, Any], restrictions: Iterable[Restriction]
+) -> dict[str, Any]:
+    """A policy as JSON, with `restrictions` added after its own."""
+    own = data.get("restrictions")
+    return {
+        **data,
+        "restrictions": [
+            *(own if isinstance(own, list) else []),
+            *(restriction.to_json() for restriction in restrictions),
+        ],
+    }
+
+
+def open_policy(description: str) -> dict[str, Any]:
+    """The policy `--models any` stands for when a restriction is stated, as
+    JSON: every pair is allowed, and the restrictions decide."""
+    return {"description": description, "allow": [{"provider": "*", "model": "*"}]}
 
 
 def _rules(raw: Any, name: str, source: str) -> tuple[Rule, ...]:
