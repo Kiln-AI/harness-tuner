@@ -110,7 +110,7 @@ whether it does (`per_turn`) or only the run total is known
 | Operation | Fields | Answer |
 |---|---|---|
 | `ping` | — | `{ok}` — the Kiln server answers (preflight only) |
-| `get_task` | — | name, description, instruction, thinking_instruction, requirements, input/output JSON schemas |
+| `get_task` | — | name, description, instruction, thinking_instruction, requirements, input/output JSON schemas, `turn_mode` (`single_turn` or `multiturn`) |
 | `list_run_configs` | — | every run config: id, name, description, model, provider, thinking level, prompt id, tools, properties, and the frozen prompt it runs with (`prompt`) |
 | `get_run_config` | `id` | one run config |
 | `list_prompts` | — | the task's saved prompts, with their text |
@@ -274,7 +274,8 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, or it is not a `kiln_agent` config |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, or it is not a `kiln_agent` config. `run_config_properties.input_transform` is null or `{"type": "jinja", "template": "…"}`: any other shape is refused, and so is a template that Kiln does not compile. On a multi-turn task a NEW input transform is refused. An input transform that a run config of the task already has is accepted on any task: copy the parent's as it is |
+| `validate_input_transform` | `template` (at most 20,000 characters) | `valid` (Kiln compiles the Jinja template), `error` (the compile error), `applies` (`false` on a multi-turn task, with a `note`). It makes no run config and calls no model. It does not render the template: drive a train item with `run_task` and read the first user message in the trace |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |
@@ -326,8 +327,8 @@ shows the train items only. Read results with `get_train_results` after
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
 | batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory |
-| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
-| probe | reading the task, models and providers, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, the artifact reads, memory (no update) |
+| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `validate_input_transform`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
+| probe | reading the task, models and providers, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, `validate_input_transform`, the code-tool writes, the artifact reads, memory (no update) |
 | analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, the artifact reads, memory |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |

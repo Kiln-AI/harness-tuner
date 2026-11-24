@@ -15,6 +15,7 @@ from typing import Annotated, Any, Literal, TypeVar
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+from kiln_harness_tuner.input_transform import TEMPLATE_MAX_CHARS
 from kiln_harness_tuner.kiln_names import kiln_name
 
 M = TypeVar("M", bound=BaseModel)
@@ -71,6 +72,9 @@ class TaskView(Out):
     requirements: list[Requirement] = []
     input_json_schema: str | None = None
     output_json_schema: str | None = None
+    # "single_turn" or "multiturn". The input transform lever applies to a
+    # single-turn task only.
+    turn_mode: str | None = None
 
 
 class RunConfigPrompt(Out):
@@ -720,6 +724,32 @@ class RunConfigCreate(In):
     description: str | None = Field(default=None, max_length=2000)
     run_config_properties: dict[str, Any]
     provenance: dict[str, Any] | None = None
+
+
+class InputTransformValidate(In):
+    template: str = Field(
+        min_length=1,
+        max_length=TEMPLATE_MAX_CHARS,
+        description=(
+            "The Jinja2 template of an input transform. It reads one "
+            "variable, `input`: the task input."
+        ),
+    )
+
+
+class InputTransformValidation(Out):
+    valid: bool = Field(description="Kiln compiles the template.")
+    error: str | None = Field(
+        default=None, description="Kiln's compile error, when it is not valid."
+    )
+    applies: bool = Field(
+        default=True,
+        description=(
+            "False on a multi-turn task: create_run_config refuses a new "
+            "template there."
+        ),
+    )
+    note: str | None = None
 
 
 class RunConfigRename(In):

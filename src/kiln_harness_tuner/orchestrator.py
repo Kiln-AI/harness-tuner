@@ -67,6 +67,7 @@ from kiln_harness_tuner.dispatch.base import AgentDispatcher
 from kiln_harness_tuner.gateway.ops import VAL_SUMMARY_FILE
 from kiln_harness_tuner.gateway.trainset import compute as compute_train_set
 from kiln_harness_tuner.generality import audit_baseline
+from kiln_harness_tuner.input_transform import template_of
 from kiln_harness_tuner.integrity import (
     output_shape_findings,
     quote_findings,
@@ -1719,8 +1720,21 @@ async def apply_integrity_checks(
     eval_texts, names = evals.texts, evals.names
     allowed_text = "\n".join(allowed)
     baseline_text = allowed[0]
+    # The input transform: its template is text the model is sent on every
+    # call, so checks (a) and the review read it like the prompt. The row
+    # carries it, so it is always readable.
+    baseline_template = template_of(
+        (rows.get(baseline_rc_id) or {}).get("run_config_properties")
+    )
+    template_allowed = "\n".join([allowed_text, baseline_template])
     for table in tables:
         read = await rc_prompt_text(ctx, rows.get(table.rc_id))
+        template = template_of(
+            (rows.get(table.rc_id) or {}).get("run_config_properties")
+        )
+        template_changed = bool(template.strip()) and normalized(
+            template
+        ) != normalized(baseline_template)
         if read is None:
             # Never a silent pass: the checks that need the
             # instructions did not run, and the winner must be read by the
@@ -1736,21 +1750,39 @@ async def apply_integrity_checks(
                 " (get_prompt_text on its prompt id) before promoting it"
             )
         text = read or ""
-        if read is not None and normalized(text) != normalized(baseline_text):
+        if read is not None and (
+            normalized(text) != normalized(baseline_text) or template_changed
+        ):
             # The changed instructions get one read-only review
             # session for paraphrased criteria and eval-specific gaming.
             # Flags, never a block (the verbatim block above stays).
             table.integrity_flags += await _integrity_review(
-                ctx, table.rc_id, text, baseline_text, eval_texts
+                ctx,
+                table.rc_id,
+                text,
+                baseline_text,
+                eval_texts,
+                template if template_changed else "",
+                baseline_template if template_changed else "",
             )
-        for finding in quote_findings(text, eval_texts, names, allowed_text):
-            table.copy_findings.append(finding)
-            table.integrity_flags.append(f"BLOCKED: {finding}")
+        copies = [
+            ("prompt", f) for f in quote_findings(text, eval_texts, names, allowed_text)
+        ] + [
+            ("input transform", f)
+            for f in quote_findings(template, eval_texts, names, template_allowed)
+        ]
+        for place, finding in copies:
+            table.copy_findings.append(f"{place} {finding}")
+            table.integrity_flags.append(
+                f"BLOCKED: {finding}"
+                if place == "prompt"
+                else f"BLOCKED: the {place} {finding}"
+            )
             table.ineligible = True
             table.errors.append(
                 ErrorInfo(
                     error_class="provider_error",
-                    detail=f"integrity: the candidate's prompt {finding}",
+                    detail=f"integrity: the candidate's {place} {finding}",
                 )
             )
         for eval_def, config_id in active:
@@ -1796,7 +1828,8 @@ async def _record_gate_blocks(
       run reads (`BatchPlanInput.gate_blocks`).
 
     Only the findings of check (a) travel this way: the copied phrase and
-    the eval object, read from the prompt and the eval definitions. The
+    the eval object, read from the prompt or the input transform and the
+    eval definitions. The
     planner is a train-side agent and the experiment record is
     train-readable, so nothing derived from val may reach them — not the
     (b) output-shape flags, not the (c) write-action flags, not the
@@ -1818,7 +1851,7 @@ async def _record_gate_blocks(
         block = GateBlock(
             rc_id=table.rc_id,
             experiment_memory_id=exp_mem_id,
-            reasons=[f"the candidate's prompt {r}" for r in reasons],
+            reasons=[f"the candidate's {r}" for r in reasons],
         )
         ctx.log.event(
             "gate_block",
@@ -1862,6 +1895,8 @@ async def _integrity_review(
     candidate_text: str,
     baseline_text: str,
     judge_texts: dict[str, str],
+    candidate_template: str = "",
+    baseline_template: str = "",
 ) -> list[str]:
     """One `integrity_review` session for a candidate whose instructions
     changed: its flags, prefixed "review:". A session that returns nothing
@@ -1872,6 +1907,8 @@ async def _integrity_review(
             candidate_instructions=candidate_text,
             baseline_instructions=baseline_text,
             judge_texts=dict(judge_texts),
+            candidate_input_transform=candidate_template,
+            baseline_input_transform=baseline_template,
         )
     )
     ctx.log.event(

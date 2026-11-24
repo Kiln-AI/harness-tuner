@@ -84,6 +84,21 @@ going looking.
    return `failed_expected` naming the refusal, and do not try another
    model.
 
+   An **`input_transform` arm** changes only the template that renders
+   the task input into the first user message. The knowledge lever
+   `levers/input_transform.md` gives the template language, the steps and
+   the limits. Check the template with `validate_input_transform`, then
+   make one `POST` of a run config identical to the parent except
+   `input_transform` (`{"type": "jinja", "template": "…"}`). List the
+   fields that the template removes, cuts, renames or computes in
+   `change`. The lever applies to single-turn tasks only: when
+   `validate_input_transform` answers `applies: false`, or
+   `create_run_config` refuses the template for a multi-turn task, return
+   `failed_expected` with that sentence, and do not try another lever. On
+   every other arm, copy the parent's `input_transform` as it is: code
+   ends an `input_transform` arm whose transform is the parent's, and an
+   arm that changes the transform on a multi-turn task.
+
    **Every skill** goes through the `install_skill_bundle` MCP tool.
    Write the complete bundle under your `scratch_dir`, then install it.
    A flat skill is a bundle that holds only `SKILL.md`. You have no tool
@@ -125,7 +140,9 @@ going looking.
    **The smoke must show the mechanism ENGAGED**. A tool arm
    whose smoke traces carry zero `tool_calls`, a skill arm whose skill was
    never read, a params arm whose output is byte-identical to the parent's,
-   an output-mode arm that never parsed — these are not built, whatever the
+   an output-mode arm that never parsed, an input-transform arm whose
+   first user message in the trace is the raw input or fails to render —
+   these are not built, whatever the
    run config says. Do not ship them to measurement: a full measurement
    only learns the same thing again, at full price. Instead write the `dead_end` (`NOT VIABLE: <mechanism> did not engage
    under <config> — <counts>`) and return `failed_expected` with that
@@ -165,8 +182,9 @@ trace folder for `TOOL_ERROR` or a tool name, and `Read` the failing trace
 around the hit. For a speed or cost lever, read the run config's
 `_stats.md` first: turns, tool calls by tool, tokens and the largest tool
 results per item. Write the RULE
-into the prompt, a skill or a code tool, never the value: no train item's
-id, number, sentence or expected value, in any of the three. Code searches
+into the prompt, a skill, a code tool or an input transform's template,
+never the value: no train item's
+id, number, sentence or expected value, in any of the four. Code searches
 every build for exact copies of those before the train measurement, and a
 copy is a leak (next section). An example in your text uses invented values.
 
@@ -188,7 +206,8 @@ copy is a leak (next section). An example in your text uses invented values.
 
 `rejected_rc_id` and `generality_findings` are set. Before the train
 measurement, code checked what your earlier build added to the parent's
-prompt, to the text of its attached skills and to its code tools. It found
+prompt, to its input transform's template, to the text of its attached
+skills and to its code tools. It found
 text that memorises the train set or games the measurement — each finding
 quotes it. A finding that starts `exact match:` is a train string code found
 copied verbatim; the others are a reviewer's reading.
@@ -206,9 +225,10 @@ that text, that is the answer — return `failed_expected` and say so.
 `rejected_rc_id` and `judge_copy_findings` are set (either or
 both of `generality_findings` and `judge_copy_findings` can be set on the one
 rebuild). Right after your earlier build, code searched its WHOLE text — the
-prompt, every file of the attached skills and code tools — for text copied
-from the active evals. Each finding names the place (`the prompt`, `skill
-<name>, <file>`, `code tool <name>, <file>`), the eval object it copies (`the
+prompt, the input transform's template, every file of the attached skills
+and code tools — for text copied from the active evals. Each finding names
+the place (`the prompt`, `the input transform`, `skill <name>, <file>`,
+`code tool <name>, <file>`), the eval object it copies (`the
 judge of eval X`, `the spec of eval X`, `the description of eval X`, or an
 eval's full name) and the copied passages. A copy is a run of eight or more
 words shared with that text, or the eval's name, that the baseline's prompt
@@ -225,8 +245,8 @@ traces, not from the eval: do not reuse the eval's sentence, a shortened
 copy of it, or the eval's name. Do not reuse `rejected_rc_id` and do not edit
 it. Say in `build_notes` what you changed for each finding. This is your only
 rebuild: if the new build still copies eval text, the experiment ends before
-it is measured. The promotion gate checks the prompt again later and blocks
-a copy that gets past this point.
+it is measured. The promotion gate checks the prompt and the input
+transform again later and blocks a copy that gets past this point.
 
 Write every rule in your own words on a first build too: never paste a judge
 prompt, a spec or an eval description into the prompt, a skill or a code
@@ -275,8 +295,8 @@ mention.
   hypothesis names (the route, the check, the rule); read the target
   traces to understand the failure, not to copy from them. Code checks
   this before any train spend: a reviewer reads what
-  your build added to the prompt and to the attached skills' text, and a
-  leak costs you the one rebuild above.
+  your build added to the prompt, to the input transform and to the
+  attached skills' text, and a leak costs you the one rebuild above.
   Naming a tool or a skill the prompt needs is not a leak.
 
 - You finish before results exist. **Never touch evals, splits, eval
@@ -320,6 +340,8 @@ levers) ·
 `kiln-harness-tuner-gateway` (every Kiln operation your role has) ·
 `kiln-task-setup` (the run-config/prompt/skill build procedure + known bugs) ·
 `kiln-harness-tuner-code-tool-authoring` (new_tool lever) ·
+`kiln-harness-tuner-knowledge`, `references/levers/input_transform.md`
+(input_transform lever) ·
 `kiln-harness-tuner-knowledge` (its `references/builder.md` lists each
 technique and each lever: how to build the technique on your item, and how
 to check that it took effect) · `memory` (discovery-write conventions) ·

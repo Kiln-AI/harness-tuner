@@ -22,7 +22,13 @@ nothing (`lever_verdict`):
 - **model or provider**: the model and provider each drive records — in
   `output.source`, in its `usage`, or on a trace message. A drive served by
   another model or provider than the run config names is not applied (a
-  direct contradiction); a switch no drive records is UNVERIFIED.
+  direct contradiction); a switch no drive records is UNVERIFIED;
+- **input transform**, different from the parent's: the first user message
+  of each drive is the rendered template, so it is compared with the
+  parent's on the same items (`kiln_harness_tuner.input_transform`). The
+  lever is applied when the message differs on one paired item; not applied
+  when it is the same on every paired item, with at least
+  `input_transform.MIN_PAIRS` of them; UNVERIFIED with fewer pairs.
 
 An unverified lever is logged and the candidate goes on; only "not
 applied" stops it.
@@ -59,7 +65,8 @@ def _first(mapping: Any, keys: Sequence[str]) -> Any:
 def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
     """What one task run shows about the levers: `reasoning` (any reasoning
     content or reasoning tokens), and the `model` / `provider` that served
-    it (None when the run does not record them)."""
+    it (None when the run does not record them), its `output_tokens`, and
+    its first `user_message` (the rendered input transform)."""
     trace = [m for m in (run.get("trace") or []) if isinstance(m, Mapping)]
     reasoning = any(
         m.get("role") == "assistant" and (m.get("reasoning_content") or "")
@@ -96,11 +103,14 @@ def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
         model = model or _first(message, _MODEL_KEYS)
         provider = provider or _first(message, _PROVIDER_KEYS)
     tokens = _first(usage, _OUTPUT_TOKEN_KEYS)
+    from kiln_harness_tuner.input_transform import first_user_message
+
     return {
         "reasoning": reasoning,
         "model": model,
         "provider": provider,
         "output_tokens": float(tokens) if isinstance(tokens, (int, float)) else None,
+        "user_message": first_user_message(run),
     }
 
 
@@ -128,6 +138,14 @@ def _token_ratio(
             len(ratios),
         )
     )
+
+
+def _user_messages(evidence: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+    return {
+        item: message
+        for item, e in evidence.items()
+        if isinstance(message := e.get("user_message"), str)
+    }
 
 
 def lever_verdict(
@@ -189,6 +207,16 @@ def lever_verdict(
         unverified.append(
             f"{want_model}@{want_provider}: no drive records the model that served it"
         )
+    from kiln_harness_tuner import input_transform
+
+    if parent is not None and input_transform.changed(parent, props):
+        transform = input_transform.applied_verdict(
+            _user_messages(parent_evidence or {}), _user_messages(evidence)
+        )
+        if transform.status == "not_applied":
+            return transform
+        if transform.status == "unverified":
+            unverified.append(transform.reason.removeprefix("lever unverified: "))
     if unverified:
         return LeverVerdict("unverified", "lever unverified: " + "; ".join(unverified))
     return LeverVerdict("applied")

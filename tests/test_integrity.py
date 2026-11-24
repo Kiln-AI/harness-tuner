@@ -281,7 +281,12 @@ async def test_a_changed_prompt_gets_one_review_with_no_item_data():
         "candidate_instructions",
         "baseline_instructions",
         "judge_texts",
+        # Run-config text, like the instructions: the two templates.
+        "candidate_input_transform",
+        "baseline_input_transform",
     }
+    assert review.candidate_input_transform == ""
+    assert review.baseline_input_transform == ""
     (table,) = ctx.dispatch.calls_to("promote_best")[0].candidates
     assert 'review: "totals agree with the manifest" paraphrases X' in (
         table.integrity_flags
@@ -564,3 +569,54 @@ class TestTheLastGuard:
         assert not ok_ and applied == [] and blocked[0]["reasons"][1] == "review: x"
         ok_, applied, _ = await self._run(monkeypatch, table, "Integrity: read it.")
         assert ok_ and applied == ["rc_cand"]
+
+
+# ---- the input transform at the gate ----
+
+KEEP_TWO = "Depot: {{ input.depot }}\nQuestion: {{ input.question }}"
+
+
+def _with_template(ctx, template: str, baseline_template: str | None = None) -> None:
+    """Give the candidate an input transform (and the baseline, when named)."""
+    for row in ctx.kiln.run_configs:
+        value = template if row["id"] == "rc_cand" else baseline_template
+        row["run_config_properties"] = (
+            {"input_transform": {"type": "jinja", "template": value}} if value else {}
+        )
+
+
+async def test_a_template_that_quotes_the_judge_is_never_promoted():
+    ctx = _gate_ctx(BASE_PROMPT)
+    _with_template(
+        ctx, KEEP_TWO + "\nEvery count in the answer matches the manifest exactly."
+    )
+    ctx.dispatch.queue("integrity_review", _review())
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert not _promoted(ctx)
+    (block,) = [f for k, f in ctx.log.events if k == "gate_block"]
+    (reason,) = block["reasons"]
+    assert reason.startswith("the candidate's input transform quotes the judge of")
+
+
+async def test_a_changed_template_gets_the_review_with_both_templates():
+    ctx = _gate_ctx(BASE_PROMPT)
+    _with_template(ctx, KEEP_TWO + "\nOpen: {{ input.is_open }}", KEEP_TWO)
+    ctx.dispatch.queue("integrity_review", _review())
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (review,) = ctx.dispatch.calls_to("integrity_review")
+    assert review.candidate_instructions == review.baseline_instructions == BASE_PROMPT
+    assert review.candidate_input_transform.endswith("Open: {{ input.is_open }}")
+    assert review.baseline_input_transform == KEEP_TWO
+    assert _promoted(ctx)
+
+
+async def test_a_template_the_baseline_has_is_not_reviewed_or_blocked():
+    quoting = KEEP_TWO + "\nEvery count in the answer matches the manifest exactly."
+    ctx = _gate_ctx(BASE_PROMPT)
+    _with_template(ctx, quoting, quoting)
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert ctx.dispatch.calls_to("integrity_review") == []
+    assert _promoted(ctx)

@@ -219,7 +219,9 @@ def _function_names(rc: RcText) -> dict[str, str]:
 def _scanned_texts(rc: RcText) -> dict[str, str]:
     """Where the model reads a reference -> that text: "the prompt" and
     "skill <name>, <file>". A code tool's text is not read for names: a
-    wrapper's description names the tool it replaces by design."""
+    wrapper's description names the tool it replaces by design. The input
+    transform is not read either: its expressions name input fields, which
+    are not sent to the model."""
     texts = {"the prompt": rc.prompt or ""}
     for bundle in (rc.skills or {}).values():
         for path, text in bundle.files.items():

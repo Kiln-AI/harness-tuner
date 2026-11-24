@@ -10,7 +10,8 @@ the splits:
 - every answer is re-built into the gateway's own models (`models.project`),
   field by field;
 - a WRITE is validated before Kiln sees it: run configs against the model
-  policy, drives and eval jobs on train items only, memory in the two
+  policy and the input transform rules, drives and eval jobs on train items
+  only, memory in the two
   scopes, new evals with splits the gateway assigns.
 
 `ROLE_OPS` names the operations each agent role gets; a role's session is
@@ -39,6 +40,12 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
+from kiln_harness_tuner.input_transform import (
+    MULTI_TURN_REFUSAL,
+    TRANSFORM_KEY,
+    transform_of,
+    transform_problem,
+)
 from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
@@ -1115,8 +1122,66 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _template_check(self, template: str) -> tuple[bool, str | None]:
+        """Kiln's compile check of a Jinja template: (valid, the error)."""
+        row = await self.call(
+            "POST",
+            "/api/validate_input_transform_template",
+            body={"template": template},
+        )
+        row = row if isinstance(row, dict) else {}
+        return bool(row.get("valid")), _text(row.get("error"), 1000)
+
+    async def validate_input_transform(
+        self, req: m.InputTransformValidate
+    ) -> m.InputTransformValidation:
+        """Does Kiln compile the template, and does the lever apply to this
+        task? No run config is made, and no model is called."""
+        valid, error = await self._template_check(req.template)
+        applies = not await self._driver().multi_turn()
+        return m.InputTransformValidation(
+            valid=valid,
+            error=None if valid else error,
+            applies=applies,
+            note=None if applies else f"{MULTI_TURN_REFUSAL}.",
+        )
+
+    async def _input_transform_check(self, props: dict[str, Any]) -> None:
+        """The rules of the input transform lever on a new run config.
+
+        Null needs no check. A value must be a Jinja template in Kiln's
+        shape (`input_transform.transform_problem`). A transform that a run
+        config of the task already has is copied, and it passes: on every
+        lever but this one, the build copies the parent's transform. A NEW
+        transform is refused on a multi-turn task, and Kiln's compile check
+        runs on its template first, so the refusal names the error."""
+        transform = transform_of(props)
+        if transform is None:
+            return
+        problem = transform_problem(transform)
+        if problem is not None:
+            raise GatewayError(problem)
+        if any(
+            transform_of(row.get("run_config_properties")) == transform
+            for row in await self._run_configs()
+        ):
+            return
+        if await self._driver().multi_turn():
+            raise GatewayError(
+                f"{MULTI_TURN_REFUSAL}. Copy the parent's {TRANSFORM_KEY} as it is."
+            )
+        try:
+            valid, error = await self._template_check(transform["template"])
+        except KilnError:
+            return  # Kiln compiles the template again when it saves it
+        if not valid:
+            raise GatewayError(
+                f"{TRANSFORM_KEY}.template is not a valid Jinja2 template: {error}"
+            )
+
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
         self._policy_check(req.run_config_properties)
+        await self._input_transform_check(req.run_config_properties)
         row = await self.call(
             "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
         )
@@ -1548,6 +1613,12 @@ OPS = _ops(
         m.RunConfigCreate,
         "A new run config (model policy checked).",
     ),
+    (
+        "validate_input_transform",
+        m.InputTransformValidate,
+        "Check an input transform's Jinja template before create_run_config:"
+        " does Kiln compile it, and does the lever apply to this task.",
+    ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),
     ("run_task", m.RunTaskRequest, "Drive a run config on one train item."),
@@ -1639,6 +1710,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_MEM_READ,
         *_MEM_WRITE,
         "create_run_config",
+        "validate_input_transform",
         "rename_run_config",
         "create_prompt",
         "run_task",
@@ -1656,6 +1728,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_MEM_READ,
         "memory_create",
         "create_run_config",
+        "validate_input_transform",
         "run_task",
         *_CODE_TOOLS,
     ),
