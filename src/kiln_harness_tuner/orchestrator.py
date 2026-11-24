@@ -50,6 +50,7 @@ from kiln_harness_tuner.analysis import (
     priority_weight,
     row_net_items,
     speed_quality_reasons,
+    speed_quality_unverified,
     speed_rule_text,
 )
 from kiln_harness_tuner.budget import (
@@ -178,6 +179,12 @@ from kiln_harness_tuner.smells import ensure_baseline_reviewed, planner_detectio
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
+from kiln_harness_tuner.thin_evidence import (
+    TargetEvidence,
+    is_thin,
+    target_evidence,
+    unverified_reason,
+)
 from kiln_harness_tuner.viability import (
     drop_settled_rescreens,
     initial_screen_request,
@@ -1430,6 +1437,7 @@ async def _run_promotion_gate(
     write_val_summary(ctx, tables)
     await apply_integrity_checks(ctx, tables, baseline.rc_id)
     await _record_gate_blocks(ctx, candidates, tables)
+    _mark_unverified(ctx, candidates, tables)
     if not is_efficiency(ctx.objective):
         # Final here under quality. Under speed and cost the speed pass and
         # the eligibility marks below change the tables first.
@@ -1540,10 +1548,29 @@ async def _run_promotion_gate(
             tables[0].rc_id,
         )
 
+    ranked = tables
+    if not is_efficiency(ctx.objective):
+        # The thin-evidence floor (`_mark_unverified`): a candidate whose
+        # targeted val rows show no win and no loss is not ranked, so no
+        # agent promotes on one or two items. When none is left, code
+        # decides, and no agent session is paid for.
+        ranked = [t for t in tables if t.unverified is None]
+        if not ranked:
+            decision = unverified_decision(tables)
+            ctx.log.event("promotion_rule", decision=decision, unverified=True)
+            ctx.log.event(
+                "promotion",
+                winner_rc_id=None,
+                rationale=decision.rationale,
+                decision=decision,
+            )
+            await _record_rejections(ctx, candidates, decision, baseline.rc_id, tables)
+            return decision
+
     decision_result = await call_with_retries(
         ctx.dispatch.promote_best,
         PromotionInput(
-            candidates=tables,
+            candidates=ranked,
             baseline=baseline,
             guidance=ctx.guidance,
             objective=ctx.objective,  # type: ignore[arg-type]
@@ -1995,7 +2022,13 @@ def apply_speed_eligibility(
     (`analysis.speed_quality_reasons`: nothing significant down, net items
     pooled over every row >= 0, no row over its noise allowance, every row
     poolable). Enforced by marking the table ineligible — the same flag the
-    gate already refuses to promote, whoever decides."""
+    gate already refuses to promote, whoever decides.
+
+    When the candidate is clearly better on the metric, and its quality
+    refusal rests on too few items that differ
+    (`analysis.speed_quality_unverified`), the table is also marked
+    `unverified`: it is still ineligible, and its rejection line says
+    "unverified", not a quality loss."""
     reasons: list[str] = []
     better = better_word(objective)
     comparison = decisive(table, objective)
@@ -2003,7 +2036,10 @@ def apply_speed_eligibility(
         reasons.append(f"{objective}: no val comparison — unmeasured")
     elif not comparison.clearly_faster:
         reasons.append(f"{objective}: not clearly {better} on val — {comparison.note}")
-    reasons += speed_quality_reasons(table.per_eval, weights)
+    quality = speed_quality_reasons(table.per_eval, weights)
+    if not reasons and not table.ineligible:
+        table.unverified = speed_quality_unverified(table.per_eval, quality)
+    reasons += quality
     if reasons:
         table.ineligible = True
         table.errors.extend(
@@ -2111,18 +2147,73 @@ def _targeted_rows(
 
 
 def _proven_regressions(rows: list[PerEvalResult]) -> list[PerEvalResult]:
-    """Rows that went down beyond doubt: the CI lies entirely below zero."""
-    return [r for r in rows if r.ci_high is not None and r.ci_high < 0]
+    """Rows that went down beyond doubt: the CI lies entirely below zero,
+    on a row that is not thin (`thin_evidence.is_thin`: an interval can lie
+    below zero on one or two items that differ)."""
+    return [
+        r for r in rows if r.ci_high is not None and r.ci_high < 0 and not is_thin(r)
+    ]
 
 
 def _proven_wins(rows: list[PerEvalResult]) -> list[PerEvalResult]:
     """Rows that went up beyond doubt: significant, or a CI entirely above
-    zero."""
+    zero, on a row that is not thin."""
     return [
         r
         for r in rows
-        if r.delta > 0 and (r.significant or (r.ci_low is not None and r.ci_low > 0))
+        if r.delta > 0
+        and (r.significant or (r.ci_low is not None and r.ci_low > 0))
+        and not is_thin(r)
     ]
+
+
+def gate_unverified(
+    table: CandidateValTable, target_eval_ids: Iterable[str]
+) -> str | None:
+    """The reason when this candidate's val table shows no win and no loss
+    under the quality objective, because too few val items differ on its
+    targeted rows (`thin_evidence.target_evidence`). None when the table
+    has a verdict, or cannot have one: it has holes, no targeted row was
+    compared, or a row went down beyond doubt. The text carries val counts,
+    so it stays with the val readers (the table, the rationale)."""
+    if table.ineligible or not table.per_eval:
+        return None
+    targeted = _targeted_rows(table.per_eval, target_eval_ids)
+    if not targeted or _proven_regressions(table.per_eval):
+        return None
+    if target_evidence(targeted) is not TargetEvidence.UNVERIFIED:
+        return None
+    return unverified_reason(targeted, "val")
+
+
+def _mark_unverified(
+    ctx: Ctx, candidates: list[GateCandidate], tables: list[CandidateValTable]
+) -> None:
+    """Under the quality objective, set `unverified` on each table whose
+    targeted val rows show no win and no loss (`gate_unverified`), and log
+    the marks. Under speed and cost, `apply_speed_eligibility` sets it."""
+    if is_efficiency(ctx.objective):
+        return
+    target_ids = {c.rc_id: _target_eval_ids(c) for c in candidates}
+    for table in tables:
+        table.unverified = gate_unverified(table, target_ids.get(table.rc_id, ()))
+    marked = {t.rc_id: t.unverified for t in tables if t.unverified is not None}
+    if marked:
+        write_val_summary(ctx, tables)
+        ctx.log.event("gate_unverified", unverified=marked)
+
+
+def unverified_decision(tables: list[CandidateValTable]) -> PromotionDecision:
+    """The code decision when every candidate left at the gate is
+    unverified: no winner, and no agent session to rank them."""
+    return PromotionDecision(
+        winner_rc_id=None,
+        winner_experiment_memory_id=None,
+        rationale="code rule: no winner — "
+        + " | ".join(f"{t.rc_id}: {t.unverified}" for t in tables)
+        + ".",
+        regressed_issues=[],
+    )
 
 
 def val_rejection_reason(
@@ -2142,8 +2233,15 @@ def val_rejection_reason(
       efficiency objective the drop is a fact on the record, not
       necessarily the only reason: the candidate may also not have been
       clearly faster or cheaper.
-    - NO_GAIN: no targeted row improved at all.
-    - GAIN_NOT_CLEAR: a targeted row improved, none beyond doubt.
+    - UNVERIFIED: too few val items differ for a win or a loss
+      (`kiln_harness_tuner.thin_evidence`). Under the quality objective,
+      on the targeted rows. Under an efficiency objective, the gate set
+      `table.unverified`: the candidate was clearly better on the metric,
+      and its quality refusal rested on too few items.
+    - NO_GAIN: no targeted row improved at all, and a targeted row had the
+      chances to.
+    - GAIN_NOT_CLEAR: a targeted row improved on enough items, none beyond
+      doubt.
 
     `judge_gain` is False under an efficiency objective: there the target
     is the speed or the cost, so a quality row's gain says nothing about
@@ -2155,13 +2253,17 @@ def val_rejection_reason(
     dropped = tuple(dict.fromkeys(r.eval_id for r in _proven_regressions(rows)))
     if dropped:
         return ValRejection(ValRejectionKind.EVAL_DROPPED, dropped_eval_ids=dropped)
+    if table.unverified is not None:
+        return ValRejection(ValRejectionKind.UNVERIFIED)
     targeted = _targeted_rows(rows, target_eval_ids)
     if not judge_gain or table.ineligible or not targeted:
         return ValRejection(ValRejectionKind.NOT_PROMOTED)
-    improved = [r for r in targeted if r.delta > 0]
-    if not improved:
+    evidence = target_evidence(targeted)
+    if evidence is TargetEvidence.UNVERIFIED:
+        return ValRejection(ValRejectionKind.UNVERIFIED)
+    if evidence is TargetEvidence.NO_GAIN:
         return ValRejection(ValRejectionKind.NO_GAIN)
-    if not _proven_wins(improved):
+    if not _proven_wins([r for r in targeted if r.delta > 0]):
         return ValRejection(ValRejectionKind.GAIN_NOT_CLEAR)
     return ValRejection(ValRejectionKind.NOT_PROMOTED)
 
@@ -2182,6 +2284,11 @@ def decide_single_candidate(
 
     - any row, target or guard, regressed beyond doubt (CI entirely below
       zero) → no winner, the candidate is rejected at val;
+    - too few val items differ on the targeted rows for a win or a loss
+      (`gate_unverified`) → no winner, and not a loss: the candidate is
+      unverified. A row on which fewer than
+      `thin_evidence.MIN_DIFFERING_ITEMS` items differ is never a win or a
+      regression "beyond doubt", whatever its interval says;
     - no targeted row improved at all (delta <= 0 on every one) → no winner:
       the train win did not replicate on val;
     - at least one targeted row improved beyond doubt (`significant`, or a
@@ -2232,6 +2339,15 @@ def decide_single_candidate(
                 f"{', '.join(label(r) for r in proven_regressions)}. Rows: {summary}."
                 + skipped
             ),
+            regressed_issues=[],
+        )
+    unverified = gate_unverified(table, target_eval_ids)
+    if unverified is not None:
+        return PromotionDecision(
+            winner_rc_id=None,
+            winner_experiment_memory_id=None,
+            rationale=f"code rule: no winner — {unverified}. Rows: {summary}."
+            + skipped,
             regressed_issues=[],
         )
     if not improved:

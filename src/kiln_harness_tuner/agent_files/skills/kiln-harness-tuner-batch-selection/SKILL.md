@@ -897,6 +897,16 @@ Per experiment item:
   refuted. Its judged rows are kept. To go on, plan the same rc again
   (`work.existing_rc_id`) with a larger `max_usd` and a reason that says
   what the capped rows showed; the stored rows are not paid again.
+- **An arm can end `— UNVERIFIED`**: it was measured and analyzed, and
+  fewer than 3 items differ between it and its parent on the primary
+  target (or fewer than 3 had room), so train shows no win and no loss.
+  Its `verdict: unverified: …` line gives the counts. It is not refuted
+  and not a dead end: the idea is untested at this size. Do not plan the
+  same change on the same items again. Plan it where more items can
+  change: a target eval with more failing items, a change with a larger
+  predicted effect, or a merge with other changes on the same eval.
+  `references/playbooks/a-few-items-carry-the-signal.md` of the
+  `kiln-harness-tuner-knowledge` skill has the order.
 - **FixWork** carries `hypothesis` + `predicted_effect` (required discipline:
   a result you didn't predict is exploration, not an experiment).
   **`technique` is the lever's short name** (`prompt`, `skill`,
@@ -1055,6 +1065,12 @@ The reason is one of:
   the next arm that builds on it. When a named eval is one the arm set out
   to move (its experiment record and your plan say which), the train gain
   reversed on new items: read it as "no gain".
+- `unverified at val: too few val items differ from the baseline, so val
+  shows no win and no loss.` — fewer than 3 val items changed on the
+  targets. Not a loss and not a win: the val split is too small for an
+  effect of this size. It stays an eligible ingredient. Merge it with
+  other wins on the same eval, so that more items change, or plan the
+  next arm on the idea with a larger effect.
 - `no gain at val: no targeted eval improved.` — the train win did not
   carry to new items. Treat it as a weak ingredient.
 - `a gain at val, not clear: a targeted eval improved, but not beyond

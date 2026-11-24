@@ -479,24 +479,6 @@ Failure: the change fixes the items it was built for, and items that passed now 
 
 Failure: a broken tool, stale data or a quota. No harness change fixes it.
 
-### Playbook: an eval too small to show the effect
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Eval: the eval has too few items to show a difference of the expected size.
-
-### Playbook: a few items carry all the signal
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Eval: every difference between arms comes from the same few items.
-
 ### Playbook: eval feedback with a score and no reason
 
 - Kind: playbook
@@ -692,15 +674,6 @@ Only one decision-model provider exists. This matters when a restriction exclude
 - Source: overview 7.4; [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 7
 
 Kiln supports decision models for tasks with a classifier shape only.
-
-### A decision that turns on one or two items
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-The loop does not make a decision that turns on one or two items.
 
 ### Guards before a measurement
 

@@ -1,7 +1,7 @@
 ---
 title: Dealing with train wins rejected at validation
-description: A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, or a gain not clear. Only "no gain" shows that the win did not carry.
-reviewed: 2026-11-13
+description: A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, unverified, no gain, or a gain not clear. Only "no gain" shows that the win did not carry.
+reviewed: 2026-11-25
 kind: eval
 applies_to: all
 ---
@@ -25,6 +25,9 @@ one line with no numbers:
   - **D2, no gain:** `no gain at val: no targeted eval improved.`
   - **D3, a gain not clear:** `a gain at val, not clear: a targeted eval
     improved, but not beyond doubt.`
+  - **D4, unverified:** `unverified at val: too few val items differ from
+    the baseline, so val shows no win and no loss.` Fewer than 3 val items
+    changed on the targets. Code makes no decision on so few.
   - `not promoted at val; details in the run report.` Code could not
     tell the reason.
 
@@ -81,16 +84,17 @@ The causes of D2, in the order in which they are cheapest to check:
    - then change the surface, when the failure is mechanical or two text
      arms on one issue ended D2:
      [change the surface, not the words](change-the-surface-not-the-words.md).
-6. **D3:** the val split can be too small to confirm a real gain. Do not
-   drop a sound idea on this alone. Merge it with other wins on the same
-   eval, so that the combined effect is larger, or plan the next arm on
-   the idea with a larger predicted effect:
-   [dealing with a noisy eval](dealing-with-a-noisy-eval.md).
+6. **D3 and D4:** the val split can be too small to confirm a real gain.
+   Do not drop a sound idea on this alone. Merge it with other wins on the
+   same eval, so that the combined effect is larger, or plan the next arm
+   on the idea with a larger predicted effect:
+   [dealing with a noisy eval](dealing-with-a-noisy-eval.md) and
+   [an eval too small to show the effect](an-eval-too-small-for-the-effect.md).
 
 ## What not to do yet
 
-- Do not read every `— REJECTED AT VAL` as overfit. B, D1 and D3 do not
-  show that an arm fails on new items.
+- Do not read every `— REJECTED AT VAL` as overfit. B, D1, D3 and D4 do
+  not show that an arm fails on new items.
 - After D2 on an issue, do not plan another text arm of the same kind for
   that issue.
 - Do not read a train win as a result until validation confirms it. A

@@ -932,7 +932,13 @@ async def _execute_plan_item(
         analyzer_successful=res.data.successful,
         rule_ok=verdict.ok,
         reasons=verdict.reasons,
+        unverified=verdict.unverified,
     )
+    # Too few items differ for a win or a loss
+    # (`kiln_harness_tuner.thin_evidence`). Code owns this field: whatever the
+    # analyzer returned in it is replaced. The record gets `— UNVERIFIED`,
+    # not `— REFUTED`, and the reason on a `verdict:` line.
+    res.data.unverified_reason = verdict.unverified
     if res.data.successful and not verdict.ok:
         logger.warning(
             "item %s: analyzer said successful, code rule says no — %s",
@@ -976,6 +982,14 @@ async def _execute_plan_item(
 
     # The code-composed lines on the record the planner reads.
     lines = [f"measurement: {measurement.line}"]
+    if verdict.unverified is not None:
+        lines.append(f"verdict: {verdict.unverified}")
+        if not res.data.findings.rstrip().endswith(verdict.unverified):
+            # The analyzer already said "not successful": the override
+            # above did not run, so the reason is not in the findings yet.
+            res.data.findings = (
+                res.data.findings.rstrip() + "\n\n[code rule] " + verdict.unverified
+            )
     if bundle.latency is not None or bundle.cost is not None:
         lines += [
             latency_line("latency", bundle.latency),

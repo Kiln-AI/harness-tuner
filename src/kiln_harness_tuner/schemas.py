@@ -1286,6 +1286,14 @@ class PerEvalResult(BaseModel):
     fail_to_pass: int | None
     pass_to_fail: int | None
     # paired flip counts — binary (pass/fail) scores only; None for rating scales
+    # The counts the thin-evidence rule reads (`kiln_harness_tuner.thin_evidence`),
+    # for every score type. `n_differing`: the paired items whose result
+    # differs between the two sides (the flips of a pass/fail score, the
+    # non-zero differences of a rating). `n_room`: the paired items on which
+    # the baseline side is not at the best value. None on a row built before
+    # the fields existed.
+    n_differing: int | None = None
+    n_room: int | None = None
     spend_usd: float  # Kiln task_run_usage + eval_usage over the rows feeding
     #   this pair that THIS RUN paid for (EvalRuns created after run start —
     #   a stored row must not be re-booked on every
@@ -1392,6 +1400,12 @@ class ExperimentResult(BaseModel):  # analyze_experiment_results (train-side)
     #   Deliberately NOT restated here: a second copy would drift from
     #   the owner.
     memory_content: str
+    # Set by CODE after the analysis, never by the analyzer (code replaces
+    #   what the analyzer returned): the reason when the train verdict is
+    #   "unverified" — too few items differ between the arm and its parent for
+    #   a win or a loss (`kiln_harness_tuner.thin_evidence`). `successful` is
+    #   then False, and the record is stamped `— UNVERIFIED`, not `— REFUTED`.
+    unverified_reason: str | None = None
     per_ingredient_outcomes: list[IngredientOutcome] | None = None
     # Promotion's FIXED: writes source from these rows via _landed_issue_ids.
     #   Required for MergeWork (no rows → nothing closes). OPTIONAL for
@@ -2052,6 +2066,11 @@ class CandidateValTable(BaseModel):
     # flag starting "BLOCKED:" also made the table ineligible; any other is
     # a sign the promotion rationale must address in an `Integrity:` line.
     integrity_flags: list[str] = []
+    # Set by code at the gate (`kiln_harness_tuner.thin_evidence`): the
+    # reason when too few val items differ between this candidate and the
+    # baseline for a win or a loss. Such a candidate cannot win this gate,
+    # and it is not a loss: its rejection line says "unverified".
+    unverified: str | None = None
     # Set by the checks themselves; code applies no promotion of
     # a table without it, whichever path decided (`_apply_checked`).
     integrity_checked: bool = False

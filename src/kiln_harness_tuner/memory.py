@@ -1064,7 +1064,9 @@ class MemoryWriter:
         suffix: the numbers tail alone reads
         success-shaped in memory listings. Suffix-protected like the other
         lifecycle stamps — it survives the overview cap whole, AFTER the
-        front-loaded label + numbers tail.
+        front-loaded label + numbers tail. An experiment that code found
+        unverified (`res.unverified_reason`: too few items differ for a win
+        or a loss) gets ` — UNVERIFIED` in its place: it is not a loss.
 
         The verdict content REPLACES the opening block, so the three lines
         later readers depend on are carried forward from the stored record:
@@ -1078,8 +1080,12 @@ class MemoryWriter:
         overview = verdict_overview(res.memory_overview)
         if not res.successful:
             refuted = experiment_suffix(ExperimentState.REFUTED)
+            unverified = experiment_suffix(ExperimentState.UNVERIFIED)
+            suffix = unverified if res.unverified_reason else refuted
             # removesuffix keeps an agent-authored suffix from doubling.
-            overview = _fit_stateful("", overview.removesuffix(refuted), refuted)
+            overview = _fit_stateful(
+                "", overview.removesuffix(refuted).removesuffix(unverified), suffix
+            )
         content = res.memory_content
         stored = await self._get_experiment(exp_mem_id)
         self._require_move(stored, ExperimentState.VERDICT, "record a verdict")

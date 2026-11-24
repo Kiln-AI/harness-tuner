@@ -616,7 +616,8 @@ zero numbers:
 2. `— REJECTED AT VAL <date>` on a candidate the gate passed over, with one
    `- rejected at the val gate …` line. Code chooses its reason
    (`ValRejection`): passed over for the winner, the eval ids that dropped
-   beyond doubt, no targeted gain, a targeted gain not beyond doubt, or "not
+   beyond doubt, unverified (too few val items differ, section 7.3), no
+   targeted gain, a targeted gain not beyond doubt, or "not
    promoted at val" when code cannot tell. Never a number, an item id, a
    trace or the promotion agent's prose.
 3. `— PROMOTED <date>` on the winner's experiment record.
@@ -719,6 +720,56 @@ lineage there is no screen — measure the parent.
 
 A screen-out is not a verdict. It is recorded as unmeasured attribution, and
 the analyst is told to read it that way.
+
+### 7.3 Thin evidence
+
+The loop makes no decision that turns on one or two items
+(`kiln_harness_tuner.thin_evidence`). Each row carries two counts that code
+computes from the paired items: `n_differing`, the items whose result
+differs between the two sides (the flips of a pass/fail score, the non-zero
+differences of a rating), and `n_room`, the items on which the baseline side
+is not at the best value. A row on which fewer than `MIN_DIFFERING_ITEMS`
+(3) items differ shows no win and no loss, whatever its p or its interval
+says.
+
+The minimum rests on the noise of a small eval. One run config, measured
+twice on the same items, does not give the same results twice. The stop
+rules' default flip rate is 0.10 (`GUARD_NOISE_DEFAULT`): on an eval of 16
+to 24 items, one or two items change with no change to the agent. So one or
+two items that differ is what no change looks like, and 3 is the smallest
+count that is not. It is a floor, not a test. Above it, the rules that were
+there before decide.
+
+Where code applies it:
+
+- **The train rule** (`success_by_rule`). A gain on the primary target
+  counts only on a row with at least 3 items that differ. A row that went
+  down beyond doubt counts only with 3 or more. When the primary target
+  shows no win and no loss, and no other reason refuses the arm, the
+  verdict is unverified: `successful` is false, the record ends
+  `— UNVERIFIED` (not `— REFUTED`), and code adds a `verdict: unverified: …`
+  line with the counts. A target with no gain and fewer than 3 items with
+  room is unverified too: it could not show a gain. One exception, on train
+  only: an arm that fixes every item with room and breaks none keeps its
+  ticket to the val gate, as the analysis skill says for an eval at its
+  ceiling.
+- **The val gate under quality.** A candidate whose targeted rows show no
+  win and no loss is unverified (`gate_unverified`). The single-candidate
+  rule returns no winner with the reason. With two or more candidates, the
+  unverified ones are not handed to `promote_best`. When none is left, code
+  decides "no winner" and no agent is dispatched. The rejection line says
+  "unverified at val": not a loss. A row with fewer than 3 items that
+  differ is never a regression or a win "beyond doubt" in the gate's rules.
+- **Speed and cost.** On train and at the gate, a candidate that is
+  clearly faster or cheaper, and whose quality refusal rests on fewer than
+  3 items that differ over every row, is unverified
+  (`speed_quality_unverified`). It is still not promoted.
+- **A null result** ("no gain") needs no items that differ. It needs
+  chances: at least 3 items with room. A row with fewer cannot show a gain,
+  so it cannot show the absence of one.
+
+A row with no counts (stored before the fields existed) is never thin: the
+rule does not guess.
 
 ## 8. Memory
 
@@ -849,7 +900,9 @@ successful on train.
 3. **The decision.** Under quality, with one candidate, a code rule
    (`decide_single_candidate`) decides. When it cannot decide, or its winner
    carries integrity flags, one `promote_best` session decides. With two or
-   more candidates, one `promote_best` dispatch ranks them. Under speed and
+   more candidates, one `promote_best` dispatch ranks them. A candidate
+   whose targeted val rows rest on fewer than 3 items that differ is not
+   ranked (section 7.3). Under speed and
    cost, `decide_speed_gate` decides in code whatever the number of
    candidates (section 16), and a winner with integrity flags goes to
    `promote_best`. `--gate-agent always` dispatches the agent every time.

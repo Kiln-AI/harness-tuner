@@ -206,8 +206,9 @@ flowchart TD
    3. The objective's rule decides (see the sections below). The winner becomes
       the new baseline. The other candidates are stamped `— REJECTED AT VAL`.
       Code adds one line with the reason and no numbers: passed over (another
-      candidate won), an eval dropped beyond doubt (named), no gain on the
-      target, a gain on the target that is not beyond doubt, or "not promoted
+      candidate won), an eval dropped beyond doubt (named), unverified (too
+      few val items differ), no gain on the target, a gain on the target
+      that is not beyond doubt, or "not promoted
       at val" when code cannot tell. A candidate blocked in step 2 keeps its
       block line instead.
 6. **The next wave** starts from the baseline, which can now be new. A new
@@ -301,6 +302,10 @@ The goal is higher eval scores.
   go up beyond doubt (significant, or its interval wholly above zero). A small
   rise with an interval that crosses zero does not promote alone. With two or
   more candidates, a `promote_best` agent ranks them on the code's table.
+- **Thin evidence.** On train and at the gate, a result on fewer than 3
+  items that differ between the two sides is neither a win nor a loss. The
+  arm ends `— UNVERIFIED`, or the gate gives "unverified at val". The idea
+  is untested at that size, not disproven.
 - **The limit to know.** When the baseline already passes almost every train
   item, there is nothing to fix, and the detectability check says so before
   the run spends money.
