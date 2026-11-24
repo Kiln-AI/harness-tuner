@@ -45,11 +45,14 @@ the extracted text of each document that the config indexes
   create is refused, and an arm that attaches such a config ends before any
   train spend;
 - a document that holds the whole **expected output** of an eval item is a
-  FLAG on the experiment's record. A reference answer that was written from
-  a document can repeat a sentence of it, and that is what a search is for.
+  FLAG in the wave log. A reference answer that was written from a document
+  can repeat a sentence of it, and that is what a search is for. The flag
+  comes from held-out items too, so no text that a loop agent reads carries
+  it;
+- a check that cannot read every document (`SCAN_MAX_BYTES`) BLOCKS too.
 
-A finding names documents and counts. It never names an item, a split or a
-text, so it shows nothing of a held-out item.
+A block names documents and counts. It never names an item, a split or a
+text.
 
 **The lever check.** An arm that attaches a new RAG tool is "applied" when
 the search tool is called in the trace of one stored train row
@@ -199,9 +202,13 @@ def _extraction(
     """The extracted text of a document for one extractor config: its path,
     its size and the extraction's directory. The first extraction with a
     file that can be read."""
-    for folder, record in _children(doc_dir / "extractions", "extraction.kiln"):
-        if str(record.get("extractor_config_id")) != extractor_id:
-            continue
+    found = [
+        (str(record.get("created_at") or ""), folder, record)
+        for folder, record in _children(doc_dir / "extractions", "extraction.kiln")
+        if str(record.get("extractor_config_id")) == extractor_id
+    ]
+    # The earliest first: Kiln indexes the first extraction it made.
+    for _created, folder, record in sorted(found, key=lambda f: f[0]):
         output = record.get("output")
         rel = output.get("path") if isinstance(output, Mapping) else None
         if not isinstance(rel, str) or not rel:
@@ -386,12 +393,8 @@ def model_refusal(
     decision = policy.decide(provider, model)
     if decision.allowed:
         return None
-    exempt = any(
-        rule.provider == provider and rule.model == model for rule in policy.exceptions
-    )
-    denied = not exempt and any(
-        rule.matches(provider or "", model or "") for rule in policy.deny
-    )
+    # An exception of the policy has allowed the pair already (`decide`).
+    denied = any(rule.matches(provider or "", model or "") for rule in policy.deny)
     if not denied and (provider, model) in in_use.get(role, set()):
         return None
     return (
@@ -412,6 +415,20 @@ def normalized(text: str) -> str:
     """Lower-case words joined by one space. JSON escapes count as spaces,
     so a text is found in a JSON or JSONL file that holds it."""
     return " ".join(_words(_JSON_ESCAPE_RE.sub(" ", text)))
+
+
+def _parsed(value: Any) -> Any:
+    """A JSON string as the value it holds. A structured task stores its
+    input and output as JSON text; the document check looks for the values,
+    not for the text with its keys."""
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except ValueError:
+            return value
+        if isinstance(parsed, (dict, list)):
+            return parsed
+    return value
 
 
 def _needles(texts: Iterable[str]) -> tuple[str, ...]:
@@ -457,7 +474,7 @@ def eval_item_texts(project_root: Path, task_id: str) -> ItemTexts:
                 )
                 if needles := _needles(source):
                     inputs[item_id] = needles
-            if needles := _needles(strings_in(doc.get("reference"))):
+            if needles := _needles(strings_in(_parsed(doc.get("reference")))):
                 references[item_id] = needles
         for _folder, run in _children(task_dir / "runs", "task_run.kiln"):
             tags = [str(t) for t in run.get("tags") or []]
@@ -465,11 +482,11 @@ def eval_item_texts(project_root: Path, task_id: str) -> ItemTexts:
                 continue
             item_id = str(run.get("id"))
             items += 1
-            if needles := _needles(strings_in(run.get("input"))):
+            if needles := _needles(strings_in(_parsed(run.get("input")))):
                 inputs[item_id] = needles
             output = run.get("output")
             output = output.get("output") if isinstance(output, Mapping) else output
-            if needles := _needles(strings_in(output)):
+            if needles := _needles(strings_in(_parsed(output))):
                 references[item_id] = needles
     return ItemTexts(inputs=inputs, references=references, items=items)
 
@@ -495,6 +512,14 @@ class DocumentFindings:
 
     @property
     def block(self) -> str | None:
+        if not self.complete:
+            return (
+                f"the document check read {self.scanned} document(s) and could"
+                " not read the rest (more than"
+                f" {SCAN_MAX_BYTES:,} bytes of text, or no project path). A"
+                " document it did not read could hold an eval item. Index fewer"
+                " documents (`tags`)"
+            )
         if not self.item_documents:
             return None
         return (
@@ -518,15 +543,14 @@ class DocumentFindings:
 
     @property
     def line(self) -> str:
-        """One line for a record: what was read and what was found."""
+        """One line for a record that loop agents read: what was read, and
+        that no eval item's input is in a document. It never carries the
+        flag: the flag comes from held-out items too, so it goes to the
+        wave log only (`flag`)."""
         parts = [f"document check: {self.scanned} document(s) read"]
         if self.unread:
             parts.append(f"{self.unread} with no extracted text")
-        if not self.complete:
-            parts.append("not complete")
         parts.append(self.block or "no eval item's input is in a document")
-        if self.flag:
-            parts.append(self.flag)
         return "; ".join(parts)
 
 

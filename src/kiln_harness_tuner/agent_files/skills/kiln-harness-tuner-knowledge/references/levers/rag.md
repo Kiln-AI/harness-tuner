@@ -95,9 +95,9 @@ Rules of the object:
   and each search are not in `--budget-usd` or in any cost that the loop
   measures. A run's latency leaves out the time of a search.
 - **The document check.** A document that holds the whole input of an eval
-  item makes the create fail, and ends an arm that attaches such a config.
-  A document that holds the whole expected output of an eval item is a
-  flag on the experiment's record. The check names documents, never items.
+  item makes the create fail. The gateway also refuses to attach, drive or
+  search a config of the project whose documents hold one, and code ends
+  an arm that attaches one. The check names documents, never items.
 - **The lever check.** An arm that attaches a new RAG tool and whose train
   traces never call it ends as "lever not applied".
 - A screen candidate and a probe cannot attach a RAG tool.

@@ -41,7 +41,7 @@ from kiln_harness_tuner.analysis import (
 )
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
-from kiln_harness_tuner.kiln import KilnError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
 from kiln_harness_tuner.levers import LeverVerdict
 from kiln_harness_tuner.measure import (
@@ -1082,6 +1082,28 @@ async def _rag_dead_end(
     return _outcome(item, "dead_end", rc_id=rc_id, experiment_memory_id=exp_mem)
 
 
+async def _rag_unchecked(
+    ctx: Ctx, item: ExperimentItem, exp_mem: str, rc_id: str, exc: Exception
+) -> ItemOutcome:
+    """The RAG check could not read what it checks: the item fails as
+    infra, before any train spend, and a later wave can try again."""
+    ctx.log.event("rag_check_unavailable", rc_id=rc_id, error=repr(exc)[:200])
+    error = ErrorInfo(
+        error_class="provider_error",
+        detail=f"the RAG check could not read run config {rc_id}: {exc!r}"[:500],
+    )
+    await _experiment_write(
+        ctx, item.id, "mark_failed", ctx.memory.mark_failed(exp_mem, error)
+    )
+    return _outcome(
+        item,
+        "failed_infra",
+        rc_id=rc_id,
+        experiment_memory_id=exp_mem,
+        infra_error=error,
+    )
+
+
 async def _check_rag(
     ctx: Ctx, item: ExperimentItem, exp_mem: str, parent_rc_id: str, rc_id: str
 ) -> ItemOutcome | RagChange | None:
@@ -1110,8 +1132,9 @@ async def _check_rag(
         parent = rows[parent_rc_id].get("run_config_properties")
         child = rows[rc_id].get("run_config_properties")
     except Exception as exc:
-        ctx.log.event("rag_check_unavailable", rc_id=rc_id, error=repr(exc)[:200])
-        return None
+        # Fail closed: an arm whose RAG tools cannot be read could search
+        # a document that holds an eval item.
+        return await _rag_unchecked(ctx, item, exp_mem, rc_id, exc)
     added = rag_lever.added_tools(parent, child)
     if not added:
         if not _names_rag_lever(item):
@@ -1133,7 +1156,9 @@ async def _check_rag(
         rag_id = rag_lever.rag_config_id(tool_id)
         try:
             config = await ctx.kiln.call("GET", f"{project}/rag_configs/{rag_id}")
-        except KilnError:
+        except KilnError as exc:
+            if not (isinstance(exc, KilnAPIError) and exc.status_code == 404):
+                return await _rag_unchecked(ctx, item, exp_mem, rc_id, exc)
             config = None
         if not isinstance(config, dict):
             return await _rag_dead_end(
@@ -1166,6 +1191,15 @@ async def _check_rag(
             )
         names.add(str(config.get("tool_name") or ""))
         lines.append(f"{rag_lever.describe(config)}; {findings.line}")
+        if findings.flag is not None:
+            # From held-out items too: the wave log only, never a record.
+            ctx.log.event(
+                "rag_reference_flag",
+                item_id=item.id,
+                rc_id=rc_id,
+                tool_id=tool_id,
+                line=f"rag {rc_id}: {findings.flag}",
+            )
     line = "adds " + " | ".join(lines)
     ctx.log.event(
         "rag",

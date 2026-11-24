@@ -563,6 +563,10 @@ class RagPartOption(RagPart):
     # Extractor configs only: how many documents of the library have an
     # extraction for it. A new RAG config indexes only such documents.
     extracted_documents: int | None = None
+    # Extractor configs only: whether a new RAG config may use it under
+    # the model policy, and why not.
+    allowed: bool | None = None
+    note: str | None = None
 
 
 class RagModelOption(Out):

@@ -267,7 +267,10 @@ class TestTheDocumentCheck:
         )
         assert found.block is None
         assert found.reference_documents == {"d1": 1}
-        assert "expected output" in found.line
+        assert "expected output" in (found.flag or "")
+        # The flag comes from held-out items too: the line that loop agents
+        # read never carries it.
+        assert "expected output" not in found.line
 
     def test_part_of_an_input_is_not_the_input(self, tmp_path):
         items = self._items(tmp_path)
@@ -276,6 +279,28 @@ class TestTheDocumentCheck:
             rag_lever.read_scope(tmp_path, EXTRACTOR, None).documents, items
         )
         assert found.block is None and found.item_documents == {}
+
+    def test_a_structured_task_run_is_looked_for_by_its_values(self, tmp_path):
+        # A structured task stores its input as JSON text. The document holds
+        # the post, not the JSON with its keys.
+        task = tmp_path / "tasks" / "t1 - T"
+        _write(
+            task / "runs" / "r1" / "task_run.kiln",
+            {
+                "id": "r1",
+                "tags": ["test_b"],
+                "input": json.dumps({"post": HELD_OUT_INPUT, "author": "x"}),
+                "output": {"output": json.dumps({"advice": HELD_OUT_ANSWER})},
+            },
+        )
+        add_document(tmp_path, "d1", f"Case 4: {HELD_OUT_INPUT}")
+        add_document(tmp_path, "d2", f"Our advice: {HELD_OUT_ANSWER}")
+        found = rag_lever.scan_documents(
+            rag_lever.read_scope(tmp_path, EXTRACTOR, None).documents,
+            rag_lever.eval_item_texts(tmp_path, "t1"),
+        )
+        assert found.item_documents == {"d1": 1}
+        assert found.reference_documents == {"d2": 1}
 
     def test_a_task_run_with_a_tag_is_an_eval_item_too(self, tmp_path):
         task = tmp_path / "tasks" / "t1 - T"
@@ -301,7 +326,10 @@ class TestTheDocumentCheck:
             rag_lever.read_scope(tmp_path, EXTRACTOR, None).documents,
             rag_lever.ItemTexts(),
         )
-        assert not found.complete and "not complete" in found.line
+        assert not found.complete
+        # A check that could not read every document blocks.
+        assert "could not read the rest" in (found.block or "")
+        assert found.block in found.line
 
 
 # ------------------------------------------------------------------ the index run
@@ -680,7 +708,7 @@ class TestTheRunConfigRules:
             gateway, "create_run_config", name="rc", run_config_properties=props
         )
 
-    def test_an_unknown_or_archived_rag_tool_is_refused(self, tmp_path):
+    def test_an_unknown_rag_tool_is_refused_and_an_archived_one_is_not(self, tmp_path):
         lib = Library()
         lib.rags[OLD_RAG]["is_archived"] = True
         routes = lib.routes()
@@ -689,11 +717,34 @@ class TestTheRunConfigRules:
             raise gw.KilnAPIError("GET", "x", 404, {"detail": "not found"})
 
         routes[("GET", f"{P}/rag_configs/424242699999")] = missing
+        routes[("POST", f"{P}/tasks/{TASK}/run_configs")] = lambda _q, body: {
+            **body,
+            "id": "424242600099",
+        }
         gateway, _kiln = _gateway(tmp_path, routes)
-        with pytest.raises(gw.GatewayError, match="is archived"):
-            self._create(gateway, f"kiln_tool::rag::{OLD_RAG}")
+        add_document(gateway.s.project_path, "d1", "Water at the base.")
+        # Kiln still runs the search tool of an archived config, and a
+        # baseline can attach one.
+        assert self._create(gateway, f"kiln_tool::rag::{OLD_RAG}")["id"]
         with pytest.raises(gw.GatewayError, match="not a RAG config"):
             self._create(gateway, "kiln_tool::rag::424242699999")
+
+    def test_a_config_whose_documents_hold_an_eval_item_is_never_reached(
+        self, tmp_path
+    ):
+        """A RAG config of the user, under `tool_config` or a search: the
+        gateway refuses to attach it, to drive it, and to search it."""
+        lib = Library()
+        gateway, _kiln, root = _library_gateway(tmp_path, lib)
+        add_eval_input(root, TASK, "va9", ["val_a"], HELD_OUT_INPUT)
+        add_document(root, "d2", f"Q: {HELD_OUT_INPUT}")
+        tool = f"kiln_tool::rag::{OLD_RAG}"
+        with pytest.raises(gw.GatewayError, match="document d2"):
+            self._create(gateway, tool)
+        with pytest.raises(gw.GatewayError, match="document d2") as refused:
+            _run(gateway, "rag_search", id=tool, query="yellow leaves")
+        assert "va9" not in str(refused.value)
+        assert not any(path.endswith("/search") for _m, path, *_ in _kiln.calls)
 
     def test_only_a_config_this_run_created_is_indexed_or_archived(self, tmp_path):
         lib = Library()
@@ -702,8 +753,20 @@ class TestTheRunConfigRules:
             with pytest.raises(gw.GatewayError, match="not created through"):
                 _run(gateway, op, id=OLD_RAG, **args)
         _run(gateway, "create_rag_config", **CREATE)
+        rcs: list[dict[str, Any]] = [
+            {"id": "rc_a", "run_config_properties": {"tools_config": {"tools": []}}}
+        ]
+        gateway.call.routes[("GET", f"{gateway.s.base}/run_configs")] = lambda _q, _b: (
+            rcs
+        )
         view = _run(gateway, "archive_rag_config", id=NEW_RAG)
         assert view["is_archived"] is True
+        # A config that a run config attaches is never archived.
+        rcs[0]["run_config_properties"]["tools_config"]["tools"] = [
+            f"kiln_tool::rag::{NEW_RAG}"
+        ]
+        with pytest.raises(gw.GatewayError, match="attached by run config"):
+            _run(gateway, "archive_rag_config", id=NEW_RAG)
 
 
 def test_list_rag_parts_names_the_parts_and_the_limits(tmp_path):
@@ -850,3 +913,106 @@ def test_a_screen_or_a_probe_cannot_attach_a_rag_tool():
     ScreenCandidate(
         id="s1-2", overrides={"tools_config": {"tools": ["kiln_tool::code::c"]}}
     )
+
+
+class TestTheFixesOfTheReview:
+    def test_every_new_part_is_sent_in_kilns_shape(self, tmp_path):
+        lib = Library()
+        routes = lib.routes()
+        routes[("POST", f"{P}/create_embedding_config")] = lib.post(
+            "embedding", "424242600013"
+        )
+        routes[("POST", f"{P}/create_reranker_config")] = lib.post(
+            "reranker", "424242600015"
+        )
+        routes[("GET", "/api/available_reranker_models")] = [
+            {"provider_id": "together_ai", "models": [{"id": "rerank-x"}]}
+        ]
+        gateway, _kiln = _gateway(tmp_path, routes)
+        add_document(gateway.s.project_path, "d1", "Water at the base.")
+        body = dict(CREATE, embedding_config_id=None)
+        body["new_embedding"] = {
+            "model_provider_name": "openai",
+            "model_name": "text-embedding-3-small",
+            "dimensions": 256,
+        }
+        body["new_chunker"] = {
+            "chunker_type": "semantic",
+            "buffer_size": 1,
+            "breakpoint_percentile_threshold": 95,
+        }
+        body["new_reranker"] = {
+            "model_provider_name": "together_ai",
+            "model_name": "rerank-x",
+            "top_n": 3,
+        }
+        made = _run(gateway, "create_rag_config", **body)
+        sent = dict(lib.posts)
+        assert sent["embedding"]["properties"] == {"dimensions": 256}
+        # The semantic chunker finds its breaks with the new embedding.
+        assert sent["chunker"]["properties"] == {
+            "chunker_type": "semantic",
+            "embedding_config_id": "424242600013",
+            "buffer_size": 1,
+            "breakpoint_percentile_threshold": 95,
+        }
+        assert sent["reranker"]["properties"] == {"type": "cohere_compatible"}
+        assert sent["reranker"]["top_n"] == 3
+        assert sent["create_rag_config"]["reranker_config_id"] == "424242600015"
+        # A semantic chunker pays the embedding model twice.
+        assert made["paid_bytes"] == 2 * len("Water at the base.")
+
+    def test_the_index_wait_has_a_hard_bound(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(rag_lever, "INDEX_WAIT_TIMEOUT_SECS", 0.05)
+        lib = Library()
+        lib.progress = {"total_document_count": 1}
+        gateway, kiln, _root = _library_gateway(tmp_path, lib)
+
+        async def slow(method, path, query_params=None, body=None, **options):
+            if path.endswith("/run"):
+                await asyncio.sleep(5)
+            return await kiln(method, path, query_params, body, **options)
+
+        gateway.call = slow
+        made = _run(gateway, "create_rag_config", **CREATE)
+        assert made["index"]["complete"] is False
+        assert "did not end" in made["index"]["note"]
+
+    def test_the_extractor_shows_whether_the_policy_allows_it(self, tmp_path):
+        policy = ModelPolicy.from_json(
+            {"allow": [{"provider": "anthropic", "model": "*"}]}
+        )
+        lib = Library()
+        lib.rags.clear()  # no RAG config uses the extractor's model yet
+        gateway, _k, _r = _library_gateway(tmp_path, lib, policy=policy)
+        (extractor,) = _run(gateway, "list_rag_parts")["extractors"]
+        assert extractor["allowed"] is False
+        assert "extractor model gemini_api/gemini-2.5-flash" in extractor["note"]
+
+    def test_an_unreadable_run_config_fails_the_arm_as_infra(self, tmp_path):
+        ctx, kiln = _loop_ctx(tmp_path, {}, [], [])
+        kiln.run_configs = [{"id": "rc_base", "run_config_properties": {}}]
+        outcome = _check(ctx, _rag_item())
+        assert outcome.status == "failed_infra"
+        assert outcome.infra_error.error_class == "provider_error"
+
+    def test_the_run_end_archives_nothing_when_it_cannot_list(self, tmp_path):
+        ctx, kiln = _loop_ctx(tmp_path, {NEW_RAG: _rag_row(NEW_RAG)}, [], [])
+        kiln.run_configs = None  # a drifted listing: no rows
+        ctx.run_dir = tmp_path / "run"
+        ctx.run_dir.mkdir()
+        line = {"id": f"rag_config:{NEW_RAG}", "kind": "rag_config", "split": "meta"}
+        (ctx.run_dir / gw.CREATED_FILE).write_text(json.dumps(line) + "\n")
+
+        async def failing():
+            raise gw.KilnError("down")
+
+        import kiln_harness_tuner.probes as probes
+
+        original = probes.task_run_configs
+        probes.task_run_configs = lambda _ctx: failing()
+        try:
+            assert asyncio.run(rag_lever.close_rag_configs(ctx)) == 0
+        finally:
+            probes.task_run_configs = original
+        assert kiln.rag_config_patches == []

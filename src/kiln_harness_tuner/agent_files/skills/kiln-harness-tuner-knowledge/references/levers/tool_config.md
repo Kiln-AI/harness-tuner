@@ -58,9 +58,9 @@ Rules of the object:
 - The tuner attaches only what exists. It cannot connect an MCP server
   or create a Kiln task tool. A new RAG config is the lever
   [rag](rag.md); this lever attaches or drops one that exists.
-- A RAG config that a run config attaches must not be archived. Its
-  documents are checked for the inputs of eval items: a document that
-  holds one ends the arm, under this lever too.
+- The documents of a RAG config are checked for the inputs of eval items:
+  the gateway refuses a config whose documents hold one, under this lever
+  too.
 - When a dropped tool is still named in the prompt or in an attached
   skill, the text points at nothing. Code looks for such names after the
   build (the reference check). The build searches the text for the name

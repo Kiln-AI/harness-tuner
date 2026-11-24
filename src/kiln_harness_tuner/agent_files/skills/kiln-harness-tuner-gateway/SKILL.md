@@ -288,10 +288,10 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 | `list_rag_configs` / `get_rag_config` | — / `id` (the RAG config id or its `kiln_tool::rag::` tool id) | a RAG search tool's config: its tool name and description, the document tags it indexes, and each stage (extractor, chunker, embedding, vector store, reranker) with its model and settings |
 | `rag_search` | `id`, `query` | the chunks the RAG search tool returns for `query`: the same retrieval a model's call gets. Each search is one embedding call, which `--budget-usd` does not count: search only to answer a specific question |
 | `list_documents` | — | the project's document library: name, description, kind, tags, file name, type and size. Not the text: the text reaches you as `rag_search` chunks |
-| `list_rag_parts` | — | what a new RAG config can be made from: the project's extractor, chunker, embedding, vector store (search type) and reranker configs, each with its `id`, the RAG configs that use it and, for an extractor, `extracted_documents`; the embedding and reranker models that Kiln offers, each with `allowed` and, when refused, the reason in `note`; the library's `document_tags`; and the limits `max_created_per_run`, `created_this_run` and `index_max_bytes` |
+| `list_rag_parts` | — | what a new RAG config can be made from: the project's extractor, chunker, embedding, vector store (search type) and reranker configs, each with its `id`, the RAG configs that use it and, for an extractor, `extracted_documents` and whether the model policy allows its model (`allowed`, `note`); the embedding and reranker models that Kiln offers, each with `allowed` and, when refused, the reason in `note`; the library's `document_tags`; and the limits `max_created_per_run`, `created_this_run` and `index_max_bytes` |
 | `create_rag_config` | `name`, `tool_name` (lower case, digits and `_`), `tool_description` (128 characters at most), `extractor_config_id`, one of `chunker_config_id` / `new_chunker`, one of `embedding_config_id` / `new_embedding`, one of `vector_store_config_id` / `new_search`, at most one of `reranker_config_id` / `new_reranker`, `tags?`, `description?`, `provenance?` | a new RAG config, indexed: its `tool_id` (`kiln_tool::rag::<id>`), the config, `created_parts`, the `index` state, `paid_documents` and `paid_bytes` (what the index sent to the embedding model) and the `document_check` line. `new_chunker`: `chunker_type` `fixed_window` with `chunk_size` and `chunk_overlap`, or `semantic` with `buffer_size` and `breakpoint_percentile_threshold`. `new_embedding`: `model_provider_name`, `model_name`, `dimensions?`. `new_search`: `store_type` (`lancedb_fts`, `lancedb_hybrid` or `lancedb_vector`) and `similarity_top_k`. `new_reranker`: `model_provider_name`, `model_name`, `top_n`. The refusals are listed under this table |
 | `index_rag_config` | `id` | runs the index of a RAG config that this run created again, and gives its state. Use it when a create answers `index.complete: false` |
-| `archive_rag_config` | `id`, `archived?` | archives a RAG config that this run created |
+| `archive_rag_config` | `id`, `archived?` | archives a RAG config that this run created and that no run config attaches |
 | `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
@@ -309,13 +309,16 @@ A skill is installed with the skill installer tool, not the gateway.
   the embedding model. A document that already has embeddings for the same
   extractor, chunker and embedding config is not counted: Kiln uses them
   again;
-- a document to index holds the whole input of an eval item of the task.
-  The refusal names the documents, never the item.
+- a document to index holds the whole input of an eval item of the task,
+  or the check cannot read every document. The refusal names the
+  documents, never the item.
 
 The index is paid work that `--budget-usd` does not count: Kiln reports no
-cost for an embedding call. `create_run_config` refuses a `kiln_tool::rag::`
-tool that is not a RAG config of the project, that is archived, or that
-this run created and whose index is not complete.
+cost for an embedding call. `create_run_config` and `run_task` refuse a
+`kiln_tool::rag::` tool that is not a RAG config of the project, that
+searches a document that holds an eval item's input, or that this run
+created and whose index is not complete. `rag_search` refuses a RAG config
+whose documents hold an eval item's input.
 
 ### Building an eval (eval_build)
 

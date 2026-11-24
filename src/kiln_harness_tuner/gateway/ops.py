@@ -368,6 +368,9 @@ class Gateway:
         # Each OpenEnv server's tool list, read once per process: a list is a
         # new connection to the server and a fresh read of its metadata.
         self._openenv_lists: dict[str, list[dict[str, Any]]] = {}
+        # The document check's block for each RAG config, once per process:
+        # a RAG config never changes.
+        self._rag_blocks: dict[str, str | None] = {}
 
     def _writer(self) -> TraceWriter | None:
         root = self.s.trace_root
@@ -1031,6 +1034,9 @@ class Gateway:
         retrieval a model's tool call gets. It embeds the query, so it costs
         one embedding call."""
         rag_id = req.id.removeprefix(RAG_TOOL_PREFIX)
+        row = await self.call("GET", f"{self.s.project}/rag_configs/{rag_id}")
+        if (block := await self._rag_documents_block(rag_id, row)) is not None:
+            raise GatewayError(f"{req.id}: {block}")
         response = await self.call(
             "POST",
             f"{self.s.project}/rag_configs/{rag_id}/search",
@@ -1125,10 +1131,16 @@ class Gateway:
                     continue
                 part_id = str(row.get("id") or "")
                 props = row.get("properties")
-                extracted = None
+                extracted = allowed = note = None
                 if part == "extractor" and root is not None:
                     scope = rag_lever.read_scope(root, part_id, None)
                     extracted = len(scope.documents) - len(scope.not_extracted)
+                if part == "extractor":
+                    pair = rag_lever._pair(row)
+                    note = pair and rag_lever.model_refusal(
+                        self.s.policy, in_use, "extractor", *pair
+                    )
+                    allowed = not note
                 out.append(
                     m.project(
                         m.RagPartOption,
@@ -1142,6 +1154,8 @@ class Gateway:
                         created_by_this_run=kind is not None
                         and f"{kind}:{part_id}" in self.s.created,
                         extracted_documents=extracted,
+                        allowed=allowed,
+                        note=note or None,
                     )
                 )
             return out
@@ -1244,11 +1258,35 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _rag_documents_block(self, rag_id: str, row: Any) -> str | None:
+        """The document check's block for one RAG config as the API gives it
+        (`rag_lever.check_documents`), or None. Read once per process, in a
+        worker thread. A search, a drive or a run config that reaches the
+        config's documents is refused when one holds an eval item's input:
+        its results would carry the item."""
+        if rag_id not in self._rag_blocks:
+            row = row if isinstance(row, dict) else {}
+            extractor = row.get("extractor_config")
+            extractor_id = (
+                extractor.get("id") if isinstance(extractor, dict) else None
+            ) or row.get("extractor_config_id")
+            findings = await asyncio.to_thread(
+                rag_lever.check_documents,
+                self.s.project_path,
+                self.s.task_id,
+                str(extractor_id or ""),
+                row.get("tags"),
+            )
+            self._rag_blocks[rag_id] = findings.block
+        return self._rag_blocks[rag_id]
+
     async def _rag_check(self, props: dict[str, Any]) -> None:
         """The rules for the RAG tools a run config attaches: each is a RAG
-        config of this project that is not archived, and one that this run
-        created has a complete index. A search of a config with no index
-        returns nothing, so the arm would measure the parent."""
+        config of this project, no document it searches holds an eval
+        item's input, and one that this run created has a complete index. A
+        search of a config with no index returns nothing, so the arm would
+        measure the parent. An archived config is allowed: Kiln still runs
+        its search tool, and a baseline can attach one."""
         own = set(self._own_rag_configs()) if rag_lever.rag_tool_ids(props) else set()
         for tool_id in rag_lever.rag_tool_ids(props):
             rag_id = rag_lever.rag_config_id(tool_id)
@@ -1260,10 +1298,8 @@ class Gateway:
                 row = None
             if not isinstance(row, dict):
                 raise GatewayError(f"{tool_id} is not a RAG config of this project")
-            if row.get("is_archived") is True:
-                raise GatewayError(
-                    f"{tool_id} is archived: Kiln does not offer its search tool"
-                )
+            if (block := await self._rag_documents_block(rag_id, row)) is not None:
+                raise GatewayError(f"{tool_id}: {block}")
             if rag_id in own and not (await self._rag_index_view(rag_id)).complete:
                 raise GatewayError(
                     f"the index of {tool_id} is not complete; call"
@@ -1317,6 +1353,7 @@ class Gateway:
             raise GatewayError(f"no run config {req.run_config_id}")
         props = rc.get("run_config_properties") or {}
         self._policy_check(props)
+        await self._rag_check(props)
         inp = inputs[req.item_id]
         driver = self._driver()
         if await driver.needed([props], [inp]):
@@ -1446,14 +1483,19 @@ class Gateway:
         note = None
         stream: dict[str, Any] = {}
         try:
-            body = await self.call(
-                "GET",
-                f"{self.s.project}/rag_configs/{rag_id}/run",
-                timeout_secs=rag_lever.INDEX_WAIT_TIMEOUT_SECS,
-                retries=False,
+            # The route streams a line per step, and each line restarts the
+            # client's read timeout: the bound on the whole wait is here.
+            body = await asyncio.wait_for(
+                self.call(
+                    "GET",
+                    f"{self.s.project}/rag_configs/{rag_id}/run",
+                    timeout_secs=rag_lever.INDEX_WAIT_TIMEOUT_SECS,
+                    retries=False,
+                ),
+                rag_lever.INDEX_WAIT_TIMEOUT_SECS,
             )
             stream = rag_lever.stream_progress(body)
-        except KilnTransportError:
+        except (KilnTransportError, TimeoutError):
             note = (
                 "the index did not end in"
                 f" {rag_lever.INDEX_WAIT_TIMEOUT_SECS:.0f} seconds. Call"
@@ -1488,6 +1530,19 @@ class Gateway:
 
     async def archive_rag_config(self, req: m.Archive) -> m.RagConfigView:
         rag_id = self._own_rag_config(req.id, "this operation archives")
+        if req.archived:
+            tool_id = f"{RAG_TOOL_PREFIX}{rag_id}"
+            attached = [
+                str(r.get("id"))
+                for r in await self._run_configs()
+                if tool_id in rag_lever.rag_tool_ids(r.get("run_config_properties"))
+            ]
+            if attached:
+                raise GatewayError(
+                    f"{tool_id} is attached by run config(s)"
+                    f" {', '.join(attached[:5])}; a measured run config must"
+                    " keep its search tool"
+                )
         row = await self.call(
             "PATCH",
             f"{self.s.project}/rag_configs/{rag_id}",
@@ -1649,11 +1704,11 @@ class Gateway:
         )
         if (refusal := plan.refusal()) is not None:
             raise GatewayError(refusal)
-        # The scan reads files: off the event loop, so the server stays live.
+        # The check reads files: off the event loop, so the server stays live.
         findings = await asyncio.to_thread(
-            rag_lever.scan_documents,
-            scope.documents,
-            rag_lever.eval_item_texts(root, self.s.task_id),
+            lambda: rag_lever.scan_documents(
+                scope.documents, rag_lever.eval_item_texts(root, self.s.task_id)
+            )
         )
         if findings.block is not None:
             raise GatewayError(findings.block)

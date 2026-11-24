@@ -439,8 +439,11 @@ The full path:
    config indexes (their extracted text on disk) and every eval item of the
    task in every split. A document that holds the whole input of an eval
    item ends the arm `dead_end` (event `rag`, status `blocked`) before any
-   train spend; a document that holds the whole expected output of an eval
-   item is a flag on the record. Otherwise the change is a `rag` event
+   train spend; a check that cannot read every document blocks too. A
+   document that holds the whole expected output of an eval item is a flag
+   in the wave log only (event `rag_reference_flag`): it comes from held-out
+   items too, so no record that a loop agent reads carries it. A run config
+   or a RAG config that cannot be read ends the item `failed_infra`. Otherwise the change is a `rag` event
    (status `changed`) and, after the train measurement, code reads the
    stored train rows of the arm: the search tool is called in one of them
    (applied), in none of two or more (`dead_end`, "lever not applied"), or
@@ -2278,18 +2281,21 @@ write:
    chunker counts twice;
 6. the document check: no document to index holds the whole input of an
    eval item of the task, in any split. The check reads at most
-   `SCAN_MAX_BYTES` (80,000,000) of text. A finding names documents, never
-   items.
+   `SCAN_MAX_BYTES` (80,000,000) of text, and refuses past it. A finding
+   names documents, never items.
 
 Then the new parts, the RAG config (each in the registry the moment it
 exists), and the index: `GET …/rag_configs/{id}/run`, read to its end, at
-most `INDEX_WAIT_TIMEOUT_SECS` (600). The answer gives the index state from
+most `INDEX_WAIT_TIMEOUT_SECS` (600), bounded with `asyncio.wait_for` because each streamed line restarts the client's read timeout. The answer gives the index state from
 `POST …/rag_configs/progress`. `index_rag_config` runs the index again;
 Kiln skips every step that a document went through.
 
-**The rules on a run config.** `create_run_config` refuses a RAG tool that
-is not a RAG config of the project, that is archived, or that the run
-created and whose index is not complete. A screen candidate and a probe
+**The rules on a run config.** `create_run_config` and `run_task` refuse a
+RAG tool that is not a RAG config of the project, whose documents hold an
+eval item's input (the same check, once per gateway process for each
+config), or that the run created and whose index is not complete.
+`rag_search` refuses a config whose documents hold an eval item's input.
+`archive_rag_config` refuses a config that a run config attaches. A screen candidate and a probe
 check cannot attach a RAG tool. The loop's checks on an arm are in
 section 4.
 

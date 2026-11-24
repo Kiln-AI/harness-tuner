@@ -555,7 +555,10 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         # no report — the operator asked us to stop NOW.
         ctx.log.event("exit", reason="interrupted")
         raise
-    await close_rag_configs(ctx)
+    try:
+        await close_rag_configs(ctx)
+    except Exception as exc:  # the report must still be written
+        ctx.log.event("rag_configs_unclosed", error=repr(exc)[:200])
     if ctx.write_report is not None:  # report seam (report.py)
         return await ctx.write_report(ctx, exit_reason)
     return exit_reason

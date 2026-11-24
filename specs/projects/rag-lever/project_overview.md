@@ -95,12 +95,18 @@ choices that the owner can change: each one is the conservative choice.
      before any train spend. This holds for every lever, so an arm under
      `tool_config` that attaches a RAG config of the user is checked too.
    - A document that holds the whole **expected output** of an eval item
-     is a **flag** on the experiment's record. A reference answer written
-     from a document can repeat a sentence of it, and that is what a
-     search is for.
+     is a **flag** in the wave log (event `rag_reference_flag`). A
+     reference answer written from a document can repeat a sentence of
+     it, and that is what a search is for. The flag comes from held-out
+     items too, so no text that a loop agent reads carries it.
    - A finding names documents and counts, never an item, a split or a
-     text. The check reads at most 80,000,000 bytes, and says "not
-     complete" past it.
+     text. The check reads at most 80,000,000 bytes. Past it, it blocks.
+   - The gateway runs the same check on any RAG config that a run config
+     attaches, that `run_task` drives or that `rag_search` searches, once
+     per gateway process for each config. So a user's config is checked
+     before a loop agent can read its results.
+   - A run config or a RAG config that the item check cannot read ends the
+     item `failed_infra`: the check fails closed.
 9. **A screen or a probe cannot attach a RAG tool.** They fork a run config
    in code, with none of the checks above.
 10. **The lever check is a call in a trace.** After the train measurement,
@@ -108,10 +114,12 @@ choices that the owner can change: each one is the conservative choice.
     one row's trace calls the new search tool. It is "not applied" (a dead
     end) when two rows or more have a trace and none calls it. With fewer
     traces it is unverified, and the arm goes on.
-11. **`create_run_config` refuses a RAG tool** that is not a RAG config of
-    the project, that is archived, or that this run created and whose index
-    is not complete. A search of an empty index returns nothing, so the arm
-    would measure its parent.
+11. **`create_run_config` and `run_task` refuse a RAG tool** that is not a
+    RAG config of the project, or that this run created and whose index is
+    not complete. A search of an empty index returns nothing, so the arm
+    would measure its parent. An archived config is allowed: Kiln still
+    runs its search tool, and a user's baseline can attach one.
+    `archive_rag_config` refuses a config that a run config attaches.
 12. **Owner: the run deletes nothing.** At the end of a run, code archives
     each RAG config of this run that no run config of the task attaches.
     Kiln has no delete for a RAG config, a part or an index, and no archive
