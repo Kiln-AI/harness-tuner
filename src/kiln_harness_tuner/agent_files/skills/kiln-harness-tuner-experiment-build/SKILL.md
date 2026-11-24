@@ -156,6 +156,11 @@ going looking.
 
 ## Train labels, and what you may not copy from them
 
+`get_failure_cards` gives one card for each train item a run config
+fails on an eval: the input, the output, what was expected, a matching
+success and, when a reader left one, a note on the step that lost it
+(`kiln-harness-tuner-gateway`, "Failure cards"). Call it with the item's
+`target_items` as `item_ids` to see what the arm is built to fix.
 `get_train_expected` returns a train item's expected output (the eval
 input's `reference`, what a code eval compares against) and its tags. Read
 it beside `get_train_results` to see what a failing item should have

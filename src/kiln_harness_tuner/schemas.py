@@ -350,6 +350,49 @@ class MeasurementSummary(BaseModel):
     planned_per_eval: dict[str, int] = {}
 
 
+# The failure classes of the analysis skill: `config` is the only one a fix
+#   arm can move.
+FailureKind = Literal["config", "eval_data", "judge", "environment", "noise"]
+
+
+class FailureNote(BaseModel):
+    """What a reader saw in the trace of ONE failing TRAIN item: the two
+    parts of a failure card that code cannot make
+    (`kiln_harness_tuner.failure_notes`). The analyzer writes one for each
+    failing item it read on the candidate, and the planner for each failing
+    item it read on the baseline. Code stores them in the run folder, and
+    the gateway joins them to the cards of `get_failure_cards`."""
+
+    eval_id: str
+    item_id: str
+    kind: FailureKind
+    # The step that lost it, in one line: the message where the run went
+    #   wrong, and what came before it (before any tool call, with a call to
+    #   a named tool, after a named tool's result, at the final reply).
+    lost_at: str
+    # The failure pattern: a playbook id of the knowledge skill, or a few
+    #   words when no playbook fits.
+    pattern: str | None = None
+
+
+class RejectedIdea(BaseModel):
+    """One idea that failed at least once on one issue, counted by code from
+    the task's experiment records (`MemoryWriter.rejected_ideas`), over
+    every run on the task. `idea` is the lever of the arm, plus each
+    technique document its hypothesis names (`memory_schema.idea_key`).
+    `dropped`: the idea failed `IDEA_DROP_FAILURES` times on this issue and
+    never won on it. A dropped idea has a `dropped_idea` memory record."""
+
+    issue_memory_id: str
+    idea: str
+    failures: int
+    wins: int = 0
+    dropped: bool = False
+    # The failed arms, as their record labels (`EXP <MMDD>-<item>`).
+    arms: list[str] = []
+    dropped_memory_id: str | None = None
+
+
 class ResidualMiss(BaseModel):
     """An arm the `residual` stop rule stopped this run, for the planner: the run
     config it built and, per eval, the items that still fail and the guards
@@ -1011,6 +1054,10 @@ class BatchPlan(BaseModel):
     #   of running a wave — mutually exclusive with items (validator below;
     #   planners can conflate it with "the run should end after my wave" and
     #   drop whole composed waves)
+    # What the planner saw in the failing baseline traces it read this wave,
+    #   one note for each item (`FailureNote`). Optional. Code stores them,
+    #   and the next planner gets them on its failure cards.
+    failure_notes: list[FailureNote] = []
 
     @model_validator(mode="after")
     def _loop_exit_means_nothing_to_do_now(self) -> BatchPlan:
@@ -1400,6 +1447,10 @@ class ExperimentResult(BaseModel):  # analyze_experiment_results (train-side)
     #   FIXED: hides a known cure from planners, who skip FIXED: records).
     #   Rows naming any OTHER issue on a FixWork item stay informative-but-
     #   ignored (E4)
+    # One note for each failing item whose trace the analyzer read on the
+    #   candidate (`FailureNote`): the class of the failure and the step that
+    #   lost it. Code stores them for the planner's failure cards.
+    failure_notes: list[FailureNote] = []
 
 
 class RegressedIssue(BaseModel):
@@ -1861,6 +1912,11 @@ class BatchPlanInput(BaseModel):
     #   on one issue → change surface class" rule reads this, not memory
     #   prose. Empty when nothing has been tried. Computed by code each wave.
     lever_attempts: dict[str, dict[str, int]] = {}
+    # Each idea that failed at least once on an issue, over every run on the
+    #   task, with its count (`RejectedIdea`). `dropped: true`: it failed
+    #   three times on that issue and never won on it. Code counts it from
+    #   the experiment records each wave. Empty when nothing failed.
+    rejected_ideas: list[RejectedIdea] = []
     prior_rejected_summary: str | None = None  # None on wave 1 — the one
     #   in-context carry; everything else the planner reads from memory
     # How many arms can build/measure at once,

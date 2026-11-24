@@ -17,6 +17,7 @@ from kiln_harness_tuner.memory import MemoryWriter
 from kiln_harness_tuner.memory_schema import (
     CONTENT_MAX_CHARS,
     EXPERIMENT_TRANSITIONS,
+    IDEA_MAX_CHARS,
     SETUP_DELIMITER,
     SETUP_HEAD_LINE_MAX_CHARS,
     SETUP_HEAD_MAX_CHARS,
@@ -446,8 +447,10 @@ def test_a_fix_opening_bounds_every_planner_value():
     )
     rendered = opening.render()
     assert len(rendered) < CONTENT_MAX_CHARS // 2
-    assert len(rendered.splitlines()) == 7
+    assert len(rendered.splitlines()) == 8
     assert kv_value(rendered, "issue") == "issue_1"
+    idea = kv_value(rendered, "idea")
+    assert idea is not None and len(idea) <= IDEA_MAX_CHARS
     technique = kv_value(rendered, "technique")
     assert technique is not None and len(technique) <= TECHNIQUE_MAX_CHARS
 

@@ -257,7 +257,16 @@ Per wave, in order:
    the same wave, with the drops in its input (one
    `plan_all_items_dropped` event). If that plan also has no item left, the
    run exits `empty_plan`. The report names each open issue that has no eval
-   (section 11).
+   (section 11). **The three-failures rule** (`orchestrator._rejected_ideas`)
+   runs before each plan: code counts the failed arms of each idea on each
+   issue (`MemoryWriter.rejected_ideas`, section 8), writes a
+   `dropped_idea` record for each idea that reached three failures and has
+   none (one `idea_dropped` event each), and gives the list to the planner
+   (`BatchPlanInput.rejected_ideas`). A planned fix arm on a dropped idea
+   is logged (`dropped_idea_planned`) and still runs: the key of an idea is
+   coarse, so the planner keeps the last word. **The planner's failure
+   notes** (`BatchPlan.failure_notes`) are stored for the failure cards
+   (section 12) before the wave runs.
 6. **Optionally, screening rounds** (`_screening_phase`). When the plan
    carries `screen` instead of items, code measures every variant it names
    on the screening subset and calls the planner again with the table
@@ -783,6 +792,29 @@ it would be refused. Four rules keep the state readable:
   (`items._experiment_write`). So are a refused tripwire stamp and a refused
   winner stamp. Section 10 has the policy.
 
+**Rejected ideas and the three-failures rule.** An idea is "the same idea"
+when code can count it: the arm's lever (its `technique`, lower case) plus
+each technique document of the knowledge skill that its hypothesis names
+(`techniques/<id>.md`), sorted (`memory_schema.idea_key`). `FixOpening`
+writes it on an `idea:` line, and `record_verdict` carries the line over
+the analyzer's content (`CARRIED_KEYS`). A record from before the line
+existed gets the key from its lever and its hypothesis line.
+`MemoryWriter.rejected_ideas` reads every experiment record of the task,
+so the count covers every run on the task. A failure is an arm that ended
+`REFUTED`, `NOT LANDED` or `DEAD END` (`IDEA_FAILURE_STATES`); an infra
+failure, an abandoned arm and a capped arm are not results. Failures are
+counted by run config, so an arm that measures an existing run config
+again counts once with the arm that built it. A verdict is a win. An idea
+with `IDEA_DROP_FAILURES` (3) failures on an issue and no win is dropped,
+and code writes its record once (`record_dropped_ideas`): a task-scope
+`dead_end` with the tag `dropped_idea`, the overview `DROPPED IDEA: <idea>
+on issue <id> — failed <n> times (<arms>)` and the content `DroppedIdea`.
+The record keeps the drop when the experiment records are gone. A later
+win on the issue lifts it. The key does not read the meaning of a
+hypothesis: two different prompt changes that name no technique document
+are one idea. That is the conservative choice: it drops an idea sooner,
+and the planner can still plan an arm on it, with a reason.
+
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
 only. Lifecycle writes are code's alone by contract: the gateway enforces
@@ -1177,14 +1209,40 @@ reads a list: it takes the last `"type": "result"` event.
      No answer is over `ANSWER_MAX_CHARS` (40,000 characters). JSON runs at
      3 to 4 characters a token and can fall to about 2 when it is dense or
      escaped; 40,000 characters is then still under 20,000 tokens.
-     `get_train_results` and `get_train_expected` answer in pages
-     (`offset`, `limit`, `next_offset`), and a page also ends at the cap.
+     `get_train_results`, `get_train_expected` and `get_failure_cards`
+     answer in pages (`offset`, `limit`, `next_offset`), and a page also
+     ends at the cap.
      `get_train_expected` clips a reference at 12,000 characters and writes
      the whole of it to `_expected/`. Any other answer over the cap is
      returned as its first piece and a continuation; the role's
      `get_answer_part` operation returns the next pieces from the copy the
      gateway process keeps, so a write is never run twice to read its
      answer.
+
+   **Failure cards** (`get_failure_cards`,
+   [`gateway/failure_cards.py`](../src/kiln_harness_tuner/gateway/failure_cards.py))
+   give the planner, the builder and the analyzer one card for each train
+   item that a run config fails on an eval, so that no reader plans from a
+   score alone. Code makes the input, the output, the expected output (the
+   item's `reference`), the judge's reason and a matching success: a train
+   item that the same run config passes on the same eval, chosen by the
+   same expected output, then shared tags that not every item has, then
+   the closest input by word overlap. An item fails when a score with a
+   direction is under half of its range; a row with no such score is
+   `unscored`. A reader makes the other two parts, the step that lost the
+   item and the kind of failure: the analyzer returns
+   `ExperimentResult.failure_notes` for the candidate, and the planner
+   returns `BatchPlan.failure_notes` for the baseline. Code appends them
+   to `runs/<run_id>/failure_notes.jsonl`
+   ([`failure_notes.py`](../src/kiln_harness_tuner/failure_notes.py)),
+   which no agent reads, and the gateway joins a note to a card by eval
+   and item: a note read on the same run config first, else the newest
+   note on another one, which the card names. The gateway builds a card
+   only for a train item, so a note on any other item reaches no one. Each
+   text on a card is its first part (600 characters for the input and the
+   output), so ten cards fit in one answer; `clipped` names the texts that
+   are cut, and the trace file has the rest. The baseline reviewer does
+   not get the operation: a card holds the expected output.
 
    Val access exists only as `get_val_summary`, the gate's code-assembled
    tables (`runs/<run_id>/val_summary.json`), for the promotion agent and
@@ -1264,6 +1322,8 @@ src/kiln_harness_tuner/
   quarantine.py     the start-up split check: held-out ids, stored results
   latency.py        per-item latency, the paired comparison, the drive pass
   model_policy.py   the (provider, model) policy and its checks
+  failure_notes.py  the readers' notes on failing train items, for the
+                    failure cards
   memory.py         when a record is written
   memory_schema.py  what a record says
   schemas.py        every agent input and output, and RunStatus

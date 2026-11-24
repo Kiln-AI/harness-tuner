@@ -121,7 +121,12 @@ evals. What it does not tell you — say the clause when it bites:
 Report the figure as given. Never patch it with a hand-computed estimate
 (same rule as never hand-recovering a hole).
 
-Read actual failing traces when the numbers need explaining:
+Start from the failure cards when the numbers need explaining:
+`get_failure_cards(eval_id=…, run_config_id=…)` gives one card for each
+train item the run config fails: the input, the output, what was expected
+and a matching success (`kiln-harness-tuner-gateway`, "Failure cards").
+Call it on the candidate, and on the parent when you compare the two. A
+card is short, so then read the actual failing traces:
 `get_train_results(eval_id=…, run_config_id=…)` — the gateway reads the
 eval's current (default) config, the one your bundle was measured with, and
 split train. Its rows carry `scores`, cost, latency, an `output_preview`
@@ -316,7 +321,8 @@ promotion pass together with the planner's `promotion_candidate` intent.
   record's, and later planners/builders read the group off the post-verdict
   content; code re-appends it if you drop it, belt-and-braces — the
   same goes for the open record's `issue:` and `technique:` lines, which
-  the planner's `lever_attempts` count reads) /
+  the planner's `lever_attempts` count reads, and its `idea:` line, which
+  the three-failures rule counts) /
   the full per-pair numbers table incl.
   holes / `bundle cost: $<n>` (that label, that figure — see above) /
   interpretation + caution grade / `next:` line written for
@@ -365,6 +371,21 @@ promotion pass together with the planner's `promotion_candidate` intent.
   moved, check whether the judge's input holds that text: the judge may be
   grading against the config's own wording, not the rubric. Say so as a
   caution.
+- **`failure_notes`**: one note for each failing item whose trace you
+  read on the candidate: `{eval_id, item_id, kind, lost_at, pattern}`. It
+  is the same reading as in `findings`, one item at a time, in a form that
+  code can store. `kind` is the failure class above, as `config`,
+  `eval_data`, `judge`, `environment` or `noise`. `lost_at` is the decision
+  point above, in one line: the message where the run went wrong, and what
+  came before it (before any tool call, with a call to a named tool, after
+  a named tool's result, at the final reply). `pattern` is the id of the
+  failure playbook that fits (`references/analyzer.md` of the knowledge
+  skill), or a few words when none fits. Code stores the notes, and the
+  gateway shows them to the next planner on its failure cards
+  (`get_failure_cards`), beside the input, the output and the expected
+  output. Write a note only for a trace that you read: a guess on a card
+  reads as a fact to the planner. Train items only. An empty list is
+  valid when the candidate fails nothing that you read.
 - A measured negative is a normal, valuable verdict: return envelope
   `status: "ok"` with `successful: false`. Reserve `failed_expected` for
   "I could not produce a judgment at all", with the reason in `detail`.

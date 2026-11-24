@@ -49,9 +49,11 @@ from kiln_harness_tuner.memory_schema import (
     CARRIED_KEYS,
     CONTENT_MAX_CHARS,
     DEFAULT_ISSUE_PRIORITY,
+    DROPPED_IDEA_TAG,
     EXPERIMENT_TRANSITIONS,
     FINDING_MAX_CHARS,
     HISTORY_TRUNCATION_MARKER,
+    IDEA_DROP_FAILURES,
     ISSUE_OVERVIEW_LEAD,
     ISSUE_TERMINAL_STATES,
     MERGE_TECHNIQUE,
@@ -66,6 +68,7 @@ from kiln_harness_tuner.memory_schema import (
     VAL_STATS_OVERVIEW,
     VAL_STATS_TAG,
     BaselineView,
+    DroppedIdea,
     ExperimentState,
     ExperimentView,
     FixOpening,
@@ -138,6 +141,7 @@ from kiln_harness_tuner.schemas import (
     ProbeResult,
     PromotionDecision,
     RcChange,
+    RejectedIdea,
     ResidualGateResult,
     ScreenResult,
     SmellFinding,
@@ -678,6 +682,102 @@ class MemoryWriter:
             per_issue[lever] = per_issue.get(lever, 0) + 1
         return attempts
 
+    async def rejected_ideas(self) -> list[RejectedIdea]:
+        """Each idea that failed at least once on an issue, over every run on
+        the task, with its count: the lasting record behind the
+        three-failures rule.
+
+        It is counted from the task's experiment records, which outlive a
+        run. The idea of an arm is `ExperimentView.idea_key`: the lever and
+        the technique documents its hypothesis names. A failure is an arm
+        that ended REFUTED, NOT LANDED or DEAD END (`ExperimentView.failed`).
+        An arm that measures a run config again (`reused rc:`) and the arm
+        that built it count once: failures are counted by run config, and an
+        arm with no run config counts by its own record. A merge has no one
+        issue and is not counted.
+
+        `dropped`: `IDEA_DROP_FAILURES` failures and no win on the issue. A
+        `dropped_idea` record keeps an idea dropped when the experiment
+        records that counted it are gone; a later win lifts the drop. The
+        list has dropped ideas first, then the most failures. `arms` is in
+        the order of the memory listing."""
+        rows = await self._list(self.task_scope, [RecordKind.EXPERIMENT.value])
+        failures: dict[tuple[str, str], dict[str, str]] = {}
+        wins: dict[tuple[str, str], int] = {}
+        records = await self._get_many(row.id for row in rows) if rows else []
+        for record in records:
+            view = ExperimentView.from_record(record)
+            idea = view.idea_key
+            if view.issue_id is None or idea is None or view.is_merge:
+                continue
+            key = (view.issue_id, idea)
+            if view.won:
+                wins[key] = wins.get(key, 0) + 1
+            elif view.failed:
+                build = view.rc_id or view.reused_rc_id or f"record:{view.id}"
+                failures.setdefault(key, {})[build] = view.label or view.id
+        stored: dict[tuple[str, str], tuple[str, DroppedIdea]] = {}
+        for record in await self._dropped_idea_records():
+            parsed = DroppedIdea.parse(record.content)
+            if parsed is not None:
+                stored.setdefault((parsed.issue_id, parsed.idea), (record.id, parsed))
+        ideas: list[RejectedIdea] = []
+        for key in sorted(set(failures) | set(stored)):
+            issue_id, idea = key
+            arms = list(failures.get(key, {}).values())
+            memory_id, record_view = stored.get(key, (None, None))
+            count = len(arms)
+            if record_view is not None and record_view.failures > count:
+                # The arms' records are gone: the dropped record has the count.
+                count, arms = record_view.failures, list(record_view.arms)
+            won = wins.get(key, 0)
+            ideas.append(
+                RejectedIdea(
+                    issue_memory_id=issue_id,
+                    idea=idea,
+                    failures=count,
+                    wins=won,
+                    dropped=won == 0
+                    and (count >= IDEA_DROP_FAILURES or record_view is not None),
+                    arms=arms,
+                    dropped_memory_id=memory_id,
+                )
+            )
+        ideas.sort(key=lambda i: (not i.dropped, -i.failures, i.issue_memory_id))
+        return ideas
+
+    async def _dropped_idea_records(self) -> list[MemoryRecord]:
+        rows = await self._list(self.task_scope, [DROPPED_IDEA_TAG])
+        return await self._get_many(row.id for row in rows) if rows else []
+
+    async def record_dropped_ideas(
+        self, ideas: list[RejectedIdea]
+    ) -> list[RejectedIdea]:
+        """Write the `dropped_idea` record of each dropped idea that has none
+        yet (`DroppedIdea`: a task-scope `dead_end`, so a planner reads it
+        with the dead ends, in this run and in every later one). Returns the
+        ideas whose record this call wrote, with the record's id; `ideas`
+        gets the ids too."""
+        written: list[RejectedIdea] = []
+        for idea in ideas:
+            if not idea.dropped or idea.dropped_memory_id is not None:
+                continue
+            record = DroppedIdea(
+                issue_id=idea.issue_memory_id,
+                idea=idea.idea,
+                failures=idea.failures,
+                arms=tuple(idea.arms),
+                date=self._iso_date(),
+            )
+            idea.dropped_memory_id = await self._post(
+                _fit_stateful(record.overview_head, record.overview_tail, ""),
+                self.task_scope,
+                record.render(),
+                [RecordKind.DEAD_END.value, DROPPED_IDEA_TAG],
+            )
+            written.append(idea)
+        return written
+
     async def issues_by_eval(self) -> dict[str, list[str]]:
         """eval id → the ids of the task's `issue` records bound to it (the
         `eval_<id>` tag). The code-side promotion rule maps a regressed val
@@ -1086,6 +1186,7 @@ class MemoryWriter:
         carried = {
             "issue": stored.issue_id,
             "technique": stored.technique,
+            "idea": stored.idea,
             "rc": stored.rc_id,
             "reused rc": stored.reused_rc_id,
             "change": stored.change_summary,

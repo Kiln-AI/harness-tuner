@@ -35,6 +35,7 @@ from kiln_harness_tuner.analysis import (
     success_by_rule,
     success_by_speed_rule,
 )
+from kiln_harness_tuner.failure_notes import append_notes
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
@@ -69,6 +70,7 @@ from kiln_harness_tuner.schemas import (
     EvalOnlyItem,
     EvalTarget,
     ExperimentItem,
+    FailureNote,
     FixWork,
     ItemOutcome,
     LatencyComparison,
@@ -278,6 +280,42 @@ def eval_build_issue(item: BatchItem) -> str | None:
     ):
         return item.work.issue_memory_id
     return None
+
+
+def store_failure_notes(
+    ctx: Ctx,
+    notes: list[FailureNote],
+    *,
+    run_config_id: str,
+    by: str,
+    source: str,
+) -> int:
+    """Store a reader's failure notes in the run folder
+    (`kiln_harness_tuner.failure_notes`) and log one `failure_notes` event.
+    The gateway joins them to the planner's failure cards. A file that
+    cannot be written loses the notes only: the item goes on."""
+    if not notes:
+        return 0
+    try:
+        written = append_notes(
+            ctx.run_dir, notes, run_config_id=run_config_id, by=by, source=source
+        )
+    except OSError as exc:
+        ctx.log.event("failure_notes_unavailable", source=source, error=repr(exc)[:200])
+        return 0
+    kinds: dict[str, int] = {}
+    for note in notes:
+        kinds[note.kind] = kinds.get(note.kind, 0) + 1
+    ctx.log.event(
+        "failure_notes",
+        source=source,
+        by=by,
+        run_config_id=run_config_id,
+        notes=len(notes),
+        written=written,
+        kinds=dict(sorted(kinds.items())),
+    )
+    return written
 
 
 def drop_eval_building_items(ctx: Ctx, items: list, wave: int) -> list:
@@ -911,6 +949,13 @@ async def _execute_plan_item(
     )
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
+    store_failure_notes(
+        ctx,
+        res.data.failure_notes,
+        run_config_id=rc_id,
+        by="analyze_experiment_results",
+        source=item.id,
+    )
 
     # `successful` is the ticket into the val gate, and the code
     # rule is its floor — the analyzer keeps its interpretation and may veto,

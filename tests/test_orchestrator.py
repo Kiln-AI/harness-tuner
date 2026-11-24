@@ -20,6 +20,7 @@ from conftest import (
 from fake_dispatcher import infra, ok
 from fake_kiln import make_eval, make_job_error, make_run, make_run_config, make_score
 
+from kiln_harness_tuner.failure_notes import load_notes
 from kiln_harness_tuner.kiln import KilnAPIError
 from kiln_harness_tuner.memory_schema import (
     VAL_STATS_OVERVIEW,
@@ -42,6 +43,7 @@ from kiln_harness_tuner.schemas import (
     EvalBuildReport,
     EvalTarget,
     ExperimentItem,
+    FailureNote,
     IngredientOutcome,
     MergeWork,
     OpenUnknown,
@@ -2934,6 +2936,70 @@ async def test_planner_receives_lever_attempts_from_the_prior_wave():
     first, second = ctx.dispatch.calls_to("batch_plan")
     assert first.lever_attempts == {}
     assert second.lever_attempts == {"issue_1": {"prompt": 1}}
+
+
+async def test_three_failed_arms_drop_the_idea_and_the_planner_sees_it():
+    """The three-failures rule runs in code before each plan: the
+    `dropped_idea` record is written once, the planner gets the list, and a
+    planned arm on a dropped idea is logged, not removed."""
+    ctx = make_ctx()
+    _promotion_scenario(ctx)
+    ctx.dispatch.queue("promote_best", decision(None, rationale="not yet"))
+    for n in range(3):
+        ctx.kiln.add_memory(
+            f"EXP 070{n}-w1-1 (prompt): old arm — REFUTED",
+            "task::t1",
+            ["experiment"],
+            content=f"issue: issue_1\ntechnique: prompt\nidea: prompt\nrc: rc_old{n}",
+        )
+
+    await orchestrate(ctx, "", timeout_mins=180)
+
+    first, second = ctx.dispatch.calls_to("batch_plan")
+    (idea,) = first.rejected_ideas
+    assert (idea.issue_memory_id, idea.idea, idea.dropped) == (
+        "issue_1",
+        "prompt",
+        True,
+    )
+    assert idea.dropped_memory_id is not None
+    assert second.rejected_ideas[0].dropped_memory_id == idea.dropped_memory_id
+    dropped = [m for m in ctx.kiln.memories.values() if "dropped_idea" in m["tags"]]
+    assert len(dropped) == 1
+    (event,) = [f for k, f in ctx.log.events if k == "idea_dropped"]
+    assert event["issue_memory_id"] == "issue_1" and event["failures"] == 3
+    # The wave-1 arm is the same idea on the same issue: logged, still run.
+    (flag,) = [f for k, f in ctx.log.events if k == "dropped_idea_planned"]
+    assert flag["item_id"] == "w1-1"
+    assert ctx.dispatch.calls_to("create_experiment_rc")
+
+
+async def test_the_readers_failure_notes_are_stored_for_the_cards(tmp_path):
+    ctx = make_ctx()
+    ctx.run_dir = tmp_path
+    _promotion_scenario(ctx)
+    ctx.dispatch.queue("promote_best", decision(None, rationale="not yet"))
+    note = FailureNote(
+        eval_id="eval_1", item_id="item_7", kind="config", lost_at="final reply"
+    )
+    plan = make_plan(fix_item("w1-1"))
+    plan.failure_notes = [note]
+    ctx.dispatch.queues["batch_plan"][0] = ok(plan)
+    ctx.dispatch.queues["analyze_experiment_results"][0] = ok(
+        make_result(failure_notes=[note.model_copy(update={"kind": "judge"})])
+    )
+
+    await orchestrate(ctx, "", timeout_mins=180)
+
+    notes = load_notes(tmp_path)
+    assert [(n.by, n.kind, n.run_config_id) for n in notes] == [
+        ("batch_plan", "config", "rc_base"),
+        ("analyze_experiment_results", "judge", "rc_cand"),
+    ]
+    assert [f["by"] for k, f in ctx.log.events if k == "failure_notes"] == [
+        "batch_plan",
+        "analyze_experiment_results",
+    ]
 
 
 # ---- the code rule decides on the TARGET beyond doubt,

@@ -815,6 +815,7 @@ RUN_DIR_ENTRIES = (
     "train_set.json",
     "gateway_created.jsonl",
     "gateway_memory.jsonl",
+    "failure_notes.jsonl",
     "val_summary.json",
     "model_policy.json",
     CATALOG_FILE,
