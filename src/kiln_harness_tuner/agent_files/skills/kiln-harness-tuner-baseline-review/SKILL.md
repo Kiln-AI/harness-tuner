@@ -65,7 +65,10 @@ return instead of going looking.
    when a smell needs more evidence. Do not judge whether an answer is
    right, and do not use a score to choose what to read.
 4. **Check each code detection.** For each entry in `detections`, look at
-   the thing it names (the prompt, the tool, the skill). Return one
+   the thing it names (the prompt, the tool, the skill). A detection with
+   `scope: train` comes from the counts of the baseline's stored train
+   runs, and it names a train item and its eval: read that trace
+   (`get_train_results` with that eval and that item). Return one
    `DetectionCheck`: `holds: true` when the fact is true and the smell
    document's "How to confirm it" agrees, `false` when it does not, `null`
    when reading cannot tell. Put the reason in `note`, in one sentence.

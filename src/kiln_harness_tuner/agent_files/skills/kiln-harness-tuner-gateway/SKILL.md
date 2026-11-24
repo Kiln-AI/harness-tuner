@@ -98,7 +98,11 @@ the expected output) over the run config's folder with line numbers, then
 `Read` the trace from a few lines above the hit. For a cost or speed
 question, read `_stats.md` first. It lists per item the turns, the tool
 calls, the tool errors, the tokens and the cost, and per tool the calls,
-errors and result sizes. `_stats.json` has the per-turn tokens
+errors and result sizes. `_stats.json` has for each item the largest count
+of one same call for each tool (`same_call_max`), the largest count of tool
+steps in one turn (`max_tool_steps_in_turn`; a step is one model call that
+asks for tools) and the skills opened
+(`skills_opened`). It has the per-turn tokens
 (`turn_usage`) when the stored trace carries them. Its `usage_source` says
 whether it does (`per_turn`) or only the run total is known
 (`per_run_only`).

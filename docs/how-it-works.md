@@ -134,8 +134,10 @@ flowchart TD
    that returns very large results. It is true whether an eval passes or
    fails.
    1. The **smell detectors** in code read the baseline's prompt, skills and
-      tool definitions, and state facts: for example, "The system prompt
-      has 240,000 characters. The reference is 200,000." They cost nothing.
+      tool definitions, and the counts of its stored train runs. They state
+      facts: for example, "The system prompt has 240,000 characters. The
+      reference is 200,000." They cost nothing: the train runs are the
+      ones that the baseline's measurement already made.
    2. One **design review** session reads the smell documents, the
       baseline's harness and a fixed sample of its train traces. It names
       the smells that it finds, with evidence, and says whether each code

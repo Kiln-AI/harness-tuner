@@ -1,10 +1,13 @@
 ---
 title: Skill too small to earn its place
-description: An attached skill holds a few words and no other file. Its description is in every run and opening it costs a call, so it can cost more than it saves.
-reviewed: 2026-11-13
+description: An attached skill holds a few words and no other file. Its description is in every run and opening it costs a call. Code measures the body of each skill.
+reviewed: 2026-11-25
 applies_to: all
 detected_by:
+  - code
   - agent
+detectors:
+  - small_skill
 ---
 
 # Skill too small to earn its place
@@ -21,7 +24,11 @@ design, whether an eval passes or fails.
 
 In the harness:
 
-- a skill whose bundle has only `SKILL.md`, with a body of a few lines;
+- the code detection in your input names the skill, the length of its
+  body and the reference. Code reports a skill with no reference file and
+  no text asset;
+- with no detection: a skill whose bundle has only `SKILL.md`, with a body
+  of a few lines;
 - a body that repeats its own description, or adds one or two rules to it.
 
 In how the agent runs:
@@ -34,6 +41,9 @@ In how the agent runs:
 
 - Compare the length of the body with the length of the description.
 - In the sampled traces, count the items where the agent opens the skill.
+- The reference is the size that the Agent Skills specification gives for
+  the metadata of a skill. It is not a measured optimum. Read the
+  detection's source before you state how sure you are.
 - **Not this smell:** a short body that routes to reference files. That
   skill is small because it uses progressive disclosure.
 

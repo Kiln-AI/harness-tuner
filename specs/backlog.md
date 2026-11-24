@@ -99,16 +99,6 @@ The lever document and the screen exist. Missing: code keeps the parent's mode o
 (no switch to Kiln's default); no signal shows that a mode reached the call; the model list does
 not say which modes a model supports; the setup probe of valid JSON skips some modes.
 
-### Detectors from the trace counts
-
-- Kind: detector
-- Where: tuner
-- Depends on: None
-- Source: functional spec 12.3; [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), "Not a Kiln gap"
-
-A very large tool result; repeated calls and loops; a run that ends at a limit; unused tools and
-skills; a skill of a few words. The raw counts exist in `gateway/trace_files.py`.
-
 ### Budget-aware planning
 
 - Kind: code
@@ -846,3 +836,13 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### Failed drives as a detector input
+
+- Kind: detector
+- Where: tuner
+- Depends on: None
+- Source: [architecture.md](../docs/architecture.md), section 18.4
+
+A drive that Kiln stops at a limit stores no trace, so `run_near_limit` cannot see it. Give the
+detectors the train job errors of the baseline, and report a run that a limit stopped.

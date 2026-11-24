@@ -391,9 +391,12 @@ async def run_detectors(
     `smell_detector_failed`, `smell_unknown`, `smell_detection_skipped` and
     `smell_detections`.
 
-    The stored train rows are read only when a detector reads traces (the
-    component design reads them each time): no V1 detector does, and the
-    detectors are meant to cost nothing."""
+    The stored train rows are read only when a detector reads traces
+    (`Detector.reads_traces`). The read is free: it is the baseline's train
+    measurement, which the setup step made for the first baseline and the
+    candidate measurement made for a promoted one. No drive and no judge
+    call is made here. A baseline with no stored train run gives no trace
+    stats, and each detector that reads traces is then silent."""
     try:
         inputs, unread_tools = await _collect(
             ctx, rc_id, traces=any(d.reads_traces for d in detectors)
@@ -509,7 +512,13 @@ def _model_facts(ctx: Ctx, properties: dict[str, Any]) -> ModelFacts | None:
     row = ctx.model_catalog.model(model) if ctx.model_catalog else None
     if row is None:
         return ModelFacts(provider, model, model, None)
-    return ModelFacts(provider, model, row.display_name, _iso_date(row.release_date))
+    return ModelFacts(
+        provider,
+        model,
+        row.display_name,
+        _iso_date(row.release_date),
+        row.context_window,
+    )
 
 
 def _iso_date(value: str | None) -> date | None:

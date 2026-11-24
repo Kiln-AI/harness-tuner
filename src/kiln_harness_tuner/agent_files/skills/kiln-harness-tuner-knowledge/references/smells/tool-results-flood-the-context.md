@@ -1,11 +1,14 @@
 ---
 title: Tool results flood the context
-description: A tool returns a very large result - a list with every field, a full schema, many pages - or the agent makes one call for each item of a list.
-reviewed: 2026-11-13
+description: A tool returns a very large result - a list with every field, a full schema, many pages - or the agent makes one call for each item of a list. Code measures the largest results.
+reviewed: 2026-11-25
 applies_to:
   - tools
 detected_by:
+  - code
   - agent
+detectors:
+  - large_tool_result
 ---
 
 # Tool results flood the context
@@ -19,6 +22,10 @@ the context for the rest of the run. So the agent pays for each token, the
 earlier context gets a smaller share of attention, and a run can end at a
 limit. This is a property of the design, whether an eval passes or fails.
 
+Code finds the sure form: a result in a stored train run that is longer
+than the reference. A reader finds the other forms at any size: a result
+much larger than what the agent uses, and one call for each item.
+
 ## How to recognise it
 
 In the harness:
@@ -29,6 +36,8 @@ In the harness:
 
 In how the agent runs:
 
+- the code detection in your input names the tool, the length of its
+  largest result, the train item and the reference;
 - the largest tool results in the traces are many times the length of the
   final answer;
 - the agent reads a large result to take one small fact from it, for
@@ -41,6 +50,9 @@ In how the agent runs:
 - In the sampled traces, find the largest tool results, and check which
   fields of them the agent uses next.
 - Count the calls of one tool in one run.
+- The reference is a limit of one agent product on a tool result, not a
+  measured optimum. Read the detection's source before you state how sure
+  you are.
 - **Not this smell:** a large result that the answer needs in full, for
   example a document that the agent summarises.
 

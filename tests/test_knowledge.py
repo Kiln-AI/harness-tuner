@@ -220,26 +220,31 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
 # detectors. `too-many-narrow-tools` was split after V1 into `too-many-tools`
 # and `unnecessary-tools`: a count of tools and a tool set with tools it does
 # not need are two issues. Then the smells added after V1: `old-model` (the
-# model-provider-info project).
+# model-provider-info project), and the three that the detectors from the
+# trace counts added. Those detectors also gave a code detector to three V1
+# smells.
 CODE = ["code"]
 AGENT = ["agent"]
 BOTH = ["code", "agent"]
 V1_SMELL_DETECTION = {
     "very-long-prompt": (BOTH, ["long_prompt"]),
     "one-file-skill-with-many-topics": (AGENT, []),
-    "skill-too-small-to-earn-its-place": (AGENT, []),
+    "skill-too-small-to-earn-its-place": (BOTH, ["small_skill"]),
     "very-long-skill-description": (BOTH, ["long_skill_description"]),
     "faulty-inherited-skill": (AGENT, []),
-    "tool-results-flood-the-context": (AGENT, []),
+    "tool-results-flood-the-context": (BOTH, ["large_tool_result"]),
     "fixed-call-chain": (AGENT, []),
     "general-query-tool-without-a-guide": (AGENT, []),
     "too-many-tools": (CODE, ["many_tools"]),
-    "unnecessary-tools": (AGENT, []),
+    "unnecessary-tools": (BOTH, ["unused_tool"]),
     "tool-search": (AGENT, []),
     "document-behind-a-lookup-tool": (AGENT, []),
     "very-long-tool-description": (CODE, ["long_tool_description"]),
     "tools-on-a-live-server": (AGENT, []),
     "old-model": (CODE, ["old_model"]),
+    "repeated-identical-calls": (BOTH, ["repeated_call"]),
+    "runs-close-to-a-limit": (BOTH, ["run_near_limit"]),
+    "skill-never-opened": (BOTH, ["unused_skill"]),
 }
 
 
