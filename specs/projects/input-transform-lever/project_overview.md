@@ -118,7 +118,9 @@ in the vendored API reference.
    `levers.lever_verdict` has the same signal, for arms with timing
    drives.
 8. **`get_task` gives `turn_mode`.** The planner and the builder need it
-   to know if the lever applies. This closes part of gap 4.
+   to know if the lever applies. This closes the rest of gap 4 and the
+   backlog entry `The task shape for loop agents`: the model capability
+   flags of that gap are already in `get_model_details`.
 9. **Knowledge.** One lever document, the four techniques of the backlog
    entry, two smells (an input with fields the task does not need, a very
    long input field) and one failure playbook (the task input misleads

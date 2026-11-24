@@ -56,16 +56,6 @@ Knowledge settles a tie, never a loss. The stretch goal is a difference inside t
 The cost that Kiln measures can be wrong when a single-turn task gets no caching. It also decides
 if `skill-into-the-prompt` can save money.
 
-### The task shape for loop agents
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 4
-
-`get_task` drops `turn_mode`. The step "know the agent before you plan" needs it. The model
-capability flags are in `get_model_details` (project model-provider-info).
-
 ### RAG
 
 - Kind: gap
