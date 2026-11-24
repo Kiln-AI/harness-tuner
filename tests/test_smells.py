@@ -40,6 +40,7 @@ from kiln_harness_tuner.smells.thresholds import (
     LONG_PROMPT_CHARS,
     LONG_SKILL_DESCRIPTION_CHARS,
     LONG_TOOL_DESCRIPTION_CHARS,
+    MANY_SKILLS,
     MANY_TOOLS,
     OLD_MODEL_MONTHS,
     OLD_MODEL_MONTHS_SOURCE,
@@ -69,6 +70,10 @@ def inputs(
 
 def tool_ids(count: int) -> tuple[str, ...]:
     return tuple(f"mcp::remote::server::tool_{i}" for i in range(count))
+
+
+def skills(count: int, chars: int = 10) -> dict[str, SkillText]:
+    return {f"id_s{i}": skill(f"s{i}", chars) for i in range(count)}
 
 
 def tool(name: str, chars: int) -> dict:
@@ -106,6 +111,12 @@ CASES = {
         MANY_TOOLS,
         "The run config attaches",
         "tools",
+    ),
+    "many_skills": (
+        lambda n: inputs(skills=skills(n)),
+        MANY_SKILLS,
+        "The run config attaches",
+        "skills",
     ),
 }
 
@@ -165,6 +176,42 @@ def test_many_tools_counts_neither_skills_nor_a_repeated_id():
     skills = tuple(f"kiln_tool::skill::s{i}" for i in range(10))
     at_the_reference = (*tool_ids(MANY_TOOLS), *skills, *tool_ids(1))
     assert BY_ID["many_tools"].run(inputs(tool_ids=at_the_reference)) == []
+
+
+def test_many_skills_is_silent_at_the_reference():
+    _silent_at_the_reference("many_skills")
+
+
+def test_many_skills_reports_above_the_reference_with_value_and_source():
+    _reports_above_the_reference("many_skills")
+
+
+def test_many_skills_counts_neither_tools_nor_a_repeated_id():
+    at_the_reference = inputs(skills=skills(MANY_SKILLS), tool_ids=tool_ids(60))
+    repeated = replace(
+        at_the_reference.texts,
+        skill_ids=(*at_the_reference.texts.skill_ids, "id_s0"),
+    )
+    assert BY_ID["many_skills"].run(replace(at_the_reference, texts=repeated)) == []
+
+
+def test_many_skills_gives_the_total_length_of_the_descriptions():
+    (found,) = BY_ID["many_skills"].run(inputs(skills=skills(MANY_SKILLS + 1, 100)))
+    total = (MANY_SKILLS + 1) * 100
+    assert found.fact.endswith(f"Their descriptions have {total:,} characters in all.")
+    assert found.value == MANY_SKILLS + 1
+
+
+def test_many_skills_counts_the_skills_whose_text_cannot_be_read():
+    """The count needs only the run config. The total length is left out
+    when the text of a skill cannot be read."""
+    ids = tuple(f"s{i}" for i in range(MANY_SKILLS + 1))
+    unread = replace(inputs(), texts=RcText(prompt="short", skill_ids=ids, skills=None))
+    (found,) = BY_ID["many_skills"].run(unread)
+    assert found.fact == (
+        f"The run config attaches {MANY_SKILLS + 1:,} skills. The reference is"
+        f" {MANY_SKILLS:,}."
+    )
 
 
 def test_a_detection_names_each_tool_and_each_skill_over_the_reference():
@@ -247,7 +294,7 @@ def test_every_threshold_has_a_source_comment():
             assert lines[node.end_lineno].lstrip().startswith("#"), target.id
             text = getattr(thresholds, f"{target.id}_SOURCE", "")
             assert isinstance(text, str) and text.strip(), f"{target.id}_SOURCE"
-    assert len(names) == 5
+    assert len(names) == 6
 
 
 # ---- old_model: the release date against the run date ----
