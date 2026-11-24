@@ -93,10 +93,7 @@ from kiln_harness_tuner.stop_rules import (
     merge_rules,
     noise_flip_rate,
 )
-from kiln_harness_tuner.sub_agents import (
-    sub_agent_tool_ids,
-    usage_includes_sub_agents,
-)
+from kiln_harness_tuner.sub_agents import sub_agent_tool_ids
 
 logger = logging.getLogger(__name__)
 
@@ -670,14 +667,16 @@ async def _is_model_swap(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
     return any(parent.get(k) != child.get(k) for k in SWAP_KEYS)
 
 
-# What an arm's record says when it has no paired timing and its run
-# config, or its parent's, attaches a sub-agent: Kiln's usage of a run holds
-# the run's own model calls, so no number here is the cost of a request.
+# What an arm's record says when it has no timing drives and its run
+# config, or its parent's, attaches a sub-agent. The latency of a run never
+# holds a sub-agent's time, and its cost holds a sub-agent's only when Kiln
+# wrote that usage in the run (`kiln_harness_tuner.sub_agents`).
 SUB_AGENT_NOT_MEASURED_NOTE = (
-    "latency and cost: not measured. A run config of this comparison attaches"
-    " the sub-agent tool(s) {tools}, and Kiln's usage of a run leaves a"
-    " sub-agent's calls out. No number here shows that this arm is cheaper"
-    " or faster"
+    "latency: not measured. A run config of this comparison attaches the"
+    " sub-agent tool(s) {tools}, and the latency of a run leaves a"
+    " sub-agent's time out. A row has a cost only when each of its runs"
+    " holds the sub-agent's usage: with no cost on a row, the cost is not"
+    " measured either"
 )
 
 
@@ -919,13 +918,14 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
-    # An arm with no paired timing has, at most, the passive numbers of
-    # stored eval runs, and those are withheld when a run calls a sub-agent
-    # (`Analyzer`). The analyzer and the record are told why, so nobody
-    # reads a delegating arm as a cheap arm.
-    measurement_notes: list[str] = []
+    # What is not measured for this arm, and why. A timed arm says it
+    # itself (`Evidence.unmeasured`). An arm with no timing drives has, at
+    # most, the passive numbers of stored eval runs, and those are withheld
+    # when a run calls a sub-agent (`Analyzer`). The analyzer and the
+    # record are told, so nobody reads a delegating arm as a cheap arm.
+    measurement_notes = list(dict.fromkeys(measurement.evidence.unmeasured.values()))
     timed = measurement.latency is not None or measurement.cost is not None
-    if not timed and not usage_includes_sub_agents():
+    if not timed and not measurement_notes:
         sub_tools = dict.fromkeys(
             [
                 *await _sub_agent_tools(ctx, rc_id),

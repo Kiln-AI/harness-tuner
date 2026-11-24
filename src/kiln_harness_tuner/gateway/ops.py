@@ -56,12 +56,12 @@ from kiln_harness_tuner.sub_agents import (
     SUB_AGENT_TASK_KIND,
     SUB_AGENT_TOOL_KIND,
     SubAgent,
-    calls_a_sub_agent,
+    cost_measured,
+    latency_measured,
     read_sub_agent,
     read_sub_agent_usage,
     sub_agent_tool_ids,
     tool_ids_of,
-    usage_includes_sub_agents,
 )
 
 Call = Callable[..., Awaitable[Any]]
@@ -104,10 +104,14 @@ NOT_TRAIN = (
     "not available: this record is not provably a train record. The gateway"
     " shows only train items and what this run created on them."
 )
-# Why a train result row has no cost and no latency.
-NOT_MEASURED_ROW = (
-    "cost and latency not measured: the run calls a sub-agent, and Kiln's"
-    " usage of a run leaves the sub-agent's calls out"
+# Why a train result row has no latency, or no latency and no cost.
+ROW_LATENCY_NOT_MEASURED = (
+    "latency not measured: the run calls a sub-agent, and the latency of a"
+    " run leaves the sub-agent's time out. The cost includes the sub-agent"
+)
+ROW_NOT_MEASURED = (
+    "latency and cost not measured: the run calls a sub-agent, and the run"
+    " does not hold the sub-agent's time or usage"
 )
 # The largest expected output `get_train_expected` returns whole, as JSON
 # text. A larger one comes back clipped and says so; the whole of it is also
@@ -636,7 +640,7 @@ class Gateway:
             if isinstance(row.get("task_run_usage"), dict)
             else {}
         )
-        partial = not usage_includes_sub_agents() and calls_a_sub_agent(row)
+        timed, costed = latency_measured(row), cost_measured(row)
         raw_scores = row.get("scores") if isinstance(row.get("scores"), dict) else {}
         scores = {
             str(k): (float(v) if isinstance(v, (int, float)) else None)
@@ -663,11 +667,17 @@ class Gateway:
             output_preview=output[:OUTPUT_PREVIEW_CHARS]
             if isinstance(output, str)
             else None,
-            # A row whose run calls a sub-agent has the cost and latency of
-            # its own model calls only: not the request's, so none is shown.
-            task_cost_usd=None if partial else usage.get("cost"),
-            latency_ms=None if partial else usage.get("total_llm_latency_ms"),
-            usage_note=NOT_MEASURED_ROW if partial else None,
+            # A row whose run calls a sub-agent has the latency of its own
+            # model calls only, and its cost is the request's only when the
+            # run holds the sub-agent's usage. A number that is not the
+            # request's is not shown.
+            task_cost_usd=usage.get("cost") if costed else None,
+            latency_ms=usage.get("total_llm_latency_ms") if timed else None,
+            usage_note=None
+            if timed
+            else ROW_LATENCY_NOT_MEASURED
+            if costed
+            else ROW_NOT_MEASURED,
             skipped_reason=_text(row.get("skipped_reason")),
             skipped_detail=_text(row.get("skipped_detail")),
             trace_path=trace_path,

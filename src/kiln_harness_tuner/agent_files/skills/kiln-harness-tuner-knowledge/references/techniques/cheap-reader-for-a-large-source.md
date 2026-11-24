@@ -90,14 +90,16 @@ lever [prompt](../levers/prompt.md)). They are one arm.
 In smoke drives on items that need the source: `sub_agent_calls` is at
 least one, the main agent's trace no longer holds the large result, and
 the returned text holds the fact that the answer needs. `sub_agent_usage`
-gives the cost of the reader's own runs. It is not in the drive's `usage`.
+gives the cost of the reader's calls, and `sub_agent_note` says whether
+the drive's `usage` already holds it.
 
 ## Budget
 
 High to build, and the arm gets timing drives. On a small budget, leave
 it out. Under a cost or speed objective, read the limits of the lever
-first: while the loop does not measure the cost of a request that calls a
-sub-agent, this arm cannot win there, and it is not worth a slot.
+first. The latency of a request that calls a sub-agent is not measured,
+so this arm cannot win on speed. It can win on cost only when the server
+records the sub-agent's usage in the run.
 
 ## If it does not move the evals
 

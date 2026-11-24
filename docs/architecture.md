@@ -2296,71 +2296,83 @@ runs (few-shot, repairs) is never rendered: the sub-agents' text is then
 
 ### 19.4 Cost and latency
 
-Kiln's usage numbers do not include a sub-agent's calls. The `usage` of a
-task run sums the model calls of that run, and its latency
-(`total_llm_latency_ms`) is the time of those calls, not the wall-clock
-time of the request. The sub-agent's run is a task run of the sub-agent's
-task, with its own `usage`, and the tool message in the parent's trace
-names it (`kiln_task_tool_data`). Kiln saves that run only when it saves
-the parent's run. The run endpoint does. An eval job does not: the run id
-in the tool message is then `None`, and the sub-agent's usage is recorded
-nowhere.
+The tuner reads the cost and the latency of a request from the `usage` of
+a task run: `usage.cost` and `usage.total_llm_latency_ms`. It never adds a
+sub-agent's usage to a run's usage itself.
 
-The fix is in Kiln, by the owner's decision: a run's usage will hold the
-usage of the sub-agents it calls, in a run through the run endpoint and in
-an eval job. So the tuner keeps ONE source for cost and latency, the
-`usage` it reads today, and it never adds a sub-agent's usage to a run's
-usage itself. A sum made here would count the sub-agent twice on a Kiln
-with the fix.
+**Latency.** `total_llm_latency_ms` is the time of the run's own model
+calls, not the wall-clock time of the request. The time of a sub-agent is
+never in it, on any Kiln, and Kiln stores no wall-clock time of a run. So
+the latency of a run that calls a sub-agent is never measured
+(`sub_agents.latency_measured`).
 
-**The switch.** `sub_agents.usage_includes_sub_agents()` answers whether a
-run's usage on this server is the usage of the whole request. Today it is
-fixed to no: the tuner has no Kiln version check, and no route or schema
-field of the server says which case holds. When Kiln names how a client can
-tell, that function reads it, and each guard below goes away with it.
+**Cost.** Before Kiln-AI/Kiln#2077, the `usage` of a run sums its own
+model calls only. The sub-agent's run is a task run of the sub-agent's
+task, with its own `usage`, and Kiln saves it only when it saves the
+parent's run: the run endpoint does, an eval job does not. With that Kiln
+change, a run's `usage` holds the tokens and the cost of each sub-agent
+call, in an eval job too, and each sub-agent tool message of the trace
+(the message with `kiln_task_tool_data`) has a `usage` key. That key is
+how a reader tells the two cases, by the Kiln change's own statement. So
+the cost of a run that calls a sub-agent is measured when EVERY such tool
+message of its trace has the key (`sub_agents.cost_measured`), and not
+measured otherwise. The test is per run, with no version check, and the
+cost half of this section depends on Kiln-AI/Kiln#2077 as written.
 
-**The guard**, while the answer is no. A candidate must not win on cost or
-on speed from numbers that leave its sub-agent out. The cost and the
-latency of a request that calls a sub-agent are treated as not measured, in
-code:
+**The guard.** A candidate must not win on a number that leaves its
+sub-agent out. A metric that is not measured is withheld, in code:
 
 - **Timing drives** (`latency.timed_drives`, which the measurement engine,
   the gate's paired pass and the baseline timing all use). A run config
-  with a drive that calls a sub-agent has no latency and no cost in the
-  result, on any item, and each item has the reason
-  (`sub_agents.NOT_MEASURED`). One drive is enough: the items that call no
-  sub-agent are not a fair sample of the requests. Each comparison with
-  that run config has no pair, so it is `incomplete` and gives no verdict.
-- **The measurement engine.** The values of a withheld side are cleared
-  for every chunk (the candidate, the baseline or the parent), and
-  `Evidence.timing_note` says which side. Under `speed` and `cost` the
-  `not_better` rule then stops the candidate with that note, before a judge
-  is paid for, and the train speed rule cannot pass with no comparison.
-- **The analysis table.** The passive latency and cost of stored eval runs
-  are left off the rows when a run of either side calls a sub-agent
-  (`Analyzer`). The proof of a call there is the tool message of the
-  stored trace.
+  with a drive that calls a sub-agent has no latency in the result, on any
+  item, and each item has the reason (`sub_agents.LATENCY_NOT_MEASURED`).
+  It has no cost either when the run of one such drive does not hold the
+  sub-agent's usage. One drive is enough: the items that call no sub-agent
+  are not a fair sample of the requests. A comparison of a withheld metric
+  has no pair, so it is `incomplete` and gives no verdict.
+- **The measurement engine.** The values of a withheld side (the
+  candidate or the baseline) are cleared for every chunk, and
+  `Evidence.unmeasured` holds the reason for each metric. Under `speed`
+  the `not_better` rule stops a candidate with no latency, and under
+  `cost` one with no cost, before a judge is paid for. A parent whose
+  values are withheld only ends the check against the parent.
+- **The analysis table.** The passive latency of stored eval runs is left
+  off the rows when a run of either side calls a sub-agent, and the
+  passive cost when a run of either side does not hold the sub-agent's
+  usage (`Analyzer`).
 - **The agents.** A train result row whose run calls a sub-agent has no
-  cost and no latency, and a `usage_note`. An arm with no paired timing on
-  a run config that attaches a sub-agent gets one line on its record and
-  in the analyzer's input (`measurement_notes`).
-- **The report.** The `## Sub-agents` section says that the cost and the
-  latency of such a run config were not measured.
+  latency, no cost unless the run holds the sub-agent's usage, and a
+  `usage_note`. The analyzer's input names what was not measured
+  (`measurement_notes`), and so does the experiment's record.
+- **The report.** The `## Sub-agents` section states the two rules.
 
-**For information.** A drive through the run endpoint saves the
-sub-agent's run, so code reads its `usage` (`read_sub_agent_usage`) and
-shows it beside the drive's: on the measured line of an experiment ("N of
-M drives call a sub-agent … the sub-agents' own runs: median $X and Y ms
-per request") and in the answer of the gateway's `run_task`
-(`sub_agent_usage`). It is in no comparison and in no spend figure.
+So a run config that calls a sub-agent can never win under `--objective
+speed`. Under `--objective cost` it can win only on a Kiln that writes the
+sub-agent's usage in the run.
+
+**For information.** `read_sub_agent_usage` gives the usage of the
+sub-agent calls of one run: the tokens and the cost from the tool message
+when Kiln wrote them there, else from the sub-agent's saved run, and the
+latency from the saved run. It is shown on the measured line of an
+experiment ("N of M drives call a sub-agent: latency not measured, cost
+includes the sub-agent (the sub-agent's calls: median $X per request)")
+and in the answer of the gateway's `run_task` (`sub_agent_usage`). It is
+in no comparison and in no spend figure.
 
 **Timing drives for a sub-agent arm.** An arm that adds, drops or replaces
 a sub-agent gets timing drives under every objective
 (`items._changes_sub_agents`): the lever check reads their traces before a
 judge is paid for (section 19.5), and they give the information above.
 
-The spend of a run with sub-agents is above what the ledger shows, by the
-sub-agents' calls, and a spending cap does not count them.
+**Spend.** The ledger books what Kiln reports for each run. On a Kiln
+that does not write the sub-agent's usage in the run, the spend of a run
+with sub-agents is above what the ledger shows, and a spending cap does
+not count the difference.
+
+**Not seen.** A sub-agent that a code tool calls leaves no sub-agent tool
+message in the trace, and a failed sub-agent call adds no usage
+(Kiln-AI/Kiln#2077 covers neither). The first is invisible to the guard.
+The second has no `usage` key, so the cost of that run is not measured.
 
 ### 19.5 The lever check
 

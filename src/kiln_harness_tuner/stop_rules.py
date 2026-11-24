@@ -333,11 +333,11 @@ class Evidence:
     timing_done: bool = False
     timing_look: bool = False
     timing_looks: int = 1
-    # Set when the timing values of this candidate, or of the side it is
-    # compared with, are withheld: a drive called a sub-agent, and Kiln's
-    # usage leaves its calls out (`sub_agents.NOT_MEASURED`). No timing
-    # comparison then gives a verdict.
-    timing_note: str = ""
+    # metric ("latency_ms", "cost_usd") -> why its timing values are
+    # withheld for this candidate or for a side it is compared with: a
+    # drive called a sub-agent (`kiln_harness_tuner.sub_agents`). No
+    # comparison of that metric then gives a verdict.
+    unmeasured: dict[str, str] = field(default_factory=dict)
     quality_look: bool = False
     quality_looks: int = 1
     disc_done: bool = False
@@ -781,11 +781,11 @@ def _not_better(rule: StopRule, ev: Evidence) -> Stop | None:
         slower_than_parent_verdict,
     )
 
-    if ev.timing_note:
+    metric = "latency_ms" if ev.objective == "speed" else "cost_usd"
+    if metric in ev.unmeasured:
         # Whether the candidate is better on the objective is not measured,
         # so it cannot win. It stops here, before a judge is paid for.
-        return Stop(rule, 0, ev.timing_note)
-    metric = "latency_ms" if ev.objective == "speed" else "cost_usd"
+        return Stop(rule, 0, ev.unmeasured[metric])
     ref, cand = (
         (ev.ref_latency, ev.latency)
         if metric == "latency_ms"

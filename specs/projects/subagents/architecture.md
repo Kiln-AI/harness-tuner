@@ -23,7 +23,7 @@ item path (items.py)
   └─ generality, judge_copy          prompt_text.rc_texts → RcText.sub_agents
   └─ rc_guard → policy_refusal       rc_sub_agent_pairs
   └─ _measure_arm                    timing = … or _changes_sub_agents
-       └─ latency.timed_drives       no latency or cost for an rc that calls one
+       └─ latency.timed_drives       latency_measured, cost_measured per drive
        └─ levers.lever_verdict       sub_agent_calls in each drive's evidence
 
 end of run (orchestrator._orchestrate)
@@ -42,9 +42,9 @@ One module with no import of the gateway or the orchestrator. Both use it.
 | `read_sub_agent(call, project_id, tool_id)` | The tool server's saved record (`…/tool_servers/<id>/config`), the task and its run configs. Returns `SubAgent`, or None for another kind of server. Never reads runs or evals. |
 | `SubAgent.pair`, `.prompt_reads_runs` | The (provider, model) of the pinned run config. Whether its prompt is a generator that reads stored runs. |
 | `sub_agent_calls(run)`, `calls_by_tool(run)` | The calls in a trace, from the tool messages' `kiln_task_tool_data`. None when the run has no trace. |
-| `usage_includes_sub_agents()` | The switch of the cost guard: does a run's usage on this Kiln hold its sub-agents' usage. False today (`KILN_USAGE_INCLUDES_SUB_AGENTS`). |
-| `read_sub_agent_usage(call, project_id, run)` | The usage of the sub-agents' own runs for one task run, as a `SubAgentUsage` (calls, unread, cost, latency, usage). For information: it is never added to a run's usage. |
-| `calls_a_sub_agent(run)`, `usage_line(infos, drives)`, `not_measured_note(who)`, `NOT_MEASURED` | The test for a run or a stored eval-run row, and the lines for a record. |
+| `latency_measured(run)`, `cost_measured(run)` | The two tests of the guard, for a run or a stored eval-run row. Cost: every sub-agent tool message has a `usage` key. Latency: the run calls no sub-agent. |
+| `read_sub_agent_usage(call, project_id, run)` | The usage of the sub-agent calls of one task run, as a `SubAgentUsage` (calls, unread, cost, latency, usage, in_run_usage): from the tool message, else from the saved run. For information: it is never added to a run's usage. |
+| `usage_line(infos, drives)`, `not_measured_note(who, metrics)`, `LATENCY_NOT_MEASURED`, `COST_NOT_MEASURED` | The lines for a record. |
 | `created_sub_agents(run_dir)` | The sub-agents in the run's registry, as `CreatedSubAgent`. |
 
 The registry constants (`CREATED_FILE`, the three kinds) and the list of
@@ -65,8 +65,8 @@ gateway imports them.
     `create_run_config` and `run_task`.
   - `Gateway._driven_view`: the view of a drive, with the sub-agents'
     own usage beside the run's. Called by both routes of `run_task`.
-  - `Gateway._result_row`: no cost and no latency for a row whose run
-    calls a sub-agent.
+  - `Gateway._result_row`: no latency for a row whose run calls a
+    sub-agent, and no cost unless the run holds the sub-agent's usage.
   - `get_kiln_task_tool` uses `read_sub_agent`. Its answer did not change.
   - `OPS` and `ROLE_OPS`: the operation, for `create_experiment_rc`.
 - A registry row is `{id, kind, split, eval_id}`. For a sub-agent the id
@@ -103,30 +103,34 @@ gateway imports them.
 ## 6. Usage, timing and the lever check (FS 7, FS 8)
 
 - `latency.timed_drives`: for each returned run, `read_sub_agent_usage`.
-  A drive with a sub-agent call, while the switch is False, keeps its
-  output and its evidence and gets no latency and no cost. After the pass,
-  a run config with one such drive has its latencies and costs cleared,
-  and `NOT_MEASURED` in `failures` for each item. `DrivePass.unmeasured`
-  names those run configs, and `DrivePass.sub_agents` holds the
-  `SubAgentUsage` of each drive with a call. The gate's
+  A drive with a sub-agent call keeps its output, its evidence and its
+  cost, and gets no latency. After the pass, a run config with one such
+  drive has its latencies cleared, and `LATENCY_NOT_MEASURED` in
+  `failures` for each item. Its costs are cleared too when one such run
+  does not hold the sub-agent's usage. `DrivePass.unmeasured_latency` and
+  `.unmeasured_cost` name those run configs, and `DrivePass.sub_agents`
+  holds the `SubAgentUsage` of each drive with a call. The gate's
   `paired_drive_pass` and the baseline timing read `failures` as the
   reason of a missing pair, so they need no change.
-- `measure.py`: a set of withheld run configs for the whole measurement.
-  After each timing chunk, the values of a withheld side (the candidate,
-  the baseline, the parent) are cleared, and `Evidence.timing_note` is
-  set. `Measured.latency` and `.cost` are not built with a note set.
-  `Measured.usage_note` is `usage_line(…)`. An applied verdict with a
-  reason becomes the `lever_note` and a `lever_applied` event.
-- `stop_rules._not_better`: with `Evidence.timing_note` set, the rule
-  stops the candidate with that note.
-- `analysis.py`: the passive `latency` and `cost` of a comparison are None
-  when a run of either side calls a sub-agent.
+- `measure.py`: two sets of withheld run configs for the whole
+  measurement. After each timing chunk, the withheld values of a side are
+  cleared, and `Evidence.unmeasured[metric]` holds the reason when the
+  side is the candidate or the baseline. `Measured.latency` and `.cost`
+  are built only for a metric that is measured. `Measured.usage_note` is
+  `usage_line(…)`. An applied verdict with a reason becomes the
+  `lever_note` and a `lever_applied` event.
+- `stop_rules._not_better`: when the objective's metric is in
+  `Evidence.unmeasured`, the rule stops the candidate with that reason.
+- `analysis.py`: the passive `latency` of a comparison is None when a run
+  of either side fails `latency_measured`, and the passive `cost` when one
+  fails `cost_measured`.
 - `levers.py`: `lever_evidence` adds `sub_agent_calls`. `lever_verdict`
   adds the sub-agent rule after the model rule. `MIN_SUB_AGENT_DRIVES` is
   3.
 - `items.py`: `_changes_sub_agents` joins `_is_model_swap` in the `timing`
-  flag of `_measure_arm`. `SUB_AGENT_NOT_MEASURED_NOTE` is the line for an
-  arm with no paired timing. `schemas.AnalysisInput.measurement_notes`
+  flag of `_measure_arm`. The analyzer's notes are the reasons in
+  `Evidence.unmeasured`; `SUB_AGENT_NOT_MEASURED_NOTE` is the line for an
+  arm with no timing drives. `schemas.AnalysisInput.measurement_notes`
   carries it to the analyzer.
 
 ## 7. The end of a run (FS 9)
@@ -152,7 +156,10 @@ gateway imports them.
 - The archive and the report section do not run after a quota stop, a
   crash or an interrupt. The registry still names what the run created.
 - The usage reader makes one read for each sub-agent call of a drive.
-- The switch is a constant. The tuner cannot tell which Kiln it talks to
-  (project overview, section 3).
+- The cost test depends on Kiln-AI/Kiln#2077 as written: the `usage` key
+  on the sub-agent tool message. A change of that key in review turns the
+  test off, and the cost is then not measured.
 - With a sub-agent in the baseline, no candidate can be compared with it
-  on cost or on speed while the switch is False.
+  on speed, and on cost only when the runs hold the sub-agent's usage.
+- A sub-agent that a code tool calls leaves no tool message of its own,
+  so the guard does not see it.

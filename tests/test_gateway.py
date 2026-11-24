@@ -2229,6 +2229,27 @@ class TestSubAgents:
         assert by_item["tr2"]["task_cost_usd"] == 0.01
         assert by_item["tr2"]["usage_note"] is None
 
+    def test_a_train_result_that_holds_the_sub_agents_usage_shows_its_cost(
+        self, tmp_path
+    ):
+        """A Kiln with Kiln-AI/Kiln#2077 writes the sub-agent's usage on the
+        tool message and in the run's usage: the cost is the request's. The
+        latency never is."""
+        results = f"{BASE}/evals/e1/eval_config/ec1/run_config/rc1/results"
+        row = _eval_run("tr1", "er1", "fine")
+        data = f"{PROJECT}:::{SUB_TOOL}:::{SUB_TASK}:::None"
+        message = {"role": "tool", "kiln_task_tool_data": data}
+        row["task_run_trace"] = json.dumps([{**message, "usage": {"cost": 0.004}}])
+        routes = {
+            ("GET", f"{BASE}/evals/e1"): {"id": "e1", "current_config_id": "ec1"},
+            ("GET", results): {"results": [row]},
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _run(gateway, "get_train_results", eval_id="e1", run_config_id="rc1")
+        (shown,) = out["rows"]
+        assert shown["task_cost_usd"] == 0.01 and shown["latency_ms"] is None
+        assert shown["usage_note"].startswith("latency not measured")
+
     def test_two_allowed_models_let_the_two_agents_differ(self, tmp_path):
         """A policy with two models: the main agent on one, the sub-agent on
         the other. A third model is refused for either."""

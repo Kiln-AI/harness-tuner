@@ -28,7 +28,6 @@ from test_judge_copy import COPY
 from test_judge_copy import _ctx as judge_ctx
 from test_speed_objective import _project, _rc
 
-from kiln_harness_tuner import sub_agents
 from kiln_harness_tuner.generality import (
     audit_baseline,
     check_generality,
@@ -72,7 +71,7 @@ from kiln_harness_tuner.schemas import RunStatus, SubAgentRecord
 from kiln_harness_tuner.status import RunStatusTracker
 from kiln_harness_tuner.sub_agents import (
     CREATED_FILE,
-    NOT_MEASURED,
+    LATENCY_NOT_MEASURED,
     SUB_AGENT_RUN_CONFIG_KIND,
     SUB_AGENT_TASK_KIND,
     SUB_AGENT_TOOL_KIND,
@@ -80,7 +79,9 @@ from kiln_harness_tuner.sub_agents import (
     SubAgentUsage,
     calls_a_sub_agent,
     calls_by_tool,
+    cost_measured,
     created_sub_agents,
+    latency_measured,
     read_sub_agent,
     read_sub_agent_usage,
     read_sub_agents,
@@ -107,13 +108,21 @@ def _attaches(rc_id: str, prompt: str, *tools: str, **props) -> dict:
     }
 
 
-def _tool_message(run_id: str | None = SUB_RUN, tool: str = TOOL) -> dict:
-    return {
+def _tool_message(
+    run_id: str | None = SUB_RUN, tool: str = TOOL, usage: dict | None = None
+) -> dict:
+    """The tool message of a sub-agent call. `usage`: what a Kiln with
+    Kiln-AI/Kiln#2077 writes there, the sub-agent's tokens and cost, which
+    it also adds to the run's usage."""
+    message = {
         "role": "tool",
         "tool_call_id": "c1",
         "content": "the sub-agent's answer",
         "kiln_task_tool_data": f"{PROJECT}:::{tool}:::{SUB_TASK}:::{run_id}",
     }
+    if usage is not None:
+        message["usage"] = usage
+    return message
 
 
 def _run(*messages: dict, cost: float = 0.01, latency: float = 300) -> dict:
@@ -213,7 +222,7 @@ async def test_the_usage_of_a_sub_agents_own_run_is_read_and_never_added():
         "total_llm_latency_ms": 700,
         "output_tokens": 10,
     }
-    assert "it is not in `usage`" in info.note
+    assert "it is not in `usage`" in info.note and not info.in_run_usage
     assert run["usage"]["cost"] == 0.01  # the run's usage is what Kiln gave
     # The sub-agent's run is read under the sub-agent's task.
     assert (
@@ -249,6 +258,32 @@ async def test_a_run_with_no_sub_agent_call_reads_nothing():
     info = await read_sub_agent_usage(kiln.call, PROJECT, _run())
     assert (info.calls, info.note) == (0, "")
     assert kiln.calls == []
+
+
+async def test_usage_that_kiln_wrote_on_the_tool_message_needs_no_saved_run():
+    """A Kiln with Kiln-AI/Kiln#2077 writes the sub-agent's usage on the
+    tool message and adds it to the run's usage, in an eval job too."""
+    kiln = FakeKiln()
+    run = _run(_tool_message(run_id=None, usage={"cost": 0.02, "total_tokens": 90}))
+    info = await read_sub_agent_usage(kiln.call, PROJECT, run)
+
+    assert (info.calls, info.unread, info.cost) == (1, 0, 0.02)
+    assert info.in_run_usage and "already in `usage`" in info.note
+    assert "never includes a sub-agent's time" in info.note
+    assert kiln.calls == []
+
+
+def test_the_cost_of_a_run_is_trusted_only_with_usage_on_every_tool_message():
+    counted = _tool_message(usage={"cost": 0.02})
+    assert cost_measured(_run()) and latency_measured(_run())
+    assert cost_measured(_run(counted, counted))
+    assert not cost_measured(_run(counted, _tool_message()))
+    assert not cost_measured(_run(_tool_message(usage={})))
+    # The latency of a run never holds a sub-agent's time, on any Kiln.
+    assert not latency_measured(_run(counted))
+    # A stored eval-run row is tested the same way.
+    assert cost_measured({"task_run_trace": json.dumps([counted])})
+    assert not cost_measured({"task_run_trace": json.dumps([_tool_message()])})
 
 
 def test_a_stored_eval_run_shows_its_sub_agent_calls_too():
@@ -295,9 +330,10 @@ async def test_a_run_config_that_calls_a_sub_agent_has_no_cost_and_no_latency(
 
     # One of the candidate's four drives calls the sub-agent: all four go.
     assert drives.latencies["rc_cand"] == {} and drives.costs["rc_cand"] == {}
-    assert set(drives.failures["rc_cand"].values()) == {NOT_MEASURED}
+    assert set(drives.failures["rc_cand"].values()) == {LATENCY_NOT_MEASURED}
     assert len(drives.failures["rc_cand"]) == 4
-    assert drives.unmeasured == {"rc_cand"}
+    assert drives.unmeasured_latency == {"rc_cand"}
+    assert drives.unmeasured_cost == {"rc_cand"}
     # The baseline calls none: its numbers stand.
     assert set(drives.latencies["rc_base"].values()) == {300.0}
     assert drives.failures["rc_base"] == {}
@@ -328,40 +364,58 @@ async def test_a_paired_pass_with_a_sub_agent_side_gives_no_verdict(tmp_path):
     for comparison in (paired.latency["rc_cand"], paired.cost["rc_cand"]):
         assert comparison.n_items == 0 and comparison.incomplete
         assert not comparison.clearly_faster
-        assert set(comparison.dropped_items.values()) == {NOT_MEASURED}
+        assert set(comparison.dropped_items.values()) == {LATENCY_NOT_MEASURED}
 
 
-async def test_with_the_kiln_fix_the_numbers_are_read_as_kiln_gives_them(
-    tmp_path, monkeypatch
-):
-    """When a run's usage holds its sub-agents' usage, the tuner reads it
-    from the same place as before. It adds nothing, so nothing is counted
-    twice."""
-    monkeypatch.setattr(sub_agents, "KILN_USAGE_INCLUDES_SUB_AGENTS", True)
+async def test_with_the_kiln_fix_the_cost_is_read_as_kiln_gives_it(tmp_path):
+    """When each sub-agent tool message has a `usage` key, the run's usage
+    holds the sub-agent's cost. The tuner reads it from the same place as
+    before and adds nothing, so nothing is counted twice. The latency
+    stays not measured: no Kiln puts a sub-agent's time in it."""
     ctx, inputs = _drive_ctx(tmp_path)
-    # What a fixed Kiln reports: the run's usage with the sub-agent's in it.
-    ctx.kiln.run_handler = lambda _body: _run(_tool_message(), cost=0.03, latency=1000)
+    counted = _tool_message(usage={"cost": 0.02})
+    ctx.kiln.run_handler = lambda _body: _run(counted, cost=0.03, latency=1000)
     drives = await timed_drives(ctx, ["rc_cand"], inputs, "x")
 
-    assert set(drives.latencies["rc_cand"].values()) == {1000.0}
     assert set(drives.costs["rc_cand"].values()) == {0.03}
-    assert drives.unmeasured == frozenset() and drives.failures["rc_cand"] == {}
+    assert drives.unmeasured_cost == frozenset()
+    assert drives.latencies["rc_cand"] == {}
+    assert drives.unmeasured_latency == {"rc_cand"}
+    assert round(drives.cost, 6) == 0.12  # the spend: Kiln's figure, once
     (info, *_rest) = drives.sub_agents["rc_cand"]
-    assert "not in `usage`" not in info.note
+    assert info.in_run_usage
+
+
+async def test_one_run_without_the_usage_key_withholds_the_cost_of_all(tmp_path):
+    ctx, inputs = _drive_ctx(tmp_path)
+    first = inputs[0].plaintext
+
+    def drive(body):
+        if body["plaintext_input"] == first:
+            return _run(_tool_message())  # this run does not hold the usage
+        return _run(_tool_message(usage={"cost": 0.02}), cost=0.03)
+
+    ctx.kiln.run_handler = drive
+    drives = await timed_drives(ctx, ["rc_cand"], inputs, "x")
+    assert drives.costs["rc_cand"] == {} and drives.unmeasured_cost == {"rc_cand"}
 
 
 def test_the_line_on_a_record_says_what_is_measured():
-    infos = [
-        SubAgentUsage(calls=1, cost=0.02, latency_ms=700.0, usage={"cost": 0.02}),
-        SubAgentUsage(calls=2, cost=0.04, latency_ms=900.0, usage={"cost": 0.04}),
+    left_out = [
+        SubAgentUsage(calls=1, cost=0.02, latency_ms=700.0, in_run_usage=False),
+        SubAgentUsage(calls=2, cost=0.04, latency_ms=900.0, in_run_usage=False),
     ]
-    line = usage_line(infos, 15)
-    assert line.startswith(
-        "cost and latency not measured: 2 of 15 drives call a sub-agent"
+    assert usage_line(left_out, 15) == (
+        "2 of 15 drives call a sub-agent: latency and cost not measured"
+        " (the sub-agent's calls: median $0.0300 and 800 ms per request)"
     )
-    assert "median $0.0300 and 800 ms per request" in line and "in no number" in line
-    unread = usage_line([SubAgentUsage(calls=1, unread=1)], 3)
-    assert "the sub-agents' runs have no usage record" in unread
+    counted = [SubAgentUsage(calls=1, cost=0.02)]
+    assert usage_line(counted, 3) == (
+        "1 of 3 drives call a sub-agent: latency not measured, cost includes"
+        " the sub-agent (the sub-agent's calls: median $0.0200 per request)"
+    )
+    unread = usage_line([SubAgentUsage(calls=1, unread=1, in_run_usage=False)], 3)
+    assert unread.endswith("(the sub-agent's calls have no usage record)")
     assert usage_line([], 15) == ""
 
 
@@ -479,6 +533,31 @@ async def test_stored_runs_with_no_sub_agent_call_keep_their_passive_numbers():
 
     (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
     assert analysis.measurement_notes == []
+    assert all(r.cost is not None for r in analysis.bundle.per_eval)
+
+
+async def test_stored_runs_that_hold_the_sub_agents_usage_keep_their_cost():
+    """With the Kiln fix, the cost of a stored run is the cost of the
+    request. Its latency is not, so the rows carry a cost and no latency."""
+    ctx = make_ctx()
+    ctx.kiln.add_sub_agent(SERVER, SUB_TASK, SUB_RC)
+    ctx.kiln.run_configs = [
+        _attaches("rc_base", BASE_PROMPT, TOOL),
+        _attaches("rc_new", BASE_PROMPT + " Check the manifest first.", TOOL),
+    ]
+    seed_measurement(ctx.kiln)
+    counted = json.dumps([_tool_message(run_id=None, usage={"cost": 0.02})])
+    for rows in (*ctx.kiln.results.values(), *ctx.kiln.pending.values()):
+        for row in rows:
+            row["task_run_usage"] = {"cost": 0.03, "total_llm_latency_ms": 300}
+            row["task_run_trace"] = counted
+    ctx.dispatch.queue("create_experiment_rc", _built("rc_new"))
+    ctx.dispatch.queue("generality_review", _review())
+    ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
+    await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
+    assert all(r.latency is None for r in analysis.bundle.per_eval)
     assert all(r.cost is not None for r in analysis.bundle.per_eval)
 
 
@@ -875,7 +954,7 @@ def test_the_report_names_each_sub_agent_and_its_state():
     assert "not in the final baseline" in rows[1] and "`rc_lost`" in rows[1]
     assert "archived: no run config attaches it" in rows[2]
     assert "not complete" in rows[3]
-    assert "it cannot win on cost or on speed" in text
+    assert "cannot win on speed" in text and "it cannot win on cost" in text
     assert render_sub_agents_appendix(_status()) == ""
 
 
@@ -949,11 +1028,15 @@ async def test_a_sub_agent_arm_is_timed_and_its_record_says_the_tool_was_called(
     assert outcome.measurement is not None
     (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
     assert analysis.bundle.latency is None and analysis.bundle.cost is None
-    assert analysis.measurement_notes == [
-        SUB_AGENT_NOT_MEASURED_NOTE.format(tools=TOOL)
-    ]
-    assert "cost and latency not measured: " in record
-    assert "the sub-agents' own runs: median $0.0200 and 700 ms per request" in record
+    latency_note, cost_note = analysis.measurement_notes
+    assert latency_note.startswith(
+        "latency not measured: the drives of the candidate call a sub-agent"
+    )
+    assert cost_note.startswith(
+        "cost not measured: the drives of the candidate call a sub-agent"
+    )
+    assert "drives call a sub-agent: latency and cost not measured" in record
+    assert "the sub-agent's calls: median $0.0200 and 700 ms per request" in record
 
 
 async def test_a_sub_agent_arm_cannot_win_on_cost(tmp_path):
@@ -973,11 +1056,55 @@ async def test_a_sub_agent_arm_cannot_win_on_cost(tmp_path):
 
     assert outcome.status == "not_landed", outcome
     assert (
-        "cost and latency not measured: the drives of the candidate call a sub-agent"
+        "cost not measured: the drives of the candidate call a sub-agent"
         in outcome.speed_verdict
     )
     assert ctx.dispatch.calls_to("analyze_experiment_results") == []
     assert not [j for j in ctx.kiln.job_invocations if j[1] == "rc_new"]  # no judge
+
+
+def _fixed_kiln_drives(ctx) -> None:
+    """Drives as a Kiln with Kiln-AI/Kiln#2077 gives them: the candidate's
+    run holds its sub-agent's cost, and it is cheaper than the baseline."""
+
+    def drive(body):
+        if body["task_run_config_id"] == "rc_new":
+            counted = _tool_message(usage={"cost": 0.004})
+            return _run(counted, cost=0.01, latency=10)
+        return _run(cost=0.05, latency=5000)
+
+    ctx.kiln.run_handler = drive
+
+
+async def test_with_the_kiln_fix_a_sub_agent_arm_is_compared_on_cost(tmp_path):
+    ctx = _sub_agent_arm(tmp_path, called=True)
+    ctx.objective = "cost"
+    _fixed_kiln_drives(ctx)
+    outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    assert outcome.status == "completed", outcome
+    (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
+    cost = analysis.bundle.cost
+    assert cost.candidate_median_ms == 0.01 and cost.baseline_median_ms == 0.05
+    assert analysis.bundle.latency is None  # never measured with a sub-agent
+    (note,) = analysis.measurement_notes
+    assert note.startswith("latency not measured: the drives of the candidate")
+    record = ctx.kiln.memories[outcome.experiment_memory_id]["content"]
+    assert "latency not measured, cost includes the sub-agent" in record
+
+
+async def test_with_the_kiln_fix_a_sub_agent_arm_still_cannot_win_on_speed(tmp_path):
+    ctx = _sub_agent_arm(tmp_path, called=True)
+    ctx.objective = "speed"
+    _fixed_kiln_drives(ctx)
+    outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    assert outcome.status == "not_landed", outcome
+    assert (
+        "latency not measured: the drives of the candidate call a sub-agent"
+        in outcome.speed_verdict
+    )
+    assert ctx.dispatch.calls_to("analyze_experiment_results") == []
 
 
 async def test_a_sub_agent_no_drive_calls_ends_the_arm_before_it_is_judged(tmp_path):

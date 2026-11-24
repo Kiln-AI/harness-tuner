@@ -102,19 +102,19 @@ that name. When they fail on the missing skill or tool, say so in
 attachments in agreement.
 
 **Sub-agents and the cost of a request.** `measurement_notes` in your
-input is set when a run config of the comparison attaches a sub-agent (a
-`kiln_task::` tool) and the arm has no paired timing. Kiln's usage of a
-run holds the model calls of the task itself, not the calls of the
-sub-agent. So the cost and the latency of a request that calls a sub-agent
-are **not measured**: code leaves `latency` and `cost` empty on the rows
-and on the bundle, and a train result row of such a run has
-`task_cost_usd: null` with a `usage_note`. Do not compute a cost or a
-latency for the arm from other fields, and do not report a saving. Say in
-`findings` that the cost and the latency of this arm are not measured. The
-`measurement:` line of the record says in how many drives the sub-agent
-was called, and gives the usage of the sub-agent's own runs. That is
-information about the sub-agent, not the cost of a request. `bundle cost`
-(below) never includes a sub-agent's calls.
+input is set when a run config of the comparison calls or attaches a
+sub-agent (a `kiln_task::` tool). Each note names what is **not
+measured**, and why. The latency of a request that calls a sub-agent is
+never measured: the latency of a run is the time of its own model calls.
+Its cost is measured only when the Kiln server writes the sub-agent's
+usage in the run. Code leaves an unmeasured `latency` or `cost` empty on
+the rows and on the bundle, and a train result row of such a run has a
+`usage_note`. Do not compute the missing number from other fields, and do
+not report a saving on a number that is not measured. Say in `findings`
+what was not measured. The `measurement:` line of the record says in how
+many drives the sub-agent was called, which of latency and cost was
+measured, and the usage of the sub-agent's calls. `bundle cost` (below)
+holds a sub-agent's calls only when the server writes them in the run.
 
 **Spend: `bundle cost`, and nothing else.** `bundle.spend_total_usd` is the
 ONE spend figure an EXP record reports, and it is **always labeled `bundle

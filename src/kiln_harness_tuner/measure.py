@@ -995,8 +995,10 @@ async def _measure(
                 )
     parent_props: dict[str, dict[str, Any] | None] = {}
     declared: dict[str, dict[str, Any]] = {}
-    # The run configs whose timing values are withheld (`timed_drives`).
-    unmeasured: set[str] = set()
+    # The run configs whose latencies, and whose costs, are withheld
+    # (`timed_drives`), for the whole measurement.
+    no_latency: set[str] = set()
+    no_cost: set[str] = set()
     for s in states:
         for rc in (s.cand.rc_id, s.cand.parent_rc_id):
             if rc not in parent_props:
@@ -1144,7 +1146,8 @@ async def _measure(
                 f"{(spec.item_id or 'measure').replace('-', '_')}_t{k}",
             )
             chunk_spend += drives.cost
-            unmeasured |= drives.unmeasured
+            no_latency |= drives.unmeasured_latency
+            no_cost |= drives.unmeasured_cost
             costs = drives.costs or {}
             outputs = drives.outputs or {}
             # Attribution (`kiln_harness_tuner.budget`): each candidate's own drives,
@@ -1192,36 +1195,36 @@ async def _measure(
                 )
                 s.evidence_seen.update((drives.evidence or {}).get(s.cand.rc_id) or {})
                 s.sub_agent_drives += (drives.sub_agents or {}).get(s.cand.rc_id, [])
-                # A side whose drives call a sub-agent has no latency and no
-                # cost while Kiln's usage leaves the sub-agent out. That
-                # holds for every chunk, so the earlier values go too.
+                # A side whose drives call a sub-agent has no latency, and
+                # no cost when its runs do not hold the sub-agent's usage.
+                # That holds for every chunk, so the earlier values go too.
                 sides = (
-                    ("the candidate", s.cand.rc_id, (ev.latency, ev.cost)),
-                    (
-                        "the baseline",
-                        spec.reference_rc_id,
-                        (ev.ref_latency, ev.ref_cost),
-                    ),
+                    ("the candidate", s.cand.rc_id, ev.latency, ev.cost),
+                    ("the baseline", spec.reference_rc_id, ev.ref_latency, ev.ref_cost),
                     (
                         "its parent",
                         s.cand.parent_rc_id,
-                        (ev.parent_latency, ev.parent_cost),
+                        ev.parent_latency,
+                        ev.parent_cost,
                     ),
                 )
-                withheld = [
-                    who
-                    for who, rc, values in sides
-                    if rc in unmeasured and values[0] is not None
-                ]
-                for _who, rc, values in sides:
-                    if rc in unmeasured:
-                        for kept in values:
-                            if kept is not None:
-                                kept.clear()
-                if withheld:
-                    ev.timing_note = not_measured_note(
-                        " and ".join(dict.fromkeys(withheld))
-                    )
+                for metric, word, withheld_rcs, index in (
+                    ("latency_ms", "latency", no_latency, 2),
+                    ("cost_usd", "cost", no_cost, 3),
+                ):
+                    who = []
+                    for side in sides:
+                        if side[1] in withheld_rcs and side[index] is not None:
+                            side[index].clear()
+                            # A withheld parent only ends the check against
+                            # the parent: the candidate is still compared
+                            # with the baseline.
+                            if side[0] != "its parent":
+                                who.append(side[0])
+                    if who:
+                        ev.unmeasured[metric] = not_measured_note(
+                            " and ".join(dict.fromkeys(who)), [word]
+                        )
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
@@ -1432,7 +1435,7 @@ async def _measure(
             error=s.error,
             lever_note=s.lever_note,
             usage_note=usage_line(s.sub_agent_drives, len(s.evidence_seen))
-            or ev.timing_note,
+            or "; ".join(ev.unmeasured.values()),
             spend_usd=s.spend,
             chunks=s.chunks,
             planned_chunks=len(bounds),
@@ -1449,27 +1452,34 @@ async def _measure(
             guards_required=required.get(s.cand.rc_id),
             planned_per_eval=own_per_eval(s),
         )
-        if (ev.latency or ev.cost) and not ev.timing_note:
+        # A metric that is not measured (a side calls a sub-agent) gets no
+        # comparison: not one with zero pairs, which reads as failed drives.
+        timed_latency = "latency_ms" not in ev.unmeasured
+        timed_cost = "cost_usd" not in ev.unmeasured
+        if ev.latency or ev.cost:
             planned = timing_planned or None
-            m.latency = compare_latencies(
-                ev.ref_latency,
-                ev.latency,
-                method="paired_drive",
-                split="train",
-                planned=planned,
-            )
-            m.cost = compare_latencies(
-                ev.ref_cost,
-                ev.cost,
-                method="paired_drive",
-                split="train",
-                planned=planned,
-                metric="cost_usd",
-            )
-            if ev.parent_latency is not None:
+            if timed_latency:
+                m.latency = compare_latencies(
+                    ev.ref_latency,
+                    ev.latency,
+                    method="paired_drive",
+                    split="train",
+                    planned=planned,
+                )
+            if timed_cost:
+                m.cost = compare_latencies(
+                    ev.ref_cost,
+                    ev.cost,
+                    method="paired_drive",
+                    split="train",
+                    planned=planned,
+                    metric="cost_usd",
+                )
+            if ev.parent_latency is not None and timed_latency:
                 m.vs_parent = compare_latencies(
                     ev.parent_latency, ev.latency, method="paired_drive", split="train"
                 )
+            if ev.parent_latency is not None and timed_cost:
                 m.vs_parent_cost = compare_latencies(
                     ev.parent_cost or {},
                     ev.cost,

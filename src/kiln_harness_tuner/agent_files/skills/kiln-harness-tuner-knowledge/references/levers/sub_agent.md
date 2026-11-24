@@ -51,7 +51,7 @@ subject model sees only what the sub-agent returns.
    sub-agent takes over.
 4. Smoke it with `run_task` on a train item. The answer gives
    `sub_agent_calls`, and `sub_agent_usage`: the usage of the sub-agent's
-   own runs. It is beside `usage`, not in it.
+   calls. `sub_agent_note` says whether `usage` already holds it.
 
 Rules of the object:
 
@@ -82,13 +82,16 @@ Rules of the object:
 - No value from a train item goes into the sub-agent's prompt, its tool
   description or its schemas. Code searches each build for copies of train
   content and of eval text, in the sub-agent's text as in the subject's.
-- **The cost and the latency of a request that calls a sub-agent are not
-  measured.** Kiln's usage of a run holds the run's own model calls, not
-  the sub-agent's. So a run config whose drives call a sub-agent has no
-  cost and no latency in any comparison, and a train result row of such a
-  run shows none (`usage_note`). An arm with a sub-agent cannot win on
-  cost or on speed. Its record gives the usage of the sub-agent's own
-  runs, for information.
+- **The latency of a request that calls a sub-agent is not measured.** The
+  latency of a run is the time of its own model calls. So a run config
+  whose drives call a sub-agent has no latency in any comparison, and it
+  cannot win on speed.
+- **Its cost is measured only when the Kiln server writes the sub-agent's
+  usage in the run that calls it.** On a server that does not, the cost is
+  not measured either, and the arm cannot win on cost. The experiment's
+  record says which of the two was measured, and a train result row says
+  it too (`usage_note`). The record also gives the usage of the
+  sub-agent's calls, for information.
 - Code checks that the lever was applied: a new sub-agent that no timed
   drive calls ends the arm as `lever not applied`.
 - The gateway does not show the sub-agent's own trace. The subject's trace

@@ -102,14 +102,17 @@ choices that the owner can change: each one is the conservative choice.
    description, its prompt, its output schema and the text of its own
    skills and code tools are read by the same checks as the subject's.
 10. **Owner (2026-11-25): the cost of a sub-agent is added in Kiln, not in
-    the tuner.** Kiln's usage numbers do not include a sub-agent's calls
-    today (section 3). A Kiln change will make a run's usage hold the
-    usage of the sub-agents it calls. So the tuner keeps one source for
-    cost and latency, the `usage` it reads today, and it never adds a
-    sub-agent's usage itself: a sum in both places would count it twice.
-    Until the tuner can tell that the server has the fix, a candidate that
-    calls a sub-agent cannot win on cost or on speed: its cost and latency
-    are "not measured", in code. Section 3 has the guard and the switch.
+    the tuner.** Kiln-AI/Kiln#2077 makes a run's usage hold the tokens and
+    the cost of the sub-agents it calls. So the tuner keeps one source for
+    cost, the `usage` it reads today, and it never adds a sub-agent's
+    usage itself: a sum in both places would count it twice. A candidate
+    that calls a sub-agent must not win on a number that leaves the
+    sub-agent out. So its cost counts as measured for a run only when that
+    run holds the sub-agent's usage, and its latency never counts as
+    measured. Section 3 has the test and the guard. **The cost half
+    depends on Kiln-AI/Kiln#2077 as written** (open, not merged, on
+    2026-11-25). **Latency stays not measured** for a candidate that calls
+    a sub-agent, with or without that change: this is open with the owner.
 11. **An arm that adds, drops or replaces a sub-agent gets timing
     drives**, under every objective. The lever check reads their traces
     before a judge is paid for, and they give the usage of the sub-agent's
@@ -157,49 +160,77 @@ is no. The latency is not there either: the tuner's latency is
 `usage.total_llm_latency_ms`, the time of the run's own model calls, not
 the wall-clock time of the request.
 
+### Kiln-AI/Kiln#2077
+
+Read from the pull request as written on 2026-11-25. A review can still
+change it.
+
+- A run's `usage` and `cumulative_usage` then hold the tokens and the
+  cost of each sub-agent call. This holds in an eval job too, and it does
+  not need a saved run of the sub-agent. A nested call is counted once.
+- The sub-agent's usage is written as a `usage` key on the tool message of
+  the parent's trace, the message that has `kiln_task_tool_data`. A run
+  from a Kiln without the change has no such key. The pull request names
+  this as the way a reader tells an old run from a new one, and Kiln's own
+  Run page uses it.
+- The places to read the full cost do not change: `task_run_usage.cost` of
+  an eval result, and `usage.cost` of the task run of a drive. These are
+  the places the tuner reads.
+- **Latency is not changed.** `usage.total_llm_latency_ms` stays the time
+  of the run's own model calls. Kiln stores no wall-clock time of a run,
+  and tool calls run in parallel.
+- Not covered: a sub-agent that a code tool calls adds no usage to the
+  run, and a failed sub-agent call adds none.
+
+### How the tuner knows which case it is in
+
+Section 3 of an earlier version of this document had two candidates: a
+signal that the Kiln change defines, and an arithmetic check on a drive.
+The Kiln change defines a signal in the data, so the first is taken, as a
+test **per run**, for **cost only**:
+
+- `sub_agents.cost_measured(run)`: true when the run calls no sub-agent,
+  and when every sub-agent tool message of its trace has a `usage` key.
+  One message without the key, and the cost of that run is not measured.
+- `sub_agents.latency_measured(run)`: true only when the run calls no
+  sub-agent. No signal changes this.
+
+The per-run test fits the design for four reasons. It needs no version
+check. It works for a stored eval run and for a drive, because both carry
+the trace. It is right for a project that holds runs from before and
+after a Kiln upgrade. And it fails closed: a run with no key, a failed
+sub-agent call, or a changed key name gives "not measured", never a cost
+that leaves the sub-agent out. The arithmetic check is not used.
+
 ### The guard
 
-While a run's usage leaves the sub-agent out, the cost and the latency of
-a request that calls a sub-agent are not measured, in code:
+A metric that is not measured is withheld, in code:
 
 - A run config with a timing drive that calls a sub-agent has no latency
-  and no cost from the timing drives, on any item. The measurement engine,
-  the gate's paired pass and the baseline timing all read those drives, so
-  each comparison with that run config is incomplete and gives no verdict.
-  Under `speed` and `cost` the candidate stops with the reason.
+  from the timing drives, on any item. It has no cost either when the run
+  of one such drive does not hold the sub-agent's usage. The measurement
+  engine, the gate's paired pass and the baseline timing all read those
+  drives, so a comparison of a withheld metric is incomplete and gives no
+  verdict.
+- Under `speed`, a candidate with no latency stops with the reason. Under
+  `cost`, a candidate with no cost does. So a candidate that calls a
+  sub-agent never wins on speed, and it wins on cost only on a Kiln with
+  the change.
 - The passive latency and cost of stored eval runs are left off the
-  analysis table when a run of either side calls a sub-agent.
-- A train result row whose run calls a sub-agent shows no cost and no
-  latency to an agent.
-- The record, the analyzer's input and the report say "not measured".
+  analysis table by the same two tests.
+- A train result row shows no latency, and no cost unless the run holds
+  the sub-agent's usage.
+- The record, the analyzer's input and the report say what was not
+  measured.
 
-The usage of the sub-agent's own runs is read from the drives through the
-run endpoint and shown for information. It is in no comparison and in no
-spend figure. The spend of a run leaves the sub-agents' calls out.
+The usage of the sub-agent's calls is shown for information: from the tool
+message when Kiln wrote it, else from the sub-agent's saved run. It is in
+no comparison and in no spend figure. The spend is what Kiln reports for
+each run.
 
-### The switch: how the tuner knows which case it is in
-
-It cannot tell today. The tuner has no Kiln version check, and no route or
-schema field of the server says whether a run's usage holds its
-sub-agents' usage. So the guard is on for every Kiln.
-
-One function is the switch: `sub_agents.usage_includes_sub_agents()`. It
-returns False. Each guard above reads it, and the tests run both cases.
-When the Kiln change names a signal that a client can read, that function
-reads it. **This is the owner's decision to make**, with two candidates:
-
-1. The signal that the Kiln change defines, for example a field in the
-   OpenAPI schema. The tuner already reads the OpenAPI for one such
-   question (judge-free eval jobs).
-2. A check on the data, with no version: on a drive through the run
-   endpoint, the run's `usage.cost` against the sum of the cost of its own
-   model calls (the `usage` of each assistant message of the trace) and
-   the cost of the saved sub-agent runs. It needs no change in Kiln, but
-   it depends on fields that the Kiln change can also move.
-
-What stays open after the Kiln change: the switch above; whether the
-latency of a run then holds the sub-agent's time; and the sub-agent's run
-that an eval job does not save, which the "for information" line needs.
+What stays open: an owner decision on latency; a sub-agent that a code
+tool calls, which the guard cannot see; and the sub-agent's run that an
+eval job does not save, which only the "for information" latency needs.
 The backlog has one entry for these.
 
 ## 4. What a finished run shows
@@ -215,8 +246,8 @@ For a run that used the lever:
   `tools_config.tools`.
 - The experiment's record has the line "sub-agent tool `<id>` called in N
   of M drives", and the wave log has a `lever_applied` event. The same
-  line says "cost and latency not measured", with the usage of the
-  sub-agent's own runs.
+  line says "latency and cost not measured", or "latency not measured,
+  cost includes the sub-agent", with the usage of the sub-agent's calls.
 - The report has a `## Sub-agents` section, rendered by code: each created
   sub-agent with its tool id, task, run config, model, the run configs that
   attach it, and "in the final baseline" when the final baseline does.

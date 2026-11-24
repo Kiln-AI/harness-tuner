@@ -41,7 +41,6 @@ from kiln_harness_tuner.schemas import (
 )
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import RunStatusTracker
-from kiln_harness_tuner.sub_agents import usage_includes_sub_agents
 from kiln_harness_tuner.ui import outcome_cell
 
 if TYPE_CHECKING:
@@ -895,17 +894,17 @@ def render_sub_agents_appendix(status: RunStatus) -> str:
             f" | {code(record.task_id)} | {code(record.run_config_id)}"
             f" | {_md(model or '—')} | {attached} | {state(record)} |"
         )
-    if not usage_includes_sub_agents():
-        lines += [
-            "",
-            "Kiln's usage of a run does not include the calls of a sub-agent."
-            " So the loop did not measure the cost or the latency of a run"
-            ' config whose drives call a sub-agent: its record says "not'
-            ' measured", and it cannot win on cost or on speed. The spend'
-            " above leaves the sub-agents' calls out too. Where Kiln saved a"
-            " sub-agent's own runs, their usage is on the experiment's record,"
-            " for information.",
-        ]
+    lines += [
+        "",
+        "The latency of a run never includes the time of a sub-agent. So the"
+        " loop does not measure the latency of a run config whose drives call"
+        " a sub-agent, and such a run config cannot win on speed. Its cost is"
+        " measured only when Kiln writes the sub-agent's usage in the run that"
+        " calls it. With a Kiln that does not, its cost is not measured"
+        " either: it cannot win on cost, and the spend above leaves the"
+        " sub-agents' calls out. Each experiment's record says which of the"
+        " two was measured.",
+    ]
     return "\n".join(lines) + "\n"
 
 

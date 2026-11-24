@@ -836,16 +836,16 @@ On a long multi-turn trace that can use it, check that the prompt cache is used.
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
 
-### The cost of a sub-agent in the usage of the run that calls it
+### The latency of a request that calls a sub-agent
 
 - Kind: gap
 - Where: kiln, tuner
 - Depends on: None
-- Source: [subagents](projects/subagents/project_overview.md), decision 10 and section 3
+- Source: [subagents](projects/subagents/project_overview.md), section 3; Kiln-AI/Kiln#2077
 
-Owner: Kiln adds a sub-agent's usage to the calling run. Open in the tuner: read from the server
-that it does, then turn off the "not measured" guard. Open in Kiln: latency, and the sub-agent's
-run that an eval job does not save.
+Kiln adds a sub-agent's cost to the calling run (Kiln#2077), not its time: a run has no wall-clock
+time. So a candidate that calls a sub-agent cannot win on speed. Also open: a sub-agent that a
+code tool calls adds no usage, and an eval job saves no run of the sub-agent.
 
 ### Tune a sub-agent on its own evals
 

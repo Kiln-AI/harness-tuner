@@ -92,12 +92,13 @@ run config. Each is refused with a reason when:
 - the model of that run config is outside the model policy.
 
 `run_task` answers with `sub_agent_calls` (the calls of sub-agent tools in
-the trace), `sub_agent_usage` (the usage of the sub-agents' own runs,
-beside `usage` and never added to it), and `sub_agent_note`, which says
-how to read the two and when a call has no usage record.
+the trace), `sub_agent_usage` (the usage of those calls, for information,
+never added to `usage`), and `sub_agent_note`, which says whether `usage`
+already holds it and when a call has no usage record.
 
-`get_train_results` gives no cost and no latency for a row whose run calls
-a sub-agent, and a `usage_note` that says why.
+`get_train_results` gives no latency for a row whose run calls a
+sub-agent, no cost unless the run holds the sub-agent's usage, and a
+`usage_note` that says why.
 
 ## 5. The model policy
 
@@ -145,38 +146,51 @@ The cost of a sub-agent is added to the calling run in Kiln, not in the
 tuner (project overview, decision 10). The tuner reads cost and latency
 from a run's `usage`, as before, and adds nothing to it.
 
-`usage_includes_sub_agents()` says whether a run's usage on this server
-holds its sub-agents' usage. It is False today. While it is False:
+Two tests, per run (project overview, section 3):
 
-- A run config with a timing drive that calls a sub-agent has no latency
-  and no cost from the timing drives, on any of its items. Each item has
-  the reason: "not measured: a drive of this run config calls a sub-agent,
-  and Kiln's usage of a run leaves the sub-agent's calls out". Such a
-  drive is not retried, and it is not diagnosed as a failure.
-- A comparison with that run config, as the candidate, the baseline or the
-  parent, has no pair. It is incomplete and never "clearly faster" or
-  "clearly cheaper".
-- Under `speed` and `cost`, the candidate stops at the end of its timing,
-  before a judge is paid for, with "cost and latency not measured: the
-  drives of the candidate call a sub-agent, …". Its outcome is
+| Test | True when |
+|---|---|
+| `latency_measured(run)` | The run calls no sub-agent. |
+| `cost_measured(run)` | The run calls no sub-agent, or every sub-agent tool message of its trace has a `usage` key (Kiln-AI/Kiln#2077). |
+
+What follows from them:
+
+- A run config with a timing drive whose latency is not measured has no
+  latency from the timing drives, on any of its items. Each item has the
+  reason: "not measured: a drive of this run config calls a sub-agent, and
+  the latency of a run leaves the sub-agent's time out". Such a drive is
+  not retried, and it is not diagnosed as a failure.
+- A run config with a timing drive whose cost is not measured has no cost
+  from the timing drives, on any of its items.
+- A comparison of a withheld metric, with that run config as the candidate
+  or the baseline, has no pair. It is incomplete and never "clearly
+  faster" or "clearly cheaper". A withheld parent only ends the check
+  against the parent.
+- Under `speed`, a candidate whose latency is withheld stops at the end of
+  its timing, before a judge is paid for, with "latency not measured: the
+  drives of the candidate call a sub-agent, …". Under `cost`, a candidate
+  whose cost is withheld stops with "cost not measured: …". The outcome is
   `not_landed`.
-- The rows of the analysis table carry no passive latency and no passive
-  cost when a stored run of either side calls a sub-agent.
-- An arm with no paired timing, on a comparison where a run config
-  attaches a sub-agent, gets one line on its record and one entry in the
-  analyzer's `measurement_notes`: "latency and cost: not measured. …".
-- The measured line of an arm says "cost and latency not measured: N of M
-  drives call a sub-agent, …", with the median cost and latency of the
-  sub-agents' own runs when Kiln saved them.
+- Under `cost`, on a Kiln that writes the sub-agent's usage in the run, a
+  candidate that calls a sub-agent is compared on the cost that Kiln
+  reports.
+- The rows of the analysis table carry no passive latency when a stored
+  run of either side calls a sub-agent, and no passive cost when one does
+  not hold the sub-agent's usage.
+- The analyzer's `measurement_notes` and the experiment's record name each
+  metric that was not measured. An arm with no timing drives, on a
+  comparison where a run config attaches a sub-agent, gets one line that
+  says how to read its rows.
+- The measured line of an arm says "N of M drives call a sub-agent:
+  latency and cost not measured (…)" or "…: latency not measured, cost
+  includes the sub-agent (…)", with the median cost of the sub-agent's
+  calls, and their latency when Kiln saved the sub-agent's runs.
 
-When it is True, none of this applies: the numbers are read as Kiln gives
-them, and the measured line says "N of M drives call a sub-agent".
-
-In both cases:
+In every case:
 
 - An arm that adds, drops or replaces a `kiln_task::` tool against its
   parent gets timing drives under every objective.
-- The usage of the sub-agents' own runs is information. It is in no
+- The usage of the sub-agent's calls is information. It is in no
   comparison and in no spend figure.
 - The spend of a run, and so the budget and the spending caps, hold what
   Kiln reports for each run.
@@ -211,9 +225,10 @@ run created:
 The report has a `## Sub-agents` section when the run created one: a row
 for each, with the tool name, the tool id, the task, the run config, the
 model, the run configs that attach it, and its state: in the final
-baseline, not in the final baseline, archived, or not complete. While a
-run's usage leaves the sub-agent out, a paragraph says that the cost and
-the latency of a run config that calls a sub-agent were not measured.
+baseline, not in the final baseline, archived, or not complete. A
+paragraph gives the two rules: the latency of a run config that calls a
+sub-agent is never measured, and its cost only when Kiln writes the
+sub-agent's usage in the run.
 
 ## 10. The knowledge
 
@@ -231,8 +246,9 @@ Links to the techniques:
 - the playbooks `fit-the-tool-layer-to-the-agent` (step 6) and
   `change-the-surface-not-the-words` (step 5). The playbook
   `cheaper-or-faster` has no link: an arm with a sub-agent cannot win on
-  cost or on speed while its cost is not measured. The link belongs there
-  when the switch of section 7 is True.
+  speed, and it can win on cost only on a Kiln with Kiln-AI/Kiln#2077.
+  The owners decide whether a "cheaper" step belongs there when that
+  change is in the Kiln that the tuner requires.
 
 In each playbook the new step is last or next to last, with its reason: a
 sub-agent is a second agent to build and to pay for.

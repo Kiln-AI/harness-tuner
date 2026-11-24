@@ -216,18 +216,20 @@ its tool in a drive's trace. A sub-agent that the agent calls on few
 requests can have no call in the first drives, and the arm then ends as
 "lever not applied".
 
-**The cost and the latency of a sub-agent's calls are not measured.**
-Kiln's usage numbers of a run do not include the calls of a sub-agent (a
-Kiln task that the agent calls as a tool). The fix is being made in Kiln,
-and the loop does not add the numbers itself. Until the loop can tell that
-your Kiln has the fix, it treats the cost and the latency of a run config
-that calls a sub-agent as not measured. Such a run config cannot win under
-`--objective cost` or `--objective speed`, and when your baseline calls a
-sub-agent, no candidate can be compared with it on cost or on speed. Its
-record gives the usage of the sub-agent's own runs, for information. The
-spend of the run, and so the budget and a spending cap, leave the
-sub-agent's calls out. The report's `## Sub-agents` section says so when a
-run created a sub-agent.
+**The latency of a sub-agent's calls is never measured, and their cost
+only on a Kiln that records it.** A sub-agent is a Kiln task that the agent
+calls as a tool. The latency of a run is the time of its own model calls,
+so a run config that calls a sub-agent has no latency number: it cannot win
+under `--objective speed`, and when your baseline calls a sub-agent, no
+candidate can be compared with it on speed. The cost of such a run is
+measured only when Kiln writes the sub-agent's usage in the run that calls
+it (Kiln-AI/Kiln#2077, not merged when this was written). The loop tests
+each run for that, and it never adds the numbers itself. On a Kiln that
+does not, the cost is not measured either: the run config cannot win under
+`--objective cost`, and the spend of the run, the budget and a spending cap
+leave the sub-agent's calls out. A sub-agent that a code tool calls is not
+seen at all. Each experiment's record, and the report's `## Sub-agents`
+section, say what was measured.
 
 **The integrity checks are heuristics.** Quoting is blocked only as a run
 of 8 identical words, or an eval's full name. The gate checks the run
