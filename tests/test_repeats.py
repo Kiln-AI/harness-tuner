@@ -353,6 +353,19 @@ async def test_a_run_config_outside_the_model_policy_is_refused():
     assert (await _run(ctx, _item("rc_base", "w2-2"))).status == "completed"
 
 
+async def test_a_run_config_on_a_model_the_preflight_flagged_is_refused():
+    ctx = _ctx()
+    ctx.flagged_models[("openai", "m")] = "the test call failed"
+    outcome = await _run(ctx, _item())
+    assert outcome.status == "failed_infra"
+    assert "the model preflight flagged its model" in outcome.infra_error.detail
+    assert ctx.kiln.created_run_configs == []
+    # The baseline chain is exempt, as for any measurement.
+    ctx.policy_exempt_rcs.add("rc_base")
+    _clone_rows(ctx, STORED)
+    assert (await _run(ctx, _item(item_id="w2-2"))).status == "completed"
+
+
 async def test_an_experiment_never_builds_on_a_clone():
     ctx = _ctx()
     _clone_rows(ctx, STORED)
@@ -385,8 +398,9 @@ async def test_an_eval_whose_job_fails_gets_a_note_and_the_others_their_rows():
     assert [r.eval_id for r in outcome.repeat.rows] == ["eval_1"]
     notes = outcome.repeat.notes
     assert any(n.startswith("eval_3: could not be read") for n in notes)
-    assert "eval_2: the repeat stored no row to compare" not in notes
-    # eval_2's job stored nothing: no row, and the planner is not misled.
+    # eval_2's job stored nothing: a note says so, and no row misleads the
+    # planner.
+    assert "eval_2: the repeat stored no row to compare" in notes
     assert not [r for r in ctx.train_repeats if r.eval_id == "eval_2"]
 
 

@@ -131,7 +131,8 @@ async def clone_refusal(ctx: Ctx, rc_id: str) -> str | None:
 
 
 async def _refusal(ctx: Ctx, rc_id: str) -> str | None:
-    from kiln_harness_tuner.orchestrator import policy_refusal
+    from kiln_harness_tuner.analysis import ModelPolicyRefused
+    from kiln_harness_tuner.orchestrator import require_policy
     from kiln_harness_tuner.probes import task_run_configs
 
     try:
@@ -140,7 +141,16 @@ async def _refusal(ctx: Ctx, rc_id: str) -> str | None:
         return f"the run configs could not be read ({exc})"[:_NOTE_MAX_CHARS]
     if not any(str(row.get("id")) == rc_id for row in rows):
         return f"the task has no run config {rc_id}"
-    return await clone_refusal(ctx, rc_id) or await policy_refusal(ctx, rc_id)
+    made = await clone_refusal(ctx, rc_id)
+    if made is not None:
+        return made
+    # The analyzer's guard: the model policy, and a model the preflight
+    # flagged this run. The clone is exempt from it, so it is asked here.
+    try:
+        await require_policy(ctx, rc_id)
+    except ModelPolicyRefused as exc:
+        return str(exc)
+    return None
 
 
 async def _samples(ctx: Ctx, item: RepeatItem) -> tuple[list[_EvalSample], list[str]]:
@@ -419,7 +429,10 @@ async def _measure(
     for s, after in zip(samples, repeats, strict=True):
         earlier = len(repeat_clones(ctx, item.rc_id, s.eval_id))
         counted = [compare(spec, s.baseline, after, s.items) for spec in s.specs]
-        if after and not any(c["items"] for c in counted):
+        if not any(c["items"] for c in counted) and not any(
+            n.startswith(f"{s.eval_id}: the repeat's eval job failed")
+            for n in result.notes
+        ):
             result.notes.append(f"{s.eval_id}: the repeat stored no row to compare")
         for spec, fields in zip(s.specs, counted, strict=True):
             if not fields["items"]:
