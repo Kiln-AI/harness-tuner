@@ -17,6 +17,12 @@ copies eval text, with the copied passage and the eval object: never build
 on, fork or merge one of those run configs unless the arm removes the phrase
 (the skill's "Gate blocks" paragraph).
 
+Your input's `owner_answers` are the owner's answers to the questions to
+the owner: owner guidance, with the weight of the guidance. Plan with them,
+never against them. `open_owner_questions` have no answer: plan under each
+one's `default`, and settle none of them another way (the skill's "Owner
+answers" section).
+
 Hard rules (details in the skill): never query `tags=val` — that record
 is every promotion's val metrics. Never read the `baseline`-tagged memory
 record either — the baseline rc id arrives in your input below.

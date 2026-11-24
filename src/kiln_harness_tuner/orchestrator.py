@@ -118,6 +118,12 @@ from kiln_harness_tuner.model_policy import (
 from kiln_harness_tuner.model_preflight import flagged_reason, run_model_preflight
 from kiln_harness_tuner.noise import run_noise_check
 from kiln_harness_tuner.objective import better_word, decisive, is_efficiency
+from kiln_harness_tuner.owner_questions import (
+    OwnerAsker,
+    planner_open_questions,
+    planner_owner_answers,
+    settle_owner_questions,
+)
 from kiln_harness_tuner.probes import (
     ProbeSetupError,
     _parent_props,
@@ -158,6 +164,7 @@ from kiln_harness_tuner.schemas import (
     LeverCost,
     MergeWork,
     OpenUnknown,
+    OwnerDecision,
     PerEvalResult,
     ProbeAnswer,
     PromotionDecision,
@@ -447,6 +454,16 @@ class Ctx:
     baseline_review: bool = False
     reviewed_rc_id: str | None = None
     baseline_reviews: list[BaselineReview] = field(default_factory=list)
+    # The questions to the owner (`owner_questions.settle_owner_questions`):
+    #   once for each baseline, after the design review. `ask_owner`: the
+    #   display that can show them and wait (the terminal app, unless
+    #   `--no-interaction`); None = the run cannot ask, so each question is
+    #   recorded as open and takes its default. `owner_decisions`: every
+    #   owner question of the task with its answer or `open`, for each
+    #   planner. `owner_questions_rc_id`: the baseline the step last ran on.
+    ask_owner: OwnerAsker | None = None
+    owner_decisions: list[OwnerDecision] = field(default_factory=list)
+    owner_questions_rc_id: str | None = None
 
 
 async def orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int = 180) -> str:
@@ -748,6 +765,11 @@ async def _run_loop(
         # not checked again after the review: it is checked at wave
         # boundaries only, and the review is part of this wave.
         await ensure_baseline_reviewed(ctx, baseline, wrap_up=wrap_up)
+        # What only the owner can decide, from the review and from the
+        # earlier runs on the task: asked before wave 1 when the display can
+        # ask, recorded as open when it cannot. Each planner gets the
+        # answers. It never raises, apart from a quota error.
+        await settle_owner_questions(ctx, baseline, wave=wave, wrap_up=wrap_up)
 
         # The planning dispatch is a full agent session and the run's longest
         # silence (minutes with only the header printed) —
@@ -983,6 +1005,8 @@ async def _dispatch_plan(
             ctx.dispatch.batch_plan,
             BatchPlanInput(
                 guidance=user_guidance,
+                owner_answers=planner_owner_answers(ctx.owner_decisions),
+                open_owner_questions=planner_open_questions(ctx.owner_decisions),
                 baseline=baseline,
                 should_wrap_up=wrap_up,
                 eval_sizes=eval_sizes,

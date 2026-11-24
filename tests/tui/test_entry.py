@@ -31,6 +31,7 @@ from kiln_harness_tuner.tui import entry
 from kiln_harness_tuner.tui.bridge import AppTerminal, CancellableRunner
 from kiln_harness_tuner.tui.entry import _AppRun, run_app, run_config_rows, run_model
 from kiln_harness_tuner.tui.handles import RunHandle
+from kiln_harness_tuner.tui.owner import AppOwnerAsker
 from kiln_harness_tuner.tui.screens.stop import StopDialog
 from kiln_harness_tuner.tui.sink import TuiSink
 from kiln_harness_tuner.wave_log import FanoutLog
@@ -117,12 +118,14 @@ class FakeLoop:
         self.entered = threading.Event()
         self.running = threading.Event()
         self.display = "unset"
+        self.ask_owner = "unset"
         self.sink = None
         self.thread = None
         self.torn_down = False
 
-    async def __call__(self, args, *, display=None):
+    async def __call__(self, args, *, display=None, ask_owner=None):
         self.display, self.thread = display, threading.current_thread()
+        self.ask_owner = ask_owner
         cli._RUN_PROGRESS.cli_checked = True
         cli._RUN_PROGRESS.run_dir = self.run_dir
         if display is None:
@@ -242,6 +245,8 @@ def test_the_app_runs_the_start_and_the_run_then_prints_the_closing_block(
     # The run ran on its own thread, on the app's display.
     assert isinstance(loop.sink, TuiSink)
     assert loop.thread is not threading.main_thread()
+    # The run can ask the owner through the app.
+    assert isinstance(loop.ask_owner, AppOwnerAsker)
     assert takeover.settled == [log_path(loop.run_dir)]
 
 
@@ -531,6 +536,8 @@ def test_with_no_interaction_the_start_asks_nothing(monkeypatch, tmp_path):
     )
     assert code == 0
     assert start.kwargs["terminal"].interactive is False
+    # The run never waits for a person: it asks the owner nothing.
+    assert loop.ask_owner is None
 
 
 def test_a_signal_during_the_start_exits_with_its_code(monkeypatch, capsys):

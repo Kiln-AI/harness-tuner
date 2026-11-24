@@ -728,6 +728,12 @@ class RunModel:
         if line := _text(f.get("line")):
             self._say(s, "warn" if review.status == "failed" else "run", line)
 
+    def _on_owner_questions(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        # The questions to the owner: how many have an answer, and how many
+        # took their default. The dialog itself is the app's.
+        if line := _text(f.get("line")):
+            self._say(s, "run", line)
+
     # ---- phases ----
 
     def _on_phase_start(self, s: Stamped, f: Mapping[str, Any]) -> None:

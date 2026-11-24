@@ -299,6 +299,34 @@ StopDialog {
     &.-error:focus { background: $error; color: $block-cursor-foreground; }
 }
 
+/* ---- The owner questions dialog: the stop dialog's pattern (4.11) ---- */
+
+OwnerQuestionsDialog {
+    align: center middle;
+    background: $background 60%;
+}
+#owner-dialog {
+    width: 84;
+    max-width: 100%;
+    height: auto;
+    max-height: 100%;
+    padding: 0 2;
+    background: $panel;
+    border: round $primary;
+    & > #owner-question { margin-top: 1; text-style: bold; }
+    & > #owner-why { margin-top: 1; color: $text-muted; }
+    & > #owner-options {
+        margin-top: 1;
+        height: auto;
+        max-height: 16;
+        border: none;
+        background: $panel;
+        padding: 0;
+    }
+    & > #owner-other { margin-top: 1; }
+    & > #owner-hint { margin: 1 0; color: $text-muted; }
+}
+
 /* ---- 4.13 Details modal: the details panel and the experiment picker ---- */
 
 DetailsPanel, ExperimentPicker {

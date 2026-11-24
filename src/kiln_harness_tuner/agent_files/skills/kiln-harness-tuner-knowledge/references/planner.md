@@ -54,6 +54,7 @@ does not matter.
 <!-- BEGIN GENERATED: smells -->
 | Smell | Applies to | Description |
 |---|---|---|
+| [conflicting-requirements](smells/conflicting-requirements.md) | all | Two texts that the agent reads - the prompt, a skill, a tool description, a tool's response - ask for things that cannot both hold, and no text says which one wins. |
 | [document-behind-a-lookup-tool](smells/document-behind-a-lookup-tool.md) | tools | A long reference document that the agent can reach only by page, by search or by section, through a lookup tool, with no contents to choose from. |
 | [faulty-inherited-skill](smells/faulty-inherited-skill.md) | all | A skill that the baseline attaches is wrong or stale, contradicts the task, or holds an example whose answer contradicts a rule. It can be changed as a new version. |
 | [fixed-call-chain](smells/fixed-call-chain.md) | tools | The agent calls the same tools in the same order on each run, and passes an id from one result to the next call. The model decides nothing new between the calls. |

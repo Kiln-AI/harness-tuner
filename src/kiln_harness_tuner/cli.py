@@ -126,6 +126,7 @@ from kiln_harness_tuner.orchestrator import (
     SpendMeter,
     orchestrate,
 )
+from kiln_harness_tuner.owner_questions import OwnerAsker
 from kiln_harness_tuner.paths import (
     StateHomeError,
     StatePaths,
@@ -1389,7 +1390,10 @@ RunStarted = Callable[[asyncio.AbstractEventLoop, asyncio.Task[Any]], None]
 
 
 async def _run(
-    args: argparse.Namespace, *, display: DisplayFactory | None = None
+    args: argparse.Namespace,
+    *,
+    display: DisplayFactory | None = None,
+    ask_owner: OwnerAsker | None = None,
 ) -> str:
     try:
         agent_cli = parse_agent_cli(args.agent_cli)
@@ -1519,6 +1523,10 @@ async def _run(
                 eval_building=args.experimental_eval_building,
                 model_catalog=catalog,
             )
+            # The display that can ask the owner a question and wait: the
+            # app, in an interactive run. None: the run records each
+            # question as open and takes its default.
+            ctx.ask_owner = ask_owner
             _RUN_PROGRESS.spend = ctx.spend
             # The tracker MUST share Ctx.clock's domain — run_start's monotonic
             # `deadline` is compared against the tracker's clock.
@@ -1581,6 +1589,7 @@ async def _run_with_signals(
     *,
     display: DisplayFactory | None = None,
     on_started: RunStarted | None = None,
+    ask_owner: OwnerAsker | None = None,
 ) -> str:
     """`_run`, with SIGTERM and SIGHUP handled like Ctrl-C: cancel the main
     task so every `finally` runs — children killed by group, server jobs
@@ -1589,9 +1598,9 @@ async def _run_with_signals(
     terminal terminated Python outright and left every `claude -p` child
     running to its own 30-minute cap.
 
-    `display` goes to `_run`. `on_started` gets the run's loop and main task
-    before the run starts, for a caller on another thread that must cancel
-    it: off the main thread no signal handler installs, so that caller
+    `display` and `ask_owner` go to `_run`. `on_started` gets the run's loop
+    and main task before the run starts, for a caller on another thread that
+    must cancel it: off the main thread no signal handler installs, so that caller
     records the signal in `_stopped_by` and cancels the task itself."""
     loop = asyncio.get_running_loop()
     task = asyncio.current_task()
@@ -1617,7 +1626,7 @@ async def _run_with_signals(
                 loop.add_signal_handler(sig, on_stop, sig)
                 installed.append(sig)
     try:
-        return await _run(args, display=display)
+        return await _run(args, display=display, ask_owner=ask_owner)
     finally:
         for sig in installed:
             with contextlib.suppress(NotImplementedError, RuntimeError, ValueError):

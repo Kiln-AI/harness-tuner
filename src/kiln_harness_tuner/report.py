@@ -32,6 +32,7 @@ from kiln_harness_tuner.schemas import (
     ItemOutcome,
     ItemStatus,
     LatencyComparison,
+    OwnerQuestionsStatus,
     ReportInput,
     ReportPaths,
     RunStatus,
@@ -944,6 +945,85 @@ def render_smells_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+OWNER_QUESTIONS_HEADING = "## Questions for the owner"
+# How the owner answers a question that a run could not ask.
+OWNER_QUESTIONS_HOW = (
+    "To answer a question with no answer: start the next run in a terminal,"
+    " without `--no-interaction`. It asks before wave 1. Or edit the memory"
+    " record in Kiln: remove `OPEN: ` from its overview, and add the line"
+    " `answer: <your answer>` to its content."
+)
+
+
+def owner_questions_counts(status: OwnerQuestionsStatus) -> str:
+    """How many questions, and how many of each state, in one sentence."""
+    decisions = status.decisions
+    now = sum(1 for d in decisions if d.this_run)
+    earlier = sum(1 for d in decisions if d.status == "answered" and not d.this_run)
+    opened = sum(1 for d in decisions if d.status == "open")
+    parts = []
+    if now:
+        parts.append(f"{now} answered in this run")
+    if earlier:
+        parts.append(f"{earlier} answered in an earlier run")
+    if opened:
+        why = f" ({_md(status.reason).rstrip('.')})" if status.reason else ""
+        parts.append(f"{opened} with no answer{why}")
+    return f"{len(decisions)} question(s): " + ", ".join(parts) + "."
+
+
+def render_owner_questions_appendix(status: RunStatus) -> str:
+    """The `## Questions for the owner` section: each owner question of the
+    task, with its options, and the owner's answer or the default that the
+    run took. Empty string when the run had no owner question."""
+    owner = status.owner_questions
+    if owner is None or not owner.decisions:
+        return ""
+    lines = [
+        OWNER_QUESTIONS_HEADING,
+        "",
+        "What only the owner of the agent can decide. Code renders this"
+        " section. The design review wrote each question from the design of"
+        " the agent, and code keeps each one in memory, so the next run on"
+        " this task reads the answers. An answer is the owner's policy: each"
+        " planner of the run got it next to the guidance. For a question with"
+        " no answer, the run took the default, and the planner was told to"
+        " plan nothing that settles the question another way.",
+        "",
+        owner_questions_counts(owner),
+    ]
+    for number, decision in enumerate(owner.decisions, start=1):
+        question = decision.question
+        lines += ["", f"### {number}. {_md(question.question)}", ""]
+        if question.why:
+            lines.append(f"- Why: {_md(question.why)}")
+        if question.smell:
+            lines.append(f"- Smell: `{_md(question.smell)}`")
+        lines.append("- Options:")
+        for index, option in enumerate(question.options):
+            effect = f": {_md(option.effect)}" if option.effect else ""
+            default = " (the default)" if index == question.default else ""
+            lines.append(f"  - {_md(option.label)}{effect}{default}")
+        lines.append("  - Other: an answer in the owner's own words")
+        if decision.status == "answered":
+            when = "in this run" if decision.this_run else "in an earlier run"
+            on = f", {_md(decision.answered_on)}" if decision.answered_on else ""
+            own = " (the owner's own words)" if decision.answer_kind == "other" else ""
+            lines.append(
+                f"- Answer: **{_md(decision.answer)}**{own}, from the owner {when}{on}."
+            )
+        else:
+            default = question.options[question.default]
+            lines.append(
+                f"- No answer. The run took the default: **{_md(default.label)}**."
+            )
+        if decision.memory_id:
+            lines.append(f"- Memory record: `{_md(decision.memory_id)}`")
+    if any(d.status == "open" for d in owner.decisions):
+        lines += ["", OWNER_QUESTIONS_HOW]
+    return "\n".join(lines) + "\n"
+
+
 def _cost_cells(c: object) -> str:
     if not isinstance(c, dict) or c.get("median_ratio") is None:
         return " — | — | — |"
@@ -1120,6 +1200,9 @@ class ReportWriter:
         smells = render_smells_appendix(status)
         if smells:
             markdown = markdown.rstrip("\n") + "\n\n" + smells
+        owner = render_owner_questions_appendix(status)
+        if owner:
+            markdown = markdown.rstrip("\n") + "\n\n" + owner
         path = self.report_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")

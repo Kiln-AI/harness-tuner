@@ -785,26 +785,6 @@ The baseline reviewer closes a smell issue that a new baseline no longer shows.
 
 The field on each experiment names the kind of surface it changes. That is a lever kind.
 
-### Conflicting requirements
-
-- Kind: smell
-- Where: knowledge
-- Depends on: None
-- Source: owner, 2026-11-13
-
-Two texts that the agent reads ask for things that cannot both hold: the prompt, a tool description,
-a skill, a tool's response. The agent then follows one at random. The remedy can need the owner.
-
-### Questions to the owner before wave 1
-
-- Kind: code
-- Where: tuner
-- Depends on: Conflicting requirements
-- Source: owner, 2026-11-13
-
-A new project. After recon and the design review, ask the owner what only the owner can decide, such
-as which of two conflicting requirements wins. Each question offers options, plus "other" as text.
-
 ### A repeat measurement the planner can ask for
 
 - Kind: code

@@ -79,7 +79,8 @@ flowchart TD
     F -- yes --> G[Opening screen: lower thinking levels]
     F -- no --> S
     G --> S["Design review, once for each baseline: code detectors, then a review session"]
-    S --> H[Wave: the planner reads memory and plans]
+    S --> Q["Questions to the owner: asked before wave 1 when the app can ask"]
+    Q --> H[Wave: the planner reads memory and plans]
     H --> I{"Plan asks for a screen?"}
     I -- yes --> J["Screening round: timing pairs, judged items, stop rules"]
     J --> H
@@ -148,9 +149,20 @@ flowchart TD
    "Design review complete: 2 possible issues flagged (very long prompt,
    fixed call chain)." The report's `## Design review` section gives the
    details.
+
+   Then the **questions to the owner**: what only the owner can decide,
+   such as which of two conflicting requirements wins. The design review
+   writes them, each with two to four options and a default, the option
+   that changes least. Before wave 1, the app shows the open ones, one at a
+   time, with "Other" for an answer in your own words, and waits up to 10
+   minutes. A run with no app, or with `--no-interaction`, does not wait:
+   each question takes its default. Each question and its answer stay in
+   memory, so the next run on the task asks only what is still open. The
+   report's `## Questions for the owner` section lists them.
 2. **Plan.** The planner agent reads memory: the issues (the smell issues
    too), the earlier results, the dead ends, the lessons and the open
-   questions. It also gets the code detections. It reads the **knowledge
+   questions. It also gets the code detections, and the owner's answers
+   next to the guidance. It reads the **knowledge
    system**, a skill of general knowledge about what to try: each smell
    document links its remedies, and a playbook gives, for one class of
    failure or one goal, an ordered list of techniques, each with its

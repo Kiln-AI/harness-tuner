@@ -13,7 +13,9 @@ train traces of `samples` to see how the agent runs. Read each code
 detection in `detections` and say whether it holds. Return a
 `BaselineReviewResult`: one `SmellFinding` for each smell that the evidence
 shows, with ids from `known_smells` only, and one `DetectionCheck` for each
-detection.
+detection. When a finding needs a decision that only the owner can make,
+such as which of two conflicting requirements wins, add an `OwnerQuestion`
+(the skill's step 8), unless `known_owner_questions` already holds it.
 
 Train records only: never pass `split=val|test`, never query `tags=val`,
 and never read the `baseline`-tagged memory record (the rc id is in your
