@@ -682,6 +682,20 @@ async def test_a_named_mode_that_cannot_work_is_a_dead_end(
     assert ctx.kiln.created_run_configs == []
 
 
+async def test_a_mode_beside_another_change_on_a_task_with_no_schema_is_made(
+    tmp_path,
+):
+    """Only a change of the mode alone measures nothing there."""
+    ctx = _mode_ctx(tmp_path)
+    ctx.kiln.task = {"id": "t1"}
+    cand = ScreenCandidate(
+        id="s1-6",
+        overrides={"structured_output_mode": "json_mode", "thinking_level": "low"},
+    )
+    rc_id, reason, dead = await _make_candidate_rc(ctx, cand, "rc_base")
+    assert rc_id and not reason and not dead
+
+
 async def test_a_tool_mode_without_tools_is_made(tmp_path):
     ctx = _mode_ctx(tmp_path)
     cand = ScreenCandidate(

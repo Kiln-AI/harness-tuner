@@ -255,7 +255,7 @@ async def _make_candidate_rc(
     the new pair (`swap_mode`), not the parent's: event `output_mode`,
     status `set_on_swap`. A candidate that names a mode keeps it. It is a
     dead end when the mode is not one of Kiln's, when Kiln refuses it on
-    this run config, or when it changes the mode alone on a task with no
+    this run config, or when the mode is its only change on a task with no
     output schema."""
     from kiln_harness_tuner import output_modes
     from kiln_harness_tuner.kiln import KilnError
@@ -311,7 +311,14 @@ async def _make_candidate_rc(
                 ctx, props.get("model_provider_name"), props.get("model_name")
             ),
         )
-        if refused is None and structured is False and not swapped:
+        # On a task with no output schema, a candidate whose only change is
+        # the mode measures nothing: Kiln does not use the mode there.
+        mode_only = all(
+            props.get(k) == parent_props.get(k)
+            for k in candidate.overrides
+            if k != "structured_output_mode"
+        )
+        if refused is None and structured is False and mode_only:
             refused = output_modes.NO_SCHEMA
         if refused is not None:
             return None, refused, True

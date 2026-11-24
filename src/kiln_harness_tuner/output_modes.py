@@ -243,7 +243,6 @@ def mode_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
             if m.get("role") == "assistant"
         ),
         "format_block": any(FORMAT_BLOCK in s for s in system) if system else None,
-        "has_trace": bool(trace),
     }
 
 

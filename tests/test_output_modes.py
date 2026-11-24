@@ -160,7 +160,6 @@ class TestTheEvidence:
             "mode_recorded": None,
             "response_tool": False,
             "format_block": None,
-            "has_trace": False,
         }
 
     def test_the_mode_on_the_runs_own_run_config(self):
