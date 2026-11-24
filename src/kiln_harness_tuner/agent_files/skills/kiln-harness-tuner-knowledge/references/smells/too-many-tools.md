@@ -1,7 +1,7 @@
 ---
 title: Too many tools
 description: The run config attaches more than 40 tools, and every tool definition is in the context of every call. A code detector counts them.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 applies_to:
   - tools
 detected_by:
@@ -61,3 +61,6 @@ call, and its effect is hard to see.
 - [Consolidate tools](../techniques/consolidate-tools.md), when the tools
   that remain are still many and each is needed for part of the work: a
   few general wrappers by job, in an arm that makes this change alone.
+- [Specialist sub-agent with its own tools](../techniques/specialist-sub-agent-with-its-own-tools.md),
+  last, when one group of the remaining tools serves one sub-job with a
+  clear input and a short result: the group moves to a sub-agent.

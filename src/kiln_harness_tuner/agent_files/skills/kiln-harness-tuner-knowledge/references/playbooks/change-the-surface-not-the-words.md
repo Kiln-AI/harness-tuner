@@ -1,7 +1,7 @@
 ---
 title: Change the surface, not the words
 description: Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed.
-reviewed: 2026-11-16
+reviewed: 2026-11-25
 kind: failure
 applies_to: all
 ---
@@ -64,8 +64,14 @@ and [faulty inherited skill](../smells/faulty-inherited-skill.md).
    already failed on a policy issue, change the structure: put the
    procedures in a skill, with one reference file for each procedure
    ([long prompt into a skill](../techniques/long-prompt-into-a-skill.md)).
-   Or defer the issue (step 5).
-5. When no surface change fits the issue, defer the issue with the reason
+   Or defer the issue (step 6).
+5. **A hard step that the model gets wrong, after two failed text arms**,
+   when a probe shows that a stronger model or a higher thinking level
+   gets that step right, and the whole agent cannot run at that level:
+   [deep work in a stronger sub-agent](../techniques/deep-work-in-a-stronger-sub-agent.md).
+   It comes after the steps above because it adds a second agent, with
+   its cost on each call.
+6. When no surface change fits the issue, defer the issue with the reason
    in `rejected_summary`.
 
 When a wrapper, a guard or a tool takes over a step, the same arm removes

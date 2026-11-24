@@ -1,7 +1,7 @@
 ---
 title: The attached tools
 description: Which existing tools a run config attaches - code, MCP, built-in, Kiln task and RAG tools - attached or dropped on a new run config, with no new code.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 gateway_ops:
   - get_run_config
   - list_available_tools
@@ -24,7 +24,8 @@ The tool id forms:
 - `kiln_tool::code::<code_tool_id>`: a code tool of the project.
 - `mcp::local::<server_id>::<tool_name>` and
   `mcp::remote::<server_id>::<tool_name>`: a tool of a connected MCP server.
-- `kiln_task::<tool_server_id>`: another Kiln task, called as a tool.
+- `kiln_task::<tool_server_id>`: another Kiln task, called as a tool (a
+  sub-agent). The model policy holds for the model that it runs on.
 - `kiln_tool::rag::<rag_config_id>`: the search tool of a RAG config.
 - Built-in tools, with the `kiln_tool::` prefix.
 
@@ -55,8 +56,10 @@ Rules of the object:
 
 ## Limits
 
-- The tuner attaches only what exists. It cannot connect an MCP server,
-  and it cannot create a RAG config or a Kiln task tool.
+- This lever attaches only what exists. The tuner cannot connect an MCP
+  server, and it cannot create a RAG config. It can create a Kiln task
+  tool with the task that it calls: that is the lever
+  [sub_agent](sub_agent.md).
 - When a dropped tool is still named in the prompt or in an attached
   skill, the text points at nothing. Code looks for such names after the
   build (the reference check). The build searches the text for the name

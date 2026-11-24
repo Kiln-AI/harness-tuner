@@ -520,7 +520,7 @@ more, emit valid JSON, produce output) is a `check` probe that no agent
 runs; only "did the output change in the named way" needs the agent.
 
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
-  new_tool | params | output_mode | …`), with `needs_eval: true` when the
+  new_tool | sub_agent | params | output_mode | …`), with `needs_eval: true` when the
   issue has no eval yet and `eval_building` is `true` (otherwise the issue is not a candidate —
   Hard rules; a `smell`, `baseline_audit` or `baseline_judge_copy` issue is
   planned with `needs_eval: false` and an active eval that the change
@@ -900,12 +900,12 @@ Per experiment item:
 - **FixWork** carries `hypothesis` + `predicted_effect` (required discipline:
   a result you didn't predict is exploration, not an experiment).
   **`technique` is the lever's short name** (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, `output_mode`, or a name of a few
-  words): at most
+  `tool_config`, `new_tool`, `sub_agent`, `params`, `output_mode`, or a
+  name of a few words): at most
   60 characters, one line. It is the id of a lever document of the
   `kiln-harness-tuner-knowledge` skill where one exists (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, `output_mode`, `model`), it is the
-  key of
+  `tool_config`, `new_tool`, `sub_agent`, `params`, `output_mode`,
+  `model`), it is the key of
   `lever_attempts`, and the experiment record's label carries it. Put what
   the build does in the `hypothesis` (the record keeps its first 900
   characters) and in `cohesion_notes`. When the arm applies a technique of

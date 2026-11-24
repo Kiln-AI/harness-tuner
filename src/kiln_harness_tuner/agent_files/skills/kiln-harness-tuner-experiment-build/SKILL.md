@@ -124,7 +124,9 @@ going looking.
    mechanism. Note the smoke outcome in `build_notes`.
    **The smoke must show the mechanism ENGAGED**. A tool arm
    whose smoke traces carry zero `tool_calls`, a skill arm whose skill was
-   never read, a params arm whose output is byte-identical to the parent's,
+   never read, a sub-agent arm whose smoke drives answer
+   `sub_agent_calls: 0`, a params arm whose output is byte-identical to the
+   parent's,
    an output-mode arm that never parsed — these are not built, whatever the
    run config says. Do not ship them to measurement: a full measurement
    only learns the same thing again, at full price. Instead write the `dead_end` (`NOT VIABLE: <mechanism> did not engage
@@ -138,6 +140,14 @@ going looking.
    are files"). `Grep` it for the tool's name or the skill's file to count
    the calls and reads, and `Read` the lines around a hit to see the
    arguments and the result.
+   A **`sub_agent` arm** creates the sub-agent with ONE call,
+   `create_sub_agent`, then attaches its `tool_id` on the new run config.
+   The knowledge lever `levers/sub_agent.md` gives the steps, the rules of
+   the object and the limits. The sub-agent's prompt is text that you add:
+   the sections "Train labels" and "Text you add" below apply to it as
+   they apply to the subject's prompt. In `change`, give the tool id, the
+   sub-agent's task id, its run config id and its model, and the line of
+   the subject's prompt that says when to call it.
 6. Return `rc_id` + `build_notes` + **`change`** (required by this skill;
    optional only in the schema so older transcripts still parse). `change`
    is the human-readable record of what this run config IS, shown on the
@@ -275,7 +285,8 @@ mention.
   hypothesis names (the route, the check, the rule); read the target
   traces to understand the failure, not to copy from them. Code checks
   this before any train spend: a reviewer reads what
-  your build added to the prompt and to the attached skills' text, and a
+  your build added to the prompt, to the attached skills' and code tools'
+  text, and to a sub-agent's prompt and tool description, and a
   leak costs you the one rebuild above.
   Naming a tool or a skill the prompt needs is not a leak.
 
@@ -320,6 +331,7 @@ levers) ·
 `kiln-harness-tuner-gateway` (every Kiln operation your role has) ·
 `kiln-task-setup` (the run-config/prompt/skill build procedure + known bugs) ·
 `kiln-harness-tuner-code-tool-authoring` (new_tool lever) ·
+the knowledge lever `levers/sub_agent.md` (sub_agent lever) ·
 `kiln-harness-tuner-knowledge` (its `references/builder.md` lists each
 technique and each lever: how to build the technique on your item, and how
 to check that it took effect) · `memory` (discovery-write conventions) ·

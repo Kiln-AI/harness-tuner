@@ -101,6 +101,19 @@ that name. When they fail on the missing skill or tool, say so in
 `next:` line can ask for the same lever built again with the names and the
 attachments in agreement.
 
+**Sub-agents and the cost of a request.** `measurement_notes` in your
+input is set when the measured run config attaches a sub-agent (a
+`kiln_task::` tool) and the arm was not timed. The latency and the cost on
+its rows then come from stored eval runs. Kiln records there the model
+calls of the task itself, not the calls of the sub-agent. So a row can show
+a lower cost only because work moved into the sub-agent. Do not report such
+a number as a saving. Say in `findings` that the cost of the sub-agent's
+calls is not measured for this arm. An arm that adds or removes a sub-agent
+is timed: its `bundle.latency` and `bundle.cost` come from paired drives
+that include the sub-agent's calls, and its record says in how many drives
+the tool was called. `bundle cost` (below) never includes a sub-agent's
+calls.
+
 **Spend: `bundle cost`, and nothing else.** `bundle.spend_total_usd` is the
 ONE spend figure an EXP record reports, and it is **always labeled `bundle
 cost`** — never "spend", "cost", "eval cost" or a bare dollar figure, so

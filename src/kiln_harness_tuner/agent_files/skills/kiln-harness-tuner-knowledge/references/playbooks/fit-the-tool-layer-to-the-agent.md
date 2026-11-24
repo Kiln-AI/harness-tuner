@@ -1,7 +1,7 @@
 ---
 title: Fit the tool layer to the agent
 description: The agent's tools are the company's software APIs, and a good API can be a poor agent tool. Wrap them, do not rewrite them - which wrapper for which problem, and where its rules go.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 kind: design
 applies_to:
   - tools
@@ -66,6 +66,14 @@ most other work.
    refuses:
    [errors the agent can act on](../techniques/errors-the-agent-can-act-on.md)
    and [normalize inputs wrapper](../techniques/normalize-inputs-wrapper.md).
+6. After items 1 to 4, a group of tools that still serves one sub-job
+   of many steps, with a clear input and a short result:
+   [specialist sub-agent with its own tools](../techniques/specialist-sub-agent-with-its-own-tools.md).
+   A large result that code cannot trim, because to find the part that
+   matters takes reading:
+   [cheap reader for a large source](../techniques/cheap-reader-for-a-large-source.md).
+   They come last because each one is a second agent to build and to pay
+   for, and a wrapper has no model cost.
 
 When a smell is fixed, the failures that it hid can show. Take each of
 them to its failure playbook.
