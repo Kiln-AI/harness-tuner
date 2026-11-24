@@ -310,6 +310,9 @@ class TrainResultRow(Out):
     created_at: str | None = None
     task_cost_usd: float | None = None
     latency_ms: float | None = None
+    # Set, with `task_cost_usd` and `latency_ms` null: the run calls a
+    # sub-agent, so its usage is not the cost of the request.
+    usage_note: str | None = None
     skipped_reason: str | None = None  # set: the run was skipped, not scored
     skipped_detail: str | None = None
     trace_path: str | None = None
@@ -352,9 +355,12 @@ class TaskRunView(Out):
     model_name: str | None = None
     model_provider: str | None = None
     # The calls of sub-agent tools (`kiln_task::`) in the run. Null: the run
-    # has no trace. `usage` includes their usage; `sub_agent_note` says when
-    # a call has no usage record.
+    # has no trace. `sub_agent_usage`: the usage of the sub-agents' own
+    # runs. It is beside `usage`, never added to it: Kiln's `usage` of a
+    # run holds the run's own model calls. `sub_agent_note` says how to
+    # read the two, and when a call has no usage record.
     sub_agent_calls: int | None = None
+    sub_agent_usage: Usage | None = None
     sub_agent_note: str | None = None
 
 

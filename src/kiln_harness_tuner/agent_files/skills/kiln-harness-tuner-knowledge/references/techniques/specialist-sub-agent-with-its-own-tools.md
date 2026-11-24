@@ -91,14 +91,16 @@ fewer turns and smaller results in the main agent's context.
 ## Budget
 
 High: a sub-agent, a prompt cut and a tool change in one arm, and the arm
-is timed. Take it after the cheaper fixes of the tool layer, and when the
+gets timing drives. Take it after the cheaper fixes of the tool layer, and when the
 traces point at one clear sub-job.
 
 ## If it does not move the evals
 
 It depends. Under a quality objective, it must move an eval: the split
 adds a call, a cost and one more part to maintain. Under a cost or speed
-objective, keep it when quality holds and the timed drives show the gain.
+objective, keep it when quality holds and the loop measures the gain for
+the whole request, sub-agent included. When the loop does not measure
+that (the limits of the lever), there is no ground to keep it.
 
 ## Priors
 

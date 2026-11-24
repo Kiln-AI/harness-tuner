@@ -89,21 +89,23 @@ lever [prompt](../levers/prompt.md)). They are one arm.
 
 In smoke drives on items that need the source: `sub_agent_calls` is at
 least one, the main agent's trace no longer holds the large result, and
-the returned text holds the fact that the answer needs. Compare the
-`usage` of the drive with the parent's on the same item: it includes the
-reader's calls.
+the returned text holds the fact that the answer needs. `sub_agent_usage`
+gives the cost of the reader's own runs. It is not in the drive's `usage`.
 
 ## Budget
 
-High to build, and the arm is timed. Under a cost objective it is a good
-candidate when the traces show that source text is most of the input. On
-a small quality budget, leave it out.
+High to build, and the arm gets timing drives. On a small budget, leave
+it out. Under a cost or speed objective, read the limits of the lever
+first: while the loop does not measure the cost of a request that calls a
+sub-agent, this arm cannot win there, and it is not worth a slot.
 
 ## If it does not move the evals
 
-It depends. Under a cost or speed objective, keep it when quality holds
-and the timed drives show a lower cost. Under a quality objective it must
-move an eval, for example fewer failures after a long read.
+It depends. Under a quality objective it must move an eval, for example
+fewer failures after a long read. Under a cost or speed objective, keep it
+when quality holds and the loop measures a lower cost for the whole
+request, sub-agent included. When the loop does not measure that cost
+(the limits of the lever), there is no ground to keep it.
 
 ## Priors
 

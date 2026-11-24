@@ -39,7 +39,11 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.job_drives import (
+    OPENENV_TOOL_PREFIX,
+    EvalJobDriver,
+    openenv_tool_parts,
+)
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
@@ -52,21 +56,26 @@ from kiln_harness_tuner.sub_agents import (
     SUB_AGENT_TASK_KIND,
     SUB_AGENT_TOOL_KIND,
     SubAgent,
+    calls_a_sub_agent,
     read_sub_agent,
+    read_sub_agent_usage,
     sub_agent_tool_ids,
     tool_ids_of,
-    with_sub_agent_usage,
+    usage_includes_sub_agents,
 )
 
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 # The tools a sub-agent's run config cannot attach: another sub-agent (one
-# level only, so the usage of a call is one run to read), and the tools
-# that reach the Kiln server or the project's memory.
+# level only), the tools that reach the Kiln server or the project's
+# memory, and an OpenEnv tool. A drive through the run endpoint starts no
+# OpenEnv episode, and the loop chooses that route from the SUBJECT's tools,
+# so a sub-agent's OpenEnv tool would have no episode there.
 SUB_AGENT_REFUSED_TOOL_PREFIXES = (
     KILN_TASK_TOOL_PREFIX,
     "kiln_tool::call_kiln_api",
     "kiln_tool::memory::",
+    OPENENV_TOOL_PREFIX,
 )
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
@@ -94,6 +103,11 @@ RC_PROP_KEYS = (
 NOT_TRAIN = (
     "not available: this record is not provably a train record. The gateway"
     " shows only train items and what this run created on them."
+)
+# Why a train result row has no cost and no latency.
+NOT_MEASURED_ROW = (
+    "cost and latency not measured: the run calls a sub-agent, and Kiln's"
+    " usage of a run leaves the sub-agent's calls out"
 )
 # The largest expected output `get_train_expected` returns whole, as JSON
 # text. A larger one comes back clipped and says so; the whole of it is also
@@ -622,6 +636,7 @@ class Gateway:
             if isinstance(row.get("task_run_usage"), dict)
             else {}
         )
+        partial = not usage_includes_sub_agents() and calls_a_sub_agent(row)
         raw_scores = row.get("scores") if isinstance(row.get("scores"), dict) else {}
         scores = {
             str(k): (float(v) if isinstance(v, (int, float)) else None)
@@ -648,8 +663,11 @@ class Gateway:
             output_preview=output[:OUTPUT_PREVIEW_CHARS]
             if isinstance(output, str)
             else None,
-            task_cost_usd=usage.get("cost"),
-            latency_ms=usage.get("total_llm_latency_ms"),
+            # A row whose run calls a sub-agent has the cost and latency of
+            # its own model calls only: not the request's, so none is shown.
+            task_cost_usd=None if partial else usage.get("cost"),
+            latency_ms=None if partial else usage.get("total_llm_latency_ms"),
+            usage_note=NOT_MEASURED_ROW if partial else None,
             skipped_reason=_text(row.get("skipped_reason")),
             skipped_detail=_text(row.get("skipped_detail")),
             trace_path=trace_path,
@@ -1213,14 +1231,16 @@ class Gateway:
         return await self._driven_view(run, req.item_id)
 
     async def _driven_view(self, run: dict[str, Any], item_id: str) -> m.TaskRunView:
-        """The view of a run this operation drove, with the usage of its
-        sub-agents' runs added: Kiln's `usage` holds the run's own model
-        calls only. Only the `usage` of a sub-agent's run is read."""
-        total, added = await with_sub_agent_usage(self.call, self.s.project_id, run)
-        view = self._run_view(total, item_id)
+        """The view of a run this operation drove, with what its trace
+        shows of sub-agents: the calls, and the usage of the sub-agents'
+        own runs beside the run's `usage`, never added to it. Only the
+        `usage` and the trace of a sub-agent's run are read."""
+        info = await read_sub_agent_usage(self.call, self.s.project_id, run)
+        view = self._run_view(run, item_id)
         if isinstance(run.get("trace"), list):
-            view.sub_agent_calls = added.calls
-        view.sub_agent_note = added.note or None
+            view.sub_agent_calls = info.calls
+        view.sub_agent_usage = _usage(info.usage)
+        view.sub_agent_note = info.note or None
         return view
 
     async def _run_task_by_job(
@@ -1263,7 +1283,8 @@ class Gateway:
         if refused:
             raise GatewayError(
                 f"a sub-agent's run config cannot attach {', '.join(refused)}:"
-                " no sub-agent of a sub-agent, and no tool that reaches Kiln"
+                " no sub-agent of a sub-agent, no tool that reaches Kiln, and"
+                " no OpenEnv tool"
             )
         run = self.s.run_dir.name if self.s.run_dir is not None else "a run"
         note = (

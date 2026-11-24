@@ -63,7 +63,7 @@ Checks, all before the first write:
 1. The request is valid (the table above).
 2. The run config is a `kiln_agent` config, and its model passes the model
    policy.
-3. Its `tools_config.tools` has no `kiln_task::` tool, no
+3. Its `tools_config.tools` has no `kiln_task::` tool, no OpenEnv tool, no
    `kiln_tool::call_kiln_api` and no `kiln_tool::memory::` tool.
 
 Writes, in this order:
@@ -92,8 +92,12 @@ run config. Each is refused with a reason when:
 - the model of that run config is outside the model policy.
 
 `run_task` answers with `sub_agent_calls` (the calls of sub-agent tools in
-the trace), a `usage` that includes the usage of those calls, and
-`sub_agent_note` when a call has no usage record.
+the trace), `sub_agent_usage` (the usage of the sub-agents' own runs,
+beside `usage` and never added to it), and `sub_agent_note`, which says
+how to read the two and when a call has no usage record.
+
+`get_train_results` gives no cost and no latency for a row whose run calls
+a sub-agent, and a `usage_note` that says why.
 
 ## 5. The model policy
 
@@ -137,20 +141,45 @@ sub-agents' text was not read, as it does for a skill that it cannot read.
 
 ## 7. Cost, latency and timing
 
-- A drive through the run endpoint gets the usage of each sub-agent run
-  that its trace names: cost, latency and tokens. A nested call is followed
-  three levels down.
-- A call with no saved run, or with a run that cannot be read, is counted
-  as "no usage record". The measured line of the arm then says "latency
-  and cost exclude N sub-agent call(s) with no usage record".
+The cost of a sub-agent is added to the calling run in Kiln, not in the
+tuner (project overview, decision 10). The tuner reads cost and latency
+from a run's `usage`, as before, and adds nothing to it.
+
+`usage_includes_sub_agents()` says whether a run's usage on this server
+holds its sub-agents' usage. It is False today. While it is False:
+
+- A run config with a timing drive that calls a sub-agent has no latency
+  and no cost from the timing drives, on any of its items. Each item has
+  the reason: "not measured: a drive of this run config calls a sub-agent,
+  and Kiln's usage of a run leaves the sub-agent's calls out". Such a
+  drive is not retried, and it is not diagnosed as a failure.
+- A comparison with that run config, as the candidate, the baseline or the
+  parent, has no pair. It is incomplete and never "clearly faster" or
+  "clearly cheaper".
+- Under `speed` and `cost`, the candidate stops at the end of its timing,
+  before a judge is paid for, with "cost and latency not measured: the
+  drives of the candidate call a sub-agent, …". Its outcome is
+  `not_landed`.
+- The rows of the analysis table carry no passive latency and no passive
+  cost when a stored run of either side calls a sub-agent.
+- An arm with no paired timing, on a comparison where a run config
+  attaches a sub-agent, gets one line on its record and one entry in the
+  analyzer's `measurement_notes`: "latency and cost: not measured. …".
+- The measured line of an arm says "cost and latency not measured: N of M
+  drives call a sub-agent, …", with the median cost and latency of the
+  sub-agents' own runs when Kiln saved them.
+
+When it is True, none of this applies: the numbers are read as Kiln gives
+them, and the measured line says "N of M drives call a sub-agent".
+
+In both cases:
+
 - An arm that adds, drops or replaces a `kiln_task::` tool against its
-  parent is timed under every objective.
-- An arm that is not timed, on a run config that attaches a sub-agent,
-  gets one line on its record and one entry in the analyzer's
-  `measurement_notes`: the latency and cost come from stored eval runs,
-  which leave the sub-agent's calls out.
-- The spend of eval jobs, and so the budget and the spending caps, do not
-  include a sub-agent's calls.
+  parent gets timing drives under every objective.
+- The usage of the sub-agents' own runs is information. It is in no
+  comparison and in no spend figure.
+- The spend of a run, and so the budget and the spending caps, hold what
+  Kiln reports for each run.
 
 ## 8. The lever check
 
@@ -161,6 +190,11 @@ does not, on the timing drives:
 |---|---|
 | A drive's trace has a call of the tool | Applied. The measured line says "sub-agent tool `<id>` called in N of M drives", and a `lever_applied` event is logged. |
 | Three or more drives have a trace, and none has a call | Not applied. The arm ends `dead_end` before it is judged. |
+
+The proof of a call is the tool message of the parent's trace
+(`kiln_task_tool_data`). It does not need a saved run of the sub-agent,
+which an eval job does not make.
+
 | Fewer than three drives have a trace, and none has a call | Unverified. Logged, and the arm goes on. |
 
 ## 9. The end of a run
@@ -177,8 +211,9 @@ run created:
 The report has a `## Sub-agents` section when the run created one: a row
 for each, with the tool name, the tool id, the task, the run config, the
 model, the run configs that attach it, and its state: in the final
-baseline, not in the final baseline, archived, or not complete. A
-paragraph says which numbers leave the sub-agent's calls out.
+baseline, not in the final baseline, archived, or not complete. While a
+run's usage leaves the sub-agent out, a paragraph says that the cost and
+the latency of a run config that calls a sub-agent were not measured.
 
 ## 10. The knowledge
 
@@ -193,9 +228,11 @@ paragraph says which numbers leave the sub-agent's calls out.
 Links to the techniques:
 
 - the smells `too-many-tools` and `tool-results-flood-the-context`;
-- the playbooks `fit-the-tool-layer-to-the-agent` (step 6),
-  `cheaper-or-faster` (step 7) and `change-the-surface-not-the-words`
-  (step 5).
+- the playbooks `fit-the-tool-layer-to-the-agent` (step 6) and
+  `change-the-surface-not-the-words` (step 5). The playbook
+  `cheaper-or-faster` has no link: an arm with a sub-agent cannot win on
+  cost or on speed while its cost is not measured. The link belongs there
+  when the switch of section 7 is True.
 
 In each playbook the new step is last or next to last, with its reason: a
 sub-agent is a second agent to build and to pay for.

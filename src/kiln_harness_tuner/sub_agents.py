@@ -14,26 +14,34 @@ own code both use it, so they agree on what a sub-agent is:
   checks read the sub-agent's model and its text from here.
 - `sub_agent_calls`: the calls of sub-agent tools that a task run's trace
   shows. This is the evidence that the lever was applied.
-- `with_sub_agent_usage`: a task run with the usage of its sub-agents'
-  runs added.
+- `usage_includes_sub_agents`: whether a run's `usage` on this Kiln holds
+  its sub-agents' usage. The one switch of the cost guard.
+- `read_sub_agent_usage`: the usage of the sub-agents' own runs for one
+  task run, for information.
 
 **Kiln's usage numbers do not include a sub-agent's calls.** The `usage` of
 a task run sums the model calls of that run only. Kiln saves the
 sub-agent's run as a task run of the sub-agent's task, with its own
 `usage`, and the tool message of the parent's trace names it
 (`kiln_task_tool_data`: `<project>:::<tool id>:::<task id>:::<run id>`).
-So code adds the two. Kiln saves the sub-agent's run only when it saves the
-parent's run: the run endpoint does, an eval job does not. For a drive
-through an eval job the sub-agent's usage is lost, and `SubAgentUsage.unread`
-counts those calls.
+Kiln saves the sub-agent's run only when it saves the parent's run: the
+run endpoint does, an eval job does not, and the run id is then `None`.
+
+The fix is in Kiln, by the owner's decision: a run's usage will hold its
+sub-agents' usage. So the tuner reads cost and latency from the same place
+as before, and it never adds the two itself. Until it can tell that the
+server has the fix, a drive that calls a sub-agent has no cost and no
+latency for a comparison (`NOT_MEASURED`), and the usage of the
+sub-agents' own runs is shown beside it, for information.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from kiln_harness_tuner.kiln import KilnError
@@ -248,8 +256,16 @@ class SubAgentCall:
 
 def sub_agent_calls(run: Mapping[str, Any]) -> list[SubAgentCall] | None:
     """The sub-agent calls in a task run's trace, in order. None when the
-    run has no trace: then the calls are not known."""
-    trace = run.get("trace")
+    run has no trace: then the calls are not known. A stored eval-run row
+    is read too (`task_run_trace`, a list or its JSON text). The proof of a
+    call is the parent's tool message: in an eval job no run of the
+    sub-agent is saved."""
+    trace = run.get("trace") or run.get("task_run_trace")
+    if isinstance(trace, str):
+        try:
+            trace = json.loads(trace)
+        except ValueError:
+            return None
     if not isinstance(trace, list):
         return None
     calls: list[SubAgentCall] = []
@@ -278,51 +294,124 @@ def calls_by_tool(run: Mapping[str, Any]) -> dict[str, int] | None:
     return counts
 
 
-# ---- the usage of a run and its sub-agents ----
+# ---- the usage of a sub-agent's calls ----
+
+# Does the `usage` of a task run on this Kiln server include the usage of
+# the sub-agents that the run called? Today it does not, and no route or
+# schema field of the server says which case holds, so the answer is fixed.
+# The owner decided that the fix is in Kiln: a run's usage will hold its
+# sub-agents' usage, in a run through the run endpoint and in an eval job.
+# When Kiln names how a client can tell, `usage_includes_sub_agents` reads
+# that, and every guard below switches off with it. The tuner never adds a
+# sub-agent's usage to a run's usage itself: after the Kiln fix that would
+# count it twice.
+KILN_USAGE_INCLUDES_SUB_AGENTS = False
+
+NOT_MEASURED = (
+    "not measured: a drive of this run config calls a sub-agent, and Kiln's"
+    " usage of a run leaves the sub-agent's calls out"
+)
+
+
+def not_measured_note(who: str) -> str:
+    """The line for a comparison that has no verdict: "cost and latency
+    not measured: the drives of the candidate call a sub-agent, …"."""
+    return (
+        f"cost and latency not measured: the drives of {who} call a"
+        " sub-agent, and Kiln's usage of a run leaves the sub-agent's calls out"
+    )
+
+
+def usage_includes_sub_agents() -> bool:
+    """Is a run's `usage` on this Kiln server the cost and latency of the
+    whole request, sub-agents included? The one switch for every guard on a
+    sub-agent's cost. False: a drive that calls a sub-agent has no latency
+    and no cost for a comparison, so a candidate cannot win on cost or
+    speed from numbers that leave its sub-agent out."""
+    return KILN_USAGE_INCLUDES_SUB_AGENTS
 
 
 @dataclass(frozen=True)
 class SubAgentUsage:
-    """What `with_sub_agent_usage` added. `calls`: the sub-agent calls in
-    the run and its nested runs. `unread`: the calls whose usage is not in
-    the total (Kiln saved no run, or the run could not be read)."""
+    """The usage of the sub-agents' own runs for ONE task run, read for
+    information. It is never added to the run's usage. `calls`: the
+    sub-agent calls in the run and its nested runs. `unread`: the calls
+    with no usage record (Kiln saved no run, or the run could not be
+    read). `usage`: the sum over the runs that were read."""
 
     calls: int = 0
     unread: int = 0
     cost: float = 0.0
     latency_ms: float = 0.0
+    usage: dict[str, Any] | None = None
 
     @property
     def note(self) -> str:
-        """One line for a record, or "" when the run called no sub-agent."""
+        """One line for an agent, or "" when the run called no sub-agent."""
         if not self.calls:
             return ""
-        if not self.unread:
-            return f"includes {self.calls} sub-agent call(s)"
-        return (
-            f"{self.unread} of {self.calls} sub-agent call(s) have no usage"
-            " record, so their cost and latency are not included"
+        if self.unread == self.calls:
+            return (
+                f"{self.calls} sub-agent call(s) have no usage record: an eval"
+                " job saves no run for a sub-agent"
+            )
+        text = (
+            f"sub_agent_usage is the usage of the sub-agents' own runs"
+            f" ({self.calls} call(s))"
         )
+        if self.unread:
+            text += f"; {self.unread} of them have no usage record"
+        if not usage_includes_sub_agents():
+            text += "; it is not in `usage`"
+        return text
+
+
+def calls_a_sub_agent(run: Mapping[str, Any]) -> bool:
+    """Does the run's trace (or the eval-run row's) show a sub-agent call?"""
+    return bool(sub_agent_calls(run))
+
+
+def usage_line(infos: Sequence[SubAgentUsage], drives: int) -> str:
+    """One line for a candidate's record on what its timing drives show of
+    its sub-agents: how many drives call one, whether the cost and latency
+    are measured, and the usage of the sub-agents' own runs. "" when no
+    drive calls a sub-agent."""
+    if not infos:
+        return ""
+    head = f"{len(infos)} of {max(drives, len(infos))} drives call a sub-agent"
+    read = [i for i in infos if i.unread < i.calls]
+    own = (
+        f"the sub-agents' own runs: median ${median(i.cost for i in read):.4f}"
+        f" and {median(i.latency_ms for i in read):.0f} ms per request"
+        if read
+        else "the sub-agents' runs have no usage record"
+    )
+    if usage_includes_sub_agents():
+        return f"{head} ({own}, inside the numbers of the request)"
+    return (
+        f"cost and latency not measured: {head}, and Kiln's usage of a run"
+        f" leaves the sub-agent's calls out ({own}, in no number here)"
+    )
 
 
 def _number(value: Any) -> float:
     return float(value) if isinstance(value, (int, float)) else 0.0
 
 
-async def with_sub_agent_usage(
+async def read_sub_agent_usage(
     call: Call, project_id: str, run: Mapping[str, Any], depth: int = MAX_USAGE_DEPTH
-) -> tuple[dict[str, Any], SubAgentUsage]:
-    """A copy of the task run whose `usage` also holds the usage of every
-    sub-agent run it called, and what was added. The latencies are summed:
-    when the model calls two sub-agents in one turn, Kiln runs them at the
-    same time, and the sum is then above the wall-clock time."""
-    out = dict(run)
+) -> SubAgentUsage:
+    """The usage of every sub-agent run that a task run called, from the
+    sub-agents' own task runs (the tool messages of the trace name them).
+    Only the `usage` and the trace of a sub-agent's run are read. The
+    latencies are summed: when the model calls two sub-agents in one turn,
+    Kiln runs them at the same time, and the sum is then above the
+    wall-clock time."""
     calls = sub_agent_calls(run) or []
     if not calls:
-        return out, SubAgentUsage()
-    usage = dict(run["usage"]) if isinstance(run.get("usage"), Mapping) else {}
+        return SubAgentUsage()
     total = unread = len(calls)
-    cost = latency = 0.0
+    summed: dict[str, Any] = {}
     for sub_call in calls:
         if sub_call.run_id is None or depth <= 0:
             continue
@@ -334,22 +423,25 @@ async def with_sub_agent_usage(
             sub_run = await call("GET", path)
         except KilnError:
             continue
-        if not isinstance(sub_run, Mapping):
-            continue
-        sub_run, nested = await with_sub_agent_usage(
-            call, project_id, sub_run, depth - 1
-        )
-        sub_usage = sub_run.get("usage")
+        sub_usage = sub_run.get("usage") if isinstance(sub_run, Mapping) else None
         if not isinstance(sub_usage, Mapping):
             continue
-        unread += nested.unread - 1
-        total += nested.calls
-        cost += _number(sub_usage.get("cost"))
-        latency += _number(sub_usage.get("total_llm_latency_ms"))
-        for key in _USAGE_SUM_KEYS:
-            if isinstance(sub_usage.get(key), (int, float)):
-                base = usage.get(key)
-                base = base if isinstance(base, (int, float)) else 0
-                usage[key] = base + sub_usage[key]
-    out["usage"] = usage
-    return out, SubAgentUsage(total, unread, cost, latency)
+        unread -= 1
+        parts = [sub_usage]
+        if not usage_includes_sub_agents():
+            # The sub-agent's own usage leaves ITS sub-agents out too.
+            nested = await read_sub_agent_usage(call, project_id, sub_run, depth - 1)
+            total += nested.calls
+            unread += nested.unread
+            parts.append(nested.usage or {})
+        for part in parts:
+            for key in _USAGE_SUM_KEYS:
+                if isinstance(part.get(key), (int, float)):
+                    summed[key] = summed.get(key, 0) + part[key]
+    return SubAgentUsage(
+        calls=total,
+        unread=unread,
+        cost=_number(summed.get("cost")),
+        latency_ms=_number(summed.get("total_llm_latency_ms")),
+        usage=summed or None,
+    )

@@ -1,7 +1,7 @@
 ---
 title: Cheaper or faster
 description: The user wants the agent to cost less or answer sooner, with quality held - each step is marked cheaper, faster or both, because the two goals do not always agree.
-reviewed: 2026-11-25
+reviewed: 2026-11-13
 kind: goal
 applies_to: all
 ---
@@ -64,15 +64,6 @@ screening rounds of the planner's skill.
    [model swap inside a class](../techniques/model-swap-inside-a-class.md).
    For a task with a classifier shape:
    [decision model for a classifier](../techniques/decision-model-for-a-classifier.md).
-7. **Cheaper, often slower.** A second agent for one part of the work,
-   when that part is where the cost is. A large source that the agent
-   reads to use a few lines:
-   [cheap reader for a large source](../techniques/cheap-reader-for-a-large-source.md).
-   A strong model that only a small, hard part of some requests needs: a
-   cheaper main agent with
-   [deep work in a stronger sub-agent](../techniques/deep-work-in-a-stronger-sub-agent.md).
-   It is last because it is the largest build of this list, and each
-   call adds the sub-agent's whole run to the request.
 
 ## What not to do yet
 
@@ -92,6 +83,6 @@ screening rounds of the planner's skill.
 ## Budget
 
 On a small budget, steps 1 and 2 come first: they change one setting,
-with the harness unchanged, and cost the least to measure. Steps 3 to 7
+with the harness unchanged, and cost the least to measure. Steps 3 to 6
 need a build and a full check of quality. On a large budget, step 6 can
 include a scan of the smaller models of the class.

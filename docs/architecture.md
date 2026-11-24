@@ -1246,7 +1246,7 @@ src/kiln_harness_tuner/
   objective.py      the quality, speed and cost objectives
   levers.py         the check that a declared lever took effect
   sub_agents.py     sub-agents (`kiln_task::` tools): the reader, the
-                    calls in a trace, their usage, what a run created
+                    calls in a trace, the cost guard, what a run created
   integrity.py      the reward-hacking code checks at the promotion gate
   orchestrator.py   the wave loop, the promotion gate, the tripwire, the
                     janitor, the budget
@@ -2261,8 +2261,9 @@ new task, and no operation reads its runs or its evals.
   model or schema is a new sub-agent. No operation edits or deletes one,
   because the baseline or another experiment can attach it.
 - **One level.** The run config of a created sub-agent cannot attach a
-  `kiln_task::` tool, `kiln_tool::call_kiln_api` or a `kiln_tool::memory::`
-  tool.
+  `kiln_task::` tool, an OpenEnv tool, `kiln_tool::call_kiln_api` or a
+  `kiln_tool::memory::` tool. The loop chooses the route of a drive from
+  the subject's tools, and the run endpoint starts no OpenEnv episode.
 - **Attaching.** `create_run_config` checks each `kiln_task::` id that a
   run config of the subject attaches: it names a Kiln task tool, the tool
   does not call the subject task, and its pinned run config exists.
@@ -2296,32 +2297,70 @@ runs (few-shot, repairs) is never rendered: the sub-agents' text is then
 ### 19.4 Cost and latency
 
 Kiln's usage numbers do not include a sub-agent's calls. The `usage` of a
-task run sums the model calls of that run. The sub-agent's run is a task
-run of the sub-agent's task, with its own `usage`, and the tool message in
-the parent's trace names it (`kiln_task_tool_data`). Kiln saves that run
-only when it saves the parent's run. The run endpoint does. An eval job
-does not, so the usage of a sub-agent's call in an eval job is lost.
+task run sums the model calls of that run, and its latency
+(`total_llm_latency_ms`) is the time of those calls, not the wall-clock
+time of the request. The sub-agent's run is a task run of the sub-agent's
+task, with its own `usage`, and the tool message in the parent's trace
+names it (`kiln_task_tool_data`). Kiln saves that run only when it saves
+the parent's run. The run endpoint does. An eval job does not: the run id
+in the tool message is then `None`, and the sub-agent's usage is recorded
+nowhere.
 
-- **Drives through the run endpoint** (`timed_drives`, the gateway's
-  `run_task`): code reads each sub-agent run that the trace names and adds
-  its usage (`with_sub_agent_usage`). A drive's latency and cost are then
-  those of the whole request. Latencies are summed, so two sub-agent calls
-  in one turn give a number above the wall-clock time.
-- **An arm that adds, drops or replaces a sub-agent is timed**
-  (`items._changes_sub_agents`), under every objective. Its latency and
-  cost against the baseline come from paired drives.
-- **Every other number leaves the sub-agent's calls out**: the passive
-  latency and cost of stored eval runs, the cost of a train result row,
-  the spend of eval jobs, and a drive that must go through an eval job
-  (section 16). An untimed arm whose run config attaches a sub-agent gets
-  one line on its record and in the analyzer's input
-  (`measurement_notes`). A timed drive with a call that has no saved run
-  says so on the measured line.
+The fix is in Kiln, by the owner's decision: a run's usage will hold the
+usage of the sub-agents it calls, in a run through the run endpoint and in
+an eval job. So the tuner keeps ONE source for cost and latency, the
+`usage` it reads today, and it never adds a sub-agent's usage to a run's
+usage itself. A sum made here would count the sub-agent twice on a Kiln
+with the fix.
 
-So the spend of a run with sub-agents is above what the ledger shows, by
-the sub-agents' calls in eval jobs and in the agents' gateway drives (the
-reconciliation of section 3.2 prices a gateway drive from its own record),
-and a spending cap does not count them.
+**The switch.** `sub_agents.usage_includes_sub_agents()` answers whether a
+run's usage on this server is the usage of the whole request. Today it is
+fixed to no: the tuner has no Kiln version check, and no route or schema
+field of the server says which case holds. When Kiln names how a client can
+tell, that function reads it, and each guard below goes away with it.
+
+**The guard**, while the answer is no. A candidate must not win on cost or
+on speed from numbers that leave its sub-agent out. The cost and the
+latency of a request that calls a sub-agent are treated as not measured, in
+code:
+
+- **Timing drives** (`latency.timed_drives`, which the measurement engine,
+  the gate's paired pass and the baseline timing all use). A run config
+  with a drive that calls a sub-agent has no latency and no cost in the
+  result, on any item, and each item has the reason
+  (`sub_agents.NOT_MEASURED`). One drive is enough: the items that call no
+  sub-agent are not a fair sample of the requests. Each comparison with
+  that run config has no pair, so it is `incomplete` and gives no verdict.
+- **The measurement engine.** The values of a withheld side are cleared
+  for every chunk (the candidate, the baseline or the parent), and
+  `Evidence.timing_note` says which side. Under `speed` and `cost` the
+  `not_better` rule then stops the candidate with that note, before a judge
+  is paid for, and the train speed rule cannot pass with no comparison.
+- **The analysis table.** The passive latency and cost of stored eval runs
+  are left off the rows when a run of either side calls a sub-agent
+  (`Analyzer`). The proof of a call there is the tool message of the
+  stored trace.
+- **The agents.** A train result row whose run calls a sub-agent has no
+  cost and no latency, and a `usage_note`. An arm with no paired timing on
+  a run config that attaches a sub-agent gets one line on its record and
+  in the analyzer's input (`measurement_notes`).
+- **The report.** The `## Sub-agents` section says that the cost and the
+  latency of such a run config were not measured.
+
+**For information.** A drive through the run endpoint saves the
+sub-agent's run, so code reads its `usage` (`read_sub_agent_usage`) and
+shows it beside the drive's: on the measured line of an experiment ("N of
+M drives call a sub-agent … the sub-agents' own runs: median $X and Y ms
+per request") and in the answer of the gateway's `run_task`
+(`sub_agent_usage`). It is in no comparison and in no spend figure.
+
+**Timing drives for a sub-agent arm.** An arm that adds, drops or replaces
+a sub-agent gets timing drives under every objective
+(`items._changes_sub_agents`): the lever check reads their traces before a
+judge is paid for (section 19.5), and they give the information above.
+
+The spend of a run with sub-agents is above what the ledger shows, by the
+sub-agents' calls, and a spending cap does not count them.
 
 ### 19.5 The lever check
 
@@ -2332,7 +2371,9 @@ applied, with "called in N of M drives" on the measured line and a
 `lever_applied` event, when a drive calls it; not applied when
 `MIN_SUB_AGENT_DRIVES` (3) or more drives have a trace and none calls it;
 unverified below that. Not applied ends the arm `dead_end` before it is
-judged, as for a thinking level.
+judged, as for a thinking level. The proof of a call is the tool message
+of the parent's trace, not a saved run of the sub-agent: a drive through
+an eval job saves none.
 
 ### 19.6 The end of a run
 

@@ -12,11 +12,13 @@ of the call. Eval results carry it as `task_run_usage.total_llm_latency_ms`
 
 **A sub-agent's calls are not in that number.** Kiln's `usage` holds the
 model calls of the run itself. When the task calls a sub-agent (a
-`kiln_task::` tool), the sub-agent's run has its own `usage`. A drive
-through `POST …/run` saves that run, and `timed_drives` adds its latency
-and cost to the drive's (`kiln_harness_tuner.sub_agents`). An eval job does
-not save it: the numbers read off stored eval runs, and the drives that
-must go through an eval job, leave the sub-agent's calls out.
+`kiln_task::` tool), the sub-agent's run has its own `usage`, and the
+latency above does not include the time of that call. The fix is in Kiln
+(`kiln_harness_tuner.sub_agents`): the tuner never adds the two itself.
+Until the server is known to have the fix, a run config whose drives call
+a sub-agent has no latency and no cost from `timed_drives`
+(`sub_agents.NOT_MEASURED`), so no comparison of it gives a verdict. The
+passive numbers of stored eval runs are withheld in the same case.
 
 **The comparison is paired.** Latency moves with provider load and with the
 loop's own concurrency, so a new arm is never compared with a number stored
@@ -660,9 +662,12 @@ class DrivePass:
     costs: dict[str, dict[str, float]] | None = None  # rc -> item -> $/request
     # rc -> item -> `levers.lever_evidence` of that drive
     evidence: dict[str, dict[str, dict[str, Any]]] | None = None
-    # rc -> the sub-agent calls whose usage is not in its latencies and
-    # costs (Kiln saved no run for them). Absent: every call is counted.
-    sub_agent_unread: dict[str, int] | None = None
+    # rc -> one `sub_agents.SubAgentUsage` for each drive that called a
+    # sub-agent: the usage of the sub-agents' own runs, for information.
+    sub_agents: dict[str, list[Any]] | None = None
+    # The run configs whose latencies and costs are withheld, because a
+    # drive called a sub-agent and Kiln's usage leaves its calls out.
+    unmeasured: frozenset[str] = frozenset()
 
 
 def _drive_error_text(exc: Exception) -> str:
@@ -694,10 +699,14 @@ async def timed_drives(
     the task run the job drove. The job's errors carry the provider's
     text, so no diagnosis job follows.
 
-    A drive that calls a sub-agent gets the usage of the sub-agent's runs
-    added to its own (`sub_agents.with_sub_agent_usage`), so its latency
-    and cost are those of the whole request. A call with no saved run is
-    counted in `sub_agent_unread`.
+    A run config with a drive that calls a sub-agent has NO latency and
+    no cost in the result, on any item (`unmeasured`), while Kiln's usage
+    of a run leaves the sub-agent's calls out
+    (`sub_agents.usage_includes_sub_agents`). A part of its items would be
+    the requests that do not call the sub-agent, and so a biased sample.
+    Each of its items has the reason in `failures`. The usage of the
+    sub-agents' own runs is read for information (`sub_agents`), and it is
+    never added to a drive's.
 
     Quota and billing failures stop the run (`ProviderQuotaError`): a drive
     error whose text names one raises at once, never retried. The studio
@@ -715,7 +724,11 @@ async def timed_drives(
         classify_provider_message,
     )
     from kiln_harness_tuner.schemas import ErrorInfo
-    from kiln_harness_tuner.sub_agents import with_sub_agent_usage
+    from kiln_harness_tuner.sub_agents import (
+        NOT_MEASURED,
+        read_sub_agent_usage,
+        usage_includes_sub_agents,
+    )
 
     arms = list(arms)
     props = {rc: await rc_props(ctx, rc) for rc in arms}
@@ -729,16 +742,20 @@ async def timed_drives(
     outputs: dict[str, dict[str, Any]] = {rc: {} for rc in arms}
     costs: dict[str, dict[str, float]] = {rc: {} for rc in arms}
     evidence: dict[str, dict[str, dict[str, Any]]] = {rc: {} for rc in arms}
-    unread: dict[str, int] = {}
+    sub_agents: dict[str, list[Any]] = {}
+    unmeasured: set[str] = set()
 
-    async def whole(rc: str, run: dict[str, Any]) -> dict[str, Any]:
-        """The drive with its sub-agents' usage added."""
-        total, added = await with_sub_agent_usage(
-            ctx.kiln.call, ctx.target.project_id, run
-        )
-        if added.unread:
-            unread[rc] = unread.get(rc, 0) + added.unread
-        return total
+    async def partial(rc: str, run: dict[str, Any]) -> bool:
+        """Does the drive's usage leave out a sub-agent it called? The
+        usage of the sub-agents' own runs is kept for information."""
+        info = await read_sub_agent_usage(ctx.kiln.call, ctx.target.project_id, run)
+        if not info.calls:
+            return False
+        sub_agents.setdefault(rc, []).append(info)
+        if usage_includes_sub_agents():
+            return False
+        unmeasured.add(rc)
+        return True
 
     def stop_on_quota(
         rc: str, inp: Any, text: str, cause: Exception | None = None
@@ -769,7 +786,7 @@ async def timed_drives(
             run, overhead, text = await run_by_job(rc, inp)
             if run is None:
                 return None, overhead, text
-            return record(rc, inp, await whole(rc, run), overhead)
+            return record(rc, inp, run, overhead, await partial(rc, run))
         body: dict[str, Any] = {
             "run_config_properties": props[rc],
             "tags": [LATENCY_RUN_TAG, f"{LATENCY_RUN_TAG}_{label}"],
@@ -791,18 +808,22 @@ async def timed_drives(
             text = _drive_error_text(exc)
             stop_on_quota(rc, inp, text, cause=exc)
             return None, 0.0, text
-        run = await whole(rc, run if isinstance(run, dict) else {})
-        return record(rc, inp, run, 0.0)
+        run = run if isinstance(run, dict) else {}
+        return record(rc, inp, run, 0.0, await partial(rc, run))
 
     def record(
-        rc: str, inp: Any, run: dict[str, Any], overhead: float
+        rc: str, inp: Any, run: dict[str, Any], overhead: float, partial: bool
     ) -> tuple[float | None, float, str]:
         """Keep one drive's output, evidence and per-request cost. The
         spend is the task call's cost plus `overhead` (a synthetic user's
-        or a judge's), which is never the per-request metric."""
+        or a judge's), which is never the per-request metric. A `partial`
+        drive (its usage leaves a sub-agent's calls out) keeps its output
+        and evidence, and no latency or cost."""
         value = latency_of_task_run(run)
         outputs[rc][inp.id] = run_output(run)
         evidence[rc][inp.id] = lever_evidence(run)
+        if partial:
+            return None, run_cost(run) + overhead, NOT_MEASURED
         if run_cost(run) > 0:
             costs[rc][inp.id] = run_cost(run)
         why = "" if value else "no latency on the returned run"
@@ -812,11 +833,13 @@ async def timed_drives(
         nonlocal cost
         value, spent, why = await drive_once(rc, inp)
         cost += spent
-        if value is None:
+        if value is None and why != NOT_MEASURED:  # a drive that ran is not retried
             await ctx.sleep(DRIVE_RETRY_SLEEP_SECS)
             value, spent, why = await drive_once(rc, inp)
             cost += spent
-        if value is None:
+        if value is None and why == NOT_MEASURED:
+            failures[rc][inp.id] = NOT_MEASURED
+        elif value is None:
             failures[rc][inp.id] = f"{why} (after one retry)"
         else:
             latencies[rc][inp.id] = value
@@ -828,7 +851,18 @@ async def timed_drives(
                 await drive(rc, inp)
 
     await asyncio.gather(*(one_item(i, inp) for i, inp in enumerate(inputs)))
-    failed = [(rc, item) for rc in arms for item in failures[rc]]
+    # A run config with one such drive has no latency and no cost at all.
+    for rc in unmeasured:
+        latencies[rc].clear()
+        costs[rc].clear()
+        for inp in inputs:
+            failures[rc].setdefault(inp.id, NOT_MEASURED)
+    failed = [
+        (rc, item)
+        for rc in arms
+        for item, why in failures[rc].items()
+        if why != NOT_MEASURED
+    ]
     if failed and not via_jobs:
         rc, item = failed[0]
         diagnosis = await ctx.analyzer.diagnose_drive_failure(
@@ -837,9 +871,18 @@ async def timed_drives(
         if diagnosis:
             for rc_failures in failures.values():
                 for key in rc_failures:
-                    rc_failures[key] += f"; diagnosed on {item}: {diagnosis[:160]}"
+                    if rc_failures[key] != NOT_MEASURED:
+                        rc_failures[key] += f"; diagnosed on {item}: {diagnosis[:160]}"
     return DrivePass(
-        latencies, failures, cost, len(inputs), outputs, costs, evidence, unread or None
+        latencies,
+        failures,
+        cost,
+        len(inputs),
+        outputs,
+        costs,
+        evidence,
+        sub_agents or None,
+        frozenset(unmeasured),
     )
 
 

@@ -135,6 +135,7 @@ from kiln_harness_tuner.stop_rules import (
     rule_text,
     run_budget_line,
 )
+from kiln_harness_tuner.sub_agents import not_measured_note, usage_line
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -582,8 +583,9 @@ class Measured:
     vs_parent: LatencyComparison | None = None
     vs_parent_cost: LatencyComparison | None = None
     lever_note: str = ""
-    # Set when the timing drives called a sub-agent whose usage Kiln did
-    # not record: the latency and cost then leave those calls out.
+    # What the timing drives show of the candidate's sub-agents
+    # (`sub_agents.usage_line`): how many drives call one, and whether its
+    # cost and latency are measured.
     usage_note: str = ""
     spend_usd: float = 0.0
     chunks: int = 0
@@ -645,7 +647,7 @@ class _State:
     error: ErrorInfo | None = None
     spend: float = 0.0
     lever_note: str = ""
-    sub_agent_unread: int = 0
+    sub_agent_drives: list[Any] = field(default_factory=list)
     evidence_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     lever_checked: bool = False
     budget: Budget | None = None
@@ -993,6 +995,8 @@ async def _measure(
                 )
     parent_props: dict[str, dict[str, Any] | None] = {}
     declared: dict[str, dict[str, Any]] = {}
+    # The run configs whose timing values are withheld (`timed_drives`).
+    unmeasured: set[str] = set()
     for s in states:
         for rc in (s.cand.rc_id, s.cand.parent_rc_id):
             if rc not in parent_props:
@@ -1140,6 +1144,7 @@ async def _measure(
                 f"{(spec.item_id or 'measure').replace('-', '_')}_t{k}",
             )
             chunk_spend += drives.cost
+            unmeasured |= drives.unmeasured
             costs = drives.costs or {}
             outputs = drives.outputs or {}
             # Attribution (`kiln_harness_tuner.budget`): each candidate's own drives,
@@ -1186,9 +1191,37 @@ async def _measure(
                     1 for out in produced.values() if not output_valid(out, schema)
                 )
                 s.evidence_seen.update((drives.evidence or {}).get(s.cand.rc_id) or {})
-                s.sub_agent_unread += (drives.sub_agent_unread or {}).get(
-                    s.cand.rc_id, 0
+                s.sub_agent_drives += (drives.sub_agents or {}).get(s.cand.rc_id, [])
+                # A side whose drives call a sub-agent has no latency and no
+                # cost while Kiln's usage leaves the sub-agent out. That
+                # holds for every chunk, so the earlier values go too.
+                sides = (
+                    ("the candidate", s.cand.rc_id, (ev.latency, ev.cost)),
+                    (
+                        "the baseline",
+                        spec.reference_rc_id,
+                        (ev.ref_latency, ev.ref_cost),
+                    ),
+                    (
+                        "its parent",
+                        s.cand.parent_rc_id,
+                        (ev.parent_latency, ev.parent_cost),
+                    ),
                 )
+                withheld = [
+                    who
+                    for who, rc, values in sides
+                    if rc in unmeasured and values[0] is not None
+                ]
+                for _who, rc, values in sides:
+                    if rc in unmeasured:
+                        for kept in values:
+                            if kept is not None:
+                                kept.clear()
+                if withheld:
+                    ev.timing_note = not_measured_note(
+                        " and ".join(dict.fromkeys(withheld))
+                    )
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
@@ -1398,12 +1431,8 @@ async def _measure(
             stop=s.stop,
             error=s.error,
             lever_note=s.lever_note,
-            usage_note=(
-                f"latency and cost exclude {s.sub_agent_unread} sub-agent"
-                " call(s) with no usage record"
-                if s.sub_agent_unread
-                else ""
-            ),
+            usage_note=usage_line(s.sub_agent_drives, len(s.evidence_seen))
+            or ev.timing_note,
             spend_usd=s.spend,
             chunks=s.chunks,
             planned_chunks=len(bounds),
@@ -1420,7 +1449,7 @@ async def _measure(
             guards_required=required.get(s.cand.rc_id),
             planned_per_eval=own_per_eval(s),
         )
-        if ev.latency or ev.cost:
+        if (ev.latency or ev.cost) and not ev.timing_note:
             planned = timing_planned or None
             m.latency = compare_latencies(
                 ev.ref_latency,

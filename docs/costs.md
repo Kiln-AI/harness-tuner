@@ -270,12 +270,15 @@ process has stopped.
 
 **Sub-agents.** A run config can attach a sub-agent: another Kiln task that
 the agent calls as a tool. Kiln's usage of a run does not include the
-sub-agent's calls. A timing drive and a gateway drive add them, from the
-sub-agent's own run. An eval job keeps no record of that run, so the spend
-of eval jobs leaves the sub-agent's calls out, and `--budget-usd` does not
-count them. Price them yourself when your baseline has a sub-agent, or when
-you expect the loop to add one: the calls for each request, times the
-sub-agent's cost for each call, times the items that each eval job judges.
+sub-agent's calls, and an eval job keeps no record of the sub-agent's run.
+So the spend that the loop books leaves the sub-agent's calls out, and
+`--budget-usd` does not count them. The loop does not add them itself: the
+fix is being made in Kiln, and a sum made in both places would count them
+twice. Price them yourself when your baseline has a sub-agent, or when you
+expect the loop to add one: the calls for each request, times the
+sub-agent's cost for each call, times the items that each eval job judges
+and each drive. An experiment's record gives the usage of the sub-agent's
+own runs on its timing drives.
 
 ## What is free
 

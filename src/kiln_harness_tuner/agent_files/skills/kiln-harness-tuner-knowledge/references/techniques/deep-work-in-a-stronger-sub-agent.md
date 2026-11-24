@@ -97,16 +97,18 @@ ends the arm as `lever not applied`.
 
 ## Budget
 
-High: two prompts and two schemas to build, and the arm is timed, which
-adds drives. On a small budget, leave it out unless a probe already
+High: two prompts and two schemas to build, and the arm gets timing
+drives. On a small budget, leave it out unless a probe already
 showed that more reasoning fixes the failing items.
 
 ## If it does not move the evals
 
 It must move an eval. A sub-agent adds cost and latency to each request
 that calls it, and one more part to maintain. Under a cost or speed
-objective, the eval it moves is the objective: quality holds, and the
-timed drives show a lower cost than a stronger model on the whole agent.
+objective, the measure it must move is the objective: quality holds, and
+the loop measures a lower cost for the whole request, sub-agent included.
+When the loop does not measure that cost (the limits of the lever), this
+arm cannot win there.
 
 ## Priors
 

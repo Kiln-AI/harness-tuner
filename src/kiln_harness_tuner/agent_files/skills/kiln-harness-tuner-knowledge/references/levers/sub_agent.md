@@ -50,7 +50,8 @@ subject model sees only what the sub-agent returns.
    `tools_config.tools`. Drop on the same run config each tool that the
    sub-agent takes over.
 4. Smoke it with `run_task` on a train item. The answer gives
-   `sub_agent_calls`, and its `usage` includes the sub-agent's calls.
+   `sub_agent_calls`, and `sub_agent_usage`: the usage of the sub-agent's
+   own runs. It is beside `usage`, not in it.
 
 Rules of the object:
 
@@ -72,8 +73,8 @@ Rules of the object:
 - The tuner creates a sub-agent and does not tune it on evals of its own.
   A sub-agent has no evals here. Its effect is measured on the subject's
   evals.
-- A sub-agent created here cannot attach another sub-agent, or a tool that
-  reaches the Kiln server or the project's memory.
+- A sub-agent created here cannot attach another sub-agent, an OpenEnv
+  tool, or a tool that reaches the Kiln server or the project's memory.
 - The model policy holds for the sub-agent. A sub-agent on a model outside
   the policy is refused, and so is a run config that attaches one. When
   the run keeps the baseline's model, a new sub-agent runs on that model,
@@ -81,18 +82,17 @@ Rules of the object:
 - No value from a train item goes into the sub-agent's prompt, its tool
   description or its schemas. Code searches each build for copies of train
   content and of eval text, in the sub-agent's text as in the subject's.
-- Kiln's usage numbers of a subject run do not include the sub-agent's
-  calls. The loop adds them on the drives it makes through the run
-  endpoint, and it times each arm that adds or removes a sub-agent. The
-  cost and the latency of stored eval results (`get_train_results`) leave
-  them out. A drive through an eval job (a multi-turn task, an OpenEnv
-  tool) keeps no record of them.
+- **The cost and the latency of a request that calls a sub-agent are not
+  measured.** Kiln's usage of a run holds the run's own model calls, not
+  the sub-agent's. So a run config whose drives call a sub-agent has no
+  cost and no latency in any comparison, and a train result row of such a
+  run shows none (`usage_note`). An arm with a sub-agent cannot win on
+  cost or on speed. Its record gives the usage of the sub-agent's own
+  runs, for information.
 - Code checks that the lever was applied: a new sub-agent that no timed
   drive calls ends the arm as `lever not applied`.
 - The gateway does not show the sub-agent's own trace. The subject's trace
   shows the arguments of the call and the returned text.
-- Two calls in one turn run at the same time. The loop sums their
-  latencies, so the number can be above the wall-clock time.
 - The sub-agent's task and its tool stay in the project when the arm is
   not promoted. The run archives a tool that no run config attaches.
 - When the parent's output mode sends the schema as a tool

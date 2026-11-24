@@ -216,15 +216,18 @@ its tool in a drive's trace. A sub-agent that the agent calls on few
 requests can have no call in the first drives, and the arm then ends as
 "lever not applied".
 
-**The cost of a sub-agent's calls is counted on some drives only.** Kiln's
-usage numbers of a run do not include the calls of a sub-agent (a Kiln task
-that the agent calls as a tool). The loop adds them on the drives it makes
-through the run endpoint, and it times every experiment that adds or
-removes a sub-agent on such drives. Three numbers still leave them out:
-the latency and cost read from stored eval runs, the spend of eval jobs
-(so the budget and a spending cap do not count them), and every drive of a
-multi-turn or OpenEnv task. The report's `## Sub-agents` section says so
-when a run created a sub-agent.
+**The cost and the latency of a sub-agent's calls are not measured.**
+Kiln's usage numbers of a run do not include the calls of a sub-agent (a
+Kiln task that the agent calls as a tool). The fix is being made in Kiln,
+and the loop does not add the numbers itself. Until the loop can tell that
+your Kiln has the fix, it treats the cost and the latency of a run config
+that calls a sub-agent as not measured. Such a run config cannot win under
+`--objective cost` or `--objective speed`, and when your baseline calls a
+sub-agent, no candidate can be compared with it on cost or on speed. Its
+record gives the usage of the sub-agent's own runs, for information. The
+spend of the run, and so the budget and a spending cap, leave the
+sub-agent's calls out. The report's `## Sub-agents` section says so when a
+run created a sub-agent.
 
 **The integrity checks are heuristics.** Quoting is blocked only as a run
 of 8 identical words, or an eval's full name. The gate checks the run

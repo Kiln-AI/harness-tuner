@@ -1999,6 +1999,7 @@ class TestSubAgents:
             "kiln_task::424242700009",
             "kiln_tool::call_kiln_api",
             "kiln_tool::memory::search",
+            "kiln_tool::openenv::424242700008::lookup",
         ],
     )
     def test_a_sub_agent_gets_no_sub_agent_and_no_way_into_kiln(self, tmp_path, tool):
@@ -2139,8 +2140,9 @@ class TestSubAgents:
         assert not [m for m, *_ in kiln.calls if m == "POST"]
 
     def test_a_drive_shows_the_sub_agent_calls_and_their_usage(self, tmp_path):
-        """Kiln's `usage` holds the run's own model calls. The answer adds
-        the usage of the sub-agent's run, and counts the calls."""
+        """Kiln's `usage` holds the run's own model calls. The answer counts
+        the sub-agent calls and gives the usage of the sub-agent's own run
+        beside it. It never adds the two: the fix for the sum is in Kiln."""
         rc = {
             "id": "rc1",
             "run_config_properties": {
@@ -2174,10 +2176,14 @@ class TestSubAgents:
         gateway, _ = _gateway(tmp_path, routes)
         out = _run(gateway, "run_task", run_config_id="rc1", item_id="tr1")
 
-        assert out["usage"]["cost"] == 0.03
-        assert out["usage"]["total_llm_latency_ms"] == 1000.0
+        # `usage` is what Kiln gave. The sub-agent's own run is beside it.
+        assert out["usage"]["cost"] == 0.01
+        assert out["usage"]["total_llm_latency_ms"] == 300.0
+        assert out["sub_agent_usage"]["cost"] == 0.02
+        assert out["sub_agent_usage"]["total_llm_latency_ms"] == 700.0
         assert out["sub_agent_calls"] == 2
-        assert "1 of 2 sub-agent call(s) have no usage record" in out["sub_agent_note"]
+        assert "1 of them have no usage record" in out["sub_agent_note"]
+        assert "it is not in `usage`" in out["sub_agent_note"]
         _clean(out)  # only the usage of the sub-agent's run is read
 
     def test_a_drive_with_no_sub_agent_call_says_so(self, tmp_path):
@@ -2197,3 +2203,68 @@ class TestSubAgents:
         gateway, _ = _gateway(tmp_path, routes)
         out = _run(gateway, "run_task", run_config_id="rc1", item_id="tr1")
         assert out["sub_agent_calls"] == 0 and out["sub_agent_note"] is None
+        assert out["sub_agent_usage"] is None
+
+    def test_a_train_result_that_calls_a_sub_agent_shows_no_cost(self, tmp_path):
+        """The row's usage is the run's own model calls, not the request's.
+        An agent that reads it would take a delegating arm for a cheap one."""
+        results = f"{BASE}/evals/e1/eval_config/ec1/run_config/rc1/results"
+        data = f"{PROJECT}:::{SUB_TOOL}:::{SUB_TASK}:::None"
+        calls = _eval_run("tr1", "er1", "fine")
+        calls["task_run_trace"] = json.dumps(
+            [{"role": "tool", "kiln_task_tool_data": data}]
+        )
+        plain = _eval_run("tr2", "er2", "fine")
+        routes = {
+            ("GET", f"{BASE}/evals/e1"): {"id": "e1", "current_config_id": "ec1"},
+            ("GET", results): {"results": [calls, plain]},
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _run(gateway, "get_train_results", eval_id="e1", run_config_id="rc1")
+        by_item = {r["item_id"]: r for r in out["rows"]}
+
+        assert by_item["tr1"]["task_cost_usd"] is None
+        assert by_item["tr1"]["latency_ms"] is None
+        assert "calls a sub-agent" in by_item["tr1"]["usage_note"]
+        assert by_item["tr2"]["task_cost_usd"] == 0.01
+        assert by_item["tr2"]["usage_note"] is None
+
+    def test_two_allowed_models_let_the_two_agents_differ(self, tmp_path):
+        """A policy with two models: the main agent on one, the sub-agent on
+        the other. A third model is refused for either."""
+        policy = ModelPolicy.from_json(
+            {
+                "allow": [
+                    {"provider": "openai", "model": "gpt-test"},
+                    {"provider": "groq", "model": "kimi"},
+                ]
+            }
+        )
+        routes = {
+            **_sub_agent_routes({}),
+            **_attached_sub_agent("groq"),
+            ("POST", f"{BASE}/run_configs"): lambda _q, body: {"id": "rc9", **body},
+        }
+        routes[("GET", f"{P}/tasks/{SUB_TASK}/run_configs")] = [
+            {
+                "id": SUB_RC,
+                "run_config_properties": {
+                    "model_name": "kimi",
+                    "model_provider_name": "groq",
+                },
+            }
+        ]
+        gateway, _ = _gateway(tmp_path, routes, policy=policy)
+        cheap = {**SUB_PROPS, "model_provider_name": "groq", "model_name": "kimi"}
+        made = _run(
+            gateway, "create_sub_agent", **_sub_agent_args(run_config_properties=cheap)
+        )
+        assert (made["model_provider_name"], made["model_name"]) == ("groq", "kimi")
+        assert SUB_TOOL in self._attach(gateway)["tools"]  # the main agent: openai
+        other = {**SUB_PROPS, "model_name": "gpt-other"}
+        with pytest.raises(gw.GatewayError, match="outside the model policy"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=other),
+            )

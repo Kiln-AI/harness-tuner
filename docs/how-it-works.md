@@ -223,9 +223,9 @@ Every candidate goes through one measurement engine, in chunks.
   and the baseline run the same item one after the other, in the same time
   window. So provider load affects both sides of a pair in the same way.
   Under `quality` any other experiment is not timed: its latency and cost
-  per request are read from its stored runs and shown on its record. Those
-  stored numbers leave out the calls of a sub-agent
-  ([limitations.md](limitations.md)).
+  per request are read from its stored runs and shown on its record. A run
+  config that calls a sub-agent has no latency and no cost number: they
+  are not measured ([limitations.md](limitations.md)).
 - **Judged items.** Then one eval job for each eval judges the chunk's items.
   The baseline's judgments are its stored rows. Code compares the two on the
   same items.

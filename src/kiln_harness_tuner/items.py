@@ -93,7 +93,10 @@ from kiln_harness_tuner.stop_rules import (
     merge_rules,
     noise_flip_rate,
 )
-from kiln_harness_tuner.sub_agents import sub_agent_tool_ids
+from kiln_harness_tuner.sub_agents import (
+    sub_agent_tool_ids,
+    usage_includes_sub_agents,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -667,12 +670,14 @@ async def _is_model_swap(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
     return any(parent.get(k) != child.get(k) for k in SWAP_KEYS)
 
 
-# What an untimed arm's record says when its run config attaches a
-# sub-agent: Kiln's usage holds the run's own model calls, and an eval job
-# keeps no record of the sub-agent's run.
-SUB_AGENT_PASSIVE_NOTE = (
-    "the latency and cost above come from stored eval runs, which leave out"
-    " the calls of the sub-agent tool(s) {tools}"
+# What an arm's record says when it has no paired timing and its run
+# config, or its parent's, attaches a sub-agent: Kiln's usage of a run holds
+# the run's own model calls, so no number here is the cost of a request.
+SUB_AGENT_NOT_MEASURED_NOTE = (
+    "latency and cost: not measured. A run config of this comparison attaches"
+    " the sub-agent tool(s) {tools}, and Kiln's usage of a run leaves a"
+    " sub-agent's calls out. No number here shows that this arm is cheaper"
+    " or faster"
 )
 
 
@@ -688,9 +693,10 @@ async def _sub_agent_tools(ctx: Ctx, rc_id: str) -> tuple[str, ...]:
 
 async def _changes_sub_agents(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
     """Does the arm attach, drop or replace a sub-agent against its parent?
-    Such an arm is timed: only a drive through the run endpoint records the
-    sub-agent's usage, and the lever check reads the drives' traces for a
-    call of the new tool."""
+    Such an arm gets timing drives under every objective: the lever check
+    reads their traces for a call of the new tool, before any judge is
+    paid for, and the usage of the sub-agent's own runs is read from them
+    for information."""
     parent = await _sub_agent_tools(ctx, parent_rc_id)
     child = await _sub_agent_tools(ctx, rc_id)
     return set(parent) != set(child)
@@ -913,16 +919,23 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
-    # An untimed arm reads its latency and cost off stored eval runs, and
-    # those leave a sub-agent's calls out. The analyzer and the record are
-    # told, so nobody reads a cheap delegating arm as a cheap arm.
+    # An arm with no paired timing has, at most, the passive numbers of
+    # stored eval runs, and those are withheld when a run calls a sub-agent
+    # (`Analyzer`). The analyzer and the record are told why, so nobody
+    # reads a delegating arm as a cheap arm.
     measurement_notes: list[str] = []
     timed = measurement.latency is not None or measurement.cost is not None
-    sub_tools = () if timed else await _sub_agent_tools(ctx, rc_id)
-    if sub_tools:
-        measurement_notes.append(
-            SUB_AGENT_PASSIVE_NOTE.format(tools=", ".join(sub_tools))
+    if not timed and not usage_includes_sub_agents():
+        sub_tools = dict.fromkeys(
+            [
+                *await _sub_agent_tools(ctx, rc_id),
+                *await _sub_agent_tools(ctx, parent_rc_id),
+            ]
         )
+        if sub_tools:
+            measurement_notes.append(
+                SUB_AGENT_NOT_MEASURED_NOTE.format(tools=", ".join(sub_tools))
+            )
 
     _set_state(ctx, item.id, "analyzing")
     await snapshot_memory(ctx, f"{item.id}-analysis-before")
@@ -1580,8 +1593,8 @@ async def _measure_arm(
     split, the objective's rules merged with the planner's for this arm.
     Timing drives run when speed or cost decide, when the arm is a
     model-level swap (its lever is checked on them), or when the arm adds,
-    drops or replaces a sub-agent (its lever is checked on them too, and
-    only they record the sub-agent's usage). Under quality any other
+    drops or replaces a sub-agent (its lever is checked on them too). Under
+    quality any other
     arm is not timed: no reference or parent re-drives. Its
     latency and cost stay visible from the stored eval runs (each row's
     passive `latency` and `cost`)."""
