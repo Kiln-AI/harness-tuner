@@ -37,7 +37,6 @@ from kiln_harness_tuner.schemas import (
     PerEvalResult,
     PromotionDecision,
     RcBuildResult,
-    StopRule,
     TieCheck,
     WinRef,
 )
@@ -345,8 +344,10 @@ class TestTheTrainSide:
         assert {"futility", "residual"} <= {r.kind for r in defaults}
         kept = tie.keep_arm_rules(defaults)
         assert {r.kind for r in kept} == {"invalid_output_rate", "eval_metric"}
-        # A rule that stops a worse arm is not a gain rule.
-        assert tie.keep_arm_rules([StopRule(kind="targets")])
+        # The planner's named items are not a gain rule: they stay.
+        named = default_stop_rules("quality", full=True, targets=True)
+        assert "targets" in {r.kind for r in tie.keep_arm_rules(named)}
+        assert "futility" not in {r.kind for r in tie.keep_arm_rules(named)}
 
     def test_no_gain_on_train_passes_the_tie_rule(self):
         verdict = tie.train_verdict(fix_item(), [_row()], 0.95)
@@ -390,6 +391,12 @@ LOSS_VAL = [0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]  # one broke
 GAIN_VAL = [1.0] * 8
 
 
+def _planned_item(item_id: str, technique_id: str | None, **kwargs):
+    item = fix_item(item_id, **kwargs)
+    item.work.technique_id = technique_id  # type: ignore[union-attr]
+    return item
+
+
 def _tie_ctx(
     tmp_path: Path,
     *,
@@ -400,12 +407,14 @@ def _tie_ctx(
     cand_cost: float = 0.001,
     gate_agent: str = "auto",
     project: Path | None = None,
+    planned: str | None = "same",
 ):
     """One wave under the quality objective: a fix arm whose build names
     `technique_id`, measured on train, then the val gate. `cand_val`: the
     candidate's val scores against `BASE_VAL` (None: its val fill fails).
     `train_gain`: the arm fixes the baseline's one train failure, or changes
-    nothing on train. The drives of the paired pass take `cand_ms` and cost
+    nothing on train. `planned`: the technique the plan names (default: the
+    one the build names). The drives of the paired pass take `cand_ms` and cost
     `cand_cost`, against 1000 ms and $0.001 for the baseline."""
     ctx = make_ctx(gate_agent=gate_agent)
     ctx.knowledge_base = _knowledge(tmp_path)
@@ -449,7 +458,11 @@ def _tie_ctx(
     d = ctx.dispatch
     d.queue(
         "batch_plan",
-        ok(make_plan(fix_item("w1-1"))),
+        ok(
+            make_plan(
+                _planned_item("w1-1", technique_id if planned == "same" else planned)
+            )
+        ),
         ok(make_plan(loop_exit="done")),
     )
     d.queue(
@@ -759,6 +772,125 @@ async def test_a_missed_prediction_does_not_hold_back_a_keep_arm(tmp_path):
     assert _events(ctx, "veto_overridden")
     assert _events(ctx, "gate_fills_planned")
     assert _promoted(ctx)
+
+
+@pytest.mark.parametrize(
+    ("planned", "why"),
+    [(None, "the plan named no technique"), ("t-move", "the plan named 't-move'")],
+)
+async def test_the_plan_and_the_build_must_name_the_same_technique(
+    tmp_path, planned, why
+):
+    ctx = _tie_ctx(tmp_path, planned=planned, train_gain=False)
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (named,) = _events(ctx, "technique_named")
+    assert named["stance"] is None and why in named["note"]
+    assert not _events(ctx, "gate_fills_planned")
+
+
+def test_the_agreed_stance_needs_both_ids(tmp_path):
+    base = _knowledge(tmp_path)
+    assert tie.agreed_stance(base, "t-keep", "t-keep", "prompt").keep
+    assert tie.agreed_stance(base, "t-keep", None, "prompt").stance is None
+    assert tie.agreed_stance(base, None, "t-keep", "prompt").stance is None
+    assert tie.agreed_stance(base, " t-keep ", "t-keep", "prompt").keep
+    long = "x" * 500
+    assert len(tie.agreed_stance(base, long, long, "prompt").technique_id) == 60
+
+
+async def test_a_keep_arm_that_is_worse_on_train_says_so(tmp_path):
+    ctx = _tie_ctx(tmp_path, train_gain=False)
+    _not_significant(ctx)
+    ctx.kiln.pending[("eval_1", "rc_cand", "train")] = [
+        make_run(f"train{n}", accuracy=v) for n, v in enumerate([0.0, 0.0] + [1.0] * 6)
+    ]
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (rule,) = _events(ctx, "success_rule")
+    assert not rule["rule_ok"]
+    assert rule["reasons"][0].startswith("not worse on train: no — ")
+    assert any(r.startswith("no gain either: ") for r in rule["reasons"])
+
+
+async def test_two_candidates_a_tie_wins_and_the_loser_keeps_its_own_reason(
+    tmp_path,
+):
+    """Two candidates go to the agent, which picks no winner. The `Keep it.`
+    candidate wins on a tie. The other one lost on its own numbers, so its
+    record gives that reason, not "passed over"."""
+    ctx = _tie_ctx(tmp_path, gate_agent="always")
+    kiln, d = ctx.kiln, ctx.dispatch
+    d.queues["batch_plan"].clear()
+    d.queues["create_experiment_rc"].clear()
+    d.queue(
+        "batch_plan",
+        ok(
+            make_plan(
+                _planned_item("w1-1", "t-keep"),
+                _planned_item("w1-2", "t-move", issue_memory_id="issue_2"),
+            )
+        ),
+        ok(make_plan(loop_exit="done")),
+    )
+    seed_issue(kiln, "issue_2")
+
+    def build(req):
+        mine = req.item.id == "w1-1"
+        return ok(
+            RcBuildResult(
+                rc_id="rc_cand" if mine else "rc_other",
+                build_notes="built",
+                technique_id="t-keep" if mine else "t-move",
+            )
+        )
+
+    d.queue("create_experiment_rc", build, build)
+    d.queue("analyze_experiment_results", ok(make_result()))
+    d.queue("promote_best", decision(None, "nothing beat the baseline"))
+    kiln.pending[("eval_1", "rc_other", "train")] = [
+        make_run(f"train{n}", accuracy=1.0) for n in range(8)
+    ]
+    kiln.pending[("eval_1", "rc_other", "val")] = [
+        make_run(f"v{n}", accuracy=v) for n, v in enumerate(TIE_VAL)
+    ]
+    kiln.run_configs.append(_rc("rc_other"))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert _promoted(ctx) and _final_decision(ctx).grounds == "design"
+    (recorded,) = _events(ctx, "rejection_recorded")
+    assert recorded["rc_id"] == "rc_other"
+    assert recorded["reason"] == "no gain"
+
+
+async def test_a_winner_code_refuses_gets_no_tie_step(tmp_path):
+    ctx = _tie_ctx(tmp_path, cand_val=None, gate_agent="always")
+    ctx.kiln.job_behaviors[("eval_1", "rc_cand", "val")] = ["fail", "fail"]
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9%"))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert not _promoted(ctx)
+    assert _events(ctx, "promotion_blocked")
+    assert not _events(ctx, "tie_check")
+
+
+def test_a_reused_run_config_keeps_the_stance_of_its_build():
+    from kiln_harness_tuner.items import _keep_arm
+
+    ctx = make_ctx()
+    built = RcBuildResult(rc_id="rc_old", build_notes="reused")
+    assert _keep_arm(ctx, fix_item(), built, reused=True) is None
+    ctx.tie_stances["rc_old"] = TechniqueStance("t-keep", "keep")
+    assert _keep_arm(ctx, fix_item(), built, reused=True).keep  # type: ignore[union-attr]
+    ctx.tie_promotions = 1
+    assert _keep_arm(ctx, fix_item(), built, reused=True) is None
+
+
+@pytest.mark.parametrize("objective", ["speed", "cost"])
+def test_no_keep_arm_under_speed_or_cost(objective):
+    from kiln_harness_tuner.items import _keep_arm
+
+    ctx = make_ctx()
+    ctx.objective = objective
+    ctx.tie_stances["rc_old"] = TechniqueStance("t-keep", "keep")
+    built = RcBuildResult(rc_id="rc_old", build_notes="reused")
+    assert _keep_arm(ctx, fix_item(), built, reused=True) is None
 
 
 # ---- what the tie step leaves alone ----

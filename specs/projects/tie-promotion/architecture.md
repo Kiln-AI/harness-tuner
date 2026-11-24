@@ -47,9 +47,11 @@ Constants:
 
 Functions:
 
+- `agreed_stance(base, planned_id, built_id, lever)`. No stance unless the
+  plan and the build name the same id; then `resolve_stance`.
 - `resolve_stance(base, technique_id, lever) -> TechniqueStance`. Reads the
   technique document from a loaded `KnowledgeBase`. The four conditions of
-  functional spec section 3. The phrase is matched with
+  functional spec section 3, rules 2 to 5. The phrase is matched with
   `knowledge.schema.EVAL_STANCES`, the tuple that the knowledge check uses,
   so the check and the gate cannot disagree.
 - `knowledge_of(ctx)`. Loads the knowledge skill of the installed package
@@ -80,6 +82,7 @@ import the orchestrator.
 
 | Model | Field | Set by |
 |---|---|---|
+| `FixWork` | `technique_id: str \| None` | The planner |
 | `RcBuildResult` | `technique_id: str \| None` | The builder |
 | `AnalysisInput` | `tie_rule: str \| None` | Code, for a keep arm |
 | `TieCheck` (new) | `technique_id`, `stance`, `note`, `not_worse`, `reasons` | Code |
@@ -96,7 +99,9 @@ write the two new fields. `_run_promotion_gate` sets them back to
 ## 4. The train side (`items.py`)
 
 - `_keep_arm(ctx, item, built, reused=...)` runs after the build review, on
-  the build that is measured. For a new build it calls `resolve_stance`,
+  the build that is measured. For a new build it calls `agreed_stance`
+  (the plan's `FixWork.technique_id` must equal the build's id, then
+  `resolve_stance`),
   stores the result in `ctx.tie_stances[rc_id]` and logs `technique_named`.
   For a reused run config it reads the stored stance. It returns the stance
   only for a keep arm (functional spec section 4).
@@ -175,7 +180,7 @@ input of the promotion gate, and agents help to write those documents.
 ## 8. Docs
 
 The passages that say "promoted only when held-out data confirms that it is
-better" change: README, `AGENTS.md`, `docs/how-it-works.md`,
+better" change: `AGENTS.md`, `docs/how-it-works.md`,
 `docs/concepts.md`, `docs/limitations.md` and `docs/architecture.md`.
 `docs/limitations.md` also gets the limits of the tie rule: what "not worse"
 cannot rule out, and the limit of one for each run.

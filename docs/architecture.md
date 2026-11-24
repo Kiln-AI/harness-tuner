@@ -855,8 +855,9 @@ successful on train.
    `promote_best`. `--gate-agent always` dispatches the agent every time.
    **Then the tie step — code** (`_settle_tie`,
    [`tie.py`](../src/kiln_harness_tuner/tie.py)). Under quality only, when
-   the decision has no winner and no `blocked_on`: a candidate whose build
-   named a technique document (`RcBuildResult.technique_id`) that says
+   the decision has no winner and no `blocked_on`: a candidate whose plan
+   and build named the same technique document (`FixWork.technique_id`,
+   `RcBuildResult.technique_id`) that says
    `Keep it.` in `If it does not move the evals` is tested for a tie. Code
    reads the document from the knowledge skill of the package; the
    document must be `active` and name the experiment's lever. The test:

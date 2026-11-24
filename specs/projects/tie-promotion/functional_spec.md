@@ -49,24 +49,32 @@ Out:
 ## 3. The technique of an experiment
 
 The `technique` field of an experiment names a lever (`prompt`,
-`tool_config`), not a technique document. So the builder names the document.
+`tool_config`), not a technique document. So two agents name the document,
+at two times:
 
-- `RcBuildResult` has a new field `technique_id`: the id of the technique
-  document of the knowledge skill that the build followed. The id is the
-  file name without `.md`. The value is `null` when the change is in no
-  document.
-- The builder already reads the technique that its item applies. Its skill
-  tells it to return that id, and to return `null` when it followed none.
+- `FixWork` has a new field `technique_id`: the id of the technique document
+  of the knowledge skill that the plan applies. The id is the file name
+  without `.md`. The planner sets it before any build or result exists. The
+  value is `null` when the idea is in no document.
+- `RcBuildResult` has a new field `technique_id`: the id of the document
+  that the build followed. The builder returns the id of the plan when it
+  built that technique, and another id or `null` when it did not.
 - Code reads the document from the knowledge skill of the installed
   package. No agent passes the phrase.
 
 Code gives a build a stance only when all of these are true:
 
-1. The id names a technique document, and the document parsed.
-2. The document has `status: active`.
-3. The `levers` of the document name the lever of the experiment. So a
-   build cannot name a technique that its change did not use.
-4. The section starts with one of the three phrases.
+1. The plan and the build name the same id.
+2. The id names a technique document, and the document parsed.
+3. The document has `status: active`.
+4. The `levers` of the document name the lever of the experiment.
+5. The section starts with one of the three phrases.
+
+Rule 1 means that one agent alone cannot choose a `Keep it.` technique
+after it sees what the change does. Rules 1 and 4 cannot prove that the
+change follows the technique: a build can still name the technique of its
+plan and make another change. The integrity checks and the val test are the
+checks after that.
 
 Any other case is "no stance", with the reason in the wave log (event
 `technique_named`).
@@ -184,8 +192,7 @@ For each of the two metrics, all of these must be true:
 3. Its median ratio (candidate / baseline, per item) is at most 1.03. This
    is the width that the speed gate uses for "equally fast".
 
-A task with no drivable val input (for example a multi-turn task) has no
-paired pass. Then cost and latency are not shown as not worse, and the
+A task with no drivable val input has no paired pass. Then cost and latency are not shown as not worse, and the
 candidate is not promoted on a tie.
 
 ## 6. When the test runs
@@ -208,8 +215,10 @@ pooled net, then the lowest cost ratio, then the lowest latency ratio, then
 the rc id. The others are passed over, as at any gate with a winner.
 
 A candidate that fails the test is recorded as the evidence step decided:
-it is stamped `— REJECTED AT VAL` with the reason of today (for example "no
-targeted gain"). A candidate with val holes is not judged, as today.
+it is stamped `— REJECTED AT VAL` with the reason of its own val table (for
+example "no targeted gain", or an eval that dropped). Only a candidate that
+also passed the tie test is "passed over". A candidate with val holes is
+not judged, as today.
 
 The code checks that apply to every promotion still apply
 (`_apply_checked`): the integrity checks ran, and nothing blocked the
@@ -334,6 +343,7 @@ owners, and an entry in the backlog.
 | Case | Result |
 |---|---|
 | The builder names a document that does not exist | No stance; `technique_named` gives the reason |
+| The plan and the build name different documents, or the plan names none | No stance |
 | The builder names a `Keep it.` document for another lever | No stance |
 | A keep arm improves its target on train | It passes the gain rule, as today |
 | A keep arm shows a proven gain on val | Promoted on evidence, `grounds: evidence` |

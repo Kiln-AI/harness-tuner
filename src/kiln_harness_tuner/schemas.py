@@ -191,6 +191,12 @@ class FixWork(BaseModel):
     predicted_effect: str
     needs_eval: bool
     eval_id: str | None = None  # required when needs_eval=False
+    # The technique document of the knowledge skill that the plan applies
+    #   (its file name without `.md`), or None when the idea is in no
+    #   document. The build must name the same one
+    #   (`RcBuildResult.technique_id`): code reads its phrase in `If it does
+    #   not move the evals` only when the two agree (`kiln_harness_tuner.tie`).
+    technique_id: str | None = None
     cohesion_notes: str | None = None
     head_to_head_group: str | None = None
     parent_rc_id: str | None = None  # escape hatch; absent = batch_baseline

@@ -816,10 +816,11 @@ Per experiment item:
   `promotion_candidate: true` goes through the same promotion measurement.
   **A design change with no gain** (under `quality`): when the technique of
   a fix item says `Keep it.` in "If it does not move the evals" (a smaller
-  tool list, a pruned group), set `promotion_candidate: true` and predict
-  "no eval moves" if that is what you expect. Its build names the
-  technique; code then holds the arm to "not worse" on train instead of a
-  gain, and the val gate can promote it on a tie. A run makes at most one
+  tool list, a pruned group), set `promotion_candidate: true`, set
+  **`technique_id`** in `work` to the technique's id (its file name without
+  `.md`), and predict "no eval moves" if that is what you expect. When the
+  build names the same technique, code holds the arm to "not worse" on
+  train instead of a gain, and the val gate can promote it on a tie. A run makes at most one
   such promotion; after it, the arm needs a gain again. `It must move an
   eval.`, `It depends.`, a merge and an idea in no document always need a
   gain.

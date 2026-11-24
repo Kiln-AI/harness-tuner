@@ -195,7 +195,9 @@ of up to 30 items, with a median ratio of at most 1.03. On about 150 items
 this cannot rule out a loss of a few points on one eval that a gain on
 another eval pays for. So a run makes at most one such promotion, and the
 report marks it "on design grounds". A task with no drivable val input
-(multi-turn) has no paired pass, so it is never promoted on a tie. Only a
+has no paired pass, so it is never promoted on a tie. The planner names the
+technique before the build, and the build must name the same one; that
+does not prove that the change follows the technique. Only a
 fix arm can be: a merge, an idea in no technique document, and a technique
 that says `It depends.` need a gain.
 

@@ -27,6 +27,7 @@ from kiln_harness_tuner import tie
 from kiln_harness_tuner.analysis import (
     AnalysisError,
     MeasurementFailed,
+    SuccessVerdict,
     expand_targets,
     pairable_item_count,
     partial_measurement_error,
@@ -957,6 +958,14 @@ async def _execute_plan_item(
         )
         if tie_verdict.ok:
             verdict, on_tie = tie_verdict, True
+        else:
+            # The arm was held to "not worse", not to a gain: its record
+            # gives the reasons of that rule first.
+            verdict = SuccessVerdict(
+                False,
+                [f"not worse on train: no — {r}" for r in tie_verdict.reasons]
+                + [f"no gain either: {r}" for r in verdict.reasons],
+            )
     ctx.log.event(
         "success_rule",
         item_id=item.id,
@@ -1564,11 +1573,11 @@ def measurement_summary(m: Measured) -> MeasurementSummary:
 def _keep_arm(
     ctx: Ctx, item: ExperimentItem, built: RcBuildResult, *, reused: bool
 ) -> tie.TechniqueStance | None:
-    """The stance of the technique that this build named, when it makes the
-    arm a candidate for a promotion on a tie: the quality objective, a fix
-    item that is a promotion candidate, a technique whose document says
-    "Keep it.", and a run that has not used its tie promotions. Else None,
-    and the arm is held to a gain as before.
+    """The stance of the technique that the plan and the build both named,
+    when it makes the arm a candidate for a promotion on a tie: the quality
+    objective, a fix item that is a promotion candidate, a technique whose
+    document says "Keep it.", and a run that has not used its tie
+    promotions. Else None, and the arm is held to a gain as before.
 
     Code keeps the stance by run config id (`ctx.tie_stances`), for the gate.
     A reused run config has no build session: it keeps the stance that its
@@ -1581,8 +1590,11 @@ def _keep_arm(
     if reused:
         stance = stances.get(built.rc_id)
     else:
-        stance = tie.resolve_stance(
-            tie.knowledge_of(ctx), built.technique_id, item.work.technique
+        stance = tie.agreed_stance(
+            tie.knowledge_of(ctx),
+            item.work.technique_id,
+            built.technique_id,
+            item.work.technique,
         )
         stances[built.rc_id] = stance
         ctx.log.event(

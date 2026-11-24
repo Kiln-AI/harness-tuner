@@ -112,7 +112,7 @@ def resolve_stance(
     an idea that is in no document."""
     if not technique_id:
         return TechniqueStance(None, None, "the build named no technique document")
-    name = technique_id.strip()
+    name = technique_id.strip()[:MAX_TECHNIQUE_ID_CHARS]
     if base is None:
         return TechniqueStance(name, None, "the knowledge skill could not be read")
     doc = base.get("techniques", name)
@@ -153,6 +153,35 @@ def knowledge_of(ctx: Any) -> KnowledgeBase | None:
         base = None
     ctx.knowledge_base = base if base is not None else False
     return base
+
+
+# The longest technique id that code keeps: a document id has at most 60
+# characters (`knowledge.schema.MAX_ID_CHARS`).
+MAX_TECHNIQUE_ID_CHARS = 60
+
+
+def agreed_stance(
+    base: KnowledgeBase | None,
+    planned_id: str | None,
+    built_id: str | None,
+    lever: str | None,
+) -> TechniqueStance:
+    """The stance of the technique that the plan named before the build
+    (`FixWork.technique_id`), when the build names the same one
+    (`RcBuildResult.technique_id`). Two agents name it at two times, and the
+    planner names it before any result exists. When they disagree, or one of
+    them names none, the arm has no stance."""
+    planned = (planned_id or "").strip()[:MAX_TECHNIQUE_ID_CHARS] or None
+    built = (built_id or "").strip()[:MAX_TECHNIQUE_ID_CHARS] or None
+    if planned is None:
+        return TechniqueStance(built, None, "the plan named no technique document")
+    if built != planned:
+        return TechniqueStance(
+            planned,
+            None,
+            f"the plan named {planned!r} and the build named {built!r}",
+        )
+    return resolve_stance(base, planned, lever)
 
 
 # ---- the noise that the run measured ----
@@ -371,11 +400,12 @@ def tie_rule_text(technique_id: str) -> str:
         f"This arm follows the technique `{technique_id}`, whose document says"
         " 'Keep it.' when the change does not move the evals. So the arm need"
         " not improve its target. `successful` is true when the arm is NOT"
-        " WORSE on train: every targeted score was measured at the coverage"
-        " floor; no score is down significantly; no score lost more net items"
-        " than the noise that the run measured on it (zero when the run"
-        " measured none); and the net items pooled over every score are at"
-        " least zero. Code applies this rule too, and `successful` is your"
+        " WORSE on train: the primary target was measured; every measured"
+        " score is at the coverage floor; no score is down significantly; no"
+        " score lost more net items than the noise that the run measured on"
+        " it (zero when the run measured none, and never more than a tenth of"
+        " its items); and the net items pooled over every score are at least"
+        " zero. Code applies this rule too, and `successful` is your"
         " answer AND the rule. Do not veto the arm because it shows no gain."
         " Veto it for any other reason that you would veto an arm for, and"
         " give the `veto_reason`. A gain is still a gain: report it as usual."

@@ -155,13 +155,14 @@ going looking.
    other likely fixes, anything the numbers alone will not explain.
 7. Return **`technique_id`**: the id of the technique document of the
    `kiln-harness-tuner-knowledge` skill that this build follows (its file
-   name without `.md`, for example "remove-or-scope-tools"). Return `null`
-   when the change follows no technique document, and for a merge. Name
-   only the technique whose change you made, and one that is for the
-   item's lever (`technique` in the item): code reads that document's
-   "If it does not move the evals", and its `Keep it.` lets a candidate
-   with no gain be promoted when val shows no loss. Code refuses a
-   document whose levers do not include the item's lever.
+   name without `.md`, for example "remove-or-scope-tools"). When the item
+   names one (`work.technique_id`) and you built that technique, return the
+   same id. When you built something else, return the id of what you built,
+   or `null` when the change follows no technique document, and for a
+   merge. Never return the item's id for a change that does not follow it:
+   code reads that document's "If it does not move the evals" only when
+   the item and the build name the same id, and its `Keep it.` lets a
+   candidate with no gain be promoted when val shows no loss.
 
 ## Train labels, and what you may not copy from them
 

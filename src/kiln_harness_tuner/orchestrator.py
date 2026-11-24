@@ -3635,12 +3635,20 @@ def _rejection_reason(
     """The reason on a candidate's rejection line. Callers pass a decision
     with a winner only after the winner was applied, so the candidates
     left were passed over for it. With no winner, the candidate's own val
-    table gives the reason (`val_rejection_reason`)."""
-    if decision.winner_rc_id is not None:
+    table gives the reason (`val_rejection_reason`).
+
+    A winner on a tie (`grounds == "design"`) won only after the evidence
+    step had chosen no winner. So a candidate that was not also "not worse"
+    lost on its own numbers: its table gives the reason, as with no
+    winner. Only a candidate that also passed the tie test was passed over."""
+    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
+    passed_tie = table is not None and table.tie is not None and table.tie.not_worse
+    if decision.winner_rc_id is not None and (
+        decision.grounds != "design" or passed_tie
+    ):
         return ValRejection(
             ValRejectionKind.PASSED_OVER, promoted_rc_id=decision.winner_rc_id
         )
-    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
     return val_rejection_reason(
         table,
         _target_eval_ids(candidate),
