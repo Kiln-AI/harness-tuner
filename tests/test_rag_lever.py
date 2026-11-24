@@ -989,9 +989,15 @@ class TestTheFixesOfTheReview:
         assert extractor["allowed"] is False
         assert "extractor model gemini_api/gemini-2.5-flash" in extractor["note"]
 
-    def test_an_unreadable_run_config_fails_the_arm_as_infra(self, tmp_path):
-        ctx, kiln = _loop_ctx(tmp_path, {}, [], [])
-        kiln.run_configs = [{"id": "rc_base", "run_config_properties": {}}]
+    def test_an_unreadable_listing_fails_the_arm_as_infra(self, tmp_path, monkeypatch):
+        ctx, _kiln = _loop_ctx(tmp_path, {}, [], [])
+
+        async def failing(_ctx):
+            raise gw.KilnError("down")
+
+        import kiln_harness_tuner.probes as probes
+
+        monkeypatch.setattr(probes, "task_run_configs", failing)
         outcome = _check(ctx, _rag_item())
         assert outcome.status == "failed_infra"
         assert outcome.infra_error.error_class == "provider_error"

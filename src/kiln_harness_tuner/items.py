@@ -1123,18 +1123,26 @@ async def _check_rag(
     - No new RAG tool, and the item names another lever: None.
 
     The check runs for every lever, so an arm that attaches an existing
-    RAG tool under `tool_config` is held to the same rule. Run configs that
-    cannot be read are logged, and the item goes on."""
+    RAG tool under `tool_config` is held to the same rule. When Kiln cannot
+    list the run configs or read a RAG config, the item fails as infra:
+    the check fails closed. A parent that the listing does not hold counts
+    as one with no RAG tool."""
     from kiln_harness_tuner.probes import task_run_configs
 
     try:
         rows = {str(r.get("id")): r for r in await task_run_configs(ctx)}
-        parent = rows[parent_rc_id].get("run_config_properties")
-        child = rows[rc_id].get("run_config_properties")
-    except Exception as exc:
+    except KilnError as exc:
         # Fail closed: an arm whose RAG tools cannot be read could search
         # a document that holds an eval item.
         return await _rag_unchecked(ctx, item, exp_mem, rc_id, exc)
+    if rc_id not in rows:
+        # A run config the listing does not hold cannot be measured either:
+        # the measurement reports it.
+        ctx.log.event("rag_check_unavailable", rc_id=rc_id, error="not listed")
+        return None
+    parent_row = rows.get(parent_rc_id) or {}
+    parent = parent_row.get("run_config_properties")
+    child = rows[rc_id].get("run_config_properties")
     added = rag_lever.added_tools(parent, child)
     if not added:
         if not _names_rag_lever(item):
