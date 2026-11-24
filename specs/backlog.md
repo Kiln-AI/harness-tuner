@@ -362,6 +362,24 @@ Order: the same prompt, a new baseline, fix only what got worse, then remove old
 
 Order: stable failures, items that flip, stable passes, and the spread of cost and latency.
 
+### Playbook: the order of work for a support agent
+
+- Kind: playbook
+- Where: knowledge
+- Depends on: None
+- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
+
+Order: the plan of a run for an agent that answers customers.
+
+### Playbook: the order of work for an analyst over data
+
+- Kind: playbook
+- Where: knowledge
+- Depends on: None
+- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
+
+Order: the plan of a run for an agent that queries data and reports on it.
+
 ### Playbook: a rule ignored in place, followed from a tool result
 
 - Kind: playbook
