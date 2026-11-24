@@ -36,9 +36,11 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import ValidationError
 
 from kiln_harness_tuner.memory_schema import (
+    CONTENT_MAX_CHARS,
     OPEN_UNKNOWN_PREFIX,
     MemoryRecord,
     canonical_question,
+    clamp,
     kv_lines,
     one_line,
     question_key,
@@ -147,8 +149,18 @@ def owner_record_content(decision: OwnerDecision) -> str:
         ]
     if question.smell:
         pairs.append(("smell", question.smell))
-    pairs.append(("record", question.model_dump_json()))
-    return render_kv(pairs)
+    record = render_kv([("record", question.model_dump_json())])
+    # The `record` line is what code reads back, so it is kept whole: the
+    # lines for a reader are cut to fit the memory content cap around it.
+    budget = CONTENT_MAX_CHARS - len(record) - 1
+    for key in ("gates", "default", "answer"):
+        over = len(render_kv(pairs)) - budget
+        if over <= 0:
+            break
+        pairs = [
+            (k, clamp(v, max(len(v) - over, 1)) if k == key else v) for k, v in pairs
+        ]
+    return f"{render_kv(pairs)}\n{record}"
 
 
 def owner_decision_from_record(record: MemoryRecord) -> OwnerDecision | None:

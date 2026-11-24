@@ -11,7 +11,7 @@ from fake_dispatcher import ok
 from pydantic import ValidationError
 from test_baseline_review import finding, reviewing_ctx
 
-from kiln_harness_tuner.memory_schema import MemoryRecord
+from kiln_harness_tuner.memory_schema import CONTENT_MAX_CHARS, MemoryRecord
 from kiln_harness_tuner.orchestrator import orchestrate
 from kiln_harness_tuner.owner_questions import (
     AFTER_WAVE_1,
@@ -131,6 +131,19 @@ def test_a_review_result_with_no_questions_still_validates():
     assert BaselineReviewResult.model_validate({}).owner_questions == []
 
 
+def test_a_bad_question_is_dropped_and_the_review_is_kept():
+    good = question().model_dump()
+    bad = {**good, "options": [{"label": "Only one"}]}
+    result = BaselineReviewResult.model_validate(
+        {
+            "findings": [finding("conflicting-requirements").model_dump()],
+            "owner_questions": [bad, good, "not a question"],
+        }
+    )
+    assert [q.question for q in result.owner_questions] == [good["question"]]
+    assert len(result.findings) == 1
+
+
 # ---- the memory record ----
 
 
@@ -191,6 +204,27 @@ def test_an_answer_edited_in_kiln_is_read():
     )
     record.overview = "Which rule about refunds wins?"
     assert owner_decision_from_record(record).status == "open"
+
+
+def test_the_longest_record_fits_the_cap_and_reads_back():
+    longest = OwnerQuestion(
+        question="Q" * 300,
+        why='"' * 400,
+        smell="conflicting-requirements",
+        options=[OwnerOption(label=f"{i}" * 80, effect='"' * 240) for i in range(4)],
+    )
+    decision = OwnerDecision(
+        question=longest,
+        status="answered",
+        answer="A" * 500,
+        answer_kind="other",
+        answered_on="2026-07-22",
+    )
+    content = owner_record_content(decision)
+    assert len(content) <= CONTENT_MAX_CHARS
+    back = owner_decision_from_record(record_of(decision))
+    assert back is not None and back.question == longest
+    assert back.status == "answered"
 
 
 def test_a_record_with_no_question_json_is_not_an_owner_question():

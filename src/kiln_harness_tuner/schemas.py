@@ -11,7 +11,14 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 T = TypeVar("T")
 
@@ -1929,8 +1936,22 @@ class BaselineReviewResult(BaseModel):
     detection_checks: list[DetectionCheck] = []
     notes: str = ""  # a design issue that fits no smell, in a few lines
     # What only the owner can decide, each from a finding. Code keeps at
-    #   most `owner_questions.OWNER_QUESTIONS_MAX`.
+    #   most `owner_questions.OWNER_QUESTIONS_MAX`. A question that does not
+    #   validate is left out, so one bad question does not lose the review.
     owner_questions: list[OwnerQuestion] = []
+
+    @field_validator("owner_questions", mode="before")
+    @classmethod
+    def _keep_valid_questions(cls, raw: Any) -> Any:
+        if not isinstance(raw, list):
+            return raw
+        kept = []
+        for item in raw:
+            try:
+                kept.append(OwnerQuestion.model_validate(item))
+            except ValidationError:
+                continue
+        return kept
 
 
 class BaselineReview(BaseModel):

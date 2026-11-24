@@ -1884,8 +1884,8 @@ class MemoryWriter:
         return self._iso_date()
 
     async def owner_decisions(self) -> list[OwnerDecision]:
-        """The owner questions that memory holds for this task, oldest
-        first, each with its answer or `open`
+        """The owner questions that memory holds for this task, in the
+        order of the listing, each with its answer or `open`
         (`kiln_harness_tuner.owner_questions`). They are task-scope
         `constraint` records with the tag `owner_question`. One decision
         for each question: the first record wins. A record that cannot be
