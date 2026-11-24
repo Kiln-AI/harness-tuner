@@ -601,6 +601,173 @@ class TestMemory:
         assert out["id"] == "m9"
 
 
+def _mode_routes(
+    *, default=None, schema=True, parent=None, model="gemini_3_8_flash"
+) -> dict:
+    """What `create_run_config` reads for its output-mode check: Kiln's
+    default mode for the pair, the task, and the task's run configs."""
+    row = {"id": model, **({"structured_output_mode": default} if default else {})}
+    task = {
+        "id": TASK,
+        **({"output_json_schema": '{"type": "object"}'} if schema else {}),
+    }
+    return {
+        ("GET", "/api/available_models"): [
+            {"provider_id": "gemini_api", "models": [row]}
+        ],
+        ("GET", BASE): task,
+        ("GET", f"{BASE}/run_configs"): [parent] if parent else [],
+    }
+
+
+class TestTheOutputModeOfANewRunConfig:
+    """`create_run_config` and `kiln_harness_tuner.output_modes`."""
+
+    PROPS = {
+        "type": "kiln_agent",
+        "model_provider_name": "gemini_api",
+        "model_name": "gemini_3_8_flash",
+    }
+    PARENT = {
+        "id": "424242100003",
+        "run_config_properties": {
+            "type": "kiln_agent",
+            "model_provider_name": "openai",
+            "model_name": "gpt",
+            "structured_output_mode": "json_schema",
+        },
+    }
+    TOOLS = {"tools_config": {"tools": ["kiln_tool::code::424242300001"]}}
+
+    def _create(self, tmp_path, props, routes, **fields):
+        sent: dict = {}
+
+        def create(_query, body):
+            sent.update(body)
+            return {"id": "424242600021", **body}
+
+        gateway, kiln = _gateway(
+            tmp_path, {**routes, ("POST", f"{BASE}/run_configs"): create}
+        )
+        out = _run(
+            gateway,
+            "create_run_config",
+            name="n",
+            run_config_properties=props,
+            **fields,
+        )
+        return out, sent
+
+    def test_a_named_mode_is_sent_as_it_is(self, tmp_path):
+        props = {**self.PROPS, "structured_output_mode": "json_mode"}
+        out, sent = self._create(tmp_path, props, _mode_routes(default="json_schema"))
+        assert sent["run_config_properties"]["structured_output_mode"] == "json_mode"
+        assert out["structured_output_mode"] == "json_mode"
+        # No parent is named, so nothing says that this is a swap.
+        assert out["notes"] == []
+
+    def test_a_mode_left_out_is_the_default_of_the_pair(self, tmp_path):
+        out, sent = self._create(
+            tmp_path, dict(self.PROPS), _mode_routes(default="json_instructions")
+        )
+        assert sent["run_config_properties"]["structured_output_mode"] == (
+            "json_instructions"
+        )
+        (note,) = out["notes"]
+        assert note == (
+            "structured_output_mode was not given: set to json_instructions"
+            " (Kiln's default for the pair)."
+        )
+
+    def test_a_mode_left_out_on_a_swap_with_tools_avoids_a_tool_mode(self, tmp_path):
+        props = {**self.PROPS, **self.TOOLS}
+        out, sent = self._create(
+            tmp_path,
+            props,
+            _mode_routes(default="function_calling", parent=self.PARENT),
+            provenance={"derived_from_ids": [self.PARENT["id"]]},
+        )
+        assert sent["run_config_properties"]["structured_output_mode"] == (
+            "json_instruction_and_object"
+        )
+        assert "sends the schema as a tool" in out["notes"][0]
+
+    def test_a_mode_left_out_with_the_parents_model_is_the_parents_mode(self, tmp_path):
+        """Not a swap: the parent's mode was chosen for this pair."""
+        parent = json.loads(json.dumps(self.PARENT))
+        parent["run_config_properties"].update(
+            model_provider_name="gemini_api",
+            model_name="gemini_3_8_flash",
+            structured_output_mode="json_instructions",
+        )
+        out, sent = self._create(
+            tmp_path,
+            dict(self.PROPS),
+            _mode_routes(default="json_schema", parent=parent),
+            provenance={"derived_from_ids": [parent["id"]]},
+        )
+        assert sent["run_config_properties"]["structured_output_mode"] == (
+            "json_instructions"
+        )
+        assert "the parent's mode" in out["notes"][0]
+
+    def test_a_mode_left_out_with_no_default_is_refused(self, tmp_path):
+        with pytest.raises(gw.GatewayError, match="names no structured_output_mode"):
+            self._create(tmp_path, dict(self.PROPS), _mode_routes())
+
+    def test_a_value_that_is_not_a_mode_is_refused(self, tmp_path):
+        props = {**self.PROPS, "structured_output_mode": "json"}
+        with pytest.raises(gw.GatewayError, match="not a mode of Kiln"):
+            self._create(tmp_path, props, _mode_routes())
+
+    @pytest.mark.parametrize("mode", ["function_calling", "function_calling_weak"])
+    def test_a_tool_mode_on_a_run_config_with_tools_is_refused(self, tmp_path, mode):
+        props = {**self.PROPS, **self.TOOLS, "structured_output_mode": mode}
+        with pytest.raises(gw.GatewayError, match="sends the output schema as a tool"):
+            self._create(tmp_path, props, _mode_routes())
+        # A task with no output schema does not use the mode: no refusal.
+        out, _sent = self._create(tmp_path, props, _mode_routes(schema=False))
+        assert out["structured_output_mode"] == mode
+
+    def test_a_swap_that_keeps_the_parents_mode_gets_a_note(self, tmp_path):
+        props = {**self.PROPS, "structured_output_mode": "json_schema"}
+        out, sent = self._create(
+            tmp_path,
+            props,
+            _mode_routes(default="json_instructions", parent=self.PARENT),
+            provenance={"derived_from_ids": [self.PARENT["id"]]},
+        )
+        # The run config is made as it was asked for: the mode can be the
+        # subject of the experiment.
+        assert sent["run_config_properties"]["structured_output_mode"] == "json_schema"
+        (note,) = out["notes"]
+        assert "keeps the parent's structured_output_mode, json_schema" in note
+        assert "The mode of the new pair is json_instructions" in note
+
+    def test_a_swap_with_the_mode_of_the_new_pair_gets_no_note(self, tmp_path):
+        props = {**self.PROPS, "structured_output_mode": "json_instructions"}
+        out, _sent = self._create(
+            tmp_path,
+            props,
+            _mode_routes(default="json_instructions", parent=self.PARENT),
+            provenance={"derived_from_ids": [self.PARENT["id"]]},
+        )
+        assert out["notes"] == []
+
+    def test_a_read_that_fails_does_not_stop_the_create(self, tmp_path):
+        """The model list, the task and the run configs are help, not a gate."""
+
+        def down(_query, _body):
+            raise KilnError("server busy")
+
+        routes = {key: down for key in _mode_routes()}
+        props = {**self.PROPS, **self.TOOLS, "structured_output_mode": "json_schema"}
+        out, _sent = self._create(
+            tmp_path, props, routes, provenance={"derived_from_ids": ["x"]}
+        )
+        assert out["id"] == "424242600021" and out["notes"] == []
+
+
 class TestWrites:
     def test_a_run_config_outside_the_policy_is_refused(self, tmp_path):
         policy = ModelPolicy.from_json(
@@ -634,12 +801,15 @@ class TestWrites:
             return {"id": "424242600020", **body}
 
         gateway, _ = _gateway(
-            tmp_path, {("POST", f"{BASE}/run_configs"): create}, policy=policy
+            tmp_path,
+            {**_mode_routes(), ("POST", f"{BASE}/run_configs"): create},
+            policy=policy,
         )
         props = {
             "type": "kiln_agent",
             "model_provider_name": "gemini_api",
             "model_name": "gemini_3_8_flash",
+            "structured_output_mode": "json_schema",
         }
         _run(
             gateway,

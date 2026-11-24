@@ -34,6 +34,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from kiln_harness_tuner import output_modes
 from kiln_harness_tuner.gateway import model_info
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
@@ -1115,12 +1116,92 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
-    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
-        self._policy_check(req.run_config_properties)
-        row = await self.call(
-            "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
+    async def _read(self, path: str) -> Any:
+        """A GET whose failure must not stop a write: None then."""
+        try:
+            return await self.call("GET", path)
+        except (KilnError, GatewayError):
+            return None
+
+    async def _output_mode_check(
+        self, props: dict[str, Any], provenance: dict[str, Any] | None
+    ) -> list[str]:
+        """The output-mode rules of a new run config
+        (`kiln_harness_tuner.output_modes`). Sets `structured_output_mode` on
+        `props` when it is not given, refuses a mode that cannot run, and
+        returns the notes for the answer. The parent is the first run config
+        that `provenance.derived_from_ids` names."""
+        provider, model = props.get("model_provider_name"), props.get("model_name")
+        default = output_modes.server_default(
+            await self._read("/api/available_models"), provider, model
         )
-        return _rc_view(row if isinstance(row, dict) else {})
+        parent: dict[str, Any] | None = None
+        ids = (provenance or {}).get("derived_from_ids")
+        wanted = {str(i) for i in ids} if isinstance(ids, list) else set()
+        if wanted:
+            for row in _rows(await self._read(f"{self.s.base}/run_configs")):
+                if str(row.get("id")) in wanted and isinstance(
+                    row.get("run_config_properties"), dict
+                ):
+                    parent = row["run_config_properties"]
+                    break
+        swapped = parent is not None and any(
+            props.get(k) != parent.get(k) for k in output_modes.PAIR_KEYS
+        )
+        tools = bool(output_modes.attached_tools(props))
+        choice = output_modes.swap_mode(
+            output_modes.mode_of(parent), default, provider=provider, tools=tools
+        )
+        notes: list[str] = []
+        mode = output_modes.mode_of(props)
+        if mode is None:
+            if parent is not None and not swapped and output_modes.mode_of(parent):
+                choice = output_modes.ModeChoice(
+                    output_modes.mode_of(parent),
+                    "the parent's mode: the model and the provider are the parent's",
+                )
+            if choice.mode is None:
+                raise GatewayError(
+                    "run_config_properties names no structured_output_mode, and"
+                    f" Kiln's model list gives no default for {model} on"
+                    f" {provider}. Name one: " + ", ".join(output_modes.MODES) + "."
+                )
+            mode = props["structured_output_mode"] = choice.mode
+            notes.append(
+                f"structured_output_mode was not given: set to {mode} ({choice.why})."
+            )
+        task = await self._read(self.s.base)
+        refused = output_modes.refusal(
+            props,
+            structured=bool(task.get("output_json_schema"))
+            if isinstance(task, dict)
+            else None,
+            default=default,
+        )
+        if refused is not None:
+            raise GatewayError(refused)
+        kept = swapped and mode == output_modes.mode_of(parent)
+        if kept and choice.mode and choice.mode != mode:
+            notes.append(
+                "This run config changes the model or the provider of its"
+                f" parent and keeps the parent's structured_output_mode, {mode}."
+                f" The mode of the new pair is {choice.mode} ({choice.why})."
+                f" Keep {mode} only when the experiment tests the output mode."
+                " Else make the run config again, with structured_output_mode"
+                " left out."
+            )
+        return notes
+
+    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
+        props = dict(req.run_config_properties)
+        self._policy_check(props)
+        notes = await self._output_mode_check(props, req.provenance)
+        body = req.model_dump(exclude_none=True)
+        body["run_config_properties"] = props
+        row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
+        view = _rc_view(row if isinstance(row, dict) else {})
+        view.notes = notes
+        return view
 
     async def rename_run_config(self, req: m.RunConfigRename) -> m.RunConfigView:
         body = req.model_dump(exclude_none=True, exclude={"id"})
@@ -1546,7 +1627,7 @@ OPS = _ops(
     (
         "create_run_config",
         m.RunConfigCreate,
-        "A new run config (model policy checked).",
+        "A new run config (model policy and output mode checked).",
     ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),

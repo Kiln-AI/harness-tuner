@@ -113,7 +113,100 @@ class TestTheRule:
         assert lever_evidence({"usage": {"output_tokens": 12}})["output_tokens"] == 12
 
 
+class TestTheOutputMode:
+    """The mode is checked when it differs from the parent's
+    (`output_modes.mode_signal` gives the signal)."""
+
+    PARENT = {"structured_output_mode": "json_schema"}
+
+    def test_the_same_mode_as_the_parent_is_not_checked(self):
+        v = lever_verdict(self.PARENT, _ev(2, mode_recorded="json_mode"), self.PARENT)
+        assert v.status == "applied" and v.mode is None
+        # No parent: nothing was declared.
+        assert lever_verdict(self.PARENT, _ev(2)).mode is None
+
+    def test_a_mark_in_the_trace_is_applied(self):
+        props = {"structured_output_mode": "function_calling"}
+        v = lever_verdict(props, _ev(3, response_tool=True), self.PARENT)
+        assert v.status == "applied"
+        assert v.mode is not None and v.mode.proof == "trace"
+
+    def test_kilns_record_alone_is_applied_and_says_so(self):
+        props = {"structured_output_mode": "json_mode"}
+        v = lever_verdict(props, _ev(3, mode_recorded="json_mode"), self.PARENT)
+        assert v.status == "applied"
+        assert v.mode is not None and v.mode.proof == "record"
+
+    def test_another_recorded_mode_is_not_applied(self):
+        props = {"structured_output_mode": "json_mode"}
+        v = lever_verdict(props, _ev(3, mode_recorded="json_schema"), self.PARENT)
+        assert v.status == "not_applied"
+        assert v.reason.startswith("lever not applied: the run config names")
+        assert lever_not_applied(
+            props, _ev(3, mode_recorded="json_schema"), self.PARENT
+        )
+
+    def test_no_mark_and_no_record_is_unverified(self):
+        props = {"structured_output_mode": "json_instructions"}
+        v = lever_verdict(props, _ev(3), self.PARENT)
+        assert v.status == "unverified"
+        assert "lever unverified: structured_output_mode=json_instructions" in v.reason
+
+    def test_a_task_with_no_output_schema_is_unverified(self):
+        """Kiln does not use the mode there, so a record of it proves nothing."""
+        props = {"structured_output_mode": "json_mode"}
+        v = lever_verdict(
+            props, _ev(3, mode_recorded="json_mode"), self.PARENT, structured=False
+        )
+        assert v.status == "unverified" and "no output schema" in v.reason
+
+    def test_the_run_gives_the_evidence(self):
+        e = lever_evidence(
+            {
+                "trace": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [{"function": {"name": "task_response"}}],
+                    }
+                ],
+                "output": {
+                    "source": {
+                        "properties": {"structured_output_mode": "function_calling"}
+                    }
+                },
+            }
+        )
+        assert e["response_tool"] and e["mode_recorded"] == "function_calling"
+
+
 class TestInARound:
+    async def test_a_swap_takes_the_new_pairs_mode_and_the_signal_is_logged(
+        self, tmp_path
+    ):
+        """The candidate names no mode: code sets the default of the new
+        pair, and the lever check logs what the drives show about it."""
+        ctx = _ctx(tmp_path, objective="quality")
+        ctx.kiln.task = {"id": "t1", "output_json_schema": '{"type": "object"}'}
+        ctx.kiln.run_configs[0]["run_config_properties"]["structured_output_mode"] = (
+            "json_schema"
+        )
+        ctx.kiln.available_models[1]["models"][0]["structured_output_mode"] = (
+            "json_instructions"
+        )
+        _judge(ctx, "rc_probe_1", {f"{e}_{n}": 1.0 for e in EVALS for n in range(10)})
+        (result,) = await run_screening_round(ctx, _request(GEMINI), "rc_base", 1)
+        assert result.verdict == "survivor", result.reason
+        (made,) = ctx.kiln.created_run_configs
+        assert made["run_config_properties"]["structured_output_mode"] == (
+            "json_instructions"
+        )
+        events = [f for k, f in ctx.log.events if k == "output_mode"]
+        assert [e["status"] for e in events] == ["set_on_swap", "unverified"]
+        assert events[0]["parent_mode"] == "json_schema"
+        assert "Kiln's default for the pair" in events[0]["line"]
+        # The fake's drives record no mode and no format block.
+        assert events[1]["proof"] == "none" and events[1]["rc_id"] == "rc_probe_1"
+
     async def test_no_reasoning_and_flat_tokens_stop_before_judging(self, tmp_path):
         ctx = _ctx(
             tmp_path, objective="quality", no_reasoning=True, output_tokens={"*": 300}

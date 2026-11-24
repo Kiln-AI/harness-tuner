@@ -195,7 +195,8 @@ The fields of a model and of its provider entries:
 `get_model_details` lists every entry of the model, of every status, and
 deprecated entries too. For a pair that the server offers, the thinking
 levels, the default level and `default_structured_output_mode` are the
-server's.
+server's. Kiln gives one default output mode for a pair. It does not list
+the other modes that the pair supports.
 
 Some providers have no models.dev data, so their entries have no price
 and no limits. Then:
@@ -274,7 +275,7 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, or it is not a `kiln_agent` config |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `notes` — refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, or when its `structured_output_mode` cannot run (below) |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |
@@ -291,6 +292,26 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 | `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
+
+`create_run_config` checks `structured_output_mode` (the knowledge levers
+`levers/output_mode.md` and `levers/model.md` give the rules):
+
+- **Left out**: the gateway sets it. With the parent's model and provider
+  (the parent is the run config that `provenance.derived_from_ids` names),
+  it is the parent's mode. With a new model or provider, it is Kiln's
+  default for the new pair, or `json_instruction_and_object` when that
+  default sends the schema as a tool and the run config attaches a tool or
+  a skill. With no parent's mode and no default, the create is refused:
+  name a mode.
+- **Refused**: a value that is not a mode. On a task with an output
+  schema, also a mode that sends the schema as a tool
+  (`function_calling`, `function_calling_weak`, and `default` outside
+  Ollama and Docker Model Runner) on a run config that attaches a tool or
+  a skill: Kiln fails every run of such a config.
+- **`notes`** in the answer: the mode that the gateway set, and a
+  warning when a run config with a new model or provider names the
+  parent's mode and the new pair has another one. A named mode is kept:
+  the note is information.
 
 ### Building an eval (eval_build)
 

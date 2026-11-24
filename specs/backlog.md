@@ -88,17 +88,6 @@ The lever. RAG or skill, and when each wins. Documents and extraction first; ext
 not tune it. Test that RAG helps before the chunker and the search type. Reranking. Size in tokens,
 not in documents.
 
-### Structured-output mode
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
-
-The lever document and the screen exist. Missing: code keeps the parent's mode on a model swap
-(no switch to Kiln's default); no signal shows that a mode reached the call; the model list does
-not say which modes a model supports; the setup probe of valid JSON skips some modes.
-
 ### Detectors from the trace counts
 
 - Kind: detector
@@ -846,3 +835,23 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### Output modes that a model supports
+
+- Kind: gap
+- Where: kiln
+- Depends on: None
+- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
+
+Kiln's model file gives one default output mode for each model and provider, and no list of the
+modes that the pair supports. With a list, code can refuse a mode before a run config is made.
+
+### Request parameters in a Kiln trace
+
+- Kind: gap
+- Where: kiln
+- Depends on: None
+- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
+
+A Kiln trace holds the messages, not the request. So `json_schema` and `json_mode` leave no mark
+in it, and code proves them only by Kiln's own record of the mode on the saved run.
