@@ -145,7 +145,6 @@ from kiln_harness_tuner.restrictions import (
     RestrictionError,
     Restrictions,
     parse_id_list,
-    write_restrictions,
 )
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
@@ -1598,9 +1597,9 @@ async def _run(
             policy_copy = (run_dir / "model_policy.json").resolve()
             policy_copy.write_text(policy_text, encoding="utf-8")
         if restrictions:
-            # The gateway reads the tool lock from here. The loop writes it
-            # again with the baseline's tools (`lock_baseline_tools`).
-            write_restrictions(run_dir, restrictions)
+            # The tool lock is written once the baseline is known
+            # (`orchestrator.lock_baseline_tools`), before any role that can
+            # create a run config runs.
             logger.info("restrictions: %s", "; ".join(restrictions.statements()))
         logger.info(
             "model catalogue: kiln %s, models.dev %s, %d models",

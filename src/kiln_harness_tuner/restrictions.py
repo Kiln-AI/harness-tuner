@@ -170,7 +170,9 @@ class Restrictions:
         if self.providers or self.zero_data_retention:
             lines.append(
                 "The tuner's own agents read the train items through your agent"
-                " CLI's account. No restriction covers that account."
+                " CLI's account. No restriction covers that account. Nor does it"
+                " cover a tool that sends data on, such as a Kiln task tool on"
+                " its own run config, or a remote MCP tool."
             )
         if self.locked_tools:
             lines.append(
@@ -202,7 +204,9 @@ class Restrictions:
                 Restriction(
                     name="providers",
                     statement=next(statements),
-                    allow=tuple(Rule(provider, "*") for provider in self.providers),
+                    allow=tuple(
+                        Rule(glob.escape(provider), "*") for provider in self.providers
+                    ),
                     otherwise="its provider is not one of them",
                 )
             )
@@ -210,6 +214,13 @@ class Restrictions:
             raise RestrictionError(
                 "a restriction on the origin of the models needs the model"
                 f" catalogue, which is not available ({catalog.kiln.reason})"
+            )
+        if self.model_weights and catalog.models_dev.state != "ok":
+            # The open-weight fact comes from models.dev only: without it,
+            # every model would be refused.
+            raise RestrictionError(
+                "a restriction on the weights of the models needs models.dev,"
+                f" which is not available ({catalog.models_dev.reason})"
             )
         if self.model_weights:
             found.append(_weights(self.model_weights, next(statements), catalog))

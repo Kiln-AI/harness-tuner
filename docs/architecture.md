@@ -2075,11 +2075,11 @@ restriction.
 
 | Restriction | Flag | Where code enforces it | What code cannot check |
 |---|---|---|---|
-| Providers | `--providers` | The model policy. The start refuses a baseline, a judge or a simulated user on another provider (`route_problem`). | The account of the agent CLI, through which the tuner's own agents read the train items. |
-| Model origin, by weights | `--model-weights` | The model policy, from the catalogue's `open_weights`. | A model that the catalogue has no fact for. It is refused. |
+| Providers | `--providers` | The model policy. The start refuses a baseline, a judge or a simulated user on another provider (`route_problem`). | The account of the agent CLI, through which the tuner's own agents read the train items. A tool that sends data on: a Kiln task tool on its own run config, or a remote MCP tool. |
+| Model origin, by weights | `--model-weights` | The model policy, from the catalogue's `open_weights`, which comes from models.dev: without models.dev the start stops. | A model that the catalogue has no fact for. It is refused. |
 | Model origin, by family | `--exclude-model-families` | The model policy, from the catalogue's `family`. | The country or the company of a model: the catalogue has neither. A model with no family is refused. |
 | Data retention | `--zero-data-retention` | The model policy refuses the routes in `NO_ZERO_RETENTION` (OpenRouter: Kiln sets a fixed provider order and never sends `zdr`). The start refuses a baseline, a judge or a simulated user on such a route. | The retention terms of every other provider. The account of the agent CLI. |
-| Tools that must not change | `--lock-tool` | The tool lock: the gateway's `create_run_config`, `create_code_tool` and `archive_code_tool`, and `policy_refusal` before a run config is measured or promoted. | The text that the prompt or a skill gives about the tool. |
+| Tools that must not change | `--lock-tool` | The tool lock: the gateway's `create_run_config`, `create_code_tool`, `archive_code_tool`, `archive_skill` and `run_train_eval`, and `policy_refusal` before a run config is measured or promoted. | The text that the prompt or a skill gives about the tool. |
 
 **The model restrictions are part of the model policy.** `cli.restricted_policy`
 turns them into `model_policy.Restriction` records, with the run's catalogue
@@ -2096,6 +2096,14 @@ restriction refuses the baseline's own model there, the start stops: no
 candidate could be built. An origin restriction with no catalogue
 (`--no-model-catalog`, or a failed fetch) is a start-up error, and so is a
 family that the catalogue does not have.
+
+**The judges.** The restrictions on providers and on data retention also
+cover a judge, because a judge reads the task's data
+(`ModelPolicy.route_refusal`). The start refuses a judge that exists, and the
+eval-building operations refuse a new one: `create_eval_config` and
+`test_judge`. `run_train_eval` refuses a run config on a refused provider.
+The origin restrictions do not cover a judge: they are about the models
+that the task may move to.
 
 **The tool lock** is `runs/<run_id>/restrictions.json`, which each gateway
 process reads (`restrictions.load_tool_lock`). `lock_baseline_tools` writes

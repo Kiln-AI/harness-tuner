@@ -250,7 +250,11 @@ tuner tries only the models that pass both.
   the reference, as for a policy file.
 - **The origin restrictions need the model catalogue.** With
   `--no-model-catalog`, or when the catalogue cannot be fetched, the start
-  stops with an error.
+  stops with an error. `--model-weights` needs models.dev too, which gives
+  the open-weight fact.
+- **A judge that the loop builds** (`--experimental-eval-building`) is
+  refused on a provider that a restriction on providers or on data
+  retention refuses.
 - **A tool id** is the id that the run config lists, such as
   `kiln_tool::code::<id>` or `mcp::remote::<server id>::<tool name>`. The
   guided start lists the baseline's tools to mark. A skill is attached as a

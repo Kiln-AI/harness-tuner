@@ -166,6 +166,15 @@ def test_without_a_catalogue_or_tools_their_kinds_are_not_offered():
     assert any("has no tools" in line for line in terminal.err)
 
 
+def test_without_models_dev_the_weights_are_not_offered():
+    catalog = CATALOG.model_copy(update={"models_dev": Source(state="unavailable")})
+    terminal = ScriptedTerminal([SET, [FAMILIES], ["alpha"]])
+    ask(terminal, catalog=catalog)
+    offered = terminal.asked_about(KINDS_QUESTION).offered
+    assert WEIGHTS not in offered and FAMILIES in offered
+    assert any("weights of the models" in line for line in terminal.err)
+
+
 def test_esc_steps_back_and_a_kind_unmarked_is_dropped():
     terminal = ScriptedTerminal(
         [SET, [PROVIDERS, WEIGHTS], ["groq"], ESC, ESC, [WEIGHTS], "open"]

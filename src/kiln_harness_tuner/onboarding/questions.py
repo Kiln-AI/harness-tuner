@@ -460,9 +460,9 @@ class QuestionContext:
     baseline_pair: Pair | None = None
     offered: Callable[[], Any] | None = None
     policy_dir: Path | None = None
-    # The Restrictions question's facts: the baseline's provider id and the
-    # tool ids its run config lists, and the model catalogue (read when the
-    # user sets restrictions).
+    # The Restrictions question's facts: the tool ids the baseline's run
+    # config lists, and the model catalogue (read when the user sets
+    # restrictions). The baseline's provider is `baseline_pair`'s.
     baseline_tools: tuple[str, ...] = ()
     catalog: Callable[[], Catalog] | None = None
     which: Callable[[str], str | None] = shutil.which

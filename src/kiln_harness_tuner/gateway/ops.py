@@ -1369,8 +1369,21 @@ class Gateway:
                 made.append(m.Created(id=item_id, kind=f"{req.split} item"))
         return made
 
+    def _judge_check(self, *providers: Any) -> None:
+        """Refuse a judge on a provider that a restriction on providers or
+        on data retention refuses: the judge reads the task's data."""
+        if self.s.policy is None:
+            return
+        for provider in providers:
+            refusal = self.s.policy.route_refusal(
+                provider if isinstance(provider, str) else None
+            )
+            if refusal is not None:
+                raise GatewayError(f"judge provider {provider}: {refusal}")
+
     async def create_eval_config(self, req: m.EvalConfigCreate) -> m.EvalConfigView:
         self._own_eval(req.eval_id, "a judge config can be created")
+        self._judge_check(req.provider, req.properties.get("model_provider"))
         body = req.model_dump(exclude_none=True, exclude={"eval_id"})
         row = await self.call(
             "POST", f"{self.s.base}/evals/{req.eval_id}/create_eval_config", body=body
@@ -1389,6 +1402,7 @@ class Gateway:
         return m.Pong(ok=True)
 
     async def test_judge(self, req: m.JudgeTestRequest) -> m.JudgeTest:
+        self._judge_check(req.properties.get("model_provider"))
         row = await self.call(
             "POST",
             f"{self.s.base}/evals/{req.eval_id}/test_v2_eval",
@@ -1423,6 +1437,30 @@ class Gateway:
             raise GatewayError(f"not train items of eval {req.eval_id}: {outside[:5]}")
         if not items:
             raise GatewayError(f"eval {req.eval_id} has no train item to run")
+        if (self.s.policy is not None and self.s.policy.restrictions) or (
+            self.s.tool_lock
+        ):
+            # The stated restrictions only: a policy file's own rules leave
+            # the baseline measurable, whatever its model.
+            rc = next(
+                (
+                    r
+                    for r in await self._run_configs()
+                    if str(r.get("id")) == req.run_config_id
+                ),
+                None,
+            )
+            if rc is None:
+                raise GatewayError(f"no run config {req.run_config_id}")
+            props = rc.get("run_config_properties") or {}
+            if self.s.policy is not None:
+                provider = props.get("model_provider_name")
+                refusal = self.s.policy.route_refusal(
+                    provider if isinstance(provider, str) else None
+                )
+                if refusal is not None:
+                    raise GatewayError(f"run config {req.run_config_id}: {refusal}")
+            await self._tool_lock_check(props)
         eval_def = await self.call("GET", f"{self.s.base}/evals/{req.eval_id}") or {}
         config_id = eval_def.get("current_config_id")
         if not config_id:

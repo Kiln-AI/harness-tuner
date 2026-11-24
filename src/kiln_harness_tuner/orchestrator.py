@@ -353,6 +353,10 @@ class Ctx:
     restrictions: Restrictions = field(default_factory=Restrictions)
     model_restrictions: tuple[Restriction, ...] = ()
     tool_lock: ToolLock = field(default_factory=ToolLock)
+    # `--models keep` on a baseline whose pair could not be read: the
+    # policy holds the restrictions alone, and the planner still gets the
+    # baseline's model alone (`_allowed_models`).
+    keep_unpinned: bool = False
     _rc_lock_refusals: dict[str, str | None] = field(default_factory=dict)
     # `model_catalog`: the run's catalogue snapshot (`model_catalog`), as
     #   written to the run directory; None = not fetched (other unit tests).
@@ -3047,7 +3051,7 @@ async def _allowed_models(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]
     holds the baseline's own model alone. It is never empty there: the
     planner plans arms only on listed models, and an empty list reads as "no
     arm at all"."""
-    if ctx.keep_model and ctx.model_policy is None:
+    if ctx.keep_model and (ctx.model_policy is None or ctx.keep_unpinned):
         # The baseline's pair could not be read at start-up, so nothing is
         # pinned; the planner still gets the baseline's model alone.
         return await _baseline_model_row(ctx, baseline_rc_id)
@@ -3289,6 +3293,7 @@ async def pin_baseline_model(ctx: Ctx, rc_id: str) -> None:
         if not ctx.model_restrictions:
             return
         # Nothing is pinned, but the stated restrictions still hold.
+        ctx.keep_unpinned = True
         data = with_restrictions(
             open_policy("The stated restrictions."), ctx.model_restrictions
         )

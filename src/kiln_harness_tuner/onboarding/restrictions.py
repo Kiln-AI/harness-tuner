@@ -108,9 +108,10 @@ def _kinds(restrictions: Restrictions) -> list[str]:
     return [kind for kind, value in stated.items() if value]
 
 
-def _kind_options(*, origin: bool, tools: bool) -> list[Option[str]]:
-    """One row for each kind that this start can ask about. An origin
-    restriction needs the model catalogue, and a tool lock needs a tool."""
+def _kind_options(*, families: bool, weights: bool, tools: bool) -> list[Option[str]]:
+    """One row for each kind that this start can ask about. The families
+    come from Kiln's model file, the weights from models.dev, and a tool
+    lock needs a tool."""
     routes = ", ".join(provider_name(p) for p in NO_ZERO_RETENTION)
     options = [
         Option(
@@ -120,22 +121,25 @@ def _kind_options(*, origin: bool, tools: bool) -> list[Option[str]]:
             description="The task's data goes to no other provider.",
         )
     ]
-    if origin:
-        options += [
+    if weights:
+        options.append(
             Option(
                 WEIGHTS,
                 "Model origin: weights",
                 ("open-weight or closed-weight models only",),
                 description=WEIGHTS_HINT,
-            ),
+            )
+        )
+    if families:
+        options.append(
             Option(
                 FAMILIES,
                 "Model origin: families",
                 ("no model of the families you mark",),
                 description="Use it for a restriction by country or company: the"
                 " model catalogue has neither, so you mark the families.",
-            ),
-        ]
+            )
+        )
     options.append(
         Option(
             RETENTION,
@@ -183,6 +187,7 @@ def ask_restrictions(
     stage = 0
     kinds: list[str] = _kinds(current)
     loaded: Catalog | None = None
+    warned = False  # the warnings of the kinds that cannot be asked, once
     while True:
         try:
             if stage == 0:
@@ -208,14 +213,26 @@ def ask_restrictions(
                 if loaded is None and catalog is not None:
                     with terminal.busy("Reading the model catalogue…"):
                         loaded = catalog()
-                origin = loaded is not None and bool(catalog_families(loaded))
-                if not origin:
-                    terminal.warn(
-                        f"No question about the origin of the models: {NO_CATALOG}."
-                    )
-                if not baseline_tools:
-                    terminal.warn(f"No question about the tools: {NO_TOOLS}.")
-                options = _kind_options(origin=origin, tools=bool(baseline_tools))
+                families = loaded is not None and bool(catalog_families(loaded))
+                weights = (
+                    families and loaded is not None and loaded.models_dev.state == "ok"
+                )
+                if not warned:
+                    warned = True
+                    if not families:
+                        terminal.warn(
+                            f"No question about the origin of the models: {NO_CATALOG}."
+                        )
+                    elif not weights:
+                        terminal.warn(
+                            "No question about the weights of the models:"
+                            " models.dev is not available."
+                        )
+                    if not baseline_tools:
+                        terminal.warn(f"No question about the tools: {NO_TOOLS}.")
+                options = _kind_options(
+                    families=families, weights=weights, tools=bool(baseline_tools)
+                )
                 values = [option.value for option in options]
                 kinds = terminal.pick_many(
                     KINDS_QUESTION,

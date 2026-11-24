@@ -6,12 +6,14 @@ Every model, provider and tool id here is invented."""
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 import pytest
+from conftest import make_plan
+from fake_dispatcher import ok
 from test_gateway import _gateway, _run
 from test_model_preflight import BASE, LARGE, SMALL, _ctx
+from test_orchestrator import seed_active_eval, seed_baseline
 
 from kiln_harness_tuner import cli
 from kiln_harness_tuner.gateway import ops as gw
@@ -27,6 +29,7 @@ from kiln_harness_tuner.model_policy import (
 from kiln_harness_tuner.orchestrator import (
     _allowed_models,
     lock_baseline_tools,
+    orchestrate,
     pin_baseline_model,
     policy_refusal,
     tool_lock_refusal,
@@ -193,6 +196,40 @@ def test_an_origin_restriction_needs_the_catalogue():
         providers=("openai",), zero_data_retention=True
     ).model_restrictions(off)
     assert [rule.name for rule in rules] == ["providers", "data_retention"]
+
+
+def test_the_weights_need_models_dev():
+    # The open-weight fact comes from models.dev alone: without it every
+    # model would be refused, so the start stops instead.
+    no_models_dev = CATALOG.model_copy(
+        update={"models_dev": Source(state="unavailable", reason="timeout")}
+    )
+    with pytest.raises(RestrictionError, match="needs models.dev"):
+        Restrictions(model_weights="open").model_restrictions(no_models_dev)
+    rules = Restrictions(exclude_families=("beta",)).model_restrictions(no_models_dev)
+    assert [rule.name for rule in rules] == ["model_families"]
+
+
+def test_a_provider_id_is_a_name_and_not_a_pattern():
+    policy = policy_of(Restrictions(providers=("open*",)))
+    assert policy.refusal("openai", "closed_one") is not None
+    assert policy.refusal("open*", "closed_one") is None
+
+
+def test_a_judge_is_covered_by_the_route_restrictions_only():
+    policy = policy_of(
+        Restrictions(
+            providers=("openai", "openrouter"),
+            model_weights="open",
+            zero_data_retention=True,
+        )
+    )
+    assert policy.route_refusal("openai") is None
+    assert "only these providers" in (policy.route_refusal("groq") or "")
+    assert "never sends `zdr`" in (policy.route_refusal("openrouter") or "")
+    assert policy.route_refusal(None) is None
+    # No restriction: a policy file's own rules never refuse a judge.
+    assert ModelPolicy(allow=(Rule("x", "y"),)).route_refusal("groq") is None
 
 
 def test_zero_retention_refuses_the_routes_that_cannot_give_it():
@@ -362,6 +399,11 @@ async def test_keep_with_an_unreadable_baseline_still_enforces_the_restrictions(
     assert ctx.model_policy.refusal(*SMALL) is None
     assert ctx.model_policy.refusal(*LARGE) is not None
     assert load_policy(tmp_path) is not None
+    # Nothing is pinned, so the planner still gets the baseline's model
+    # alone, as without a restriction.
+    assert ctx.keep_unpinned
+    rows = await _allowed_models(ctx, "rc_base")
+    assert [(r["provider"], r["model"]) for r in rows] == [BASE]
 
 
 async def test_the_planners_models_leave_out_what_a_restriction_refuses(tmp_path):
@@ -511,6 +553,38 @@ class TestTheGatewayEnforcesTheToolLock:
             )
         assert kiln.calls == []
 
+    def test_a_judge_on_a_refused_provider_is_refused(self, tmp_path):
+        gateway, kiln = _gateway(
+            tmp_path,
+            {},
+            role="eval_build",
+            policy=policy_of(Restrictions(providers=("openai",))),
+        )
+        with pytest.raises(gw.GatewayError, match="judge provider groq"):
+            _run(
+                gateway,
+                "test_judge",
+                eval_id="e1",
+                properties={"type": "llm_judge", "model_provider": "groq"},
+                final_message="an answer",
+            )
+        assert kiln.calls == []
+
+    def test_a_train_eval_on_a_refused_provider_is_refused(self, tmp_path):
+        gateway, kiln = _gateway(
+            tmp_path,
+            {},
+            role="eval_build",
+            policy=policy_of(Restrictions(providers=("openai",))),
+        )
+        groq = {**_props(), "model_provider_name": "groq"}
+        kiln.routes[("GET", f"{gateway.s.base}/run_configs")] = [
+            {"id": "424242000008", "run_config_properties": groq}
+        ]
+        with pytest.raises(gw.GatewayError, match="only these providers"):
+            _run(gateway, "run_train_eval", eval_id="e1", run_config_id="424242000008")
+        assert all(call[0] == "GET" for call in kiln.calls)
+
     def test_no_lock_checks_nothing(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, {})
         kiln.routes[("POST", f"{gateway.s.base}/run_configs")] = {"id": "424242000009"}
@@ -582,15 +656,20 @@ async def test_a_run_config_that_breaks_the_lock_is_never_measured(tmp_path):
     assert "not found" in (await tool_lock_refusal(ctx, "rc_nowhere") or "")
 
 
-def test_the_planner_input_carries_the_restrictions():
-    from kiln_harness_tuner.schemas import BatchPlanInput
-
-    fields = BatchPlanInput.model_fields
-    assert {"restrictions", "restriction_limits", "locked_tools"} <= set(fields)
-
-
-def test_asyncio_is_not_needed_for_the_pure_checks():
-    # The lock's own checks are plain functions: the gateway and the loop
-    # call the same ones.
-    assert asyncio.iscoroutinefunction(tool_lock_refusal)
-    assert not asyncio.iscoroutinefunction(ToolLock.dropped)
+async def test_the_planner_reads_the_restrictions(tmp_path):
+    ctx = _ctx(tmp_path, policy=None)
+    seed_baseline(ctx.kiln)
+    seed_active_eval(ctx.kiln)
+    ctx.model_preflight = False
+    ctx.restrictions = Restrictions(providers=(BASE[0], LARGE[0]))
+    ctx.model_policy = policy_of(ctx.restrictions)
+    ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
+    assert await orchestrate(ctx, "g", timeout_mins=180) == "done"
+    (plan_input,) = ctx.dispatch.calls_to("batch_plan")
+    assert plan_input.restrictions == [f"only these providers: {BASE[0]}, {LARGE[0]}"]
+    assert any("agent CLI's account" in line for line in plan_input.restriction_limits)
+    assert plan_input.locked_tools == []
+    assert plan_input.model_policy is not None
+    assert plan_input.model_policy["restrictions"] == plan_input.restrictions
+    models = [(r["provider"], r["model"]) for r in plan_input.allowed_models]
+    assert SMALL not in models and LARGE in models

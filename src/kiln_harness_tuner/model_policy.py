@@ -69,6 +69,9 @@ MODEL_CHOICES = ("keep", "any")
 # takes at most this many.
 MAX_CHECKED_MODELS = 12
 KEEP_SOURCE = "--models keep"
+# The names of the restrictions about where the task's data goes, which
+# also cover a judge (`ModelPolicy.route_refusal`).
+ROUTE_RESTRICTIONS = ("providers", "data_retention")
 
 
 def resolve_models(models: str | None, objective: str) -> str:
@@ -204,6 +207,21 @@ class ModelPolicy:
         if decision.allowed:
             return None
         return f"model {provider}/{model} is outside the model policy: {decision.why}"
+
+    def route_refusal(self, provider: str | None) -> str | None:
+        """None when the restrictions on providers and on data retention let
+        the task's data go to `provider`, else why not. For a judge: the
+        origin restrictions are about the models the task may move to, so
+        they do not apply here."""
+        if not provider:
+            return None
+        for restriction in self.restrictions:
+            if restriction.name not in ROUTE_RESTRICTIONS:
+                continue
+            why = restriction.refusal(provider, "*")
+            if why is not None:
+                return f"restriction '{restriction.statement}': {why}"
+        return None
 
     def summary(self) -> dict[str, Any]:
         """The policy as the planner reads it (its input carries this). The
