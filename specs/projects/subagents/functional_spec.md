@@ -220,6 +220,32 @@ which an eval job does not make.
 
 | Fewer than three drives have a trace, and none has a call | Unverified. Logged, and the arm goes on. |
 
+## 8a. The write-tool flag
+
+At the promotion gate, for each candidate, with the other integrity
+checks:
+
+- For each `kiln_task::` tool that the candidate attaches and the baseline
+  does not, code reads the tools of the run config that the tool pins.
+- A tool's name comes from its id (an MCP, OpenEnv or built-in tool), from
+  its record on disk (a code tool: its function name, and the names of the
+  tools on its allowlist), or from its server (a sub-agent of the
+  sub-agent: its tool name, and the names of the tools of its run config).
+  A skill and a RAG search tool have no name here. The read goes three
+  levels down.
+- A name that the write-verb match of check (c) accepts gives one flag for
+  that sub-agent: "the new sub-agent `<id>` can call tool(s) whose name
+  names a write: […]".
+- A code tool or a sub-agent that cannot be read gives the flag "unread:
+  the tools of the new sub-agent `<id>` could not be read".
+- The flag is handled like every integrity flag: a flagged winner goes to
+  the promotion agent, also under the code rule, and is promoted only when
+  the rationale answers it in an `Integrity:` line.
+
+A candidate that moves a write tool from the subject into a sub-agent is
+flagged. A sub-agent with read-only names is not. A sub-agent that the
+baseline attaches is not.
+
 ## 9. The end of a run
 
 Before the report, code reads the registry. For each sub-agent that the

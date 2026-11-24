@@ -249,13 +249,15 @@ class CodeToolText:
     (its code) and `CODE_TOOL_DESCRIPTION` (what the model is shown) to its
     text. `derived_from`: the code tool ids its provenance names.
     `function_name`: the name the model calls it by
-    (`kiln_harness_tuner.reference_check`)."""
+    (`kiln_harness_tuner.reference_check`). `allowlist`: the tool ids its
+    code can call (`tool_allowlist`)."""
 
     tool_id: str
     name: str
     files: dict[str, str]
     derived_from: tuple[str, ...] = ()
     function_name: str = ""
+    allowlist: tuple[str, ...] = ()
 
 
 def _derived_from(record: Any) -> tuple[str, ...]:
@@ -311,6 +313,9 @@ def read_code_tool(project_path: str | Path, tool_id: str) -> CodeToolText | Non
         files=files,
         derived_from=_derived_from(record),
         function_name=function_name if isinstance(function_name, str) else "",
+        allowlist=tuple(
+            str(t) for t in record.get("tool_allowlist") or [] if isinstance(t, str)
+        ),
     )
 
 

@@ -94,6 +94,20 @@ choices that the owner can change: each one is the conservative choice.
    an OpenEnv tool. Such a run config is driven as an eval job on every
    item, like one that lists the tool itself. Section 5 has the Kiln facts
    and what stays open.
+6b. **Owner (2026-11-25): a flag for write tools behind a new sub-agent.**
+   The gate's integrity check (c) flags a kind of write action that is in
+   the candidate's val traces and in none of the baseline's. It reads the
+   tool calls of the run's own trace. A write that a sub-agent makes is in
+   the sub-agent's trace, which an eval job does not save. So a candidate
+   could move a write tool into a sub-agent, and (c) would not fire. It
+   matters more since a sub-agent can hold a world's write tool. Check (e)
+   reads, for each sub-agent that the candidate attaches and the baseline
+   does not, the tools of the sub-agent's run config, and flags each one
+   whose name names a write, with the write-verb match of (c). It is a
+   flag, not a block, and it shows where the flag of (c) shows: on the
+   candidate's `integrity_flags` at the promotion gate, on the `integrity`
+   line of the log, and in the promotion's reasons, which the report
+   carries.
 7. **The model policy holds for the sub-agent.** Section 17 of the
    architecture says that the policy is about where the task's data is
    sent. A sub-agent's input is the task's data.
@@ -286,15 +300,12 @@ What stays open:
   or on a sub-agent, does not force the eval-job route. `create_sub_agent`
   does not read allowlists either. This is the behaviour of main for the
   subject, and the owner has not decided to change it.
-- **The write-action flag.** The gate's integrity check (c) flags a kind
-  of write action that is in the candidate's val traces and in none of the
-  baseline's. It reads the tool calls of the run's own trace. A write that
-  a sub-agent makes is in the sub-agent's trace, which an eval job does
-  not save. So a candidate can move a write tool into a sub-agent, and the
-  flag does not fire. This holds for a write tool of any kind, and it
-  matters more now that a sub-agent can hold a world's write tool. A
-  static check on the tools of a new sub-agent is not built: the owner has
-  not decided.
+- **What the write-tool flag cannot see** (decision 6b). A name match
+  cannot prove that a tool writes, or that it does not. The flag does not
+  read the code of a code tool, only its name and the names of its
+  allowlist. It has no `method` or `action` argument to read, which the
+  trace check (c) has. A tool that writes under a neutral name is not
+  seen.
 - **The statement "the run endpoint starts no OpenEnv episode".** Main has
   it in `job_drives.py` (the module text), in the text of `run_task` in
   `gateway/ops.py`, in `docs/architecture.md` section 16 and in

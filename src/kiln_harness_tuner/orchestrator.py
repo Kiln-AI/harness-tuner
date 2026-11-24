@@ -71,6 +71,8 @@ from kiln_harness_tuner.integrity import (
     output_shape_findings,
     quote_findings,
     rationale_addresses,
+    sub_agent_write_findings,
+    tool_name_of_id,
     write_action_findings,
 )
 from kiln_harness_tuner.items import (
@@ -125,7 +127,13 @@ from kiln_harness_tuner.probes import (
     task_run_configs,
     thinking_levels,
 )
-from kiln_harness_tuner.prompt_text import normalized, rc_prompt_text, task_instructions
+from kiln_harness_tuner.prompt_text import (
+    CODE_TOOL_PREFIX,
+    normalized,
+    rc_prompt_text,
+    read_code_tool,
+    task_instructions,
+)
 from kiln_harness_tuner.provider_errors import ProviderQuotaError, quota_stop_line
 from kiln_harness_tuner.quarantine import (
     QuarantineError,
@@ -184,6 +192,7 @@ from kiln_harness_tuner.sub_agents import (
     created_sub_agents,
     read_sub_agent,
     sub_agent_tool_ids,
+    tool_ids_of,
 )
 from kiln_harness_tuner.viability import (
     drop_settled_rescreens,
@@ -1703,9 +1712,9 @@ async def apply_integrity_checks(
 ) -> None:
     """Code's reward-hacking checks on every promotion candidate
     (`kiln_harness_tuner.integrity`): quoting the evals blocks (ineligible); an output
-    shape shift or a new kind of write action on val is a flag for the
-    promotion agent. Never fails the gate: an unreadable input skips that
-    check and says so in the log."""
+    shape shift, a new kind of write action on val, or a write-named tool
+    behind a new sub-agent is a flag for the promotion agent. Never fails
+    the gate: an unreadable input skips that check and says so in the log."""
     if not tables:
         return
     rows = {str(r.get("id")): r for r in await task_run_configs(ctx)}
@@ -1782,6 +1791,10 @@ async def apply_integrity_checks(
                 continue
             table.integrity_flags += output_shape_findings(base_runs, cand_runs, name)
             table.integrity_flags += write_action_findings(base_runs, cand_runs, name)
+        # (e): a write that a sub-agent makes is in no trace that (c) reads.
+        table.integrity_flags += await sub_agent_write_flags(
+            ctx, rows.get(baseline_rc_id), rows.get(table.rc_id)
+        )
         table.integrity_checked = True
         # One line per candidate, flags or not: a gate whose log
         # has no integrity line did not check.
@@ -1792,6 +1805,75 @@ async def apply_integrity_checks(
             line=f"integrity {table.rc_id}: "
             + ("; ".join(table.integrity_flags) or "no flag"),
         )
+
+
+# How many levels of code-tool allowlists and nested sub-agents the
+# write-tool flag follows.
+WRITE_FLAG_DEPTH = 3
+
+
+async def callable_tool_names(
+    ctx: Ctx, tool_ids: Iterable[str], depth: int = WRITE_FLAG_DEPTH
+) -> list[str] | None:
+    """The function names of the tools behind `tool_ids`, as far as a tool
+    id or a saved record gives them: an MCP, OpenEnv or built-in tool by
+    its id; a code tool by its record, with the tools of its allowlist; a
+    sub-agent by its tool name, with the tools of its run config. None when
+    a code tool or a sub-agent cannot be read."""
+    names: list[str] = []
+    for tool_id in dict.fromkeys(tool_ids):
+        inner: Iterable[str] = ()
+        if tool_id.startswith(CODE_TOOL_PREFIX):
+            tool = read_code_tool(
+                ctx.target.project_path, tool_id.removeprefix(CODE_TOOL_PREFIX)
+            )
+            if tool is None:
+                return None
+            names.append(tool.function_name)
+            inner = tool.allowlist
+        elif tool_id.startswith(KILN_TASK_TOOL_PREFIX):
+            try:
+                sub = await read_sub_agent(
+                    ctx.kiln.call, ctx.target.project_id, tool_id
+                )
+            except KilnError:
+                return None
+            if sub is None or sub.run_config is None:
+                return None
+            names.append(sub.tool_name)
+            inner = tool_ids_of(sub.properties)
+        elif (name := tool_name_of_id(tool_id)) is not None:
+            names.append(name)
+        if inner and depth > 1:
+            below = await callable_tool_names(ctx, inner, depth - 1)
+            if below is None:
+                return None
+            names += below
+    return names
+
+
+async def sub_agent_write_flags(
+    ctx: Ctx, baseline_row: dict[str, Any] | None, candidate_row: dict[str, Any] | None
+) -> list[str]:
+    """Integrity check (e): the flags for the write-named tools behind each
+    sub-agent that the candidate attaches and the baseline does not."""
+    known = sub_agent_tool_ids((baseline_row or {}).get("run_config_properties"))
+    behind: dict[str, list[str] | None] = {}
+    for tool_id in sub_agent_tool_ids(
+        (candidate_row or {}).get("run_config_properties")
+    ):
+        if tool_id in known or tool_id in behind:
+            continue
+        try:
+            sub = await read_sub_agent(ctx.kiln.call, ctx.target.project_id, tool_id)
+        except KilnError:
+            sub = None
+        behind[tool_id] = (
+            None
+            if sub is None or sub.run_config is None
+            else await callable_tool_names(ctx, tool_ids_of(sub.properties))
+        )
+    return sub_agent_write_findings(known, behind)
 
 
 async def _record_gate_blocks(

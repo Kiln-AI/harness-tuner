@@ -809,7 +809,8 @@ successful on train.
    verbatim is made ineligible. (b) A median output length on val more than
    2× the baseline's either way, or changed top-level JSON keys, and (c) a
    kind of write action in the candidate's val traces the baseline's never
-   show are `integrity_flags`: a flagged winner goes to the promotion agent
+   show, and (e) a tool with a write name behind a sub-agent that the
+   baseline does not attach (section 19.7), are `integrity_flags`: a flagged winner goes to the promotion agent
    even under the code rule, and is promoted only when the rationale answers
    the flags in an `Integrity:` line. (d) A candidate whose prompt text
    differs from the baseline's gets one `integrity_review` session
@@ -2411,3 +2412,39 @@ deleted. One `sub_agents` event carries the records, and the report's
 `## Sub-agents` section, rendered by code, shows each one with its tool
 id, its task, its run config, its model, the run configs that attach it,
 and its state against the final baseline.
+
+### 19.7 The write-tool flag
+
+The gate's integrity check (c) reads the tool calls of the candidate's own
+val traces (section 9). A write that a sub-agent makes is in the
+sub-agent's trace, which an eval job does not save. So a candidate could
+move a write tool into a sub-agent, and (c) would find nothing new.
+
+Check (e) closes that for what a name can show
+(`orchestrator.sub_agent_write_flags`, `integrity.sub_agent_write_findings`).
+For each sub-agent that the candidate attaches and the baseline does not,
+code reads the tools of the run config that the sub-agent's tool pins, and
+flags each one whose function name names a write. The match is the
+write-verb match of (c), so the two cannot disagree on a name. It is a
+flag, like (c): it goes on the candidate's `integrity_flags`, to the
+`integrity` line of the log and to the promotion agent, and a flagged
+winner is promoted only when the rationale answers it.
+
+The names it reads, three levels down:
+
+| Tool of the sub-agent | Name |
+|---|---|
+| An MCP tool, an OpenEnv tool, a built-in tool | The last part of its tool id. |
+| A code tool | Its `tool_function_name`, from the record on disk, and the names of the tools on its allowlist. |
+| A sub-agent of the sub-agent | Its tool name, and the names of the tools of its run config. |
+| A skill, a RAG search tool | None. They write nothing. |
+
+A code tool or a sub-agent that cannot be read gives an `unread:` flag,
+never a silent pass. A sub-agent that the baseline attaches is not new,
+and gets no flag.
+
+The limit that stays: a name match cannot prove that a tool writes, or
+that it does not. Check (c) also reads the `method` or `action` argument
+of a call, which a tool list does not have. The code of a code tool is not
+read, only its name and its allowlist. And a tool that writes under a
+neutral name is not seen, as for (c).

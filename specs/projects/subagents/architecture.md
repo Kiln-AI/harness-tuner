@@ -139,6 +139,16 @@ change.
   arm with no timing drives. `schemas.AnalysisInput.measurement_notes`
   carries it to the analyzer.
 
+## 6a. The write-tool flag (FS 8a)
+
+- `integrity.py`: `tool_name_of_id`, `write_named` (the regex of check
+  (c)) and `sub_agent_write_findings`, all pure.
+- `orchestrator.callable_tool_names`: the names behind a list of tool ids,
+  with `prompt_text.read_code_tool` (which now gives a code tool's
+  `allowlist`) and `read_sub_agent`. `WRITE_FLAG_DEPTH` is 3.
+- `orchestrator.sub_agent_write_flags`: called in `apply_integrity_checks`
+  for each candidate, after checks (b) and (c).
+
 ## 7. The end of a run (FS 9)
 
 - `orchestrator.close_sub_agents`: called in `_orchestrate` before

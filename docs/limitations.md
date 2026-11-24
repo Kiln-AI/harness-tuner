@@ -244,7 +244,10 @@ reads only the prompt: a paraphrase placed in a skill or a tool description
 is not reviewed. The shape checks read length and top-level JSON keys
 only. A "write action" is a tool call whose method is POST, PUT, PATCH or
 DELETE or whose action or name contains a write verb; a tool that writes
-under another name is not seen. The flags go to the promotion agent, whose
+under another name is not seen. A write that a sub-agent makes is in no
+trace the gate reads, so for a new sub-agent the check reads the names of
+its tools instead: a name cannot prove that a tool writes, or that it does
+not, and the code of a code tool is not read. The flags go to the promotion agent, whose
 answer is judged only for having an `Integrity:` line.
 
 ## Containment

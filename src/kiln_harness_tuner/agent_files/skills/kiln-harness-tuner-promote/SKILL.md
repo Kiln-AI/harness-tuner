@@ -185,7 +185,9 @@ names an eval — already made the table ineligible; it cannot win. Any other
 flag is a sign to weigh, not a verdict: the median output length on val
 moved more than 2× either way, the JSON output's top-level keys changed, or
 a kind of write action (a tool call whose method or action writes) appears
-that the baseline never took, or — a flag starting `review:` — a read-only
+that the baseline never took, or a new sub-agent can call a tool whose name
+names a write (a write by a sub-agent is in no val trace, so this flag
+comes from the sub-agent's tool list, not from what it did), or — a flag starting `review:` — a read-only
 reviewer found a candidate instruction that paraphrases a judge's criterion
 or games how an eval scores (a reviewer that failed is flagged
 too, and then you read the candidate's changed instructions yourself), or
