@@ -1999,7 +1999,6 @@ class TestSubAgents:
             "kiln_task::424242700009",
             "kiln_tool::call_kiln_api",
             "kiln_tool::memory::search",
-            "kiln_tool::openenv::424242700008::lookup",
         ],
     )
     def test_a_sub_agent_gets_no_sub_agent_and_no_way_into_kiln(self, tmp_path, tool):
@@ -2016,7 +2015,15 @@ class TestSubAgents:
     def test_a_sub_agent_can_have_tools_of_its_own(self, tmp_path):
         sent: dict[str, Any] = {}
         gateway, _ = _gateway(tmp_path, _sub_agent_routes(sent))
-        tools = {"tools": ["kiln_tool::code::c1", "mcp::remote::m1::search"]}
+        # An OpenEnv tool too: the route of a drive reads the sub-agent's
+        # tools, so such a run config is driven as an eval job.
+        tools = {
+            "tools": [
+                "kiln_tool::code::c1",
+                "mcp::remote::m1::search",
+                "kiln_tool::openenv::424242700008::read_scenario",
+            ]
+        }
         props = {**SUB_PROPS, "tools_config": tools}
         _run(
             gateway, "create_sub_agent", **_sub_agent_args(run_config_properties=props)

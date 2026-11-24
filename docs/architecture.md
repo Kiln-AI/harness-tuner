@@ -1437,7 +1437,8 @@ no verdict. The spread (p75 − p25) is reported beside both arms.
 `POST …/tasks/{t}/run`. That endpoint runs one input once: it starts no
 OpenEnv episode and no simulated user. So `EvalJobDriver.needed` sends a
 drive through an eval job when the task's `turn_mode` is `multiturn`, when
-a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`), or
+a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`),
+or attaches a sub-agent that lists one (section 19.1), or
 when an input has an `openenv_reset`. The route covers the three drive paths:
 `timed_drives` (the baseline timing, the timing chunks, the val gate's
 pass), the code probes (`probes.drive_set`), and the gateway's `run_task`.
@@ -2261,9 +2262,21 @@ new task, and no operation reads its runs or its evals.
   model or schema is a new sub-agent. No operation edits or deletes one,
   because the baseline or another experiment can attach it.
 - **One level.** The run config of a created sub-agent cannot attach a
-  `kiln_task::` tool, an OpenEnv tool, `kiln_tool::call_kiln_api` or a
-  `kiln_tool::memory::` tool. The loop chooses the route of a drive from
-  the subject's tools, and the run endpoint starts no OpenEnv episode.
+  `kiln_task::` tool, `kiln_tool::call_kiln_api` or a `kiln_tool::memory::`
+  tool.
+- **OpenEnv tools.** A sub-agent can attach one. In an eval job, a
+  sub-agent's world calls run in the episode of the item: it reads the
+  scenario that the item reset, and its writes are in the final state
+  that a code eval reads (a live probe on Kiln API 1.2.0: 3 items,
+  concurrency 1; not tested above that). So the route of a drive reads
+  the tools of each attached sub-agent: `EvalJobDriver.needed` answers
+  yes when a run config, or a sub-agent that it attaches, lists an OpenEnv
+  tool. Such a run config is then driven as an eval job on every item,
+  like one that lists the tool itself. The same probe saw the run
+  endpoint attempt a reset with no arguments, which the world refused.
+  The route does not read a code tool's allowlist: a code tool whose
+  allowlist names an OpenEnv tool, on the subject or on a sub-agent, does
+  not force the eval-job route.
 - **Attaching.** `create_run_config` checks each `kiln_task::` id that a
   run config of the subject attaches: it names a Kiln task tool, the tool
   does not call the subject task, and its pinned run config exists.

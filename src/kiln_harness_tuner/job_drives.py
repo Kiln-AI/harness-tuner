@@ -4,7 +4,8 @@ The plain run endpoint (`POST …/tasks/{t}/run`) runs one input once. It
 starts no OpenEnv episode and no simulated user. So it cannot drive:
 
 - a multi-turn task (the task's `turn_mode` is `multiturn`);
-- a run config that lists an OpenEnv tool (`kiln_tool::openenv::…`);
+- a run config that lists an OpenEnv tool (`kiln_tool::openenv::…`), or
+  that attaches a sub-agent (`kiln_task::…`) whose run config lists one;
 - an item whose input carries an `openenv_reset`.
 
 There, the OpenEnv tools fail and the conversation does not start. An eval
@@ -44,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
+from kiln_harness_tuner.sub_agents import read_sub_agent, sub_agent_tool_ids
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,8 @@ OPENENV_TOOL_PREFIX = "kiln_tool::openenv::"
 # (`CONNECT_TIMEOUT_S`), so the wait here is a little longer.
 OPENENV_LIST_TIMEOUT_SECS = 45.0
 MULTI_TURN_MODE = "multiturn"
+# How many levels of sub-agents the route follows to find an OpenEnv tool.
+SUB_AGENT_DEPTH = 3
 # The longest one drive may take, end to end: a multi-turn conversation in a
 # OpenEnv episode runs several model calls and several tool calls. The server's
 # `POST /api/jobs/wait` caps one wait at an hour.
@@ -205,6 +209,9 @@ class EvalJobDriver:
         # Evals whose default config the server refused for a judge-free job
         # (a legacy judge): their drives use judged jobs.
         self._judged_evals: set[str] = set()
+        # `kiln_task::` tool id -> does the sub-agent behind it reach an
+        # OpenEnv tool. Kept for good: a tool pins its run config.
+        self._sub_agent_openenv: dict[str, bool] = {}
 
     @property
     def _base(self) -> str:
@@ -225,13 +232,57 @@ class EvalJobDriver:
         self, props: Iterable[Mapping[str, Any] | None], inputs: Iterable[Any]
     ) -> bool:
         """Must these drives go through eval jobs? Yes when the task is
-        multi-turn, when one run config lists an OpenEnv tool, or when one
-        input needs an eval job (`TrainInput.needs_eval_job`)."""
+        multi-turn, when one run config lists an OpenEnv tool, when one
+        input needs an eval job (`TrainInput.needs_eval_job`), or when a
+        sub-agent that one run config attaches lists an OpenEnv tool."""
+        props = list(props)
         if any(lists_openenv_tool(p) for p in props):
             return True
         if any(getattr(i, "needs_eval_job", False) for i in inputs):
             return True
-        return await self.multi_turn()
+        if await self.multi_turn():
+            return True
+        for one in props:
+            if await self.sub_agent_lists_openenv_tool(one):
+                return True
+        return False
+
+    async def sub_agent_lists_openenv_tool(
+        self, props: Mapping[str, Any] | None, depth: int = SUB_AGENT_DEPTH
+    ) -> bool:
+        """Does a sub-agent that this run config attaches list an OpenEnv
+        tool on the run config that its tool pins? A sub-agent's world
+        calls run in the episode of the drive that calls it, so such a run
+        config is driven like one that lists the tool itself. A sub-agent
+        of the sub-agent is followed `depth` levels down.
+
+        A tool id that names no Kiln task tool has no sub-agent to drive.
+        A read that fails for another reason answers yes, and is not kept:
+        an eval job can drive every item, the run endpoint cannot."""
+        for tool_id in dict.fromkeys(sub_agent_tool_ids(props)):
+            known = self._sub_agent_openenv.get(tool_id)
+            if known is None:
+                try:
+                    sub = await read_sub_agent(self._call, self.project_id, tool_id)
+                except KilnAPIError as exc:
+                    if exc.status_code != 404:
+                        return True
+                    sub = None
+                except KilnError:
+                    return True
+                known = sub is not None and (
+                    lists_openenv_tool(sub.properties)
+                    or (
+                        depth > 1
+                        and await self.sub_agent_lists_openenv_tool(
+                            sub.properties, depth - 1
+                        )
+                    )
+                )
+                self._sub_agent_openenv[tool_id] = known
+            if known:
+                return True
+        return False
 
     async def judge_free(self) -> bool:
         """Does the server run judge-free eval jobs? Its OpenAPI schema

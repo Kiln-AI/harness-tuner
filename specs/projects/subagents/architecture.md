@@ -60,7 +60,7 @@ gateway imports them.
 - `gateway/ops.py`:
   - `Gateway.create_sub_agent`: the checks, then the three writes.
     `SUB_AGENT_REFUSED_TOOL_PREFIXES` lists what its run config cannot
-    attach.
+    attach. An OpenEnv tool is not in it.
   - `Gateway._sub_agent_check`: the rules for an attached tool. Called by
     `create_run_config` and `run_task`.
   - `Gateway._driven_view`: the view of a drive, with the sub-agents'
@@ -73,6 +73,12 @@ gateway imports them.
   is `<kind>:<record id>`, the split is `meta`, and `eval_id` holds the
   task id for the run config and the tool. `created_train` reads rows of
   the split `train` only, so no sub-agent row is a train record.
+
+`job_drives.EvalJobDriver.sub_agent_lists_openenv_tool` reads the
+sub-agents of a run config with `read_sub_agent`, and `needed` calls it
+after its three cheaper tests. The answer for a tool id is kept on the
+driver: a tool pins its run config. The three callers of `needed` did not
+change.
 
 ## 4. The model policy (FS 5)
 

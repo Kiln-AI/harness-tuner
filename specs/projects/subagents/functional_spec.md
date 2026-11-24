@@ -63,8 +63,9 @@ Checks, all before the first write:
 1. The request is valid (the table above).
 2. The run config is a `kiln_agent` config, and its model passes the model
    policy.
-3. Its `tools_config.tools` has no `kiln_task::` tool, no OpenEnv tool, no
-   `kiln_tool::call_kiln_api` and no `kiln_tool::memory::` tool.
+3. Its `tools_config.tools` has no `kiln_task::` tool, no
+   `kiln_tool::call_kiln_api` and no `kiln_tool::memory::` tool. An OpenEnv
+   tool is allowed (section 4).
 
 Writes, in this order:
 
@@ -90,6 +91,14 @@ run config. Each is refused with a reason when:
 - the tool calls the subject task itself;
 - the run config that the tool pins does not exist;
 - the model of that run config is outside the model policy.
+
+A run config whose sub-agent lists an OpenEnv tool is driven as an eval
+job on every item, by every drive of the loop: the timing drives, the
+gate's paired pass, a code probe and the gateway's `run_task`. The test
+follows a sub-agent of a sub-agent three levels down. A tool id that names
+no Kiln task tool gives no eval job. A read of a sub-agent that fails
+gives the eval job, and that answer is not kept. The test does not read
+the allowlist of a code tool.
 
 `run_task` answers with `sub_agent_calls` (the calls of sub-agent tools in
 the trace), `sub_agent_usage` (the usage of those calls, for information,

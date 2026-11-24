@@ -71,10 +71,13 @@ Rules of the object:
 ## Limits
 
 - The tuner creates a sub-agent and does not tune it on evals of its own.
-  A sub-agent has no evals here. Its effect is measured on the subject's
-  evals.
-- A sub-agent created here cannot attach another sub-agent, an OpenEnv
-  tool, or a tool that reaches the Kiln server or the project's memory.
+  Its effect is measured on the subject's evals.
+- A sub-agent created here cannot attach another sub-agent, or a tool that
+  reaches the Kiln server or the project's memory.
+- A sub-agent can attach an OpenEnv tool. Its calls then run in the world
+  of the item that is driven: it reads that scenario, and its writes
+  change the final state that an eval reads. A run config whose sub-agent
+  has such a tool is always driven as an eval job.
 - The model policy holds for the sub-agent. A sub-agent on a model outside
   the policy is refused, and so is a run config that attaches one. When
   the run keeps the baseline's model, a new sub-agent runs on that model,

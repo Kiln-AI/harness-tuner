@@ -81,14 +81,19 @@ choices that the owner can change: each one is the conservative choice.
    needs no rule on which tasks an agent may write to. The cost is one more
    task in the project for each variant. A version operation is in the
    backlog.
-6. **Owner: one level, and no OpenEnv tool.** A sub-agent that the loop
-   creates cannot attach a sub-agent. Reason: no call chain can loop. A
-   sub-agent that the user made can still have one, and the usage reader
-   follows it three levels down. It cannot attach an OpenEnv tool either:
-   the loop chooses the route of a drive from the subject's tools, and the
-   run endpoint starts no episode. A probe showed that a sub-agent's
-   OpenEnv tool works inside an eval job. Whether its writes reach the
-   parent's episode is not verified.
+6. **Owner: one level.** A sub-agent that the loop creates cannot attach a
+   sub-agent. Reason: no call chain can loop. A sub-agent that the user
+   made can still have one, and the usage reader follows it three levels
+   down.
+6a. **Owner (2026-11-25): a sub-agent can attach an OpenEnv tool, and the
+   drive route sees through sub-agents.** A general use of a sub-agent is
+   a reader that gets data from the task's world at run time. An earlier
+   version of this PR refused the tool, because the loop chose the route
+   of a drive from the subject's tools only. Now `EvalJobDriver.needed`
+   answers yes when a run config, or a sub-agent that it attaches, lists
+   an OpenEnv tool. Such a run config is driven as an eval job on every
+   item, like one that lists the tool itself. Section 5 has the Kiln facts
+   and what stays open.
 7. **The model policy holds for the sub-agent.** Section 17 of the
    architecture says that the policy is about where the task's data is
    sent. A sub-agent's input is the task's data.
@@ -251,3 +256,48 @@ For a run that used the lever:
 - The report has a `## Sub-agents` section, rendered by code: each created
   sub-agent with its tool id, task, run config, model, the run configs that
   attach it, and "in the final baseline" when the final baseline does.
+
+## 5. OpenEnv tools on a sub-agent
+
+Facts from a live probe by another session, on a Kiln server that reports
+API version 1.2.0. The parent task's only tool was a `kiln_task::` tool.
+The sub-agent's run config had two OpenEnv tools of a world, one read and
+one write. The eval inputs carried an `openenv_reset`. A code scorer read
+`openenv_episode["final_state"]`.
+
+- **In an eval job** (3 items, concurrency 1): the sub-agent's read
+  returned the data of the scenario that the eval input reset. On all 3
+  items the scorer received an episode, and the final state showed the
+  value that the sub-agent wrote. So a sub-agent's world calls run in the
+  parent's episode, for reads and for writes.
+- **Through the run endpoint**, with the same parent and no eval input:
+  Kiln attempted an OpenEnv reset with no reset arguments, the world
+  refused it, and the run failed with the error code
+  `openenv_reset_rejected`.
+- **Not tested**: a concurrency above 1 (whether the sub-agents of items
+  that run at the same time keep their own episodes), and a sub-agent
+  whose tool is a code tool that calls an OpenEnv tool.
+
+What stays open:
+
+- **A code tool's allowlist.** The route reads the tool list of a run
+  config and of its sub-agents. It does not read the allowlist of a code
+  tool. A code tool whose allowlist names an OpenEnv tool, on the subject
+  or on a sub-agent, does not force the eval-job route. `create_sub_agent`
+  does not read allowlists either. This is the behaviour of main for the
+  subject, and the owner has not decided to change it.
+- **The write-action flag.** The gate's integrity check (c) flags a kind
+  of write action that is in the candidate's val traces and in none of the
+  baseline's. It reads the tool calls of the run's own trace. A write that
+  a sub-agent makes is in the sub-agent's trace, which an eval job does
+  not save. So a candidate can move a write tool into a sub-agent, and the
+  flag does not fire. This holds for a write tool of any kind, and it
+  matters more now that a sub-agent can hold a world's write tool. A
+  static check on the tools of a new sub-agent is not built: the owner has
+  not decided.
+- **The statement "the run endpoint starts no OpenEnv episode".** Main has
+  it in `job_drives.py` (the module text), in the text of `run_task` in
+  `gateway/ops.py`, in `docs/architecture.md` section 16 and in
+  `docs/your-own-task.md`. The probe above saw the run endpoint attempt a
+  reset. This PR does not change those four places. They need a check
+  against Kiln's source.

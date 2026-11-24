@@ -39,11 +39,7 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import (
-    OPENENV_TOOL_PREFIX,
-    EvalJobDriver,
-    openenv_tool_parts,
-)
+from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
@@ -67,15 +63,14 @@ from kiln_harness_tuner.sub_agents import (
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 # The tools a sub-agent's run config cannot attach: another sub-agent (one
-# level only), the tools that reach the Kiln server or the project's
-# memory, and an OpenEnv tool. A drive through the run endpoint starts no
-# OpenEnv episode, and the loop chooses that route from the SUBJECT's tools,
-# so a sub-agent's OpenEnv tool would have no episode there.
+# level only), and the tools that reach the Kiln server or the project's
+# memory. An OpenEnv tool is allowed: the route of a drive reads the tools
+# of each attached sub-agent (`EvalJobDriver.needed`), so a run config
+# whose sub-agent has one is driven as an eval job, with an episode.
 SUB_AGENT_REFUSED_TOOL_PREFIXES = (
     KILN_TASK_TOOL_PREFIX,
     "kiln_tool::call_kiln_api",
     "kiln_tool::memory::",
-    OPENENV_TOOL_PREFIX,
 )
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = "val"
@@ -1293,8 +1288,7 @@ class Gateway:
         if refused:
             raise GatewayError(
                 f"a sub-agent's run config cannot attach {', '.join(refused)}:"
-                " no sub-agent of a sub-agent, no tool that reaches Kiln, and"
-                " no OpenEnv tool"
+                " no sub-agent of a sub-agent, and no tool that reaches Kiln"
             )
         run = self.s.run_dir.name if self.s.run_dir is not None else "a run"
         note = (
