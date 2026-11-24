@@ -558,8 +558,9 @@ is closed when the present baseline no longer shows the smell
 ([architecture.md](architecture.md) section 18.6). For a smell that only
 code detects, code decides alone: each of its detectors could tell, and
 none fires. For a smell that an agent detects, the reviewer decides with
-`shows: false`, and code checks that the review returned no finding of
-that smell and that no detector of it fires. Code writes the `FIXED:`
+`shows: false`, and code checks that each detector of the smell could
+tell and that none fires. A finding of the smell in the same review
+keeps the issue open, for both kinds. Code writes the `FIXED:`
 prefix and one line with its own basis (`memory.close_smell`). Any other
 reading keeps the issue open.
 

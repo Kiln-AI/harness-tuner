@@ -2255,14 +2255,21 @@ issue. Each doubt keeps the issue open.
 | The smell | The baseline no longer shows it when | Who decides |
 |---|---|---|
 | only code detects it (`detected_by: code`) | each detector of the smell is in `ctx.sure_detectors`, and none fires on the new baseline | code alone, with or without a review |
-| an agent detects it (`detected_by` has `agent`) | the review of the new baseline is `done`, its `SmellIssueCheck` for this issue has `shows: false`, and it returned no finding of the same smell; when the smell also has a detector, that detector is sure and does not fire | the reviewer, on its second reading |
+| an agent detects it (`detected_by` has `agent`) | the review of the new baseline is `done`, and its `SmellIssueCheck` for this issue has `shows: false`; when the smell also has a detector, that detector is sure and does not fire | the reviewer, on its second reading |
+
+For both kinds, a finding of the same smell in the review of the new
+baseline keeps the earlier issue open. Two readings of one issue that
+disagree count as "could not tell".
 
 The reviewer gets the issues that need a reader in
 `BaselineReviewInput.earlier_issues`, at most `REVIEW_MAX_EARLIER_ISSUES`
 (15): the id, the smell, the earlier run config and the text of the issue.
-An issue whose detector fires on the new baseline is not in the list: the
-detection shows that the smell is still there. A reading of an issue that
-was not in the list is dropped. An issue stays open when the review is
+The issues of the newest earlier baseline come first. An issue whose
+detector fires on the new baseline is not in the list: the detection shows
+that the smell is still there. An issue whose detector could not tell is
+not in the list: no reading can close it. A reading of an issue that was
+not in the list is dropped, so an issue past the limit stays open until a
+later review reads it. An issue stays open when the review is
 off, skipped or failed, when the reading is `true`, `null` or missing, when
 a detector could not tell, and when the smell documents cannot be read.
 

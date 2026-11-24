@@ -506,14 +506,22 @@ def _tagged(issue: IssueView, prefix: str) -> str:
 async def _earlier_smell_issues(
     ctx: Ctx, rc_id: str, lineage: Sequence[str]
 ) -> list[IssueView]:
-    """The open smell issues of the baselines that `rc_id` replaced. No
-    read of memory when the lineage names no earlier baseline. A read that
-    fails gives none, with the event `smell_issue_check_skipped`."""
+    """The open smell issues of the baselines that `rc_id` replaced, the
+    issues of the newest baseline first (the order of `lineage`). No read
+    of memory when the lineage names no earlier baseline. A read that fails
+    gives none, with the event `smell_issue_check_skipped`."""
     earlier = [rc for rc in dict.fromkeys(lineage) if rc != rc_id]
     if not earlier:
         return []
     try:
-        return await ctx.memory.open_smell_issues(earlier)
+        issues = await ctx.memory.open_smell_issues(earlier)
+        age = {rc: n for n, rc in enumerate(earlier)}
+        return sorted(
+            issues,
+            key=lambda issue: age.get(
+                _tagged(issue, AUDITED_RC_TAG_PREFIX), len(earlier)
+            ),
+        )
     except ProviderQuotaError:
         raise
     except Exception as exc:
@@ -543,16 +551,18 @@ def _issues_for_the_reviewer(
     ctx: Ctx, earlier: Sequence[IssueView]
 ) -> list[EarlierSmellIssue]:
     """The earlier smell issues that the reviewer reads again, at most
-    `REVIEW_MAX_EARLIER_ISSUES`: the ones whose smell needs a reader and
-    for which no detector fires on the present baseline. A detection shows
-    that the smell is still there, so no reading is needed. An issue left
-    out of the list stays open."""
+    `REVIEW_MAX_EARLIER_ISSUES`, in the order of `earlier`: the ones whose
+    smell needs a reader, and that a reading can close. An issue is left
+    out when a detector of its smell fires on the present baseline (the
+    detection shows that the smell is still there) or could not tell (no
+    reading can then close it). An issue left out of the list stays open."""
     readers = _smells_for_a_reader() or frozenset()
     detected = {d.smell for d in ctx.detections}
+    unsure = {d.smell for d in DETECTORS if d.id not in ctx.sure_detectors}
     asked = []
     for issue in earlier:
         smell = _tagged(issue, SMELL_TAG_PREFIX)
-        if smell not in readers or smell in detected:
+        if smell not in readers or smell in detected or smell in unsure:
             continue
         asked.append(
             EarlierSmellIssue(
@@ -589,12 +599,13 @@ def earlier_issue_verdict(
     open. Each doubt keeps the issue open.
 
     A smell with a detector: it is absent for code only when each of its
-    detectors is sure (`sure_detectors`) and none fires. A smell that only
-    code detects (`readers` does not have it) is then closed by code alone,
-    with or without a review. A smell that an agent detects also needs the
-    reviewer: a `done` review of this baseline whose reading of this issue
-    (`check`) is `shows: false`, and no finding of the smell in that review
-    (`found`: the smell of each returned finding)."""
+    detectors is sure (`sure_detectors`) and none fires. A finding of the
+    smell in the review of this baseline keeps the issue open, for every
+    kind of smell (`found`: the smell of each returned finding). A smell
+    that only code detects (`readers` does not have it) is then closed by
+    code alone, with or without a review. A smell that an agent detects
+    also needs the reviewer: a `done` review of this baseline whose reading
+    of this issue (`check`) is `shows: false`."""
     if readers is None:
         return None, "the smell documents cannot be read"
     own = [d.id for d in detectors if d.smell == smell]
@@ -603,6 +614,8 @@ def earlier_issue_verdict(
     unsure = [i for i in own if i not in sure_detectors]
     if unsure:
         return None, f"{_names(unsure)} could not tell on this baseline"
+    if smell in found:
+        return None, "the design review names the smell on this baseline"
     silent = f"{_names(own)} did not fire" if own else ""
     if smell not in readers:
         if not own:
@@ -614,10 +627,28 @@ def earlier_issue_verdict(
         return None, "the design review did not read this issue again"
     if check.shows is None:
         return None, "the design review could not tell"
-    if check.shows or smell in found:
+    if check.shows:
         return None, "the design review still sees the smell"
     basis = "the design review read the issue again and did not see the smell"
     return "review", f"{basis}; {silent}" if silent else basis
+
+
+def _one_reading_each(
+    checks: Sequence[SmellIssueCheck],
+) -> dict[str, SmellIssueCheck]:
+    """One reading for each issue id. Two readings of one issue that
+    disagree become "could not tell", so the issue stays open."""
+    by_issue: dict[str, SmellIssueCheck] = {}
+    for check in checks:
+        first = by_issue.get(check.issue_id)
+        if first is not None and first.shows != check.shows:
+            check = SmellIssueCheck(
+                issue_id=check.issue_id,
+                shows=None,
+                note="two readings of this issue disagree",
+            )
+        by_issue[check.issue_id] = check
+    return by_issue
 
 
 async def _closed_or_kept(
@@ -657,7 +688,7 @@ async def close_earlier_smell_issues(
     if not earlier:
         return review
     readers = _smells_for_a_reader()
-    checks = {check.issue_id: check for check in review.issue_checks}
+    checks = _one_reading_each(review.issue_checks)
     closed: list[SmellIssueClosure] = []
     kept: list[dict[str, str]] = []
     for issue in earlier:

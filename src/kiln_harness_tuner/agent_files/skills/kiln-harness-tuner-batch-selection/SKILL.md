@@ -619,8 +619,8 @@ passes or fails. Two sources name the smells of the **present** baseline:
   ones whose `audited_rc_` tag names `baseline.rc_id` are about the present
   baseline. After each promotion, code closes an earlier baseline's smell
   issue when the new baseline no longer shows the smell: its overview then
-  starts with `FIXED:`, and its last line says who decided (a detector, or
-  the reviewer's second reading). An earlier issue that is still open was
+  starts with `FIXED:`, and a line `- no longer shown on baseline <rc>`
+  says who decided (a detector, or the reviewer's second reading). An earlier issue that is still open was
   not shown to be gone, so read the tag. The content gives the evidence,
   where it was seen and how sure the reviewer is.
 

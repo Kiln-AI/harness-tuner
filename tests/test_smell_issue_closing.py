@@ -105,6 +105,16 @@ def test_a_code_smell_stays_open_when_its_detector_could_not_tell():
     )
 
 
+def test_a_finding_of_a_code_smell_in_the_same_review_keeps_its_issue_open():
+    """The reviewer can name a smell that only code detects, when it saw
+    more than the detector states. The detector is silent on the new
+    baseline, and the review names the smell there: the two disagree."""
+    assert verdict("too-many-tools", found={"too-many-tools"}) == (
+        None,
+        "the design review names the smell on this baseline",
+    )
+
+
 def test_a_smell_with_no_detector_and_no_reader_stays_open():
     assert verdict("a-smell-with-no-document")[0] is None
 
@@ -141,7 +151,7 @@ def test_the_reviewer_decides_for_a_smell_that_needs_a_reader():
         # A reading of "gone" and a finding of the same smell disagree.
         (
             {"check": gone(), "found": {"fixed-call-chain"}},
-            "the design review still sees the smell",
+            "the design review names the smell on this baseline",
         ),
         (
             {
@@ -403,6 +413,58 @@ async def test_a_write_that_fails_keeps_that_issue_and_closes_the_others(monkeyp
     ]
 
 
+async def test_an_issue_that_another_writer_closed_first_is_kept_as_it_is(monkeypatch):
+    """`close_smell` answers False when the issue is closed between the
+    read and the write. It is then not counted as closed by this step."""
+    ctx = new_baseline_ctx()
+    issue = await earlier_issue(ctx, "too-many-tools")
+
+    async def closed_already(*_args):
+        return False
+
+    monkeypatch.setattr(ctx.memory, "close_smell", closed_already)
+    await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
+    (review,) = ctx.baseline_reviews
+    assert review.closed_issues == []
+    (checked,) = events(ctx, "smell_issues_checked")
+    assert checked["kept"] == [
+        {
+            "issue": issue,
+            "smell": "too-many-tools",
+            "reason": "the issue is closed already",
+        }
+    ]
+
+
+async def test_an_error_in_the_step_keeps_every_issue_and_the_review(monkeypatch):
+    ctx = new_baseline_ctx()
+    issue = await earlier_issue(ctx, "too-many-tools")
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("a bug in the rule")
+
+    monkeypatch.setattr("kiln_harness_tuner.smells.run.earlier_issue_verdict", broken)
+    await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
+    assert state(ctx, issue) is IssueState.OPEN
+    (skipped,) = events(ctx, "smell_issue_check_skipped")
+    assert skipped == {"rc": "rc_new", "reason": "RuntimeError: a bug in the rule"}
+    (review,) = ctx.baseline_reviews
+    assert (review.status, review.closed_issues) == ("off", [])
+
+
+async def test_a_quota_error_while_reading_the_earlier_issues_is_raised(monkeypatch):
+    ctx = new_baseline_ctx()
+
+    async def quota(_rc_ids):
+        raise ProviderQuotaError(
+            ErrorInfo(error_class="quota_exhausted", detail="out of credits")
+        )
+
+    monkeypatch.setattr(ctx.memory, "open_smell_issues", quota)
+    with pytest.raises(ProviderQuotaError):
+        await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
+
+
 async def test_a_quota_error_while_closing_an_issue_is_raised(monkeypatch):
     ctx = new_baseline_ctx()
     await earlier_issue(ctx, "too-many-tools")
@@ -443,15 +505,55 @@ async def test_the_reviewer_is_given_the_earlier_issues_that_need_a_reader():
     )
 
 
-async def test_the_reviewer_is_given_at_most_fifteen_earlier_issues():
+def old_lineage(count: int) -> list[str]:
+    """`rc_new`, then `count` earlier baselines, the newest first."""
+    return ["rc_new", *(f"rc_old_{n}" for n in range(count))]
+
+
+async def test_the_reviewer_reads_at_most_fifteen_issues_the_newest_baseline_first():
+    """A reading of an issue that was not asked about is dropped, so an
+    issue past the limit stays open, whatever the reviewer returns."""
+    over = REVIEW_MAX_EARLIER_ISSUES + 2
     ctx = new_baseline_ctx(review=True)
-    for n in range(REVIEW_MAX_EARLIER_ISSUES + 2):
-        await earlier_issue(ctx, "fixed-call-chain", f"rc_old_{n}")
-    lineage = ["rc_new", *(f"rc_old_{n}" for n in range(REVIEW_MAX_EARLIER_ISSUES + 2))]
-    ctx.dispatch.queue("baseline_review", ok(BaselineReviewResult()))
-    await ensure_baseline_reviewed(ctx, NEW, lineage=lineage)
+    # Written oldest baseline first, so the listing order is not the answer.
+    issues = {
+        n: await earlier_issue(ctx, "fixed-call-chain", f"rc_old_{n}")
+        for n in reversed(range(over))
+    }
+    ctx.dispatch.queue(
+        "baseline_review",
+        ok(BaselineReviewResult(issue_checks=[gone(i) for i in issues.values()])),
+    )
+    await ensure_baseline_reviewed(ctx, NEW, lineage=old_lineage(over))
+
     (request,) = ctx.dispatch.calls_to("baseline_review")
-    assert len(request.earlier_issues) == REVIEW_MAX_EARLIER_ISSUES
+    assert [i.rc_id for i in request.earlier_issues] == [
+        f"rc_old_{n}" for n in range(REVIEW_MAX_EARLIER_ISSUES)
+    ]
+    (review,) = ctx.baseline_reviews
+    assert len(review.issue_checks) == REVIEW_MAX_EARLIER_ISSUES
+    states = {n: state(ctx, issue) for n, issue in issues.items()}
+    assert states == {
+        n: IssueState.FIXED if n < REVIEW_MAX_EARLIER_ISSUES else IssueState.OPEN
+        for n in range(over)
+    }
+
+
+async def test_an_issue_whose_detector_could_not_tell_is_not_given_to_the_reviewer():
+    """The prompt of the new baseline cannot be read, so `long_prompt` is
+    blind. No reading can close a `very-long-prompt` issue then."""
+    ctx = new_baseline_ctx(review=True)
+    ctx.kiln.run_configs[1] = {**row("rc_new"), "prompt": None}
+    ctx.kiln.run_configs[1]["run_config_properties"]["prompt_id"] = "id::missing"
+    issue = await earlier_issue(ctx, "very-long-prompt")
+    ctx.dispatch.queue(
+        "baseline_review", ok(BaselineReviewResult(issue_checks=[gone(issue)]))
+    )
+    await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
+    assert "long_prompt" not in ctx.sure_detectors
+    (request,) = ctx.dispatch.calls_to("baseline_review")
+    assert request.earlier_issues == []
+    assert state(ctx, issue) is IssueState.OPEN
 
 
 async def test_a_reading_of_gone_closes_the_issue_and_code_writes_it():
@@ -523,21 +625,18 @@ async def test_a_finding_of_the_same_smell_keeps_the_earlier_issue_open():
     assert audited == ["audited_rc_rc_base", "audited_rc_rc_new"]
 
 
-async def test_a_reading_of_an_issue_that_was_not_asked_about_is_dropped():
-    """The reviewer cannot close an issue that code did not give it: a
-    smell that code decides, or an issue outside the lineage."""
-    ctx = new_baseline_ctx(row("rc_new", tools=tool_ids(MANY_TOOLS + 1)), review=True)
-    by_code = await earlier_issue(ctx, "too-many-tools")
-    elsewhere = await earlier_issue(ctx, "fixed-call-chain", "rc_other")
+async def test_two_readings_of_one_issue_that_disagree_keep_it_open():
+    ctx = new_baseline_ctx(review=True)
+    issue = await earlier_issue(ctx, "fixed-call-chain")
+    still = SmellIssueCheck(issue_id=issue, shows=True)
     ctx.dispatch.queue(
         "baseline_review",
-        ok(BaselineReviewResult(issue_checks=[gone(by_code), gone(elsewhere)])),
+        ok(BaselineReviewResult(issue_checks=[still, gone(issue)])),
     )
     await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
-    (review,) = ctx.baseline_reviews
-    assert review.issue_checks == []
-    assert state(ctx, by_code) is IssueState.OPEN
-    assert state(ctx, elsewhere) is IssueState.OPEN
+    assert state(ctx, issue) is IssueState.OPEN
+    (checked,) = events(ctx, "smell_issues_checked")
+    assert checked["kept"][0]["reason"] == "the design review could not tell"
 
 
 async def test_a_failed_review_closes_only_what_code_can_decide():
@@ -552,6 +651,33 @@ async def test_a_failed_review_closes_only_what_code_can_decide():
     await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
     (review,) = ctx.baseline_reviews
     assert review.status == "failed"
+    assert state(ctx, by_code) is IssueState.FIXED
+    assert state(ctx, by_reader) is IssueState.OPEN
+
+
+async def test_a_baseline_that_was_reviewed_before_closes_only_what_code_can_decide():
+    """A resumed lineage: memory holds a smell issue of `rc_new`, so no
+    session runs, and no reading of the earlier issues exists."""
+    ctx = new_baseline_ctx(review=True)
+    by_code = await earlier_issue(ctx, "too-many-tools")
+    by_reader = await earlier_issue(ctx, "fixed-call-chain")
+    await earlier_issue(ctx, "tool-search", "rc_new")
+    await ensure_baseline_reviewed(ctx, NEW, lineage=LINEAGE)
+    assert ctx.dispatch.calls_to("baseline_review") == []
+    (review,) = ctx.baseline_reviews
+    assert (review.status, review.reason) == ("skipped", "already reviewed")
+    assert [c.issue_id for c in review.closed_issues] == [by_code]
+    assert state(ctx, by_reader) is IssueState.OPEN
+
+
+async def test_a_wrap_up_wave_closes_what_code_can_decide_with_no_session():
+    ctx = new_baseline_ctx(review=True)
+    by_code = await earlier_issue(ctx, "too-many-tools")
+    by_reader = await earlier_issue(ctx, "fixed-call-chain")
+    await ensure_baseline_reviewed(ctx, NEW, wrap_up=True, lineage=LINEAGE)
+    assert ctx.dispatch.calls_to("baseline_review") == []
+    (review,) = ctx.baseline_reviews
+    assert (review.status, review.reason) == ("skipped", "a wrap-up wave")
     assert state(ctx, by_code) is IssueState.FIXED
     assert state(ctx, by_reader) is IssueState.OPEN
 
