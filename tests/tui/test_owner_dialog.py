@@ -88,7 +88,14 @@ async def dialog(pilot) -> OwnerQuestionsDialog:
         if not isinstance(screen, OwnerQuestionsDialog):
             return False
         options = screen.query("#owner-options")
-        return bool(options) and options.first().has_focus
+        shown_question = screen.query("#owner-question")
+        return (
+            bool(options)
+            and options.first().has_focus
+            and bool(shown_question)
+            and bool(str(shown_question.first().render()))
+            and bool(screen.query_one("#owner-dialog").border_title)
+        )
 
     await until(pilot, ready)
     return pilot.app.screen

@@ -266,7 +266,10 @@ class TunerApp(App[None]):
         self._drop_expired_dialog()
 
     def _drop_expired_dialog(self) -> None:
-        screen = self.screen
+        # The stack, not `self.screen`: it is empty while the app closes, and
+        # `self.screen` raises then. The drain runs until the end.
+        stack = self.screen_stack
+        screen = stack[-1] if stack else None
         if (
             isinstance(screen, OwnerQuestionsDialog)
             and screen.expired
