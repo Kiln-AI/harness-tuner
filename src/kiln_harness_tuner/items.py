@@ -771,7 +771,11 @@ async def _execute_plan_item(
 
     reused = getattr(item.work, "existing_rc_id", None)
     if not reused and _names_transform_lever(item) and await _task_is_multi_turn(ctx):
-        # The lever does not apply to this task: no build session is paid for.
+        # The lever does not apply to this task: no build session is paid
+        # for. This comes after an item's own eval build (with
+        # `--experimental-eval-building`): the record needs the eval's id,
+        # and an item with no record is planned again. That eval measures
+        # the issue, not the fix, so it stays linked to the issue.
         return await _transform_dead_end(
             ctx, item, exp_mem, input_transform.MULTI_TURN_REFUSAL, status="refused"
         )
@@ -848,7 +852,10 @@ async def _execute_plan_item(
         # The arm changed the transform: did it reach the calls? Read from
         # the train rows the measurement just stored, at no cost.
         applied = await _transform_applied(ctx, item, rc_id, parent_rc_id)
-        if applied.status == "not_applied":
+        # Only an arm of this lever ends on it. Another arm can change the
+        # transform by accident (a copy with one more blank line): its own
+        # lever is what the measurement is about, so its verdict is a note.
+        if applied.status == "not_applied" and _names_transform_lever(item):
             out = await _transform_dead_end(
                 ctx, item, exp_mem, applied.reason, rc_id=rc_id, status="not_applied"
             )
@@ -861,6 +868,9 @@ async def _execute_plan_item(
             rc_id=rc_id,
             status=applied.status,
             line=f"input transform {rc_id}: {applied.reason}",
+        )
+        ctx.log.event(
+            "item_detail", item_id=item.id, detail=f"input transform: {applied.reason}"
         )
     try:
         bundle = await ctx.analyzer.run_experiment_analysis(

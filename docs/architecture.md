@@ -352,7 +352,7 @@ The full path:
    (`technique: input_transform`), for single-turn tasks only. Code reads
    the built run config and its parent, before any review:
    - an item that names the lever on a multi-turn task ends `dead_end`
-     before the build session;
+     before its build session;
    - an arm that changes the transform on a multi-turn task ends
      `dead_end`;
    - an item that names the lever and whose transform is the parent's ends
@@ -364,9 +364,11 @@ The full path:
    compares the first user message of each stored train row with the
    parent's on the same item. That message is the rendered template. A
    message that differs on one paired item is `applied`. The same message
-   on every paired item, with at least 2 of them, is `not_applied`: the
-   item ends `dead_end`, with no analysis session. Fewer pairs are
-   `unverified`, and the item goes on. The verdict is an `input_transform`
+   on every paired item, with at least 2 of them, is `not_applied`. An item
+   that names the lever then ends `dead_end`, with no analysis session.
+   Another arm (one that changed the transform with no effect, for example
+   a copy with one more blank line) goes on: its own lever is what it
+   measures. Fewer pairs are `unverified`, and the item goes on. The verdict is an `input_transform`
    event, and the experiment record gets one `input transform: …` line
    with the change and the verdict.
 4. **The generality check**
@@ -1806,11 +1808,9 @@ not applied when neither moved; unverified when no drive shows reasoning
 and fewer than 2 paired items carry token counts. A model or provider
 switch is not applied when a drive records another model or provider than
 the run config names (in `output.source`, the usage or a trace message),
-and unverified when no drive records one. An input transform that
-differs from the parent's is applied when the first user message of a
-drive differs from the parent's on the same item; not applied when it is
-the same on every paired item, with at least 2 of them; unverified with
-fewer pairs. Not applied stops the candidate
+and unverified when no drive records one. The input transform is not
+checked here, because this check does not know the arm's technique: the
+item path checks it (section 4). Not applied stops the candidate
 as `lever not applied: …` (event `lever_not_applied`) before anything more
 is paid for it; unverified is logged (`lever_unverified`) and shown on the
 candidate's line, and the candidate goes on. The same check runs on an

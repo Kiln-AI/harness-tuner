@@ -81,7 +81,12 @@ in the vendored API reference.
    wrong shape, a template that Kiln does not compile, a template over
    20,000 characters, and a new template on a multi-turn task. The roles
    that create run configs have the operation: `create_experiment_rc` and
-   `probe`.
+   `probe`. The turn mode is read fresh for these rules, and a task that
+   cannot be read refuses: the multi-turn rule fails closed. An item that
+   names the lever on a multi-turn task ends before its build session. An
+   item that also commissions its own eval (`--experimental-eval-building`)
+   ends after that eval build: its record needs the eval's id, and an item
+   with no record is planned again.
 5. **The gateway renders a new template on every train input.** Kiln's
    compile check finds a syntax error only. A template that reads a field
    that some inputs lack fails at run time on those inputs, and the
@@ -113,10 +118,12 @@ in the vendored API reference.
      spend;
    - after the train measurement: the first user message of each stored
      train row against the parent's on the same item. The same message on
-     every paired item (at least 2) ends the item as `lever not applied`.
+     every paired item (at least 2) ends an item that names the lever as
+     `lever not applied`. An arm of another lever that changed the
+     transform with no effect goes on, with the verdict on its record.
      Fewer pairs leave the lever unverified, and the item goes on.
-   `levers.lever_verdict` has the same signal, for arms with timing
-   drives.
+   `levers.lever_verdict` does not check the transform: it does not know
+   the arm's technique.
 8. **`get_task` gives `turn_mode`.** The planner and the builder need it
    to know if the lever applies. This closes the rest of gap 4 and the
    backlog entry `The task shape for loop agents`: the model capability

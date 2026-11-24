@@ -620,3 +620,21 @@ async def test_a_template_the_baseline_has_is_not_reviewed_or_blocked():
     await orchestrate(ctx, "g", timeout_mins=180)
     assert ctx.dispatch.calls_to("integrity_review") == []
     assert _promoted(ctx)
+
+
+async def test_a_changed_template_is_reviewed_when_the_prompt_cannot_be_read():
+    ctx = _gate_ctx(BASE_PROMPT)
+    _by_id(ctx, BASE_PROMPT)
+    ctx.kiln.saved_prompts.clear()  # the candidate's prompt id resolves nowhere
+    for row in ctx.kiln.run_configs:
+        if row["id"] == "rc_cand":
+            row["run_config_properties"]["input_transform"] = {
+                "type": "jinja",
+                "template": KEEP_TWO,
+            }
+    ctx.dispatch.queue("integrity_review", _review())
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "Integrity: read it."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (review,) = ctx.dispatch.calls_to("integrity_review")
+    assert review.candidate_instructions == ""
+    assert review.candidate_input_transform == KEEP_TWO

@@ -101,8 +101,8 @@ Rules of the object:
   prompt: a template holds the data and its labels.
 - Code checks that the lever was applied. An arm whose `technique` is
   `input_transform` and whose transform is the parent's ends as "lever not
-  applied". So does an arm whose first user message is the parent's on
-  every train item.
+  applied". So does such an arm whose first user message is the parent's
+  on every train item.
 
 ## See also
 

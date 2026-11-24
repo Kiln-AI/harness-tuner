@@ -49,7 +49,11 @@ from kiln_harness_tuner.input_transform import (
     transform_of,
     transform_problem,
 )
-from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.job_drives import (
+    MULTI_TURN_MODE,
+    EvalJobDriver,
+    openenv_tool_parts,
+)
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
@@ -1143,11 +1147,23 @@ class Gateway:
         inputs = {
             item_id: inp.structured if inp.structured is not None else inp.plaintext
             for item_id, inp in self._inputs_on_disk().items()
-            if not inp.needs_eval_job
+            if not inp.multi_turn
         }
         if sample_id is not None and sample_id not in inputs:
             raise GatewayError(f"{sample_id} is not a train item this gateway can read")
         return render_on_inputs(template, inputs, sample_id)
+
+    async def _multi_turn_for_transform(self) -> bool:
+        """Is the task multi-turn? Read for the input transform rules, which
+        fail closed: a task that cannot be read refuses, so a multi-turn
+        task never gets a new template on a read error."""
+        try:
+            task = await self.call("GET", self.s.base)
+        except KilnError as exc:
+            raise GatewayError(
+                f"the task could not be read to check its turn mode ({exc}); try again"
+            ) from exc
+        return isinstance(task, dict) and task.get("turn_mode") == MULTI_TURN_MODE
 
     async def validate_input_transform(
         self, req: m.InputTransformValidate
@@ -1155,6 +1171,9 @@ class Gateway:
         """Does Kiln compile the template, does the lever apply to this
         task, and does the template render on every train input? No run
         config is made, and no model is called."""
+        problem = transform_problem({"type": "jinja", "template": req.template})
+        if problem is not None:
+            raise GatewayError(problem)
         try:
             valid, error = await self._template_check(req.template)
         except KilnError as exc:
@@ -1162,7 +1181,7 @@ class Gateway:
                 f"Kiln could not check the template: {exc}. The Kiln server"
                 " needs the route POST /api/validate_input_transform_template."
             ) from exc
-        applies = not await self._driver().multi_turn()
+        applies = not await self._multi_turn_for_transform()
         notes = [] if applies else [f"{MULTI_TURN_REFUSAL}."]
         report = RenderReport()
         if valid and applies:
@@ -1206,7 +1225,7 @@ class Gateway:
             for row in await self._run_configs()
         ):
             return
-        if await self._driver().multi_turn():
+        if await self._multi_turn_for_transform():
             raise GatewayError(
                 f"{MULTI_TURN_REFUSAL}. Copy the parent's {TRANSFORM_KEY} as it is."
             )

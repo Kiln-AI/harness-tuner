@@ -1750,8 +1750,10 @@ async def apply_integrity_checks(
                 " (get_prompt_text on its prompt id) before promoting it"
             )
         text = read or ""
-        if read is not None and (
-            normalized(text) != normalized(baseline_text) or template_changed
+        # A changed template is reviewed even when the prompt cannot be
+        # read: the row carries the template, so it is always readable.
+        if template_changed or (
+            read is not None and normalized(text) != normalized(baseline_text)
         ):
             # The changed instructions get one read-only review
             # session for paraphrased criteria and eval-specific gaming.

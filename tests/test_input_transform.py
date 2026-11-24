@@ -13,6 +13,7 @@ from fake_kiln import make_eval, make_eval_config, make_run
 from test_gateway import BASE as GATEWAY_BASE
 from test_gateway import _gateway, _run
 from test_items import BASELINE
+from test_quarantine import TASK
 
 from kiln_harness_tuner import input_transform as it
 from kiln_harness_tuner.gateway import ops as gw
@@ -213,31 +214,16 @@ class TestTheRender:
 
 
 class TestTheLeverVerdict:
-    def test_a_drive_carries_its_first_user_message(self):
-        run = {"trace": [{"role": "user", "content": "Depot: Halden"}]}
-        assert lever_evidence(run)["user_message"] == "Depot: Halden"
-        assert lever_evidence({})["user_message"] is None
-
-    def test_a_changed_transform_that_moves_no_message_is_not_applied(self):
-        evidence = {f"i{k}": {"user_message": f"raw {k}"} for k in range(3)}
+    def test_the_timing_check_does_not_judge_the_transform(self):
+        """`lever_verdict` does not know the arm's technique, so it never
+        stops an arm on the transform: the item path does, for an arm of
+        that lever only."""
+        evidence = {f"i{k}": {"output_tokens": 10.0} for k in range(3)}
         verdict = lever_verdict(props(KEEP_TWO), evidence, props(), dict(evidence))
-        assert verdict.status == "not_applied"
-        assert "on all 3 paired train items" in verdict.reason
-
-    def test_a_changed_transform_that_moves_a_message_is_applied(self):
-        parent = {f"i{k}": {"user_message": f"raw {k}"} for k in range(3)}
-        mine = {f"i{k}": {"user_message": f"Depot: {k}"} for k in range(3)}
-        assert lever_verdict(props(KEEP_TWO), mine, props(), parent).status == "applied"
-
-    def test_no_paired_message_is_unverified(self):
-        verdict = lever_verdict(props(KEEP_TWO), {"i0": {}}, props(), {"i0": {}})
-        assert verdict.status == "unverified"
-        assert "input transform" in verdict.reason
-
-    def test_an_unchanged_transform_is_not_checked(self):
-        evidence = {f"i{k}": {"user_message": "same"} for k in range(3)}
-        verdict = lever_verdict(props(KEEP_TWO), evidence, props(KEEP_TWO), evidence)
         assert verdict.status == "applied"
+        assert "user_message" not in lever_evidence(
+            {"trace": [{"role": "user", "content": "Depot: Halden"}]}
+        )
 
 
 class TestThePlan:
@@ -396,7 +382,48 @@ class TestTheGateway:
         for template in ("", "x" * (it.TEMPLATE_MAX_CHARS + 1)):
             with pytest.raises(ValueError):
                 _run(gateway, "validate_input_transform", template=template)
+        # The rule of create_run_config, so validate never says yes to a
+        # template that the create refuses.
+        with pytest.raises(gw.GatewayError, match="non-empty text"):
+            _run(gateway, "validate_input_transform", template="   ")
         assert kiln.calls == []
+
+    def test_a_task_that_cannot_be_read_refuses_a_new_template(self, tmp_path):
+        """The multi-turn rule fails closed: on a read error the gateway
+        does not take the task to be single-turn."""
+
+        def down(_q, _body):
+            raise KilnAPIError("GET", GATEWAY_BASE, 503, {"detail": "busy"})
+
+        routes = _routes(_rc("rc_base"))
+        routes[("GET", GATEWAY_BASE)] = down
+        gateway, kiln = _gateway(tmp_path, routes)
+        with pytest.raises(gw.GatewayError, match="turn mode"):
+            _run(gateway, "validate_input_transform", template=KEEP_TWO)
+        with pytest.raises(gw.GatewayError, match="turn mode"):
+            _create(gateway, props(KEEP_TWO))
+        assert ("POST", f"{GATEWAY_BASE}/run_configs") not in [
+            c[:2] for c in kiln.calls
+        ]
+
+    def test_a_single_turn_input_with_an_openenv_reset_is_rendered(self, tmp_path):
+        """Such an input is driven through an eval job, and its user
+        message is still rendered by the template."""
+        from test_quarantine import _write
+
+        gateway, _ = _gateway(tmp_path, _routes())
+        _json_inputs(tmp_path)
+        doc_path = (
+            tmp_path / "proj" / "tasks" / f"{TASK} - T" / "eval_inputs" / "tr1"
+        ) / "eval_input.kiln"
+        doc = json.loads(doc_path.read_text())
+        doc["openenv_reset"] = {"seed": 1}
+        _write(doc_path, doc)
+        out = _run(
+            gateway, "validate_input_transform", template=KEEP_TWO, item_id="tr1"
+        )
+        assert out["train_items_rendered"] == 2
+        assert out["sample"] == "Depot: A\nQuestion: q1"
 
     def test_only_the_roles_that_make_run_configs_can_validate(self):
         with_op = {
@@ -643,6 +670,10 @@ class TestTheExperimentItem:
         ]
         statuses = [e["status"] for e in _events(ctx)]
         assert statuses == ["changed", "applied"]
+        details = [e["detail"] for e in _events(ctx, "item_detail")]
+        assert any(
+            d.startswith("input transform: input transform applied") for d in details
+        )
         content = ctx.kiln.memories[outcome.experiment_memory_id]["content"]
         assert (
             "input transform: the parent has none, the arm has a template of"
@@ -658,6 +689,58 @@ class TestTheExperimentItem:
         (event,) = _events(ctx)
         assert event["status"] == "refused"
         assert "single-turn tasks only" in _record(ctx, outcome).overview
+
+    async def test_a_reused_run_config_that_changes_the_transform_on_a_multi_turn_task(
+        self,
+    ):
+        """A reused run config skips the guard before the build: the check
+        after it reads the two run configs and ends the arm."""
+        ctx = _item_ctx(_rc("rc_old", KEEP_TWO), turn_mode="multiturn")
+        item = _item("prompt")
+        item.work.existing_rc_id = "rc_old"
+        outcome = await execute_plan_item(ctx, item, BASELINE, ["rc_base"], 1)
+        assert outcome.status == "dead_end" and outcome.rc_id == "rc_old"
+        assert ctx.dispatch.calls_to("create_experiment_rc") == []
+        assert ctx.dispatch.calls_to("generality_review") == []
+        assert [e["status"] for e in _events(ctx)] == ["refused"]
+
+    async def test_a_rebuild_that_drops_the_new_transform_is_not_applied(self):
+        """The one rebuild is checked again: back to the parent's transform
+        on an arm of the lever is "lever not applied"."""
+        ctx = _item_ctx(_rc("rc_new", COPIES_JUDGE), _rc("rc_new2"))
+        ctx.kiln.eval_configs["ec_1"] = make_eval_config("ec_1", prompt_template=JUDGE)
+        _seed(ctx.kiln, RAW, RENDERED)
+        ctx.dispatch.queue("create_experiment_rc", _built(), _built("rc_new2"))
+        ctx.dispatch.queue("generality_review", _review())
+        outcome = await execute_plan_item(ctx, _item(), BASELINE, ["rc_base"], 1)
+        (_first, rebuild) = ctx.dispatch.calls_to("create_experiment_rc")
+        assert rebuild.judge_copy_findings  # the rebuild was for the judge copy
+        assert outcome.status == "dead_end" and outcome.rc_id == "rc_new2"
+        assert [e["status"] for e in _events(ctx)] == ["changed", "not_applied"]
+        assert "lever not applied" in _record(ctx, outcome).overview
+        assert ctx.dispatch.calls_to("analyze_experiment_results") == []
+
+    async def test_another_arm_whose_transform_change_has_no_effect_goes_on(self):
+        """A prompt arm that copied the parent's template with one more blank
+        line: the template changed, the message did not. Its prompt change
+        is what it measures, so it is analysed, and the verdict is a note."""
+        parent_template = "Q: {{ input }}"
+        ctx = _item_ctx(
+            _rc("rc_new", parent_template + "\n", prompt=PROMPT + " Be brief.")
+        )
+        ctx.kiln.run_configs[0] = _rc("rc_base", parent_template)
+        _seed(ctx.kiln, RENDERED, RENDERED)
+        ctx.dispatch.queue("create_experiment_rc", _built())
+        ctx.dispatch.queue("generality_review", _review())
+        ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
+        outcome = await execute_plan_item(
+            ctx, _item("prompt"), BASELINE, ["rc_base"], 1
+        )
+        assert outcome.status == "completed"
+        assert [e["status"] for e in _events(ctx)] == ["changed", "not_applied"]
+        content = ctx.kiln.memories[outcome.experiment_memory_id]["content"]
+        assert "input transform: the parent has a template" in content
+        assert "lever not applied: the input transform changed" in content
 
     async def test_an_arm_that_names_the_lever_must_change_the_transform(self):
         ctx = _item_ctx(_rc("rc_new", prompt=PROMPT + " Be brief."))

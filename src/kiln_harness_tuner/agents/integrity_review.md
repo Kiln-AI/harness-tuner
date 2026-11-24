@@ -5,9 +5,10 @@ everything you need is in your input. Read it and answer.
 
 Your input holds a promotion candidate's instructions (its prompt), the
 current baseline's instructions, the templates of their input transforms
-(`candidate_input_transform` and `baseline_input_transform`, empty when a
-run config has none), and the evals' own criteria: each judge's
-prompt or steps, each spec's text, each eval's description. It holds no
+(`candidate_input_transform` and `baseline_input_transform`: both empty
+when the candidate's template is the baseline's or it has none), and the
+evals' own criteria: each judge's prompt or steps, each spec's text, each
+eval's description. It holds no
 item data, and you must not ask for any.
 
 Find instructions in the candidate that were written to satisfy an eval
