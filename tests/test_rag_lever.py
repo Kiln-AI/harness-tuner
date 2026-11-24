@@ -1022,3 +1022,69 @@ class TestTheFixesOfTheReview:
         finally:
             probes.task_run_configs = original
         assert kiln.rag_config_patches == []
+
+
+class TestTheSpeedAndCostGuard:
+    """Kiln counts neither the embedding call, the reranker call nor the
+    time of a RAG search in a run's usage. Under speed or cost, an arm that
+    adds or replaces a RAG tool would win on numbers that are too low."""
+
+    TOOL = f"kiln_tool::rag::{NEW_RAG}"
+
+    def _run_item(self, tmp_path, objective: str, parent_tools: list[str], item=None):
+        from fake_dispatcher import ok
+
+        from kiln_harness_tuner.items import execute_plan_item
+        from kiln_harness_tuner.schemas import RcBuildResult
+
+        add_document(tmp_path, "d1", "Water tomatoes at the base.")
+        ctx, kiln = _loop_ctx(
+            tmp_path, {NEW_RAG: _rag_row(NEW_RAG)}, parent_tools, [self.TOOL]
+        )
+        ctx.objective = objective
+        ctx.dispatch.queue(
+            "create_experiment_rc",
+            ok(RcBuildResult(rc_id="rc_new", build_notes="built")),
+        )
+
+        async def go():
+            try:
+                return await execute_plan_item(
+                    ctx,
+                    item or _rag_item(),
+                    BaselineRef(rc_id="rc_base"),
+                    ["rc_base"],
+                    1,
+                )
+            except Exception:  # past the guard, the fake has no measurement
+                return None
+
+        return asyncio.run(go()), ctx, kiln
+
+    @pytest.mark.parametrize("objective", ["speed", "cost"])
+    def test_an_arm_that_adds_a_rag_tool_is_not_measured(self, tmp_path, objective):
+        outcome, ctx, kiln = self._run_item(tmp_path, objective, [])
+        assert outcome is not None and outcome.status == "dead_end"
+        record = kiln.memories[outcome.experiment_memory_id]
+        assert "cost and latency not measured" in record["overview"]
+        states = [f["state"] for k, f in ctx.log.events if k == "item_state"]
+        assert "measuring" not in states
+        (event,) = [
+            f for k, f in ctx.log.events if k == "rag" and f["status"] == "not_measured"
+        ]
+        assert "cannot win on cost or speed" in event["line"]
+
+    def test_an_arm_that_keeps_its_parents_rag_tool_is_measured(self, tmp_path):
+        # A baseline with a RAG tool does not block every candidate: the
+        # searches are left out of both arms.
+        _outcome, ctx, _kiln = self._run_item(
+            tmp_path, "speed", [self.TOOL], item=fix_item()
+        )
+        states = [f["state"] for k, f in ctx.log.events if k == "item_state"]
+        assert "measuring" in states
+        assert not [f for k, f in ctx.log.events if k == "rag"]
+
+    def test_under_quality_the_arm_is_measured(self, tmp_path):
+        _outcome, ctx, _kiln = self._run_item(tmp_path, "quality", [])
+        states = [f["state"] for k, f in ctx.log.events if k == "item_state"]
+        assert "measuring" in states

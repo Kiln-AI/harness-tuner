@@ -80,6 +80,17 @@ logger = logging.getLogger(__name__)
 
 # The lever's name: what the planner writes in `technique`.
 LEVER = "rag"
+# Why an arm that adds or replaces a RAG tool is not measured under the
+# speed or the cost objective. Kiln counts neither the embedding call nor
+# the reranker call of a search in a run's usage, and a run's latency is
+# the time of its model calls, so it leaves out the search. Such an arm
+# would win on numbers that are too low. An arm that keeps its parent's
+# RAG tools is measured: the left-out searches are in both arms.
+NOT_MEASURED = (
+    "cost and latency not measured: Kiln does not count the embedding call,"
+    " the reranker call or the time of a RAG search in a run's usage, so an"
+    " arm that adds or replaces a RAG tool cannot win on cost or speed"
+)
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 # The kinds of the records `create_rag_config` writes in the run's registry
 # (`gateway_created.jsonl`). The registry id is "<kind>:<record id>".

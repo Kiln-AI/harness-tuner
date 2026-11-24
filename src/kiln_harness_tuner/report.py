@@ -789,7 +789,12 @@ def render_rag_appendix(status: RunStatus) -> str:
         " cost for an embedding call or a reranker call. So the index of each"
         " config, and the query embedding and the reranker call of each"
         " search, are in no cost figure of this report. The latency of a run"
-        " is the time of its model calls: it leaves out the time of a search.",
+        " is the time of its model calls: it leaves out the time of a search."
+        " So under the speed or the cost objective, the cost and the latency of"
+        " an arm that adds or replaces a RAG tool are not measured: the arm"
+        " ends before its measurement, and it cannot win. An arm that keeps"
+        " its parent's RAG tools is measured, because the searches are left"
+        " out of both arms.",
     ]
     return "\n".join(lines) + "\n"
 

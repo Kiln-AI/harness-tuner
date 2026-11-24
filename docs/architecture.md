@@ -2303,6 +2303,13 @@ section 4.
 So the index, and the query embedding and the reranker call of each
 search, are in no cost figure and not in `--budget-usd`. The latency of a
 run is the time of its model calls, so it leaves out the time of a search.
+So under `--objective speed` or `cost`, an arm that adds or replaces a RAG
+tool ends before its measurement, a dead end with the reason "cost and
+latency not measured" (`rag_lever.NOT_MEASURED`, event `rag`, status
+`not_measured`). It cannot win on cost or speed. An arm that keeps its
+parent's RAG tools is measured: the searches are left out of both arms.
+The sub-agent lever has a guard of the same kind; the two are to be joined
+in one rule.
 
 **The run end.** After the loop, `close_rag_configs` reads the run's
 registry, archives each RAG config of the run that no run config of the

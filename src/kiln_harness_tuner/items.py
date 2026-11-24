@@ -832,6 +832,20 @@ async def _execute_plan_item(
         if isinstance(rag, ItemOutcome):
             return rag
 
+    if rag is not None and is_efficiency(ctx.objective):
+        # Under speed or cost, the arm would win on a cost and a latency that
+        # leave out its searches (`rag_lever.NOT_MEASURED`). It ends before
+        # any train spend. Apart from the sub-agent guard: join the two in
+        # one "metric not measured" rule when both are merged.
+        return await _rag_dead_end(
+            ctx,
+            item,
+            exp_mem,
+            f"{rag_lever.NOT_MEASURED} (objective {ctx.objective})",
+            rc_id=rc_id,
+            status="not_measured",
+        )
+
     _set_state(ctx, item.id, "measuring")
     # One measurement path (`kiln_harness_tuner.measure`): the arm is
     # judged chunk by chunk on a queue drawn from its parent's stored train

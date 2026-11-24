@@ -838,11 +838,11 @@ edit saves a few tokens, but it breaks the cache and can cost 10x more.
 
 ### The cost and latency of a RAG search
 
-- Kind: code
-- Where: tuner, kiln
+- Kind: gap
+- Where: kiln
 - Depends on: None
 - Source: [rag-lever](projects/rag-lever/project_overview.md), section 3
 
-Kiln reports no cost for an embedding or reranker call, and a run's latency leaves out a search.
-So a RAG arm's cost and latency are low, and an index is not in `--budget-usd`. Count them in Kiln,
-or withhold the metrics in code as for sub-agents.
+Kiln records no cost for an embedding or reranker call and no time for a search in a run's usage,
+and reports no cost for an index. Until it does, a RAG arm is not measured under speed or cost,
+and an index is not in `--budget-usd`.

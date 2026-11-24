@@ -93,7 +93,10 @@ Rules of the object:
   `max_created_per_run` RAG configs. `list_rag_parts` gives both numbers.
   Kiln reports no cost for an embedding or a reranker call, so the index
   and each search are not in `--budget-usd` or in any cost that the loop
-  measures. A run's latency leaves out the time of a search.
+  measures. A run's latency leaves out the time of a search. So under the
+  speed or the cost objective, an arm that adds or replaces a RAG tool
+  ends before its measurement ("cost and latency not measured"). An arm
+  that keeps its parent's RAG tools is measured.
 - **The document check.** A document that holds the whole input of an eval
   item makes the create fail. The gateway also refuses to attach, drive or
   search a config of the project whose documents hold one, and code ends

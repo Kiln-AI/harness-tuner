@@ -127,8 +127,8 @@ choices that the owner can change: each one is the conservative choice.
     every run config the run measured still runs.
 13. **Not in this project.** Tuning the extractor. Uploading documents.
     Reading the RAG tool's description in the generality and judge-copy
-    checks (it is at most 128 characters). A guard for the cost and the
-    latency of a search, which Kiln does not count (section 3).
+    checks (it is at most 128 characters). Counting the cost and the time
+    of a search, which Kiln does not record (section 3 has the guard).
 
 ## 3. The finding on cost and latency
 
@@ -145,10 +145,38 @@ server's `document_api.py`:
   (`total_llm_latency_ms`) leaves out the time of the search.
 - The index reports progress counts and error logs, no cost.
 
-So a RAG arm's cost and latency are a little low. The query embedding is
-small next to a chat call. The reranker call and the search time can
-matter under the speed objective. No guard is built: the report section
-says it, and the backlog has an entry.
+So a RAG arm's cost and latency are too low. The query embedding is small
+next to a chat call. The reranker call is not: a public measurement found
+a reranker at about 540 ms per query against about 4 ms for the vector
+search (Beconis, 2026-10-07), which is the size of a fast model call. So
+an arm that adds a RAG tool could win under the speed objective on a
+latency that leaves out half a second per search.
+
+### The guard (owner's rule for sub-agents, applied here)
+
+The owner ruled for sub-agents (PR #53) that a cost that is not counted
+must not let a candidate win. The same rule holds here:
+
+- Under `--objective speed` or `--objective cost`, an arm that **adds or
+  replaces** a RAG tool (a `kiln_tool::rag::` id that its parent does not
+  attach) ends before its measurement, as a dead end, with the reason
+  "cost and latency not measured" (`rag_lever.NOT_MEASURED`). It cannot
+  win on cost or speed, and no train budget is paid for it. The wave log
+  has a `rag` event with the status `not_measured`; the experiment record,
+  the "Why each candidate stopped" table and the report's RAG section say
+  so.
+- An arm that **keeps** its parent's RAG tools is measured as before. The
+  left-out searches are in both arms of the comparison, so a RAG baseline
+  does not block every candidate. A candidate that makes more searches
+  with the same tool is the case this leaves open.
+- An arm that **drops** a RAG tool is measured: its numbers are complete,
+  and the parent's are low, so the error is against the candidate.
+- The guard is in `items.py` (`_execute_plan_item`, right after the RAG
+  check) and apart from the sub-agent guard of PR #53
+  (`sub_agents.cost_measured` / `latency_measured`). After both merge, join
+  them in one "metric not measured" rule in the measurement path. The
+  backlog entry "The cost and latency of a RAG search" asks Kiln to count
+  the calls, which would remove the guard.
 
 ## 4. What a finished run shows
 
