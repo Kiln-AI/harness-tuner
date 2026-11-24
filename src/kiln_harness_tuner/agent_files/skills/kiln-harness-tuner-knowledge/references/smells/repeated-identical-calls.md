@@ -1,6 +1,6 @@
 ---
 title: Repeated identical calls
-description: The agent makes the same tool call, with the same arguments, many times in one run. A repeat returns nothing new, and it costs one more model call.
+description: The agent makes the same tool call, with the same arguments, many times in one run. When the data does not change, a repeat returns nothing new and costs a model call.
 reviewed: 2026-11-25
 applies_to:
   - tools
@@ -18,9 +18,10 @@ detectors:
 In one run, the agent calls one tool with the same arguments again and
 again. When the tool reads fixed data, each repeat returns what the agent
 already has. The run pays for one more model call and one more result in
-the context, and it can go on until a limit stops it. The cause is in the
-design: the tool's result does not tell the agent what to do next, or the
-agent cannot see that it already has the answer. This is a property of the
+the context, and it can go on until a limit stops it. The cause is often
+in the design: the tool's result does not tell the agent what to do next,
+or the agent cannot see that it already has the answer. A weak model can
+also be the cause. This is a property of the
 design, whether an eval passes or fails.
 
 Code finds the sure form: the same call made the reference count of times
@@ -49,12 +50,14 @@ In how the agent runs:
   repeated call. The same result each time confirms the smell.
 - Read what comes before each repeat: an error, an empty result, a long
   result, or nothing.
-- The reference is the count at which one coding agent stops a run as a
-  loop. It is a product default, not a measured optimum. Read the
+- The reference is the count at which one coding agent flags a loop. It is a product default, not a measured optimum. Read the
   detection's source before you state how sure you are.
 - **Not this smell:** a call that reads a state that changes, between two
   writes or while a job runs. The arguments are the same and the results
   differ.
+- **Not this smell:** the same call in different user turns of a
+  conversation, when a new message can change the answer. The detector
+  counts calls across all the turns of a run.
 - **Not this smell:** one call for each item of a list. The arguments
   differ. See
   [tool results flood the context](tool-results-flood-the-context.md).
@@ -76,5 +79,6 @@ effect of a small change is hard to see.
 - [Cap and preview wrapper](../techniques/cap-and-preview-wrapper.md),
   when the repeated result is very large and the agent reads it again to
   find one fact.
-- [Roll-up tool](../techniques/roll-up-tool.md), when the agent reads the
-  same context again at each step: one call that gives it at the start.
+- [Missing context the agent could be given](../playbooks/missing-context-the-agent-could-be-given.md),
+  when the agent reads the same context again at each step, and one
+  existing tool gives it.

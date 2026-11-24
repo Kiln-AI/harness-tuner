@@ -50,32 +50,33 @@ OLD_MODEL_MONTHS_SOURCE = (
     " owner on 2026-11-13; no published value is known"
 )
 
-LARGE_TOOL_RESULT_CHARS = 100_000
-# About 25,000 tokens, at four characters for each token: the default
-# maximum of an MCP tool output in Claude Code (Claude Code documentation,
-# "Connect Claude Code to tools via MCP", section "MCP output limits and
-# warnings", read 2026-11-25). A product limit, not a measured optimum.
+LARGE_TOOL_RESULT_CHARS = 50_000
+# Claude Code saves a text tool result longer than this to a file, and the
+# model gets the path in its place (Claude Code documentation, "Connect
+# Claude Code to tools via MCP", section "MCP output limits and warnings",
+# read 2026-11-25). A product limit, not a measured optimum.
 LARGE_TOOL_RESULT_CHARS_SOURCE = (
-    "about 25,000 tokens: the default maximum of an MCP tool output in Claude"
-    " Code (Claude Code documentation, read 2026-11-25)"
+    "the length at which Claude Code saves a text tool result to a file in"
+    " place of the context (Claude Code documentation, read 2026-11-25)"
 )
 
 REPEATED_CALL_COUNT = 5
-# Gemini CLI stops a run as a loop at this count of consecutive calls with
-# the same tool name and the same arguments (`TOOL_CALL_LOOP_THRESHOLD` in
-# `loopDetectionService.ts`, read 2026-11-25). The detector counts the same
-# call anywhere in one run, not only in a row.
+# Gemini CLI flags a loop at this count of consecutive calls with the same
+# tool name and the same arguments (`TOOL_CALL_LOOP_THRESHOLD` in
+# `loopDetectionService.ts`, read 2026-11-25). It first sends the model a
+# recovery message, and ends the turn if the loop goes on. The detector
+# counts the same call anywhere in one run, not only in a row.
 REPEATED_CALL_COUNT_SOURCE = (
-    "the count of identical tool calls in a row at which Gemini CLI stops a"
-    " run as a loop (TOOL_CALL_LOOP_THRESHOLD, read 2026-11-25); here the"
-    " calls do not have to be in a row"
+    "the count of identical tool calls in a row at which Gemini CLI flags a"
+    " loop (TOOL_CALL_LOOP_THRESHOLD, read 2026-11-25); here the calls do not"
+    " have to be in a row"
 )
 
 KILN_TOOL_STEPS_PER_TURN = 100
 # Kiln stops a turn with an error at this count of tool steps, and stores no
 # result for the run. A step is one model call that asks for one tool call
 # or more, so parallel calls in one step count once (`MAX_TOOL_CALLS_PER_TURN`
-# in `kiln_ai`'s `litellm_adapter.py`, version 0.26, read 2026-11-25). A fact
+# in `kiln_ai`'s `litellm_adapter.py`, version 1.1.2, read 2026-11-25). A fact
 # about Kiln, not a threshold: `NEAR_LIMIT_PERCENT` is the threshold.
 KILN_TOOL_STEPS_PER_TURN_SOURCE = (
     "Kiln's limit on the tool steps of one turn (MAX_TOOL_CALLS_PER_TURN in"
@@ -84,8 +85,7 @@ KILN_TOOL_STEPS_PER_TURN_SOURCE = (
 
 NEAR_LIMIT_PERCENT = 80
 # A default of the tuner, proposed with the detector and not yet set by the
-# project owner. No published value for an agent run is known. A warning at
-# 80% of a quota is common practice in operations.
+# project owner. No published value for an agent run is known.
 NEAR_LIMIT_PERCENT_SOURCE = (
     "a default of the tuner: 80% of a hard limit; no published value for an"
     " agent run is known"

@@ -1159,8 +1159,8 @@ reads a list: it takes the last `"type": "result"` event.
                                        tokens (per turn when the trace has
                                        them), cost; in the JSON also the
                                        largest count of one same call, the
-                                       tool steps of one turn, and the
-                                       skills opened
+                                       largest count of tool steps in one
+                                       turn, and the skills opened
          _stats/<eval_id>/<item_id>.json   one item's statistics
        task_runs/<task_run_id>.md      get_task_run, run_task
        _expected/<item_id>.json        a reference too large for an answer
@@ -2167,8 +2167,10 @@ config, its texts, its tool definitions and the catalogue snapshot
 `harness`. A trace detector sets `reads_traces` and reads
 `DetectorInputs.trace_stats`: one `gateway.trace_files.trace_stats` dict
 for each stored train run of the baseline on each active eval, with its
-eval id and its item id. Its detections have the scope `train`, and each
-fact names the train item and the eval of its largest case. Both kinds
+eval id and its item id. Its detections have the scope `train`. The facts
+of `large_tool_result`, `repeated_call` and `run_near_limit` name the train
+item and the eval of the largest case; the facts of `unused_tool` and
+`unused_skill` name the tools or skills and the count of train items. Both kinds
 spend nothing.
 
 **Where the train runs come from.** They are the baseline's train
@@ -2191,10 +2193,10 @@ cannot be read gives none.
 | `many_tools` | `too-many-tools` | the run config attaches more than `MANY_TOOLS` (40) tools, skills not counted |
 | `old_model` | `old-model` | the baseline's model was released more than `OLD_MODEL_MONTHS` (8) calendar months before the run started; silent when the catalogue has no release date for it, for example a fine-tune |
 | `small_skill` | `skill-too-small-to-earn-its-place` | the body of an attached skill is under `SMALL_SKILL_BODY_CHARS` (400 characters), and the skill has no reference file and no text asset |
-| `large_tool_result` | `tool-results-flood-the-context` | one tool result in a stored train run is over `LARGE_TOOL_RESULT_CHARS` (100,000 characters); one detection for each tool |
+| `large_tool_result` | `tool-results-flood-the-context` | one tool result in a stored train run is over `LARGE_TOOL_RESULT_CHARS` (50,000 characters); one detection for each tool |
 | `repeated_call` | `repeated-identical-calls` | one stored train run makes the same call (the same tool, the same arguments) `REPEATED_CALL_COUNT` (5) times or more, in a row or not; one detection for each tool |
 | `run_near_limit` | `runs-close-to-a-limit` | one turn of a stored train run has `NEAR_LIMIT_PERCENT` (80%) or more of Kiln's limit on tool steps (`KILN_TOOL_STEPS_PER_TURN`, 100; a step is one model call that asks for tools, so parallel calls count once); or one model call reads 80% or more of the model's context window, when the catalogue has the window and the trace has the usage of each call |
-| `unused_tool` | `unnecessary-tools` | an attached tool with a read definition is called in no stored train run, and those runs cover `UNUSED_MIN_RUNS` (30) train items or more; one detection that names the tools |
+| `unused_tool` | `unnecessary-tools` | an attached tool whose definition could be read is called in no stored train run, and those runs cover `UNUSED_MIN_RUNS` (30) train items or more; one detection that names the tools |
 | `unused_skill` | `skill-never-opened` | an attached skill is opened in no stored train run, with the same count of train items; one detection that names the skills |
 
 The last five are the trace detectors. `run_near_limit` reports the runs

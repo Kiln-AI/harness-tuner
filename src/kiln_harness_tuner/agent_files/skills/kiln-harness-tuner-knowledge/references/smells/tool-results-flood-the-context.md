@@ -50,8 +50,8 @@ In how the agent runs:
 - In the sampled traces, find the largest tool results, and check which
   fields of them the agent uses next.
 - Count the calls of one tool in one run.
-- The reference is a limit of one agent product on a tool result, not a
-  measured optimum. Read the detection's source before you state how sure
+- The reference is the length at which one agent product moves a tool
+  result out of the context. It is not a measured optimum. Read the detection's source before you state how sure
   you are.
 - **Not this smell:** a large result that the answer needs in full, for
   example a document that the agent summarises.

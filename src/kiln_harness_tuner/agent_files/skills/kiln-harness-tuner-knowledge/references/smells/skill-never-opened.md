@@ -62,8 +62,9 @@ opens the skill, a change to its content cannot reach the model.
 ## Remedies
 
 - [The skill is not read](../playbooks/skill-is-not-read.md), first, when
-  failing items need what the skill holds. It gives the order: a rewrite
-  of the skill, then a prompt rule that says which requests need it.
+  failing items need what the skill holds. Its steps for a skill that is
+  not opened: a prompt rule that says which requests need it, or the
+  content in the prompt.
 - [Prune one group at a time](../techniques/prune-one-group-at-a-time.md),
   when it is not known that the content helps: drop the skill on one arm
   and measure it.

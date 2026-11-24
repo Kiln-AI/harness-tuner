@@ -59,6 +59,12 @@ USAGE_KEYS = ("input_tokens", "output_tokens", "cached_tokens", "cost")
 # The function name of Kiln's skill tool (`kiln_ai.tools.skill_tool`): one
 # tool for all the attached skills, called with the skill's `name`.
 SKILL_FUNCTION = "skill"
+# The tool through which a model gives a structured answer. Kiln does not
+# count it as a tool step (`litellm_adapter.py`), and a repeat of it is the
+# answer of each turn, not a loop.
+ANSWER_FUNCTION = "task_response"
+# The name `_calls` gives to a call that has no function name.
+UNKNOWN_FUNCTION = "?"
 
 
 def traces_dir(run_dir: Path) -> Path:
@@ -154,7 +160,7 @@ def _same_call_key(name: str, args: str) -> tuple[str, str]:
     arguments are written again with sorted keys, so two calls that differ
     only in key order or in spaces are the same call."""
     try:
-        return name, json.dumps(json.loads(args), sort_keys=True, default=str)
+        return name, json.dumps(json.loads(args), sort_keys=True)
     except ValueError:
         return name, args.strip()
 
@@ -198,7 +204,9 @@ def trace_stats(
     one call two or more times, the largest count of calls with the same
     arguments. `max_tool_steps_in_turn`: the largest count of tool steps
     after one user message; a step is one assistant message that asks for
-    one tool call or more, as Kiln counts toward its limit. `skills_opened`:
+    one tool call or more, as Kiln counts toward its limit: a step that
+    calls `ANSWER_FUNCTION` is not counted. `same_call_max` reads no call of
+    `ANSWER_FUNCTION` and no call with no name. `skills_opened`:
     the calls of Kiln's skill tool, by the skill name in their arguments."""
     names: dict[str, str] = {}
     tools: dict[str, dict[str, int]] = {}
@@ -221,11 +229,15 @@ def trace_stats(
                 entry = tools.setdefault(name, _tool_entry())
                 entry["calls"] += 1
                 calls += 1
-                key = _same_call_key(name, args)
-                same[key] = same.get(key, 0) + 1
+                if name not in (ANSWER_FUNCTION, UNKNOWN_FUNCTION):
+                    key = _same_call_key(name, args)
+                    same[key] = same.get(key, 0) + 1
                 if name == SKILL_FUNCTION and (skill := _skill_name(args)):
                     skills[skill] = skills.get(skill, 0) + 1
-            in_turn += 1 if made else 0
+            # Kiln ends the turn at a step that calls the answer tool, and
+            # does not count that step.
+            if made and all(name != ANSWER_FUNCTION for _id, name, _args in made):
+                in_turn += 1
             max_in_turn = max(max_in_turn, in_turn)
             if text.strip() and not made:
                 final_reply = len(text)

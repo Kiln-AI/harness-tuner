@@ -24,7 +24,8 @@ past it. This is a property of the design, whether an eval passes or fails.
 
 Code finds the runs that came close: a stored train run that uses the
 reference share of a limit, or more. Code cannot see a run that a limit
-stopped, because that run has no stored trace. A reader finds those.
+stopped, because that run has no stored trace. A reader sees only that an
+item has no stored result; the reason is not in the reader's input.
 
 ## How to recognise it
 
@@ -40,9 +41,8 @@ In how the agent runs:
 - the code detection in your input gives the largest count in one run, the
   limit, the reference, the train item, and how many stored runs reach the
   reference;
-- train items with no stored result, when the measurement reported an
-  error that names a limit: too many tool calls, too many turns, or an
-  input longer than the context window.
+- train items with no stored result. The reason can be a limit, or
+  another error: the stored rows do not say which.
 
 ## How to confirm it
 
@@ -75,7 +75,8 @@ from one arm to the next.
   one call for each item of a list, or a fixed chain: one call does the
   work of many.
 - [Model swap inside a class](../techniques/model-swap-inside-a-class.md),
-  when the context window is the limit, the results are needed in full,
-  and an allowed model of the same class has a larger window.
+  after the harness changes above are tried, when the context window is
+  still the limit, the results are needed in full, and an allowed model of
+  the same class has a larger window.
 - [Fit the tool layer to the agent](../playbooks/fit-the-tool-layer-to-the-agent.md),
   when other smells of the tools are present too.

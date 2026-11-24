@@ -24,12 +24,12 @@ from kiln_harness_tuner.smells.traces import NAME_CHARS
 def skill_body(skill_md: str) -> str:
     """The text of a SKILL.md after its front matter, without the white
     space around it. A file with no closed front matter is all body."""
-    lines = skill_md.splitlines()
+    lines = skill_md.removeprefix("\ufeff").splitlines()
     if lines and lines[0].strip() == "---":
         for index, line in enumerate(lines[1:], 1):
             if line.strip() == "---":
                 return "\n".join(lines[index + 1 :]).strip()
-    return skill_md.strip()
+    return "\n".join(lines).strip()
 
 
 def detect(inputs: DetectorInputs) -> list[Detection]:

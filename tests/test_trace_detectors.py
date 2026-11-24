@@ -105,6 +105,28 @@ def test_trace_stats_counts_parallel_calls_as_one_step():
     assert stats["max_tool_steps_in_turn"] == 1
 
 
+def test_trace_stats_reads_the_answer_tool_as_kiln_does():
+    # Kiln does not count a step that calls `task_response`, and the same
+    # answer in each turn of a conversation is not a loop.
+    answer = ("task_response", {"label": "ok"}, "")
+    one = trace(("lookup", {"id": 1}, "row"), answer)
+    stats = trace_stats([*one, *one[1:], *one[1:], *one[1:], *one[1:]])
+    assert stats["max_tool_steps_in_turn"] == 1
+    assert stats["same_call_max"] == {"lookup": 5}
+    assert "task_response" in stats["tools"]
+
+
+def test_trace_stats_leaves_a_call_with_no_name_out_of_the_same_calls():
+    messages = trace(*[("x", {}, "ok")] * 6)
+    for message in messages:
+        for call in message.get("tool_calls") or []:
+            del call["function"]["name"]
+    stats = trace_stats(messages)
+    assert stats["same_call_max"] == {}
+    assert stats["max_tool_steps_in_turn"] == 6
+    assert detect("repeated_call", given([{"item_id": "i", **stats}])) == []
+
+
 def test_run_near_limit_is_silent_when_parallel_calls_keep_the_steps_low():
     calls = [
         {"id": f"c{n}", "function": {"name": "step", "arguments": f'{{"n": {n}}}'}}
@@ -177,6 +199,26 @@ def test_a_fact_fits_its_limit_with_the_longest_names():
         found = detect(detector_id, inputs)
         assert found, detector_id
         assert all(len(d.fact) <= 300 for d in found)
+
+
+def test_a_fact_fits_its_limit_with_the_largest_numbers():
+    # The ids at their cut, and counts far past any real run: a fact must
+    # still fit, or the detector loses every detection of its call.
+    item, eval_id = "i" * 60, "e" * 60
+    many = 10**9
+    run_stats = {
+        "item_id": item,
+        "eval_id": eval_id,
+        "tools": {"n" * 90: {"max_result_chars": many}},
+        "same_call_max": {"n" * 90: many},
+        "max_tool_steps_in_turn": many,
+        "turn_usage": [{"input_tokens": many}],
+    }
+    inputs = given([run_stats] * 100_000, window=many)
+    for detector_id in ("large_tool_result", "repeated_call", "run_near_limit"):
+        found = detect(detector_id, inputs)
+        assert found, detector_id
+        assert all(len(d.fact) <= 300 for d in found), detector_id
 
 
 def test_listed_counts_the_names_that_do_not_fit():
@@ -347,9 +389,9 @@ def test_run_near_limit_reports_at_the_share_of_the_context_window():
     assert "model catalogue" in found.reference_source
     assert found.fact == (
         "One model call read 800 input tokens (train item `item_1`, eval"
-        " `eval_1`). The context window of GPT X is 1,000 tokens. 1 of 2 stored"
-        " train runs with usage for each call reach 800. The reference is 80%"
-        " of the window."
+        " `eval_1`). The context window of the model is 1,000 tokens. 1 of 2"
+        " stored train runs with usage for each call reach 800. The reference is"
+        " 80% of the window."
     )
 
 
@@ -468,6 +510,7 @@ def test_skill_body_is_the_text_after_the_front_matter():
     assert skill_body("no front matter\n") == "no front matter"
     assert skill_body("---\nname: never closed\n") == "---\nname: never closed"
     assert skill_body("") == ""
+    assert skill_body("\ufeff---\nname: a\n---\nText.") == "Text."
 
 
 def test_small_skill_is_silent_at_the_reference():
@@ -548,9 +591,10 @@ async def test_run_detectors_is_silent_on_traces_when_no_train_run_is_stored():
         seen.append(inputs)
         return []
 
-    await run_detectors(
+    found = await run_detectors(
         ctx, "rc_base", detectors=(*DETECTORS, Detector("probe", "x", record))
     )
+    assert found == []
     assert seen[0].trace_stats == []
     # With the skill's text given, only the harness detector reports.
     with_skill = replace(seen[0], texts=replace(seen[0].texts, skills={"s": small}))

@@ -26,8 +26,6 @@ from kiln_harness_tuner.smells.thresholds import (
 )
 from kiln_harness_tuner.smells.traces import place
 
-MODEL_CHARS = 40
-
 
 def share_of(limit: int) -> int:
     """The reference share of a limit, as a whole count, rounded up."""
@@ -81,20 +79,21 @@ def _context_window(inputs: DetectorInputs) -> list[Detection]:
     if not near:
         return []
     where = max(near, key=_largest_input)
+    largest = _largest_input(where)
     return [
         Detection(
             smell=DETECTOR.smell,
             detector=DETECTOR.id,
             scope="train",
             fact=(
-                f"One model call read {_largest_input(where):,} input tokens"
-                f" ({place(where)}). The context window of"
-                f" {model.name[:MODEL_CHARS]} is {window:,} tokens."
+                f"One model call read {largest:,} input tokens"
+                f" ({place(where)}). The context window of the model is"
+                f" {window:,} tokens."
                 f" {len(near):,} of {len(runs):,} stored train runs with usage"
                 f" for each call reach {reference:,}. The reference is"
                 f" {NEAR_LIMIT_PERCENT}% of the window."
             ),
-            value=_largest_input(where),
+            value=largest,
             reference=reference,
             reference_source=(
                 f"{NEAR_LIMIT_PERCENT_SOURCE}; the context window is from the"
