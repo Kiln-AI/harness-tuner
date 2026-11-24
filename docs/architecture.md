@@ -598,7 +598,7 @@ one with a `repeat` item (`rc_id`, `eval_ids`, optional `max_items`,
 `reason`), on train only. It measures an existing run config again on the
 train items it has stored rows for, and compares each item with its stored
 row. It uses the re-drive of section 5.2: a clone of the run config (the
-same properties, a new id, named `REPEAT <n> of <rc>`), each named eval's
+same properties, a new id, named `REPEAT <item id> of <rc>`), each named eval's
 default config run on it, narrowed to the sample. There is no re-judge
 pass: the noise check measures judge noise alone.
 
@@ -611,19 +611,24 @@ same items.
 
 **What code refuses**, before any spend, with the item `failed_infra` and
 the reason: a run config the task does not have; a run config outside the
-model policy; a run config with no stored train row on any named eval (a
+model policy or on a model the preflight flagged this run
+(`require_policy`); a run config with no stored train row on any named eval (a
 `remeasure` comes first); and a run config that code made to measure or
 to probe (a `REPEAT …` or `NOISE …` clone, a `PROBE …` fork). The last rule
-also holds for an experiment: an experiment whose `parent_rc_id` or
-`existing_rc_id` names such a run config fails before any session. A plan
+holds everywhere a plan names a run config: an experiment whose
+`parent_rc_id` or `existing_rc_id` names one fails before any session; a
+probe whose `parent_rc_id` names one is answered `unclear` with the reason;
+a screening candidate whose parent or `rc_id` names one is not made. A plan
 carries at most four `repeat` items (`MAX_REPEATS_PER_PLAN`), never two on
 the same (run config, eval), and none in a probe phase.
 
 **Spend.** Before any spend, one line gives an estimate from the run
-config's own stored rows (`noise.estimate_usd`: each sampled item driven
-once, each eval's sample judged once). The estimate must fit
+config's own stored rows (`repeats.estimate`: one drive and one judgment
+for each sampled (eval, item)). It is an upper bound where evals share a
+V2 trace, and right where a legacy judge config drives inside its own job. The estimate must fit
 `budget.hard_max_usd`, the most one candidate may take (section 16, "The
-spending cap"). When it
+spending cap"), read when the item starts: what is left of the run
+budget after the holds of the candidates measured beside it. When it
 does not, the item ends `capped`, nothing is spent, and the reason gives
 the `max_items` that fits. While it runs, the item holds its estimate in
 `BudgetHolds`, so an arm measured beside it does not size its cap against

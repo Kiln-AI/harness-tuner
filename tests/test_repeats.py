@@ -586,3 +586,89 @@ async def test_the_report_table_and_the_plain_lines_show_each_repeat():
 
     assert outcome_cell(done) == "repeat: 2 of 6 changed (1 worse, 1 better)"
     assert outcome_cell(capped).startswith("repeat did not run: the estimate")
+
+
+# ---- review fixes ----
+
+
+async def test_the_estimate_counts_one_drive_for_each_eval_and_item():
+    ctx = _ctx()
+    ctx.kiln.evals["eval_2"] = make_eval("eval_2", "ec_2")
+    ctx.kiln.results[("eval_2", "rc_base", "train")] = [
+        _row(f"t{i}", v) for i, v in enumerate(STORED)
+    ]
+    _clone_rows(ctx, STORED)
+    _clone_rows(ctx, STORED, eval_id="eval_2")
+    await _run(ctx, _item(eval_ids=["eval_1", "eval_2"]))
+    (estimate,) = [f for k, f in ctx.log.events if k == "repeat_estimate"]
+    # A legacy judge drives inside each eval's job: 12 drives, 12 judgments.
+    assert estimate["estimate_usd"] == pytest.approx(12 * 0.01 + 12 * 0.002)
+
+
+async def test_two_repeats_of_one_run_config_in_a_wave_get_their_own_clones():
+    import asyncio
+
+    ctx = _ctx()
+    ctx.kiln.evals["eval_2"] = make_eval("eval_2", "ec_2")
+    ctx.kiln.results[("eval_2", "rc_base", "train")] = [_row("t0", 1.0)]
+    first, second = await asyncio.gather(
+        _run(ctx, _item(item_id="w2-1")),
+        _run(ctx, _item(item_id="w2-2", eval_ids=["eval_2"])),
+    )
+    names = sorted(c["name"] for c in ctx.kiln.created_run_configs)
+    assert names == ["REPEAT w2-1 of rc_base", "REPEAT w2-2 of rc_base"]
+
+
+async def test_a_kiln_error_in_the_policy_check_fails_the_item_not_the_wave():
+    from kiln_harness_tuner.kiln import KilnError
+
+    ctx = _ctx()
+    ctx.model_policy = ModelPolicy.from_json(
+        {"allow": [{"provider": "openai", "model": "*"}]}
+    )
+    calls = 0
+    real = ctx.kiln.call
+
+    async def flaky(method, path, **kw):
+        nonlocal calls
+        if method == "GET" and path.endswith("/run_configs"):
+            calls += 1
+            if calls == 3:  # the policy check's read
+                raise KilnError("502")
+        return await real(method, path, **kw)
+
+    ctx.kiln.call = flaky
+    outcome = await _run(ctx, _item())
+    assert outcome.status == "failed_infra"
+    assert "the model policy could not be checked" in outcome.infra_error.detail
+
+
+async def test_a_probe_and_a_screening_candidate_never_fork_a_clone():
+    from kiln_harness_tuner.schemas import ProbeItem, ScreenCandidate
+    from kiln_harness_tuner.viability import _make_candidate_rc
+
+    ctx = _ctx()
+    _clone_rows(ctx, STORED)
+    clone = (await _run(ctx, _item())).repeat.clone_rc_id
+    probe = ProbeItem(
+        id="w3-1",
+        type="probe",
+        question="does it call the tool?",
+        method="drive three items",
+        parent_rc_id=clone,
+        reason="r",
+    )
+    outcome = await execute_plan_item(ctx, probe, BASELINE, ["rc_base"], 3)
+    assert outcome.status == "completed" and outcome.probe.answer == "unclear"
+    assert "is a clone or a fork that code made" in outcome.probe.evidence
+    assert ctx.dispatch.calls == []
+    for cand in (
+        ScreenCandidate(id="s3-1", overrides={"temperature": 0.2}, parent_rc_id=clone),
+        ScreenCandidate(id="s3-2", rc_id=clone),
+    ):
+        rc_id, reason, dead = await _make_candidate_rc(
+            ctx, cand, cand.parent_rc_id or "rc_base"
+        )
+        assert rc_id is None and not dead
+        assert "is a clone or a fork that code made" in reason
+    assert len(ctx.kiln.created_run_configs) == 1  # the repeat's clone only

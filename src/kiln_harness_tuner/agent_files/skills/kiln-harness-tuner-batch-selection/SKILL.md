@@ -986,13 +986,17 @@ target`, no promotion:
   `references/playbooks/dealing-with-a-noisy-eval.md`): the arm and the
   baseline, same evals, same `max_items`. Its
   cost is about one measurement of its items (drives plus judgments) and
-  no build; an estimate above `measurement_prices.hard_max_usd` ends it
-  CAPPED with nothing spent, and its line names the `max_items` that fits.
+  no build. Code estimates it from the run config's stored rows before any
+  spend; an estimate above the hard maximum for one candidate
+  (`measurement_prices.hard_max_usd`, lower when arms measured in the same
+  wave hold much of the budget) ends it CAPPED with nothing spent, and its
+  line names the `max_items` that fits.
   At most 4 repeats in a plan, one per (run config, eval). Not in a probe
   phase. Code refuses a repeat of a run config with no stored train row
-  (plan a `remeasure`), outside the model policy, or made by code (a
-  `REPEAT …`/`NOISE …` clone or a `PROBE …` fork): those are never a
-  parent or an `existing_rc_id` either.
+  (plan a `remeasure`), outside the model policy or on a model in
+  `flagged_models`, or made by code (a `REPEAT …`/`NOISE …` clone or a
+  `PROBE …` fork): those are never a parent, an `existing_rc_id`, a probe's
+  `parent_rc_id` or a screening candidate's parent or `rc_id` either.
 - **`probe`** (`question`, `method`, optional `parent_rc_id`, `max_drives`
   ≤ 6 default 3, optional `for_idea`, `reason`, optional `check`)
   — one yes-or-no question about a MECHANISM. No judge, no eval

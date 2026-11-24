@@ -41,7 +41,7 @@ what `remeasure` means for a planner that does not read the flag.
 Kiln stores one result for each (eval config, run config, item) and uses it
 again. So code uses the re-drive of the noise check (`noise.py`): it creates
 a clone of the run config (the same properties, a new id, named
-`REPEAT <n> of <rc>`, provenance derived from the run config) and runs each
+`REPEAT <item id> of <rc>`, provenance derived from the run config) and runs each
 named eval's default config on the clone, narrowed to the sample
 (`Analyzer.judge_items`). The clone has no stored row, so each sampled item
 is driven and judged again. The run config itself is never edited.
@@ -116,9 +116,11 @@ planner could loosen the stop rules that judge its own arms.
 - **Cost.** About one measurement of the sampled items: each item driven
   once, judged once per eval. No build, no agent session. Before any spend,
   one line gives an estimate from the run config's own stored rows
-  (`noise.estimate_usd`).
+  (`repeats.estimate`: one drive and one judgment per sampled (eval,
+  item), an upper bound where evals share a V2 trace).
 - **Cap.** The estimate must fit `budget.hard_max_usd`: the most one
-  candidate may take (min of $60 and 25% of the remaining run budget). When
+  candidate may take (min of $60 and 25% of the remaining run budget, after
+  the holds of the candidates measured beside it). When
   it does not, the item ends `capped` (inconclusive, not a failure),
   nothing is spent, and the reason gives the `max_items` that fits. While
   it runs, the item holds its estimate in `BudgetHolds`. The spend is
@@ -129,16 +131,19 @@ planner could loosen the stop rules that judge its own arms.
   rule: a probe-phase plan carries only probes).
 - **Refused, before any spend** (`failed_infra`, with the reason):
   - a run config the task does not have;
-  - a run config outside the model policy;
+  - a run config outside the model policy, or on a model the preflight
+    flagged this run;
   - a run config with no stored train row on any named eval (a `remeasure`
     comes first);
   - a run config that code made to measure or to probe: a `REPEAT …` or
     `NOISE …` clone, or a `PROBE …` fork.
-- **A clone is never a parent.** The same rule holds for an experiment: an
-  experiment whose `parent_rc_id` or `existing_rc_id` names a run config
-  that code made to measure or to probe fails before any session and
-  before its experiment record opens. This also closes the same gap for the
-  noise check's clone, which had no such guard.
+- **A clone is never a parent.** The same rule holds wherever a plan names
+  a run config. An experiment whose `parent_rc_id` or `existing_rc_id` names
+  a run config that code made to measure or to probe fails before any
+  session and before its experiment record opens. A probe with such a
+  `parent_rc_id` is answered `unclear` with the reason. A screening
+  candidate with such a parent or `rc_id` is not made. This also closes the
+  same gap for the noise check's clone, which had no such guard.
 
 ## 10. When a repeat on train is worth its cost
 

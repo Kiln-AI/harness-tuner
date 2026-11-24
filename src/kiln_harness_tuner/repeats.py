@@ -150,6 +150,8 @@ async def _refusal(ctx: Ctx, rc_id: str) -> str | None:
         await require_policy(ctx, rc_id)
     except ModelPolicyRefused as exc:
         return str(exc)
+    except KilnError as exc:
+        return f"the model policy could not be checked ({exc})"[:_NOTE_MAX_CHARS]
     return None
 
 
@@ -271,7 +273,7 @@ def repeat_clones(ctx: Ctx, rc_id: str, eval_id: str) -> list[str]:
     """The clones that hold a repeat of (`rc_id`, `eval_id`) this run,
     oldest first."""
     out: list[str] = []
-    for result in getattr(ctx, "repeat_results", []):
+    for result in ctx.repeat_results:
         if result.rc_id != rc_id or not result.clone_rc_id:
             continue
         if any(row.eval_id == eval_id for row in result.rows):
@@ -293,6 +295,18 @@ async def repeat_rows(
         runs = await ctx.analyzer.stored_results(eval_id, config_id, clone, "train")
         out.append(_runs_by_item(runs))
     return out
+
+
+def estimate(samples: list[_EvalSample]) -> tuple[float, float, float]:
+    """(total, drive per request, judge per item) from the run config's
+    stored rows, as `noise.estimate_usd`, but with one drive for each
+    (eval, item), not one for each item. Evals that share a V2 trace drive
+    an item once, so this is an upper bound there; a legacy judge config
+    drives inside its own job, so one drive per item would be too low."""
+    _total, drive, judge = estimate_usd(samples, set())
+    judges = _total - len({i for s in samples for i in s.items}) * drive
+    drives = sum(len(s.items) for s in samples) * drive
+    return drives + judges, drive, judge
 
 
 def _largest_fit(samples: list[_EvalSample], total: float, cap: float) -> int:
@@ -322,7 +336,7 @@ async def run_repeat(
     if not samples:
         result.skipped = "; ".join(result.notes)[:_NOTE_MAX_CHARS]
         return _finish(ctx, result)
-    total, drive, judge = estimate_usd(samples, set())
+    total, drive, judge = estimate(samples)
     result.estimate_usd = total
     unique = len({i for s in samples for i in s.items})
     ctx.log.event(
@@ -364,9 +378,6 @@ async def run_repeat(
 async def _measure(
     ctx: Ctx, item: RepeatItem, result: RepeatResult, samples: list[_EvalSample]
 ) -> None:
-    index = 1 + len(
-        [r for r in ctx.repeat_results if r.rc_id == item.rc_id and r.clone_rc_id]
-    )
     description = (
         f"Kiln Harness Tuner repeat measurement {item.id}: a clone of"
         f" {item.rc_id} with the same properties, so Kiln's item cache does"
@@ -377,7 +388,7 @@ async def _measure(
         clone = await create_clone(
             ctx,
             item.rc_id,
-            f"{REPEAT_NAME_PREFIX}{index} of {item.rc_id}",
+            f"{REPEAT_NAME_PREFIX}{item.id} of {item.rc_id}",
             description,
         )
     except Exception as exc:  # the item fails, the wave goes on

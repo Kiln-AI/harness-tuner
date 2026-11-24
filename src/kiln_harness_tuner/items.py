@@ -607,7 +607,18 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
     item `completed` with answer `unclear` and the agent's reason as the
     evidence — an unanswered probe is information the planner needs, not an
     infra retry. Only a dispatcher failure is `failed_infra`."""
+    from kiln_harness_tuner.repeats import clone_refusal
+
     _set_state(ctx, item.id, "probing")
+    if (
+        item.parent_rc_id
+        and (made := await clone_refusal(ctx, item.parent_rc_id)) is not None
+    ):
+        # Answered like any probe that cannot run: `unclear`, with the reason.
+        result = ProbeResult(answer="unclear", evidence=made)
+        ctx.log.event("item_probe", item_id=item.id, probe=result.model_dump())
+        ctx.log.event("item_detail", item_id=item.id, detail=f"probe → UNCLEAR: {made}")
+        return _outcome(item, "completed", probe=result)
     await snapshot_memory(ctx, f"{item.id}-probe-before")
     if item.check is not None:
         # A CODE probe: no agent — fork, drive,
@@ -973,7 +984,7 @@ async def _execute_plan_item(
             speed_rule=speed_rule_text(ctx.objective) if efficiency else None,
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
             train_repeats=repeat_rows_for(
-                list(getattr(ctx, "train_repeats", [])),
+                list(ctx.train_repeats),
                 {rc_id, parent_rc_id, baseline.rc_id},
                 {row.eval_id for row in bundle.per_eval},
             ),
