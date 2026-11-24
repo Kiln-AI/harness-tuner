@@ -13,9 +13,10 @@ starts no eval job and no agent, and it costs nothing.
 (`output_json_schema` of the task record on disk), never from the prompt or
 from a name. A label field is a top-level property of the output whose
 schema is a closed set of two or more values (`closed_values`): an `enum`
-of strings, numbers or booleans, a `boolean`, a `const`, an `anyOf` or
-`oneOf` whose every branch is one of those (a `null` branch is ignored),
-or a local `$ref` to one of those. A task is a classifier, for this check,
+of strings, numbers or booleans, a `boolean` (also with `null`), a
+`const`, an `anyOf` or `oneOf` whose every branch is one of those (a
+`null` branch is ignored), a one-branch `allOf`, or a local `$ref` to one
+of those. A task is a classifier, for this check,
 when it has such a field. The shape is not clear, and the check does not
 run, for:
 
@@ -39,11 +40,13 @@ steps:
    in `NAME_AFFIXES` (`expected`, `label`, …) are removed from both, and at
    least one train value at the key is in the field's closed set;
 2. else by values: the key is the only key whose every train value is in
-   the field's closed set, and it fits no other field.
+   the field's closed set, and it fits no other field. A two-value set (a
+   yes or no) fits too many keys by chance, so this step pairs one only
+   when it is the only closed-set field of the output.
 
-A field that pairs with no key, or with more than one, is left out and
-named in the note. Each paired field gets its own row, so a task with two
-label fields gets two rows.
+A field that pairs with no key, or with more than one, is left out, and a
+field paired by values is named, in the note. Each paired field gets its
+own row, so a task with two label fields gets two rows.
 
 **Train only.** An expected label on val or test is held-out knowledge.
 The expected labels are read only for the items of the run's train set
@@ -61,11 +64,13 @@ stored output, for one field (`spread`):
 - `top_label`: the class given most often, with its given share and its
   expected share;
 - `collapse_fraction`: (given share - expected share) / (1 - expected
-  share). It is the net share of the items of OTHER classes that got
-  `top_label`. 0 means that the two spreads agree on this class, 1 means
-  that every item got it;
+  share), and 0 when that is below 0. It is the net share of the items of
+  OTHER classes that got `top_label`. 0 means that this class takes no
+  items of other classes, 1 means that every item got it;
 - `p_value`: the exact two-sided test (McNemar) on the items where the
-  expected class and the given class disagree about `top_label`.
+  expected class and the given class disagree about `top_label`. None
+  when the items moved into `top_label` do not outnumber the items moved
+  out of it.
 
 **When it is called a collapse.** `collapsed` is true when
 `collapse_fraction` is at least `COLLAPSE_FRACTION`, and `p_value` is below
@@ -87,6 +92,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from kiln_harness_tuner.analysis import (
     SIGNIFICANCE_ALPHA,
+    AnalysisError,
     _item_id,
     _row_output,
     _runs_by_item,
@@ -105,11 +111,11 @@ if TYPE_CHECKING:
 # ANOTHER class got the class given most often.
 #
 # It rests on the definition of the failure, not on a measurement: "a
-# classifier gives one class to most inputs", and "most" is more than half.
-# At 0.5 or above, the class given most often always has more than half of
-# all the items, whatever the expected spread is: its given share is at
-# least 0.5 + 0.5 x its expected share. Below 0.5, most of the items of the
-# other classes still get another answer, so the name does not fit. The
+# classifier gives one class to most inputs". At 0.5 or above, the class
+# given most often always has at least half of all the items, whatever the
+# expected spread is: its given share is at least 0.5 + 0.5 x its expected
+# share. Below 0.5, most of the items of the other classes still get
+# another answer, so the name does not fit. The
 # measure is a share of the OTHER classes' items so that one limit holds for
 # two classes and for twenty, and for a class that is common in the data and
 # for one that is rare.
@@ -180,8 +186,14 @@ def closed_values(schema: Any, root: Mapping[str, Any]) -> tuple[str, ...] | Non
         if text is None:
             return None
         values.append(text)
-    elif schema.get("type") == "boolean":
+    elif schema.get("type") == "boolean" or (
+        isinstance(schema.get("type"), list)
+        and set(schema["type"]) in ({"boolean"}, {"boolean", "null"})
+    ):
         values += ["true", "false"]
+    elif isinstance(schema.get("allOf"), list) and len(schema["allOf"]) == 1:
+        # Pydantic wraps a `$ref` with a description in a one-branch `allOf`.
+        return closed_values(schema["allOf"][0], root)
     else:
         branches = schema.get("anyOf") or schema.get("oneOf")
         if not isinstance(branches, list) or not branches:
@@ -275,7 +287,8 @@ def pair_fields(
 ) -> tuple[list[LabelField], list[str]]:
     """Pair each closed-set field with the reference key that holds its
     expected label (the module doc gives the two steps). Returns the paired
-    fields and one line for each field that was left out."""
+    fields and the lines of the note: the fields left out, and the fields
+    paired by values."""
     by_key = _reference_values(references)
 
     def hits(key: str, values: Sequence[str]) -> int:
@@ -296,8 +309,16 @@ def pair_fields(
     paired = {n: k for n, k in paired.items() if claimed[k] == 1}
 
     left_out: list[str] = []
+    by_values: list[str] = []
     for name, values in fields.items():
         if name in paired:
+            continue
+        if len(values) == 2 and len(fields) > 1:
+            left_out.append(
+                f"`{name}`: no key of the train references has its name, and a"
+                " yes-or-no field is not paired by its values when the output"
+                " has other closed-set fields"
+            )
             continue
         free = [k for k in by_key if k not in paired.values() and fits(k, values)]
         others = [
@@ -307,6 +328,8 @@ def pair_fields(
         ]
         if len(free) == 1 and not others:
             paired[name] = free[0]
+            key = f"`{free[0]}`" if free[0] != _WHOLE else "the whole reference"
+            by_values.append(f"`{name}` with {key}")
         elif not free:
             left_out.append(
                 f"`{name}`: no key of the train references holds its expected label"
@@ -325,7 +348,10 @@ def pair_fields(
         for n in fields
         if n in paired
     ]
-    return ordered, left_out
+    notes = [f"left out: {'; '.join(left_out)}"] if left_out else []
+    if by_values:
+        notes.append(f"paired by values, not by name: {'; '.join(by_values)}")
+    return ordered, notes
 
 
 def prepare(schema: Any, references: Mapping[str, Any]) -> LabelSetup:
@@ -343,7 +369,7 @@ def prepare(schema: Any, references: Mapping[str, Any]) -> LabelSetup:
             note="the output schema has no top-level field with a closed set"
             " of values, so the task is not a classifier for this check"
         )
-    paired, left_out = pair_fields(fields, references)
+    paired, notes = pair_fields(fields, references)
     by_key = _reference_values(references)
     expected: dict[str, dict[str, str]] = {}
     for label_field in paired:
@@ -353,10 +379,9 @@ def prepare(schema: Any, references: Mapping[str, Any]) -> LabelSetup:
             if (label := _canonical(value, label_field.values)) is not None
         }
         expected[label_field.name] = labels
-    note = None
-    if left_out:
-        note = "left out: " + "; ".join(left_out)
-    return LabelSetup(fields=tuple(paired), expected=expected, note=note)
+    return LabelSetup(
+        fields=tuple(paired), expected=expected, note=" ".join(notes) or None
+    )
 
 
 def given_label(run: Mapping[str, Any], label_field: LabelField) -> str | None:
@@ -428,14 +453,18 @@ def spread(
     top_given = given_counts[top] / n
     top_expected = expected_counts[top] / n
     # From the counts, not the shares: the same value, and exact at the limit.
+    #   A class given less often than expected (many outputs hold no label)
+    #   takes no items of other classes: 0, not a negative share.
     fraction = (
-        (given_counts[top] - expected_counts[top]) / (n - expected_counts[top])
+        max(given_counts[top] - expected_counts[top], 0) / (n - expected_counts[top])
         if expected_counts[top] < n
         else None
     )
     into = sum(1 for i in items if given[i] == top and expected[i] != top)
     out_of = sum(1 for i in items if expected[i] == top and given[i] != top)
-    p_value = exact_two_sided_p(into, out_of)
+    # The test is about items moved INTO `top_label`: none when they do not
+    #   outnumber the items moved out of it.
+    p_value = exact_two_sided_p(into, out_of) if into > out_of else None
     collapsed = (
         fraction is not None
         and fraction >= COLLAPSE_FRACTION
@@ -449,7 +478,7 @@ def spread(
     )
     if fraction is not None:
         fact += (
-            f"; net, {_percent(max(fraction, 0.0))} of the items that expect"
+            f"; net, {_percent(fraction)} of the items that expect"
             f" another class got `{top}` (limit {_percent(COLLAPSE_FRACTION)}"
             + (f", p = {p_value:.3g}" if p_value is not None else "")
             + ")"
@@ -557,6 +586,16 @@ def load_setup(ctx: Ctx) -> LabelSetup:
     except (TrainSetError, QuarantineError, OSError, ValueError) as exc:
         return LabelSetup(note=f"the project on disk could not be read ({exc})"[:300])
     setup = prepare(schema, references)
+    if train.task_runs:
+        v1 = (
+            f"{len(train.task_runs)} train item(s) are dataset task runs (a V1"
+            " eval), which have no expected label, so they are not counted"
+        )
+        setup = LabelSetup(
+            fields=setup.fields,
+            expected=setup.expected,
+            note=f"{setup.note} {v1}" if setup.note else v1,
+        )
     ctx.label_setup = setup
     ctx.label_train_ids = train.eval_inputs
     return setup
@@ -607,6 +646,8 @@ async def run_config_spreads(
                 rows += await ctx.analyzer.stored_results(
                     eval_id, config_id, rc_id, "train"
                 )
-            except KilnError:
+            except (KilnError, AnalysisError):
+                # A failed read, or a train split that returned a held-out
+                #   item (`HeldOutLeakError`): that eval only.
                 continue
     return spreads_of(setup, rows, ctx.label_train_ids, rc_id=rc_id, role=role)

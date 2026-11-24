@@ -108,8 +108,8 @@ values. Then it holds, for each label field, one row for the candidate
 on the train items, the labels that the run config gave (`predicted`)
 beside the labels that the items expect (`expected`), class by class.
 `top_label` is the class given most often. `collapse_fraction` is the net
-share of the items of the other classes that got it: 0 when the two
-spreads agree, 1 when every item got that class. `collapsed` is a data
+share of the items of the other classes that got it: 0 when it takes no
+items of other classes, 1 when every item got that class. `collapsed` is a data
 flag, like `significant`: the fraction is at or above `collapse_limit`,
 and its `p_value` is below .05. `predicted_outside` counts outputs with no
 value of the closed set. Read the two rows together with the score rows:

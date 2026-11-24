@@ -608,7 +608,8 @@ about the **present** baseline, on the train items only:
 - `top_label`: the class given most often, with `top_predicted_share` and
   `top_expected_share`;
 - `collapse_fraction`: the net share of the items of the other classes
-  that got `top_label`. 0: the two spreads agree. 1: every item got it;
+  that got `top_label`. 0: it takes no items of other classes. 1: every
+  item got it;
 - `collapsed`: a data flag. The fraction is at or above `collapse_limit`,
   and `p_value` is below .05. It is a fact about the counts, not a verdict;
 - `predicted_outside`: outputs with no value of the closed set. A large
@@ -624,9 +625,11 @@ still shows which class gets too many items and which gets too few.
 
 `label_spreads` is empty on a task that is not a classifier, and
 `label_spread_note` then says why (no output schema, no closed-set field).
-The note also names a closed-set field that code left out, because the
-train references hold no expected value for it. For such a field, count by
-hand when the traces suggest a collapse: the outputs from
+The note also names a closed-set field that code left out (the train
+references hold no expected value for it, or code cannot tell which key
+holds it), and a field that code paired with a reference key by its values,
+not by its name: check that pairing before you plan on its row. For a field
+left out, count by hand when the traces suggest a collapse: the outputs from
 `get_train_results`, the expected values from `get_train_expected`.
 
 ## Smells

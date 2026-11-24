@@ -22,6 +22,7 @@ from kiln_harness_tuner.label_spread import (
     COLLAPSE_FRACTION,
     SHOWN_CLASSES,
     LabelField,
+    LabelSetup,
     closed_fields,
     exact_two_sided_p,
     load_setup,
@@ -124,14 +125,64 @@ def test_a_field_pairs_by_values_when_no_name_fits():
         "t0": {"route": "billing", "author": "Ines"},
         "t1": {"route": "shipping", "author": "Tomas"},
     }
-    paired, left_out = pair_fields({"queue": QUEUES}, references)
+    paired, notes = pair_fields({"queue": QUEUES}, references)
     assert [(f.name, f.reference_key) for f in paired] == [("queue", "route")]
-    assert left_out == []
+    assert notes == ["paired by values, not by name: `queue` with `route`"]
 
 
 def test_a_reference_that_is_one_value_is_the_label():
     paired, _ = pair_fields({"queue": QUEUES}, {"t0": "billing", "t1": "returns"})
     assert [(f.name, f.reference_key) for f in paired] == [("queue", "")]
+
+
+def test_a_closed_set_in_a_one_branch_allof_or_a_nullable_boolean():
+    schema = {
+        "type": "object",
+        "$defs": {"Queue": {"enum": list(QUEUES)}},
+        "properties": {
+            "queue": {"allOf": [{"$ref": "#/$defs/Queue"}], "description": "x"},
+            "urgent": {"type": ["boolean", "null"]},
+            "note": {"type": ["string", "null"]},
+        },
+    }
+    assert closed_fields(schema) == {"queue": QUEUES, "urgent": ("true", "false")}
+
+
+def test_a_yes_or_no_field_is_not_paired_by_values_beside_other_fields():
+    """A two-value set fits any yes-or-no key by chance: `has_link` is not
+    the expected value of `urgent`."""
+    setup = prepare(
+        {
+            "type": "object",
+            "properties": {
+                "action": {"enum": ["keep", "remove"]},
+                "urgent": {"type": "boolean"},
+            },
+        },
+        {
+            "t0": {"expected_action": "keep", "has_link": True},
+            "t1": {"expected_action": "remove", "has_link": False},
+        },
+    )
+    assert [(f.name, f.reference_key) for f in setup.fields] == [
+        ("action", "expected_action")
+    ]
+    assert setup.note is not None and "`urgent`" in setup.note
+
+
+def test_a_pairing_by_values_is_named_in_the_note():
+    setup = prepare(SCHEMA, {"t0": {"route": "billing"}, "t1": {"route": "returns"}})
+    assert [(f.name, f.reference_key) for f in setup.fields] == [("queue", "route")]
+    assert setup.note == "paired by values, not by name: `queue` with `route`"
+
+
+def test_a_key_that_two_fields_claim_by_name_pairs_with_neither_by_name():
+    fields = {"queue": QUEUES, "expected_queue": QUEUES}
+    paired, notes = pair_fields(
+        fields, {"t0": {"queue": "billing"}, "t1": {"queue": "returns"}}
+    )
+    assert paired == []
+    assert notes and "more than one pairing" in notes[0]
 
 
 def test_a_field_with_no_expected_label_is_left_out_and_named():
@@ -153,13 +204,21 @@ def test_a_field_with_no_expected_label_is_left_out_and_named():
 
 
 def test_two_fields_that_fit_one_key_are_both_left_out():
-    """Code does not guess: two yes/no fields and one yes/no key."""
-    fields = {"refund": ("yes", "no"), "escalate": ("yes", "no")}
-    paired, left_out = pair_fields(
-        fields, {"t0": {"gold": "yes"}, "t1": {"gold": "no"}}
-    )
+    """Code does not guess: two closed-set fields and one key that fits
+    both. Neither pairs, and the note names both."""
+    fields = {"refund": ("yes", "no", "maybe"), "escalate": ("yes", "no", "maybe")}
+    paired, notes = pair_fields(fields, {"t0": {"gold": "yes"}, "t1": {"gold": "no"}})
     assert paired == []
-    assert len(left_out) == 2 and all("more than one" in line for line in left_out)
+    (line,) = notes
+    assert "`refund`: more than one" in line and "`escalate`: more than one" in line
+
+
+def test_two_yes_or_no_fields_are_not_paired_by_values():
+    fields = {"refund": ("yes", "no"), "escalate": ("yes", "no")}
+    paired, notes = pair_fields(fields, {"t0": {"gold": "yes"}, "t1": {"gold": "no"}})
+    assert paired == []
+    (line,) = notes
+    assert "`refund`" in line and "`escalate`" in line and "yes-or-no" in line
 
 
 def test_an_expected_value_outside_the_closed_set_leaves_that_item_out():
@@ -241,6 +300,43 @@ def test_the_limit_is_at_one_half_of_the_other_classes_items():
     assert moved(10).top_predicted_share > 0.5
 
 
+def test_at_the_limit_the_class_has_at_least_half_of_the_items():
+    """Every item expects `shipping`, and half get `billing`: the fraction
+    is exactly the limit, and the class has half of the items, not more."""
+    expected = _expected({"shipping": 20})
+    given = dict(expected)
+    given.update({f"t{i}": "billing" for i in range(10)})
+    row = _row(expected, given)
+    assert row.top_label == "billing"
+    assert row.top_predicted_share == pytest.approx(0.5)
+    assert row.collapse_fraction == pytest.approx(COLLAPSE_FRACTION)
+    assert row.collapsed
+
+
+def test_a_class_given_less_often_than_expected_has_a_zero_fraction():
+    """Most outputs hold no label: the class given most often still takes
+    no items of other classes. The fraction is 0, never negative, and there
+    is no p-value for a move into the class."""
+    expected = _expected({"billing": 10, "shipping": 10})
+    given: dict[str, str | None] = {i: None for i in expected}
+    given["t0"] = "billing"
+    row = _row(expected, given)
+    assert row.top_label == "billing"
+    assert row.collapse_fraction == pytest.approx(0.0)
+    assert row.p_value is None and not row.collapsed
+    assert "net, 0% of the items" in row.fact
+    assert "p =" not in row.fact
+
+
+def test_a_tie_goes_to_the_class_with_the_larger_excess():
+    expected = _expected({"billing": 6, "shipping": 2})
+    given = {**{f"t{i}": "billing" for i in range(4)}}
+    given.update({f"t{i}": "shipping" for i in range(4, 8)})
+    row = _row(expected, given)
+    # Both are given 4 times: `shipping` is 2 over its expected count.
+    assert row.top_label == "shipping"
+
+
 def test_a_collapse_on_a_few_items_is_not_called():
     """Every item gets one class, on a set too small for the test to reach
     the alpha: the fraction is 1, and the flag stays false."""
@@ -318,13 +414,27 @@ def test_a_row_of_an_item_that_is_not_train_is_dropped():
     setup = prepare(SCHEMA, {"t0": {"expected_queue": "billing"}})
     # A setup built from train references has no label for `v0`. Even with
     # one, a stored row of an item outside the train set is not read.
-    leaky = setup.__class__(
+    leaky = LabelSetup(
         fields=setup.fields,
         expected={"queue": {"t0": "billing", "v0": "returns"}},
     )
     runs = [_run("t0", "billing"), _run("v0", "billing")]
     (row,) = spreads_of(leaky, runs, {"t0"}, rc_id="r", role="baseline")
     assert row.n_items == 1
+
+
+def test_an_item_with_several_rows_counts_one_time():
+    """Replicates, or one item in two evals: the item counts one time, with
+    the last row that has an output."""
+    setup = prepare(SCHEMA, {"t0": {"expected_queue": "billing"}})
+    runs = [
+        _run("t0", "shipping"),
+        _run("t0", "billing"),
+        _run("t0", None),  # no output: not the row that counts
+    ]
+    (row,) = spreads_of(setup, runs, {"t0"}, rc_id="r", role="baseline")
+    assert row.n_items == 1
+    assert {c.label: c.predicted for c in row.classes} == {"billing": 1}
 
 
 def _project(
@@ -396,6 +506,30 @@ def test_the_setup_reads_the_expected_labels_of_train_items_only(tmp_path):
     assert ctx.label_setup is setup  # read one time
 
 
+def test_dataset_items_of_a_v1_eval_are_named_in_the_note(tmp_path):
+    """A V1 eval splits dataset task runs, which have no reference: they
+    are not counted, and the note says so."""
+    ctx = _ctx(tmp_path)
+    task = Path(ctx.target.project_path) / "tasks" / "t1 - Tickets"
+    splits = {
+        n: {"source": "task_run", "filter_id": f"tag::{n}"}
+        for n in ("train", "val", "test")
+    }
+    folder = task / "evals" / "eval_v1 - E"
+    folder.mkdir(parents=True)
+    (folder / "eval.kiln").write_text(json.dumps({"id": "eval_v1", "splits": splits}))
+    for n in range(3):
+        run = task / "runs" / f"run{n}"
+        run.mkdir(parents=True)
+        (run / "task_run.kiln").write_text(
+            json.dumps({"id": f"run{n}", "tags": ["train"], "input": "ticket"})
+        )
+    setup = load_setup(ctx)
+    assert [f.name for f in setup.fields] == ["queue"]
+    assert setup.note is not None
+    assert "3 train item(s) are dataset task runs" in setup.note
+
+
 async def test_the_planner_gets_the_baseline_spread_and_no_val_number(tmp_path):
     ctx = _ctx(tmp_path)
     # The baseline sends every train ticket to `billing`.
@@ -419,7 +553,7 @@ async def test_the_planner_gets_the_baseline_spread_and_no_val_number(tmp_path):
     # Val holds 9 `returns` tickets. With them the expected count of
     # `returns` would be 17 of 33: neither number is in the planner's input.
     assert all(c.expected == 8 for c in row.classes)
-    assert not any(item_id in plan_input.model_dump_json() for item_id in VAL)
+    assert sum(c.expected for c in row.classes) == 24
     # The event, the terminal line (one time) and the report section.
     events = [f for k, f in ctx.log.events if k == "label_spread"]
     assert events and all(f["rc"] == "rc_base" and f["collapsed"] for f in events)
@@ -459,6 +593,44 @@ async def test_a_task_that_is_not_a_classifier_gets_no_row_and_a_note(tmp_path):
         exit_reason=None,
     )
     assert render_label_spread_appendix(status) == ""
+
+
+async def test_a_held_out_row_drops_its_eval_and_not_the_others(tmp_path):
+    """An eval whose train read returns a held-out item raises in the
+    analyzer. The check leaves that eval out and counts the rest."""
+    from kiln_harness_tuner.label_spread import run_config_spreads
+
+    ctx = _ctx(tmp_path)
+    ctx.analyzer.heldout_ids = frozenset(VAL)
+    ctx.kiln.evals["eval_2"] = make_eval("eval_2", "ec_1")
+    ctx.kiln.results[("eval_1", "rc_base", "train")] = [
+        _run(item_id, label) for item_id, label in TRAIN.items()
+    ]
+    ctx.kiln.results[("eval_2", "rc_base", "train")] = [_run("heldout_0", "billing")]
+    (row,) = await run_config_spreads(
+        ctx, "rc_base", "baseline", [("eval_1", "ec_1"), ("eval_2", "ec_1")]
+    )
+    assert row.n_items == 24 and row.collapse_fraction == pytest.approx(0.0)
+
+
+async def test_an_empty_spread_keeps_the_note_of_the_left_out_fields(tmp_path):
+    schema = {
+        "type": "object",
+        "properties": {
+            "queue": {"enum": list(QUEUES)},
+            "confidence": {"enum": ["low", "medium", "high"]},
+        },
+    }
+    ctx = _ctx(tmp_path, schema=schema)
+    # Stored baseline rows with no output: nothing can be counted.
+    ctx.kiln.results[("eval_1", "rc_base", "train")] = [make_run("t0")]
+    ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
+    assert await orchestrate(ctx, "g", timeout_mins=180) == "done"
+    (plan_input,) = ctx.dispatch.calls_to("batch_plan")
+    assert plan_input.label_spreads == []
+    note = plan_input.label_spread_note
+    assert note.startswith("no train item has both")
+    assert "`confidence`" in note
 
 
 async def test_a_project_that_is_not_on_disk_costs_no_wave():
@@ -505,7 +677,7 @@ async def test_the_analysis_table_holds_the_candidate_and_the_parent(tmp_path):
     assert candidate.collapse_fraction == pytest.approx(0.0)
     assert (parent.rc_id, parent.role) == ("rc_base", "parent")
     assert parent.collapsed and parent.top_label == "billing"
-    assert not any(item_id in analysis.model_dump_json() for item_id in VAL)
+    assert sum(c.expected for c in candidate.classes) == 24
     splits = {query[2] for query in ctx.kiln.results_queries}
     assert splits == {"train"}
     (arm,) = [f for k, f in ctx.log.events if k == "arm_results"]

@@ -736,7 +736,9 @@ top-level property whose schema is a closed set of two or more values: an
 `$ref` to one. The shape is not clear, and the check does not run, for a
 task with no output schema (a free-text answer can be a label, but code
 cannot know the set), for a closed set below the top level, and for a list
-of labels. Nothing is guessed: `label_spread_note` says why.
+of labels. Nothing is guessed: `label_spread_note` says why. Dataset task
+runs (the items of a V1 eval) have no `reference`, so they are not counted,
+and the note says so.
 
 **Which field holds the label.** A closed-set field is compared only when
 the train references hold its expected value, because a spread with nothing
@@ -745,8 +747,10 @@ common also gives one class to most inputs. Code pairs a field with a key
 of the eval inputs' `reference`, first by name (the key and the field have
 the same name once words such as `expected` and `label` are removed), else
 by values (the one key whose every train value is in the field's closed
-set). A field that pairs with no key, or with more than one, is left out
-and named in the note. Each paired field gets its own row.
+set). A yes-or-no field pairs by values only when it is the only
+closed-set field, because a two-value set fits too many keys by chance. A
+field that pairs with no key, or with more than one, is left out and named
+in the note, and so is a field paired by values. Each paired field gets its own row.
 
 **Train only.** An expected label on val or test is held-out knowledge. The
 expected labels are read only for the eval inputs of the run's train set
@@ -759,17 +763,19 @@ label and a stored output: the count of each class, expected and given;
 `predicted_outside`, the outputs with no value of the closed set;
 `top_label`, the class given most often; and `collapse_fraction`, which is
 (given count of `top_label` − expected count) / (items that expect another
-class). It is the net share of the other classes' items that got
-`top_label`: 0 when the two spreads agree, 1 when every item got it.
-`p_value` is the exact two-sided McNemar test on the items where the
-expected class and the given class disagree about `top_label`.
+class), and 0 when that is below 0. It is the net share of the other
+classes' items that got `top_label`: 0 when the class takes no items of
+other classes, 1 when every item got it. `p_value` is the exact two-sided
+McNemar test on the items where the expected class and the given class
+disagree about `top_label`. It is None when the items moved into
+`top_label` do not outnumber the items moved out of it.
 
 **When it is called a collapse.** `collapsed` is true when
 `collapse_fraction` is at least `COLLAPSE_FRACTION` (0.5) and `p_value` is
 below `SIGNIFICANCE_ALPHA`. The limit rests on the definition of the
-failure, not on a measurement: "one class to most inputs", and "most" is
-more than half. At 0.5 or above, `top_label` always has more than half of
-all the items, whatever the expected spread is. The measure is a share of
+failure, not on a measurement: "one class to most inputs". At 0.5 or
+above, `top_label` always has at least half of all the items, whatever the
+expected spread is. The measure is a share of
 the other classes' items, so one limit holds for two classes and for
 twenty, and for a common class and a rare one. The p-value keeps a set of a
 few items from the flag: a full collapse needs six items of other classes.

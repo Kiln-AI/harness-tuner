@@ -1281,11 +1281,13 @@ class LabelSpread(BaseModel):
     top_expected_share: float
     # Of the items that expect another class, the net share that got
     #   `top_label`: (predicted share - expected share) / (1 - expected
-    #   share). 0: the two spreads agree on this class. 1: every item got
-    #   it. None when every item expects `top_label`.
+    #   share), and 0 when that is below 0. 0: this class takes no items of
+    #   other classes. 1: every item got it. None when every item expects
+    #   `top_label`.
     collapse_fraction: float | None = None
     # Exact two-sided test on the items where the expected class and the
-    #   given class disagree about `top_label`. None when there are none.
+    #   given class disagree about `top_label`. None when the items moved
+    #   into `top_label` do not outnumber the items moved out of it.
     p_value: float | None = None
     collapsed: bool = False  # collapse_fraction >= collapse_limit, and
     #   p_value < the significance alpha

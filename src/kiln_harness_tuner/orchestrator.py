@@ -2730,10 +2730,11 @@ async def baseline_label_spreads(
         return [], f"the check failed ({type(exc).__name__})"
     if ctx.label_setup is not None and ctx.label_setup.fields:
         if not rows:
-            note = (
+            empty = (
                 "no train item has both an expected label and a stored output"
                 " of the baseline"
             )
+            note = f"{empty}. {note}" if note else empty
         log_spreads(ctx, rc_id, "baseline", rows, note)
     return rows, note
 
