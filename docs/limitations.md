@@ -123,6 +123,13 @@ a legacy judge config and a code eval report no judge noise. The sample and
 the clone are taken on the run's first baseline and are not measured again
 after a promotion.
 
+**A repeat is one more sample, not a verdict.** A `repeat` item measures a
+run config a second time and counts the items that changed. Two runs show
+that the noise exists, not its exact size. No rule of the loop reads a
+repeat: a planner or an analyst reads it, and the comparisons and the val
+gate still use the first measurement. A repeat does not re-judge stored
+outputs alone, so it does not separate the judge's noise from the agent's.
+
 **Custom score types have no statistics operation and no normalization
 domain.** Both sites raise in `analysis.py`. They are
 different questions — a custom score with no declared range cannot be
@@ -427,9 +434,11 @@ Nothing notices when the server moves past it.
   result, so a measured item is never re-measured to second-guess its score.
   Sampling noise is handled by the paired statistics *across* items. Errored
   items are different: they store no row, so the retry re-runs exactly them.
-  The one exception is opt-in and measures noise only: `--noise-check N`
-  re-drives and re-judges N train items per eval before wave 1, on a clone
-  and a copy, and no comparison ever reads those rows.
+  Two exceptions measure noise only, and no comparison ever reads their
+  rows: `--noise-check N` re-drives and re-judges N train items per eval
+  before wave 1, on a clone and a copy; and a `repeat` item, which the
+  planner plans, drives and judges a run config's train items again on a
+  clone.
 
 ## Costs
 

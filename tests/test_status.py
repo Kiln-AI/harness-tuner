@@ -24,6 +24,7 @@ from kiln_harness_tuner.schemas import (
     ProbeItem,
     PromotionDecision,
     RemeasureItem,
+    RepeatItem,
     ReportInput,
     SetupReport,
     UnloadableEval,
@@ -105,6 +106,7 @@ NO_DETAILS = {
     "merge_wins": None,
     "probe": None,
     "remeasure": None,
+    "repeat": None,
     "measure": None,
     "parent_rc_id": None,
     "existing_rc_id": None,
@@ -178,6 +180,22 @@ def test_wave_start_details_of_the_other_item_types():
         "eval_ids": ["e1", "e2"],
     }
     assert item_summary(remeasure)["reason"] == "r"
+    repeat = RepeatItem(
+        id="w2-6",
+        type="repeat",
+        rc_id="rc_x",
+        eval_ids=["e1"],
+        max_items=20,
+        reason="two items carry the win",
+    )
+    summary = item_summary(repeat)
+    assert summary["kind"] == "repeat"
+    assert summary["label"] == "repeat rc rc_x on e1 (20 item(s))"
+    assert summary["repeat"] == {"rc_id": "rc_x", "eval_ids": ["e1"], "max_items": 20}
+    assert summary["reason"] == "two items carry the win"
+    assert item_summary(repeat.model_copy(update={"max_items": None}))["label"] == (
+        "repeat rc rc_x on e1 (every stored item)"
+    )
     probe = ProbeItem(
         id="w2-5",
         type="probe",
@@ -241,6 +259,10 @@ def test_plan_headline():
     assert plan_headline([fix_item(), eval_only_item()]) == "1 experiment, 1 eval-only"
     assert plan_headline([eval_only_item()]) == "1 eval-only"
     assert plan_headline([]) == "empty plan"
+    repeat = RepeatItem(
+        id="w1-2", type="repeat", rc_id="rc_x", eval_ids=["e1"], reason="r"
+    )
+    assert plan_headline([fix_item(), repeat]) == "1 experiment, 1 repeat"
 
 
 def test_plan_headline_counts_baseline_measurements():

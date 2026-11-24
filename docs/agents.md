@@ -159,8 +159,9 @@ what the measurement engine needs to price and stop a candidate, and
 `baseline_cost` is the baseline's cost per run under `cost`.
 It also gets `train_detectability` — per active (eval,
 score), the baseline's train items with room to improve and the fewest wins
-a significant result needs — and, with `--noise-check`, `train_noise`. Both
-are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
+a significant result needs — and, with `--noise-check`, `train_noise`, and
+`train_repeats`, the rows of this run's `repeat` items. All are train-only
+([architecture.md](architecture.md) sections 5.1, 5.2 and 5.3).
 `detections` are the facts that the smell detectors in code found in the
 present baseline's harness (the `baseline_review` section below): each names a
 smell document and states a number and the reference it was compared with,

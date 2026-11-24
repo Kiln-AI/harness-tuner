@@ -133,7 +133,8 @@ class ItemModel:
 
     item_id: str
     wave: int
-    kind: str  # fix, merge, eval, measure, remeasure, probe (`status.item_kind`)
+    kind: str  # fix, merge, eval, measure, remeasure, repeat, probe
+    #   (`status.item_kind`)
     details: Mapping[str, Any]
     wave_index: int = 0  # its `wave_start`'s index in `RunModel.waves`
     state: str = "planned"

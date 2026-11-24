@@ -276,20 +276,19 @@ def estimate_usd(
     return total, drive, (median(judge_all) if judge_all else 0.0)
 
 
-async def _create_clone(ctx: Ctx, rc_id: str) -> str:
+async def create_clone(ctx: Ctx, rc_id: str, name: str, description: str) -> str:
+    """A new run config with the properties of `rc_id` and no stored row,
+    so that Kiln drives and judges each item again. Stamped as the loop's
+    own object, derived from `rc_id`. The noise check and the `repeat` item
+    (`kiln_harness_tuner.repeats`) both measure on one."""
     from kiln_harness_tuner.probes import rc_props
 
     props = await rc_props(ctx, rc_id)
-    description = (
-        f"Kiln Harness Tuner noise check: a clone of {rc_id} with the same"
-        " properties, so Kiln's item cache does not answer. Never a"
-        " parent, a candidate or the baseline."
-    )
     created = await ctx.kiln.call(
         "POST",
         f"/api/projects/{ctx.target.project_id}/tasks/{ctx.target.task_id}/run_configs",
         body={
-            "name": kiln_name(f"{NOISE_NAME_PREFIX}clone of {rc_id}", 60),
+            "name": kiln_name(name, 60),
             "description": description,
             "run_config_properties": props,
             "provenance": agent_provenance(description, [rc_id]),
@@ -299,6 +298,17 @@ async def _create_clone(ctx: Ctx, rc_id: str) -> str:
     if not clone:
         raise KilnError(f"run config create returned no id: {created!r}")
     return str(clone)
+
+
+async def _create_clone(ctx: Ctx, rc_id: str) -> str:
+    return await create_clone(
+        ctx,
+        rc_id,
+        f"{NOISE_NAME_PREFIX}clone of {rc_id}",
+        f"Kiln Harness Tuner noise check: a clone of {rc_id} with the same"
+        " properties, so Kiln's item cache does not answer. Never a"
+        " parent, a candidate or the baseline.",
+    )
 
 
 async def _create_judge_copy(ctx: Ctx, eval_id: str, config: dict[str, Any]) -> str:

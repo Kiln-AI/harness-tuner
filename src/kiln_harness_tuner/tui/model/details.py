@@ -93,10 +93,10 @@ def parent_rc(model: RunModel, item: ItemModel) -> str | None:
 
 
 def _measured_rc(model: RunModel, item: ItemModel) -> str | None:
-    """The existing run config a probe drives, a measure measures or a
-    re-measure completes."""
-    if item.kind == "remeasure":
-        rc = _text(_mapping(item.details.get("remeasure")).get("rc_id"))
+    """The existing run config a probe drives, a measure measures, a
+    re-measure completes or a repeat measures again."""
+    if item.kind in ("remeasure", "repeat"):
+        rc = _text(_mapping(item.details.get(item.kind)).get("rc_id"))
         return rc or item.rc_id
     return parent_rc(model, item)
 
@@ -179,9 +179,9 @@ def _targets(model: RunModel, item: ItemModel) -> list[Line]:
     elif item.kind == "measure":
         measure = _mapping(details.get("measure"))
         pairs = [(_text(measure.get("eval_id")), measure.get("scores"))]
-    elif item.kind == "remeasure":
-        remeasure = _mapping(details.get("remeasure"))
-        pairs = [(_text(e), None) for e in remeasure.get("eval_ids") or []]
+    elif item.kind in ("remeasure", "repeat"):
+        named = _mapping(details.get(item.kind))
+        pairs = [(_text(e), None) for e in named.get("eval_ids") or []]
     else:
         return []
     return [
@@ -228,7 +228,7 @@ def _fields(model: RunModel, item: ItemModel, now: float) -> Iterator[DetailFiel
     if item.kind in BUILDS:
         rc = parent_rc(model, item)
         yield _field(words.PARENT_FIELD, (Span(config_label(model, rc)),) if rc else ())
-    elif item.kind in ("probe", "measure", "remeasure"):
+    elif item.kind in ("probe", "measure", "remeasure", "repeat"):
         rc = _measured_rc(model, item)
         label = (Span(config_label(model, rc)),) if rc else ()
         yield _field(words.RUN_CONFIG_FIELD, label)
@@ -406,7 +406,7 @@ def _links(model: RunModel, item: ItemModel) -> tuple[DetailLink, ...]:
     its parent. None before the item has a run config."""
     if item.kind in BUILDS:
         rc = item.rc_id
-    elif item.kind == "remeasure":
+    elif item.kind in ("remeasure", "repeat"):
         rc = _measured_rc(model, item)
     else:
         rc = None

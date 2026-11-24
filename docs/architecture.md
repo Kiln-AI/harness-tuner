@@ -330,6 +330,7 @@ where one-crack and eval-freeze are visible.
 | `eval_only` | experimental, off by default (section 3.2): one `eval_build` dispatch. Reproduced → link the eval to the issue. Not reproduced → mark the issue `WONT_FIX:` with the reason. Both are useful outcomes. |
 | `measure_issue_baseline` | pure code. Run the issue's existing eval against the baseline on train, apply the headroom rule, PATCH the issue. No builder, no analyst, no new run config. |
 | `remeasure` | pure code. Re-drive only the items an existing run config never stored a row for. |
+| `repeat` | pure code. Measure an existing run config again, on a clone, on train items it has stored rows for. Evidence about noise, never an arm. Section 5.3. |
 | `probe` with a `check` | pure code. Fork the parent, attach a throwaway surface, apply overrides, drive a few train items, count in the traces. |
 | `probe` without a `check` | one short `probe` agent session that reads the traces. |
 | `experiment` (fix or merge work) | the full path below. |
@@ -589,6 +590,71 @@ them as `BatchPlanInput.train_noise`. Under speed and cost the pooled
 re-drive change rate of the pass/fail rows is also the noise flip rate of
 the `guard_losses` stop rule (section 16). Under quality it is the noise
 flip rate of the guard half of the `residual` stop rule (section 16).
+
+### 5.3 Repeat measurements
+
+[`repeats.py`](../src/kiln_harness_tuner/repeats.py). The planner asks for
+one with a `repeat` item (`rc_id`, `eval_ids`, optional `max_items`,
+`reason`), on train only. It measures an existing run config again on the
+train items it has stored rows for, and compares each item with its stored
+row. It uses the re-drive of section 5.2: a clone of the run config (the
+same properties, a new id, named `REPEAT <n> of <rc>`), each named eval's
+default config run on it, narrowed to the sample. There is no re-judge
+pass: the noise check measures judge noise alone.
+
+**The sample.** For each eval, the items with a stored train row that has
+a value on every comparable score. `max_items` takes the first N by a hash
+of the item id (`noise.sample_items`), so an arm and the baseline with the
+same stored items get the same sample. Each row carries `items_key`, a
+short hash of the compared items: two rows with the same key compared the
+same items.
+
+**What code refuses**, before any spend, with the item `failed_infra` and
+the reason: a run config the task does not have; a run config outside the
+model policy; a run config with no stored train row on any named eval (a
+`remeasure` comes first); and a run config that code made to measure or
+to probe (a `REPEAT …` or `NOISE …` clone, a `PROBE …` fork). The last rule
+also holds for an experiment: an experiment whose `parent_rc_id` or
+`existing_rc_id` names such a run config fails before any session. A plan
+carries at most four `repeat` items (`MAX_REPEATS_PER_PLAN`), never two on
+the same (run config, eval), and none in a probe phase.
+
+**Spend.** Before any spend, one line gives an estimate from the run
+config's own stored rows (`noise.estimate_usd`: each sampled item driven
+once, each eval's sample judged once). The estimate must fit
+`budget.hard_max_usd`, the most one candidate may take (section 16, "The
+spending cap"). When it
+does not, the item ends `capped`, nothing is spent, and the reason gives
+the `max_items` that fits. While it runs, the item holds its estimate in
+`BudgetHolds`, so an arm measured beside it does not size its cap against
+the same dollars. The spend is booked as `spend` source `repeat`, in the
+provider lane.
+
+**The result.** One `RepeatRow` per (eval, score): `items`, `changed`
+(outcome at the pass line for pass/fail, value for a rating), `improved`
+and `worsened` in the score's good direction, `mean_abs_change` for a
+rating, and the raw mean of each measurement on the compared items
+(`stored_score`, `repeat_score`). `repeat_index` counts the repeats of the
+same (run config, eval) in the run. Each repeat is compared with the stored
+rows, never with an earlier repeat.
+
+**Where it goes.** The rows stay in Kiln on the clone. The `repeat` event
+of the wave log holds the whole `RepeatResult`, with the clone's id, and
+the status fold keeps it (`RunStatus.repeats`) for the report's
+"Repeat measurements (code-computed)" appendix. `Ctx.train_repeats` holds
+the rows: every later planner gets them (`BatchPlanInput.train_repeats`),
+and an analyst gets the rows on its arm's run config, the parent and the
+baseline, for the evals of its bundle (`AnalysisInput.train_repeats`).
+Nothing goes to memory.
+
+**What it does not change.** No comparison, statistic, stop rule or
+promotion reads a clone's rows: the bundle and the val gate compare the
+first measurement of each side. A repeat changes neither `train_noise`
+nor the noise flip rate of the stop rules, which only the noise check
+sets: a repeat's sample is the planner's choice, not a fixed sample of the
+baseline. `repeats.repeat_rows` reads each repeat of a (run config, eval)
+back, by item. Nothing in the loop calls it yet: a rule that counts support
+across repeats starts there.
 
 ## 6. Splits
 
@@ -1261,6 +1327,7 @@ src/kiln_harness_tuner/
   setup.py          baseline seeding, the eval ↔ issue sync, the split audit
   detectability.py  the pre-run check: the floor, the refusal
   noise.py          the opt-in run-to-run noise check
+  repeats.py        the `repeat` item: a run config measured again
   quarantine.py     the start-up split check: held-out ids, stored results
   latency.py        per-item latency, the paired comparison, the drive pass
   model_policy.py   the (provider, model) policy and its checks

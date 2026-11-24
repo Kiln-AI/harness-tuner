@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # A repeat measurement the planner can ask for
@@ -7,7 +7,8 @@ status: draft
 **Status of this document.** A short record of the problem and the idea, so
 that the project is easy to start later. It came from the deep code review
 of the biological_bootloader branch on 2026-11-13: see
-[review_finding.md](review_finding.md). It is not started.
+[review_finding.md](review_finding.md). It is done: the decisions are in
+[functional_spec.md](functional_spec.md), and the item is `repeat`.
 
 ## 1. The problem
 
@@ -52,10 +53,8 @@ again. The clone never becomes a parent, a candidate or the baseline.
   repeat on new items: when is a repeat on train worth its cost?
 - The changes to the planner's skill and to the playbook.
 
-## 4. Until this project is done
+## 4. Before this project
 
-The playbook must give only steps that the loop can do. Read `train_noise`
-when it is there. Else, the noise is not known, and the stop rules use a
-flip rate of 10%. Predict a larger effect, or choose an eval whose
-detectability can show the effect. Use the val gate as the repeat. This is
-a change to the knowledge content, not to code.
+The playbook gave only steps that the loop could do: read `train_noise`,
+predict a larger effect, use the val gate as the repeat. Those steps stay.
+The `repeat` item adds the step that was missing.

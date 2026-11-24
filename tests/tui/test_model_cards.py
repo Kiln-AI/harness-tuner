@@ -14,6 +14,7 @@ from model_events import (
     merge,
     probe,
     remeasure,
+    repeat,
     row,
     table,
     val_row,
@@ -310,6 +311,18 @@ def test_a_re_measure_card():
     assert card.text == (Span(f"Complete the measurement of {START_NAME}"),)
     run.outcome("w1-1")
     assert run.line5("w1-1") == "✓ Measured"
+
+
+def test_a_repeat_card():
+    run = wave_one(repeat("w1-1", START_RC, max_items=20))
+    run.state("w1-1", "measuring")
+    card = run.card("w1-1")
+    assert (card.title, card.qualifier) == ("w1-1", "repeat: Hold placement")
+    assert card.text == (Span(f"Measure {START_NAME} again on 20 train items"),)
+    run.outcome("w1-1")
+    assert run.line5("w1-1") == "✓ Measured"
+    # A repeat never names the run config it measures again.
+    assert run.model.rc_items.get(START_RC) != "w1-1"
 
 
 def test_cut_off_cards():

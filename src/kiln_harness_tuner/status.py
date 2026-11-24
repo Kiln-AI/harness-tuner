@@ -48,6 +48,8 @@ from kiln_harness_tuner.schemas import (
     PromotionDecision,
     RcChange,
     RemeasureItem,
+    RepeatItem,
+    RepeatResult,
     RunStatus,
     ScreenResult,
     SetupReport,
@@ -71,6 +73,8 @@ def item_kind(item: BatchItem) -> str:
         return "measure"
     if isinstance(item, RemeasureItem):
         return "remeasure"
+    if isinstance(item, RepeatItem):
+        return "repeat"
     if isinstance(item, ProbeItem):
         return "probe"
     return "merge" if isinstance(item.work, MergeWork) else "fix"
@@ -80,7 +84,8 @@ def item_label(item: BatchItem) -> str:
     """The one-line label: fix → hypothesis + issue id; merge → the
     ingredient experiment-memory ids; eval_only → the issue id;
     measure_issue_baseline → the issue and the eval it settles;
-    remeasure → the rc whose coverage it completes."""
+    remeasure → the rc whose coverage it completes; repeat → the rc it
+    measures again."""
     if isinstance(item, EvalOnlyItem):
         return f"build eval for {item.issue_memory_id}"
     if isinstance(item, MeasureIssueBaselineItem):
@@ -88,6 +93,10 @@ def item_label(item: BatchItem) -> str:
     if isinstance(item, RemeasureItem):
         evals = ", ".join(item.eval_ids)
         return f"re-measure rc {item.rc_id} on {evals}"
+    if isinstance(item, RepeatItem):
+        evals = ", ".join(item.eval_ids)
+        size = f"{item.max_items} item(s)" if item.max_items else "every stored item"
+        return f"repeat rc {item.rc_id} on {evals} ({size})"
     if isinstance(item, ProbeItem):
         return f"probe: {item.question}"
     work = item.work
@@ -131,6 +140,7 @@ def item_details(item: BatchItem) -> dict[str, Any]:
         "merge_wins": None,
         "probe": None,
         "remeasure": None,
+        "repeat": None,
         "measure": None,
         "parent_rc_id": None,
         "existing_rc_id": None,
@@ -145,6 +155,13 @@ def item_details(item: BatchItem) -> dict[str, Any]:
     elif isinstance(item, RemeasureItem):
         details["reason"] = item.reason
         details["remeasure"] = {"rc_id": item.rc_id, "eval_ids": list(item.eval_ids)}
+    elif isinstance(item, RepeatItem):
+        details["reason"] = item.reason
+        details["repeat"] = {
+            "rc_id": item.rc_id,
+            "eval_ids": list(item.eval_ids),
+            "max_items": item.max_items,
+        }
     elif isinstance(item, ProbeItem):
         details["probe"] = {
             "question": item.question,
@@ -232,6 +249,9 @@ def plan_headline(items: Sequence[BatchItem]) -> str:
     if counts["remeasure"]:
         remeasures = counts["remeasure"]
         parts.append(f"{remeasures} re-measurement{'s' if remeasures != 1 else ''}")
+    if counts["repeat"]:
+        repeats = counts["repeat"]
+        parts.append(f"{repeats} repeat{'s' if repeats != 1 else ''}")
     if counts["probe"]:
         probes = counts["probe"]
         parts.append(f"{probes} probe{'s' if probes != 1 else ''}")
@@ -486,6 +506,11 @@ class RunStatusTracker:
     ) -> None:
         if isinstance(result, NoiseCheckResult):
             self._status.noise_check = result
+
+    def _on_repeat(self, result: RepeatResult | None = None, **_: object) -> None:
+        # Each repeat item, whole, for the report's table.
+        if isinstance(result, RepeatResult):
+            self._status.repeats.append(result)
 
     def _on_model_preflight(
         self, result: ModelPreflightResult | None = None, **_: object

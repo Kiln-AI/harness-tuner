@@ -111,7 +111,7 @@ def spend_lane_labels(agent_cli: str = "claude") -> dict[str, str]:
 # Kiln-side = provider tokens Kiln burns running drives/eval jobs this run
 # triggered. Everything else is one `claude -p` agent session.
 KILN_SPEND_SOURCES = frozenset(
-    {"eval_jobs", "val_pass", "noise_check", "model_preflight"}
+    {"eval_jobs", "val_pass", "noise_check", "repeat", "model_preflight"}
 )
 CLAUDE_CODE_SPEND_SOURCES = frozenset(
     {
@@ -547,6 +547,97 @@ class RemeasureItem(BaseModel):
     reason: str
 
 
+# The most `repeat` items one plan may carry (`BatchPlan` refuses more).
+MAX_REPEATS_PER_PLAN = 4
+
+
+class RepeatItem(BaseModel):
+    """Measure an EXISTING run config again on TRAIN items it already has
+    stored rows for (`kiln_harness_tuner.repeats`). Pure code, no agent
+    dispatch. Kiln stores one result for each (eval config, run config,
+    item) and uses it again, so code measures a CLONE of the run config: the
+    same properties, a new id, no stored row. Each sampled item is driven
+    and judged again, and compared with the stored row of the same item.
+
+    The opposite of `RemeasureItem`: that one fills the items with no
+    stored row, this one repeats the items that have one. The result is
+    evidence about noise. It is never an arm: no experiment record, no
+    comparison reads the clone's rows, and the clone is never a parent, a
+    candidate or the baseline.
+
+    `max_items`: the sample size for each eval, the first N items by a hash
+    of the item id (the same items for every run config with the same
+    stored items, and the items of `--noise-check N`). None = every item
+    with a stored row. `split` is pinned to train."""
+
+    id: str  # wave-unique, e.g. "w3-2"
+    type: Literal["repeat"]
+    rc_id: str  # the baseline, or a run config this task has train rows for
+    eval_ids: Annotated[list[str], Field(min_length=1)]
+    max_items: int | None = Field(default=None, ge=1)
+    split: Literal["train"] = "train"
+    reason: str
+
+    @model_validator(mode="after")
+    def _dedup_eval_ids(self) -> RepeatItem:
+        self.eval_ids = list(dict.fromkeys(self.eval_ids))
+        return self
+
+
+class RepeatRow(BaseModel):
+    """One (eval, score) of a `repeat` item (`kiln_harness_tuner.repeats`):
+    a run config measured again on a sample of TRAIN items (a clone run
+    config, so Kiln's item cache does not answer), compared item by item
+    with its own stored rows. Evidence about noise, never an arm: no
+    comparison reads the clone's rows. Train-only: the planner and the
+    analyzer receive these rows."""
+
+    item_id: str  # the plan item, e.g. "w3-2"
+    wave: int
+    rc_id: str  # the run config that was measured again
+    clone_rc_id: str  # where Kiln stores the rows of this repeat
+    is_baseline: bool = False  # `rc_id` was the baseline when the repeat ran
+    repeat_index: int = 1  # 1 = the first repeat of this (rc, eval) this run
+    eval_id: str
+    eval_name: str = ""
+    score_key: str
+    score_type: str
+    direction: str
+    items: int  # items with a value in the stored row and in the repeat
+    # Equal on two rows = the same items were compared, so the two rows'
+    #   scores can be read side by side (an arm and the baseline).
+    items_key: str = ""
+    changed: int = 0  # items whose outcome (binary) or value (rating) changed
+    change_rate: float | None = None
+    improved: int = 0  # of `changed`: better in the repeat (good direction)
+    worsened: int = 0  # of `changed`: worse in the repeat
+    mean_abs_change: float | None = None  # rating scales, raw units
+    # The mean of the raw stored scores on the compared items, and of the
+    #   repeat's (binary: the pass rate). Raw, never sign-normalized.
+    stored_score: float | None = None
+    repeat_score: float | None = None
+
+
+class RepeatResult(BaseModel):
+    """One `repeat` item, whole. Train-only."""
+
+    item_id: str
+    wave: int
+    rc_id: str
+    is_baseline: bool = False
+    max_items: int | None = None
+    clone_rc_id: str | None = None
+    estimate_usd: float = 0.0
+    spend_usd: float = 0.0
+    rows: list[RepeatRow] = []
+    notes: list[str] = []  # an eval of the item that gave no row, and why
+    # The repeat did not run, and why. `over_budget` tells the two cases
+    #   apart: True = the estimate did not fit, nothing was wrong with the
+    #   item; False = code refused the item.
+    skipped: str | None = None
+    over_budget: bool = False
+
+
 class ProbeItem(BaseModel):
     """A viability probe: one yes-or-no question about a
     MECHANISM, answered by a short `claude -p` session that builds an
@@ -672,6 +763,7 @@ BatchItem = Annotated[
     | EvalOnlyItem
     | MeasureIssueBaselineItem
     | RemeasureItem
+    | RepeatItem
     | ProbeItem,
     Field(discriminator="type"),
 ]
@@ -1048,6 +1140,31 @@ class BatchPlan(BaseModel):
                 " belong in prose (rejected_summary / open_questions), never"
                 " in the exit channel"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _repeats_are_few_and_distinct(self) -> BatchPlan:
+        """A repeat pays for drives and judgments that build nothing, so one
+        plan carries at most `MAX_REPEATS_PER_PLAN` of them, and never two
+        on the same (run config, eval): a second repeat of the same pair
+        goes in a later wave, after the first one is read."""
+        repeats = [i for i in self.items if isinstance(i, RepeatItem)]
+        if len(repeats) > MAX_REPEATS_PER_PLAN:
+            raise ValueError(
+                f"a plan carries at most {MAX_REPEATS_PER_PLAN} repeat items,"
+                f" this one has {len(repeats)}: a repeat builds nothing, so"
+                " keep the ones a decision of the next wave depends on"
+            )
+        seen: set[tuple[str, str]] = set()
+        for item in repeats:
+            for eval_id in item.eval_ids:
+                if (item.rc_id, eval_id) in seen:
+                    raise ValueError(
+                        f"two repeat items name run config {item.rc_id} on eval"
+                        f" {eval_id}: plan one repeat of a (run config, eval)"
+                        " in a wave, and a second one in a later wave"
+                    )
+                seen.add((item.rc_id, eval_id))
         return self
 
     @model_validator(mode="after")
@@ -1473,6 +1590,7 @@ class ItemOutcome(BaseModel):
     #   timing — set when a timing rule of the engine stopped it
     speed_verdict: str | None = None  # the engine's stop line
     probe: ProbeResult | None = None  # a probe item's answer
+    repeat: RepeatResult | None = None  # a repeat item's result
     # `kiln_harness_tuner.reference_check`: what the measured run config
     #   names and does not attach — a skill, or a tool the parent attached.
     #   Empty when the check found nothing or did not run.
@@ -1931,6 +2049,11 @@ class BatchPlanInput(BaseModel):
     #   the flag). Neither carries a val number.
     train_detectability: list[TrainDetectability] = []
     train_noise: list[NoiseRow] = []
+    # Every `repeat` item of this run, oldest first: a run config measured
+    #   again on train items, against its own stored rows (`RepeatRow`).
+    #   Evidence about noise. Train-only. It changes neither `train_noise`
+    #   nor the flip rate of the stop rules.
+    train_repeats: list[RepeatRow] = []
     # `--experimental-eval-building`. False (the default): plan no
     #   `eval_only` item and no fix with `needs_eval: true` — code drops
     #   them before the wave runs. True: both are allowed.
@@ -2007,6 +2130,11 @@ class AnalysisInput(BaseModel):
     #   names and does not attach. A failure on the cases that use such a
     #   name can be the build's breakage, not the lever.
     reference_findings: list[str] = []
+    # This run's `repeat` rows on the arm's run config, on its parent and
+    #   on the baseline, for the evals of the bundle: how many items changed
+    #   when the SAME run config was measured again. Evidence about noise
+    #   beside the table, never a row of it. Empty when none ran.
+    train_repeats: list[RepeatRow] = []
 
 
 class DescribeEvalInput(BaseModel):
@@ -2212,6 +2340,9 @@ class RunStatus(BaseModel):
     # code-computed Detectability appendix.
     detectability: DetectabilityReport | None = None
     noise_check: NoiseCheckResult | None = None
+    # Every `repeat` item of the run, in order (`repeat` events): the
+    # report's "Repeat measurements" table.
+    repeats: list[RepeatResult] = []
     # The model preflight — every model checked, and the ones
     # flagged and left out of screening, with the reason.
     model_preflight: ModelPreflightResult | None = None

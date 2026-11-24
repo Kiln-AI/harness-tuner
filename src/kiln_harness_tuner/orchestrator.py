@@ -412,6 +412,11 @@ class Ctx:
     allow_underpowered: bool = False
     noise_check_items: int = 0
     train_noise: list[Any] = field(default_factory=list)
+    # The `repeat` items of this run (`kiln_harness_tuner.repeats`):
+    #   `repeat_results`, each item whole, and `train_repeats`, their
+    #   train-only rows, for every later planner and analyst.
+    repeat_results: list[Any] = field(default_factory=list)
+    train_repeats: list[Any] = field(default_factory=list)
     train_split_sizes: dict[str, int] | None = None
     # The stored eval-run files read from disk for the queue's
     # fragility order (`measure.stored_rows_on_disk`), by path, so a file is
@@ -1026,6 +1031,7 @@ async def _dispatch_plan(
                 ],
                 train_detectability=detect_rows,
                 train_noise=list(ctx.train_noise),
+                train_repeats=list(ctx.train_repeats),
                 eval_building=ctx.eval_building,
                 dropped_eval_items=list(ctx.dropped_eval_lines),
                 detections=planner_detections(

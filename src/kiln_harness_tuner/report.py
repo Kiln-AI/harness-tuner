@@ -358,6 +358,54 @@ def render_detectability_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+REPEATS_APPENDIX_HEADING = "## Repeat measurements (code-computed)"
+
+
+def render_repeats_appendix(status: RunStatus) -> str:
+    """Every `repeat` item of the run: a run config measured again on train
+    items, against its own stored rows. Train rows only. Empty string when
+    the planner asked for none."""
+    if not status.repeats:
+        return ""
+    spent = sum(r.spend_usd for r in status.repeats)
+    lines = [
+        REPEATS_APPENDIX_HEADING,
+        "",
+        "Each row is one run config measured a second time on train items it"
+        " already had stored rows for, on a clone (`REPEAT …`), so that Kiln"
+        " drove and judged each item again. `changed` counts the items whose"
+        " outcome (pass/fail) or value (rating) differs between the stored"
+        " row and the repeat. It is evidence about noise: no comparison and"
+        " no promotion read these rows, and they change neither the noise"
+        f" check nor the stop rules. Spent ${spent:.2f} in all.",
+        "",
+        "| item | run config | clone | eval / score | items | changed"
+        " | worse / better | mean abs Δ | stored → repeat |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for result in status.repeats:
+        who = f"`{result.rc_id}`" + (" (baseline)" if result.is_baseline else "")
+        for r in result.rows:
+            mean = f"{r.mean_abs_change:.2f}" if r.mean_abs_change is not None else "—"
+            stored = "—" if r.stored_score is None else f"{r.stored_score:.2f}"
+            again = "—" if r.repeat_score is None else f"{r.repeat_score:.2f}"
+            lines.append(
+                f"| {r.item_id} | {who} | `{r.clone_rc_id}`"
+                f" | {r.eval_id}/{r.score_key} | {r.items}"
+                f" | {r.changed}/{r.items} ({_share(r.change_rate)})"
+                f" | {r.worsened} / {r.improved} | {mean} | {stored} → {again} |"
+            )
+    not_run = [r for r in status.repeats if r.skipped is not None]
+    if not_run:
+        lines += ["", "Did not run:", ""]
+        lines += [f"- {r.item_id} (`{r.rc_id}`): {r.skipped}" for r in not_run]
+    notes = [(r.item_id, n) for r in status.repeats if not r.skipped for n in r.notes]
+    if notes:
+        lines += ["", "Notes:", ""]
+        lines += [f"- {item_id}: {note}" for item_id, note in notes]
+    return "\n".join(lines) + "\n"
+
+
 MODEL_PREFLIGHT_APPENDIX_HEADING = "## Model preflight (code-computed)"
 
 
@@ -1105,6 +1153,9 @@ class ReportWriter:
         detect = render_detectability_appendix(status)
         if detect:
             markdown = markdown.rstrip("\n") + "\n\n" + detect
+        repeats = render_repeats_appendix(status)
+        if repeats:
+            markdown = markdown.rstrip("\n") + "\n\n" + repeats
         preflight = render_model_preflight_appendix(status)
         if preflight:
             markdown = markdown.rstrip("\n") + "\n\n" + preflight
