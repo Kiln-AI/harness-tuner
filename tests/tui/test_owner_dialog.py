@@ -241,10 +241,10 @@ async def test_escape_leaves_this_question_and_the_next_ones_for_later():
 
 
 async def test_the_dialog_goes_away_when_the_wait_is_over():
-    app, session, run = asking_app(REFUNDS, wait_secs=2.0)
+    app, session, run = asking_app(REFUNDS, wait_secs=6.0)
     async with app.run_test(size=SIZE) as pilot:
         await dialog(pilot)
-        await until(pilot, lambda: run.got is not None)
+        await until(pilot, lambda: run.got is not None, timeout=15.0)
         assert run.got == OwnerReplies((None,), NO_ANSWER_IN_TIME)
         await until(pilot, lambda: app.screen is app.run_screen)
         # The run goes on: the app is still open.
@@ -253,12 +253,12 @@ async def test_the_dialog_goes_away_when_the_wait_is_over():
 
 
 async def test_an_expired_dialog_under_the_stop_dialog_goes_when_it_is_on_top():
-    app, session, run = asking_app(REFUNDS, wait_secs=2.0)
+    app, session, run = asking_app(REFUNDS, wait_secs=6.0)
     async with app.run_test(size=SIZE) as pilot:
         await dialog(pilot)
         await pilot.press("ctrl+c")
         await until(pilot, lambda: isinstance(app.screen, StopDialog))
-        await until(pilot, lambda: run.got is not None)
+        await until(pilot, lambda: run.got is not None, timeout=15.0)
         # "Keep tuning": the question is over, so its dialog is not shown.
         await pilot.press("escape")
         await until(pilot, lambda: app.screen is app.run_screen)

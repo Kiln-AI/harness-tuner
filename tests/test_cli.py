@@ -989,7 +989,7 @@ def test_on_started_gets_the_run_loop_and_task_before_the_run(monkeypatch):
         # What the app does on a stop key: it records the signal itself.
         stopped_by.append(signal.SIGINT)
 
-    async def fake_run(args, *, display):
+    async def fake_run(args, *, display, ask_owner=None):
         seen["run"] = (asyncio.get_running_loop(), asyncio.current_task())
         seen["display"] = display
         seen["stopped_by"] = list(stopped_by)

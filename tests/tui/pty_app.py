@@ -57,7 +57,7 @@ def fake_prepare_start(args, _argv, *, report, terminal, **_kwargs):
     return args
 
 
-async def fake_run(args, *, display=None):
+async def fake_run(args, *, display=None, ask_owner=None):
     run_dir = WORK / "run"
     cli._RUN_PROGRESS.cli_checked = True
     cli._RUN_PROGRESS.run_dir = run_dir
