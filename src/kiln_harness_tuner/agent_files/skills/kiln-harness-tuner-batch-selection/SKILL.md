@@ -361,7 +361,9 @@ any idea),
 `hypothesis`, `experiment` overviews (verdicts since the last promotion —
 merge-eligible wins live here, and their `— PROMOTED` / `— REJECTED AT VAL`
 suffixes decide how a win may be reused: see Merge timing), project-scope
-`constraint` (incl. `OPEN:` records) and `lesson`.
+`constraint` (incl. `OPEN:` records) and `lesson`. Your input's
+`external_defects` lists the open defect records: see "Defects outside the
+harness" below before you choose target items.
 
 **Read the failing traces, not only the prompt.** Call
 `get_train_results` on the baseline for each eval you plan against. The
@@ -635,6 +637,45 @@ For each one:
 - A smell is evidence. The reference is a default, not a measured optimum,
   and the reviewer's confidence is not a measurement. An experiment
   decides.
+
+## Defects outside the harness
+
+A defect outside the harness is a tool that returns wrong data, stale data,
+or a quota. No change to the run config can fix it, so no experiment is
+spent on it. The owner fixes it, and the report tells the owner where.
+
+Your input's `external_defects` lists every open defect record of the task,
+from this run and from earlier runs. Each gives the `source`, the `kind`,
+what the traces show (`seen`), the train items that show it (`item_ids`),
+and the `blocked_item_ids`: the items that cannot pass while the defect is
+there. `issue_ids` names the issues whose failing items it explains.
+`harness` says what a harness change can still do, when the reporter named
+something.
+
+- Plan no fix arm whose aim is the defect itself.
+- Keep each blocked item out of `target_items`. Code removes one that you
+  name. Code drops an arm whose targets are all blocked.
+- On an issue that a record with blocked items names, plan a fix arm
+  only with `target_items` that no record blocks. They are your evidence
+  that a part of the issue is a harness problem. Code drops an arm on such an issue that names no
+  target item.
+- A blocked item stays in every measurement, so it can be among the
+  failing items of an arm's first block. When the blocked items are a
+  large part of an eval's failing items, an arm on that eval can stop
+  NOT LANDED for that reason alone. Weigh that before you plan the arm,
+  and say it in `predicted_effect`. A blocked item in `residual_misses` is
+  not a target for a different build.
+- `defect_guard_lines` lists what code did to earlier plans of this run. A
+  dropped item never ran: do not count it as an attempt.
+- Say in `rejected_summary` which issues wait for the owner's fix.
+
+When you find such a defect yourself in the failing traces, follow the
+playbook `references/playbooks/a-defect-outside-the-harness.md`
+of the `kiln-harness-tuner-knowledge` skill. It says how to tell the
+defect from a harness problem, and what a harness change can still do. Its
+last step is `record_external_defect` (`kiln-harness-tuner-gateway`). The
+record is the report to the owner: do not repeat it in `open_questions`.
+You cannot change or close a defect record. The owner resolves it.
 
 ## Step 2 — Weigh value and cost (reasoning, one short paragraph each)
 

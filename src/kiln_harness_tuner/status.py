@@ -26,11 +26,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from kiln_harness_tuner.memory_schema import RecordKind
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
     BaselineReview,
     BatchItem,
+    DefectGuardAction,
     DetectabilityReport,
     Detection,
     DroppedEvalItem,
@@ -473,6 +475,35 @@ class RunStatusTracker:
                 issue_memory_id=str(issue_memory_id),
             )
         )
+
+    def _on_defect_guard(self, **fields: object) -> None:
+        # What the defect guard did to a planned fix arm, for the report's
+        # "Fix elsewhere" section. An event that does not validate is left
+        # out.
+        try:
+            self._status.defect_guard_actions.append(
+                DefectGuardAction.model_validate(
+                    {
+                        name: fields[name]
+                        for name in DefectGuardAction.model_fields
+                        if name in fields
+                    }
+                )
+            )
+        except ValidationError:
+            return
+
+    def _on_memory_written(
+        self,
+        id: object = None,
+        record_kind: object = None,
+        overview: object = None,
+        **_: object,
+    ) -> None:
+        # The defect records that agents wrote in this run: the rows of the
+        # report's "Fix elsewhere" section when its memory read fails.
+        if record_kind == RecordKind.EXTERNAL_DEFECT.value and id:
+            self._status.recorded_defects[str(id)] = str(overview or "")
 
     def _on_detectability(
         self, report: DetectabilityReport | None = None, **_: object

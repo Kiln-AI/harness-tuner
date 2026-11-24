@@ -33,7 +33,10 @@ cost: medium
   no error is needed: [normalize inputs wrapper](normalize-inputs-wrapper.md).
 - **The error is a defect outside the harness**: a broken tool, stale
   data, a quota, a server that is down. A better message does not fix it.
-  Report it as a defect, and do not tune around it.
+  Report it as a defect, and do not tune around it. The playbook
+  [a defect outside the harness](../playbooks/a-defect-outside-the-harness.md)
+  says how to tell one, and when a wrapper still helps the agent's reply
+  to it.
 
 ## Alternatives
 

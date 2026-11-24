@@ -319,6 +319,8 @@ SETUP_LINE_EVENTS = frozenset(
         "eval_unloadable",
         # A planned eval build dropped because eval building is off.
         "eval_item_dropped",
+        # A fix arm that the defect guard changed or dropped.
+        "defect_guard",
         # Each design review of a baseline.
         "baseline_review",
     }

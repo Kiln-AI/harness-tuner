@@ -236,8 +236,8 @@ Every candidate goes through one measurement engine, in chunks.
 ### 4. Memory
 
 The loop keeps its state in Kiln memory records in the project: issues,
-experiments, screen results, dead ends, lessons, blockers, open questions and
-the baseline lineage. A new run's planner reads them, so it does not try a
+experiments, screen results, dead ends, lessons, blockers, open questions,
+defects outside the harness and the baseline lineage. A new run's planner reads them, so it does not try a
 known dead end again. A run does not resume in the middle. A restart repeats
 the setup steps and the opening screen.
 
@@ -257,7 +257,11 @@ Then a report agent writes the round report from the run's records. After a
 quota or auth error, or a crash after the first wave, code writes a shorter
 fallback report with no agent; an interrupt writes none. Code adds tables to
 each report, among them the smells of each baseline: the code detections and
-the review's findings. Code saves the report to
+the review's findings. When an agent found a defect that no change to the
+harness can fix (a tool that returns wrong data, stale data, a quota), code
+adds a "Fix elsewhere" section: the tool or the source, the train items
+that show the defect, and what was seen. Fix it outside the tuner, then
+mark its memory record as resolved, as the section says. Code saves the report to
 `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md` by default.
 The run prints the path when it ends. The state folder holds all
 of a run's files

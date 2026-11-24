@@ -172,6 +172,13 @@ the review did not read that detection.
 run has `--experimental-eval-building`. While it is `false`, the template
 and the skill tell the planner to give each fix arm an eval that exists,
 and to plan no item that builds an eval.
+`external_defects` lists each open defect record of the task: a defect
+outside the harness (a tool that returns wrong data, stale data, a quota),
+with the train items that show it and the items that it blocks. No
+experiment can fix one. `defect_guard_lines` lists what code did to earlier
+plans of this run because of them
+([architecture.md](architecture.md) section 3.2). The planner can record
+such a defect itself, with the gateway operation `record_external_defect`.
 
 Everything else it reads for itself: issues, dead ends, experiment verdicts and
 open constraints, plus the baseline run config's own artifact. The issues
@@ -307,6 +314,12 @@ and its own experiment memory id.
 It reads numbers. It never re-derives them, and no arithmetic happens in its
 context.
 
+When the traces show a defect outside the harness (the same tool failure on
+more than one item, or on the baseline and on the candidate), it records it
+with the gateway operation `record_external_defect`, after the checks of the
+playbook `a-defect-outside-the-harness`. Code reads the record back for the
+planner and for the report ([architecture.md](architecture.md) section 8).
+
 **Skill:** `kiln-harness-tuner-experiment-analysis` — reading delta / n / p / interval
 rows, the caution and power judgment, weighing measurement holes, reading a
 screen-out row correctly, merge attribution, and the frozen formats. The
@@ -383,6 +396,11 @@ label their numbers val-grade.
 Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
 ([architecture.md](architecture.md) section 11).
+
+Code also appends the `## Fix elsewhere: defects outside the harness`
+section when the task has an open defect record: each defect that the owner
+must fix outside the tuner, with the train items that show it and what was
+seen. The agent names each defect in one line and points at the section.
 
 **Skill:** `kiln-harness-tuner-report`. Where the knowledge helps it explain
 the run, the template names `references/report.md` of the knowledge skill.

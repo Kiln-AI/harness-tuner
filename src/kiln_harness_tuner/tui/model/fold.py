@@ -606,6 +606,13 @@ class RunModel:
         if text:
             self._say(s, "warn", text)
 
+    def _on_defect_guard(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        # A fix arm that code changed or dropped because of a defect
+        # outside the harness. Only this line: a dropped arm gets no card.
+        text = _text(f.get("line"))
+        if text:
+            self._say(s, "warn", text)
+
     def _on_baseline_found(self, s: Stamped, f: Mapping[str, Any]) -> None:
         rc = _text(f.get("rc_id"))
         if not rc:

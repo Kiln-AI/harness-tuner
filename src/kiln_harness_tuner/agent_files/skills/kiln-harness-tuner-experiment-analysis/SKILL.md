@@ -359,6 +359,20 @@ promotion pass together with the planner's `promotion_candidate` intent.
   instructions, or contradicts the expected outputs of the same kind of
   input. A finding that lumps the classes together sends a planner
   to fix the config for an eval's fault.
+  **An environment failure that recurs is a defect outside the harness.**
+  When a tool fails in the same way on more than one item, or on the
+  baseline and on the candidate, no change to the run config can fix it.
+  Follow the playbook
+  `references/playbooks/a-defect-outside-the-harness.md` of the
+  `kiln-harness-tuner-knowledge` skill: it says how to tell such a defect
+  from a harness problem. Then record it with `record_external_defect`
+  (`kiln-harness-tuner-gateway`), with the train items whose traces show
+  it. Name the record's id in `findings` and on the `next:` line. Before
+  you judge, list the open records (`memory_list`, task scope,
+  `tags=["external_defect"]`; skip an overview that starts with
+  `RESOLVED:`), then read their content with `memory_get`: the listing has
+  no `blocked items` line. An item that an open record blocks, and that
+  still fails, is not evidence against the arm: say so as a caution.
   **A judge may read the config.** A judge that scores the full trace sees
   the tool results, and a skill the model loaded is one of them. When the
   arm changed only skill or tool-description wording and a judge-scored row
@@ -383,7 +397,8 @@ promotion pass together with the planner's `promotion_candidate` intent.
 - Lifecycle writes are code's (your record is PATCHed from your return).
   Yours are **discovery writes only**: a new `issue` observed in traces
   (dedup at ingestion — list existing `issue` memories first), `lesson` /
-  `dead_end` at the moment of learning. All train-derived. Load the
+  `dead_end` at the moment of learning, and `record_external_defect` for a
+  defect outside the harness. All train-derived. Load the
   **`memory`** skill for conventions.
 - **If a discovery memory write fails, disclose it**: record the failure
   and the intended content in `findings` — the run record must carry the

@@ -13,8 +13,9 @@ formats (code PATCHes your experiment memory from them).
 Train-side only: never query `tags=val` (that record is every promotion's
 val metrics) and never read the `baseline`-tagged one either, never pass
 `split=val|test` to eval APIs, and never edit configs or evals. Discovery
-writes only (`lesson`/`dead_end`/new `issue`) — lifecycle writes are the
-orchestrator's.
+writes only (`lesson`/`dead_end`/new `issue`, and `record_external_defect`
+for a defect outside the harness: a broken tool, stale data, a quota) —
+lifecycle writes are the orchestrator's.
 
 Envelope note (overrides the generic output boilerplate below): a measured
 negative is a normal verdict — return `status: "ok"` with

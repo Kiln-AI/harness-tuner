@@ -425,6 +425,23 @@ class MemorySummary(Out):
     scopes: list[dict[str, Any]] = []
 
 
+class ExternalDefectRecorded(Out):
+    """The defect record after the write. `merged` is true when an open
+    record of the same source and kind was there: the report was added to
+    it, and `item_ids` and `blocked_item_ids` are the record's joined
+    lists."""
+
+    id: str | None = None
+    overview: str | None = None
+    merged: bool = False
+    item_ids: list[str] = []
+    blocked_item_ids: list[str] = []
+    eval_ids: list[str] = []
+    # Items of this report that the record could not keep: it holds at most
+    #   30 item ids, the blocked ones first.
+    not_kept: list[str] = []
+
+
 class CodeToolView(Out):
     id: str | None = None
     name: str | None = None
@@ -713,6 +730,70 @@ class MemoryUpdate(In):
     overview: str | None = Field(default=None, max_length=280)
     content: str | None = Field(default=None, max_length=4000)
     tags: list[str] | None = Field(default=None, max_length=20)
+
+
+# A train item id in a defect record. Kiln's ids are short; the bound keeps
+# the record's id lines inside the memory content cap.
+ItemId = Annotated[
+    str, Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_.:\-]+$")
+]
+
+
+class ExternalDefectReport(In):
+    """A defect outside the harness: no change to the prompt, the model,
+    the tools, the skills or the settings can fix it."""
+
+    source: str = Field(
+        min_length=1,
+        max_length=120,
+        description="The tool, by its name in the run config, or the data source.",
+    )
+    kind: Literal["broken_tool", "stale_data", "quota", "other"]
+    seen: str = Field(
+        min_length=20,
+        max_length=600,
+        description=(
+            "What the traces show: the call, what came back, and what a"
+            " correct answer needs."
+        ),
+    )
+    checked: str = Field(
+        min_length=20,
+        max_length=400,
+        description=(
+            "How you told it from a harness problem: the call was valid, and"
+            " the same call fails on another run config or another run."
+        ),
+    )
+    item_ids: list[ItemId] = Field(
+        min_length=1,
+        max_length=20,
+        description="The train items whose traces show the defect.",
+    )
+    # No default: the reporter decides it each time.
+    blocked_item_ids: list[ItemId] = Field(
+        max_length=20,
+        description=(
+            "The items of item_ids that no harness change can make pass while"
+            " the defect is there. Empty when a harness change can still make"
+            " each one pass."
+        ),
+    )
+    rc_ids: list[Annotated[str, Id]] = Field(
+        default=[],
+        max_length=5,
+        description="The run configs whose traces show it.",
+    )
+    issue_ids: list[Annotated[str, Id]] = Field(
+        default=[],
+        max_length=10,
+        description="The issue memory records whose failing items it explains.",
+    )
+    harness_can_still: str | None = Field(
+        default=None,
+        max_length=300,
+        description="What a harness change can still do, when there is one.",
+    )
 
 
 class RunConfigCreate(In):

@@ -41,6 +41,7 @@ means that the shape does not matter.
 <!-- BEGIN GENERATED: playbooks -->
 | Playbook | Kind | Applies to | Description |
 |---|---|---|---|
+| [a-defect-outside-the-harness](playbooks/a-defect-outside-the-harness.md) | failure | tools | A tool is broken, its data is stale, or a quota stops it. No harness change fixes that. Tell it from a harness problem, do what the harness still can, then record it for the owner. |
 | [answers-not-grounded](playbooks/answers-not-grounded.md) | failure | all | The answers need knowledge that is not in the agent's context - attach the source, then add scope discipline. A source behind a lookup tool can move into a skill. |
 | [change-the-surface-not-the-words](playbooks/change-the-surface-not-the-words.md) | failure | all | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed. |
 | [cheaper-or-faster](playbooks/cheaper-or-faster.md) | goal | all | The user wants the agent to cost less or answer sooner, with quality held - each step is marked cheaper, faster or both, because the two goals do not always agree. |

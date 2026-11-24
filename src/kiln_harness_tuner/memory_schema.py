@@ -71,6 +71,13 @@ Layout of a record, by kind:
                            round, round no, items, screened on evals,
                            verdict, reason, quality, measured, run, date,
                            baseline rc, result (the result as one JSON line)
+    defect       overview  [RESOLVED: ]FIX ELSEWHERE: <source> (<kind>): <seen>
+                 tags      external_defect
+                 content   `key: value` lines (`DefectRecord`): source, defect,
+                           seen, checked, items, blocked items, evals,
+                           run configs, issues, harness, recorded
+                           + `- <date> <role>, run <id>: <seen>` for each
+                             later report of the same defect
 """
 
 from __future__ import annotations
@@ -186,6 +193,9 @@ class RecordKind(StrEnum):
     BASELINE = "baseline"
     VAL = "val"
     LESSON = "lesson"
+    # A defect outside the harness (`DefectRecord`): a broken tool, stale
+    # data, a quota. Not an issue: no experiment can fix it.
+    EXTERNAL_DEFECT = "external_defect"
     OTHER = "other"
 
 
@@ -199,6 +209,7 @@ KIND_PRECEDENCE: tuple[RecordKind, ...] = (
     RecordKind.BASELINE,
     RecordKind.VAL,
     RecordKind.LESSON,
+    RecordKind.EXTERNAL_DEFECT,
 )
 
 
@@ -1505,4 +1516,251 @@ class BaselineView:
             content=record.content,
             rc_ids=tuple(rc_ids_from_tags(record.tags)),
             lineage=tuple(baseline_lineage(record.content)),
+        )
+
+
+# ---- defects outside the harness: `FIX ELSEWHERE: ` records ----
+#
+# A defect record names a defect that no change to the harness can fix: a
+# tool that returns wrong data, stale data, a quota. The gateway operation
+# `record_external_defect` is its one writer, so its format is code's. The
+# planner's input, the planner guard (`items.apply_defect_guard`) and the
+# report's section (`report.render_fix_elsewhere_appendix`) read it back.
+
+DEFECT_OVERVIEW_LEAD = "FIX ELSEWHERE: "
+# The owner puts this prefix on the overview after the fix (or deletes the
+# record). A resolved record blocks nothing and is not in the report.
+DEFECT_RESOLVED_PREFIX = "RESOLVED: "
+DEFECT_KINDS: dict[str, str] = {
+    "broken_tool": "broken tool",
+    "stale_data": "stale data",
+    "quota": "quota",
+    "other": "other",
+}
+DEFECT_SOURCE_MAX_CHARS = 120
+DEFECT_SEEN_MAX_CHARS = 600
+DEFECT_CHECKED_MAX_CHARS = 400
+DEFECT_HARNESS_MAX_CHARS = 300
+# The most ids a record keeps on one line. A later report adds its ids to
+# the record of the same defect, so these bound the union.
+DEFECT_MAX_ITEMS = 30
+DEFECT_MAX_IDS = 12
+# The later reports of one defect that a record keeps, newest last.
+DEFECT_MAX_NOTES = 3
+DEFECT_NOTE_MAX_CHARS = 200
+_DEFECT_NO_IDS = "none"
+
+
+def _id_line(ids: Iterable[str]) -> str:
+    return ", ".join(ids) or _DEFECT_NO_IDS
+
+
+def _ids_from_line(value: str | None) -> tuple[str, ...]:
+    if not value or value.strip().casefold() == _DEFECT_NO_IDS:
+        return ()
+    return tuple(dict.fromkeys(part for part in re.split(r"[,\s]+", value) if part))
+
+
+def _union(
+    first: Iterable[str], second: Iterable[str], limit: int | None
+) -> tuple[str, ...]:
+    return tuple(dict.fromkeys([*first, *second]))[:limit]
+
+
+def defect_key(source: str, kind: str) -> str:
+    """What makes two reports the same defect: the source, without case or
+    extra spaces, and the kind."""
+    return f"{one_line(source).casefold()}|{kind}"
+
+
+def defect_is_resolved(overview: str) -> bool:
+    """True when the owner marked the record resolved. Tolerant of case and
+    of the spaces around the prefix, because a person types it by hand."""
+    return overview.lstrip().upper().startswith(DEFECT_RESOLVED_PREFIX.strip())
+
+
+@dataclass(frozen=True)
+class DefectRecord:
+    """A defect outside the harness, as its memory record holds it.
+
+    `item_ids` are the train items on which the defect was seen: the
+    evidence. `blocked_item_ids` are the items among them that no harness
+    change can make pass while the defect is there. `seen` says what the
+    traces show. `checked` says how the reporter told the defect from a
+    problem of the harness. `harness` says what a harness change can still
+    do, and is empty when nothing was named."""
+
+    source: str  # the tool, by its name in the run config, or the data source
+    kind: str  # a key of DEFECT_KINDS
+    seen: str
+    checked: str
+    item_ids: tuple[str, ...]
+    blocked_item_ids: tuple[str, ...] = ()
+    eval_ids: tuple[str, ...] = ()
+    rc_ids: tuple[str, ...] = ()
+    issue_ids: tuple[str, ...] = ()
+    harness: str = ""
+    role: str = ""
+    run_id: str = ""
+    date: str = ""
+    notes: tuple[str, ...] = ()  # the later reports, as their `- ` lines
+
+    @property
+    def key(self) -> str:
+        return defect_key(self.source, self.kind)
+
+    def bounded(self) -> DefectRecord:
+        """The record with every text on one line and inside its bound, and
+        every id list inside its bound. `blocked_item_ids` keeps only ids
+        that are also in `item_ids`."""
+        every = tuple(dict.fromkeys(self.item_ids))
+        blocked = [i for i in dict.fromkeys(self.blocked_item_ids) if i in every]
+        # Over the bound, the blocked items are kept first: the guard reads
+        # them. The kept items stay in their first order.
+        keep = {
+            *blocked[:DEFECT_MAX_ITEMS],
+            *[i for i in every if i not in blocked][
+                : max(DEFECT_MAX_ITEMS - len(blocked), 0)
+            ],
+        }
+        items = tuple(i for i in every if i in keep)
+        return DefectRecord(
+            source=clamp(one_line(self.source), DEFECT_SOURCE_MAX_CHARS),
+            kind=self.kind if self.kind in DEFECT_KINDS else "other",
+            seen=clamp(one_line(self.seen), DEFECT_SEEN_MAX_CHARS),
+            checked=clamp(one_line(self.checked), DEFECT_CHECKED_MAX_CHARS),
+            item_ids=items,
+            blocked_item_ids=tuple(i for i in blocked if i in keep),
+            eval_ids=tuple(dict.fromkeys(self.eval_ids))[:DEFECT_MAX_IDS],
+            rc_ids=tuple(dict.fromkeys(self.rc_ids))[:DEFECT_MAX_IDS],
+            issue_ids=tuple(dict.fromkeys(self.issue_ids))[:DEFECT_MAX_IDS],
+            harness=clamp(one_line(self.harness), DEFECT_HARNESS_MAX_CHARS),
+            role=one_line(self.role),
+            run_id=one_line(self.run_id),
+            date=one_line(self.date),
+            notes=self.notes[-DEFECT_MAX_NOTES:],
+        )
+
+    def overview(self) -> str:
+        record = self.bounded()
+        lead = f"{DEFECT_OVERVIEW_LEAD}{record.source} ({DEFECT_KINDS[record.kind]}): "
+        return clamp(f"{lead}{record.seen}", OVERVIEW_MAX_CHARS)
+
+    def render(self) -> str:
+        """The record's content. With Kiln's ids its bounds keep it under
+        `CONTENT_MAX_CHARS`. With longer ids, the notes go first, oldest
+        first, and a last clamp keeps the write valid."""
+        record = self.bounded()
+        pairs = [
+            ("source", record.source),
+            ("defect", record.kind),
+            ("seen", record.seen),
+            ("checked", record.checked),
+            ("items", _id_line(record.item_ids)),
+            ("blocked items", _id_line(record.blocked_item_ids)),
+            ("evals", _id_line(record.eval_ids)),
+            ("run configs", _id_line(record.rc_ids)),
+            ("issues", _id_line(record.issue_ids)),
+        ]
+        if record.harness:
+            pairs.append(("harness", record.harness))
+        pairs.append(
+            (
+                "recorded",
+                f"{record.role or 'unknown'} · run {record.run_id or 'unknown'}"
+                f" · {record.date or 'unknown'}",
+            )
+        )
+        head = render_kv(pairs)
+        notes = list(record.notes)
+        while notes and len("\n".join([head, *notes])) > CONTENT_MAX_CHARS:
+            notes.pop(0)
+        return clamp("\n".join([head, *notes]), CONTENT_MAX_CHARS)
+
+    @classmethod
+    def parse(cls, content: str | None) -> DefectRecord | None:
+        """Lenient, as every parse here. None when there is no `source:`
+        line: the record is then not one that code wrote, and code reads
+        nothing from it."""
+        found: dict[str, str] = {}
+        for key, value in kv_lines(content):
+            found.setdefault(key.strip().casefold(), value)
+        if not found.get("source"):
+            return None
+        role, run_id, date = "", "", ""
+        parts = [part.strip() for part in found.get("recorded", "").split("·")]
+        if len(parts) == 3:
+            role, run_id, date = parts
+            run_id = run_id.removeprefix("run ").strip()
+        kind = found.get("defect", "other")
+        return cls(
+            source=found["source"],
+            kind=kind if kind in DEFECT_KINDS else "other",
+            seen=found.get("seen", ""),
+            checked=found.get("checked", ""),
+            item_ids=_ids_from_line(found.get("items")),
+            blocked_item_ids=_ids_from_line(found.get("blocked items")),
+            eval_ids=_ids_from_line(found.get("evals")),
+            rc_ids=_ids_from_line(found.get("run configs")),
+            issue_ids=_ids_from_line(found.get("issues")),
+            harness=found.get("harness", ""),
+            role=role,
+            run_id=run_id,
+            date=date,
+            notes=tuple(
+                line for line in (content or "").splitlines() if line.startswith("- ")
+            ),
+        )
+
+    def merged(self, later: DefectRecord) -> DefectRecord:
+        """This record with a later report of the same defect added. The
+        first report's `seen` and `checked` stay. The ids are joined, and
+        the later report's `seen` becomes one note line. A `harness` text is
+        taken from the later report only when this record has none."""
+        later = later.bounded()
+        note = clamp(
+            f"- {later.date or 'unknown'} {later.role or 'unknown'},"
+            f" run {later.run_id or 'unknown'}: {later.seen}",
+            DEFECT_NOTE_MAX_CHARS,
+        )
+        return DefectRecord(
+            source=self.source,
+            kind=self.kind,
+            seen=self.seen,
+            checked=self.checked,
+            # Not cut here: `bounded` cuts, and keeps the blocked items first.
+            item_ids=_union(self.item_ids, later.item_ids, None),
+            blocked_item_ids=_union(
+                self.blocked_item_ids, later.blocked_item_ids, None
+            ),
+            eval_ids=_union(self.eval_ids, later.eval_ids, DEFECT_MAX_IDS),
+            rc_ids=_union(self.rc_ids, later.rc_ids, DEFECT_MAX_IDS),
+            issue_ids=_union(self.issue_ids, later.issue_ids, DEFECT_MAX_IDS),
+            harness=self.harness or later.harness,
+            role=self.role,
+            run_id=self.run_id,
+            date=self.date,
+            notes=(*self.notes, note),
+        ).bounded()
+
+
+@dataclass(frozen=True)
+class DefectView:
+    """A task-scope `external_defect` record, as code reads it. `defect` is
+    None for a record that has the tag and not the content lines: code then
+    shows its overview and blocks nothing with it."""
+
+    id: str
+    overview: str
+    resolved: bool
+    defect: DefectRecord | None
+
+    @classmethod
+    def from_record(cls, record: MemoryRecord) -> DefectView:
+        _require_kind(record, RecordKind.EXTERNAL_DEFECT)
+        return cls(
+            id=record.id,
+            overview=record.overview,
+            resolved=defect_is_resolved(record.overview),
+            defect=DefectRecord.parse(record.content),
         )

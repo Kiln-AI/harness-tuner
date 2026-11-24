@@ -270,6 +270,40 @@ names a held-out split (`val`, `test`, `val_…`, `test_…`, `holdout…`, `hel
 `val` record is not listed or fetched, except by the promotion agent and
 the report writer. No agent can write a record with the `val` tag. The `memory` skill says what to write.
 
+**A defect outside the harness** (batch_plan, analyze_experiment_results).
+A tool that returns wrong data, stale data, or a quota is a defect that no
+change to the harness can fix. Record it with its own operation, not with
+`memory_create`:
+
+| Operation | Fields | Answer |
+|---|---|---|
+| `record_external_defect` | `source` (the tool, by its name in the run config, or the data source), `kind` (`broken_tool`, `stale_data`, `quota` or `other`), `seen` (20 to 600 characters: the call, what came back, what a correct answer needs), `checked` (20 to 400: how you told it from a harness problem), `item_ids` (1 to 20 train items whose traces show it), `blocked_item_ids` (the items of `item_ids` that no harness change can make pass; `[]` when a harness change can still make each one pass), `rc_ids?`, `issue_ids?` (the issues whose failing items it explains), `harness_can_still?` | the record: `id`, `overview`, `merged`, its `item_ids`, `blocked_item_ids` and `eval_ids`, and `not_kept` |
+
+```json
+{"source": "lookup_order", "kind": "broken_tool",
+ "seen": "lookup_order answers HTTP 500 for every order id that starts with 9. The expected answer needs the order status.",
+ "checked": "The arguments match the tool's schema. The same call fails on the baseline and on the candidate, and on two runs.",
+ "item_ids": ["424242000111", "424242000112"],
+ "blocked_item_ids": ["424242000111", "424242000112"],
+ "rc_ids": ["424242100003"], "issue_ids": ["424242300001"]}
+```
+
+- `item_ids` are train items only. Another id is refused.
+- An open record of the same `source` and `kind` is not written again:
+  your report is added to it, and `merged` is `true`. A record keeps at
+  most 30 item ids, the blocked ones first; `not_kept` names the items of
+  your report that it could not keep.
+- Code reads the record back. The planner gets every open record in
+  `external_defects`. Code removes the `blocked_item_ids` from the
+  `target_items` of each later fix arm. The report names each record for
+  the owner, with your `seen` text and the items.
+- No operation changes or closes a defect record: `memory_create` refuses
+  the tag `external_defect`, and `memory_update` refuses such a record. The
+  owner resolves it after the fix.
+- The playbook `references/playbooks/a-defect-outside-the-harness.md`
+  of the `kiln-harness-tuner-knowledge` skill says how to tell such a
+  defect from a harness problem. Follow it before you record one.
+
 ### Building a candidate
 
 | Operation | Fields | Answer |
@@ -325,10 +359,10 @@ shows the train items only. Read results with `get_train_results` after
 |---|---|
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
-| batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory |
-| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
+| batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory, `record_external_defect` |
+| create_experiment_rc | batch_plan's without `record_external_defect`, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
 | probe | reading the task, models and providers, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, the code-tool writes, the artifact reads, memory (no update) |
-| analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, the artifact reads, memory |
+| analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, the artifact reads, memory, `record_external_defect` |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |
 | eval_build | `get_task`, `list_run_configs`, reading the evals, `get_train_results`, memory, the eval-build operations, the code-tool writes |

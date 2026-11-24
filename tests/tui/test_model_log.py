@@ -276,3 +276,12 @@ def test_a_dropped_eval_build_is_a_warning_line():
     (last,) = run.model.log[-1:]
     assert last.glyph == "!"
     assert last.text.startswith("dropped w1-2: it builds a new eval for issue issue_2")
+
+
+def test_a_defect_guard_action_is_a_warning_line():
+    # A fix arm that code changed or dropped because of a defect outside
+    # the harness: the arm gets no card, only this line.
+    run = Run().standard_start()
+    run.emit("defect_guard", wave=1, item_id="w1-1", line="dropped w1-1: blocked")
+    (last,) = run.model.log[-1:]
+    assert (last.glyph, last.text) == ("!", "dropped w1-1: blocked")

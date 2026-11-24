@@ -768,7 +768,12 @@ LOG_GLYPHS: dict[str, tuple[str, Tone]] = {
 }
 START_DIVIDER = "start"
 UI_ERROR = "The display skipped an event it could not read; details in the run log"
-MEMORY_KINDS = {"lesson": "Lesson", "dead_end": "Dead end", "issue": "New issue"}
+MEMORY_KINDS = {
+    "lesson": "Lesson",
+    "dead_end": "Dead end",
+    "issue": "New issue",
+    "external_defect": "Defect outside the harness",
+}
 
 
 # ---- the labels the widgets draw around the views ----
