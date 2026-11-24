@@ -19,10 +19,14 @@ terminal.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Collection
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
+from kiln_harness_tuner import rag_lever
 from kiln_harness_tuner.analysis import (
     AnalysisError,
     MeasurementFailed,
@@ -37,7 +41,9 @@ from kiln_harness_tuner.analysis import (
 )
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
+from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
+from kiln_harness_tuner.levers import LeverVerdict
 from kiln_harness_tuner.measure import (
     Candidate,
     Measured,
@@ -802,6 +808,13 @@ async def _execute_plan_item(
     parent_rc_id = baseline.rc_id
     if isinstance(item.work, FixWork) and item.work.parent_rc_id:
         parent_rc_id = item.work.parent_rc_id
+    # The RAG lever (`kiln_harness_tuner.rag_lever`): an arm that names it
+    # must attach a RAG tool its parent does not, and no arm attaches a new
+    # RAG tool whose documents hold an eval item. Code reads the two run
+    # configs and the documents, before any review and any train spend.
+    rag = await _check_rag(ctx, item, exp_mem, parent_rc_id, rc.data.rc_id)
+    if isinstance(rag, ItemOutcome):
+        return rag
     # What the build added is checked for train-set memorisation
     # BEFORE any train budget is spent on it (`kiln_harness_tuner.generality`), and
     # its whole text for eval text (`kiln_harness_tuner.judge_copy`),
@@ -813,6 +826,11 @@ async def _execute_plan_item(
     if isinstance(reviewed, ItemOutcome):
         return reviewed
     rc_id = reviewed.rc_id
+    if rc_id != rc.data.rc_id:
+        # The one rebuild is a new run config: the same check on it.
+        rag = await _check_rag(ctx, item, exp_mem, parent_rc_id, rc_id)
+        if isinstance(rag, ItemOutcome):
+            return rag
 
     _set_state(ctx, item.id, "measuring")
     # One measurement path (`kiln_harness_tuner.measure`): the arm is
@@ -825,6 +843,25 @@ async def _execute_plan_item(
     stopped = await _stopped_arm(ctx, item, rc_id, exp_mem, measurement)
     if stopped is not None:
         return stopped
+    rag_line = None
+    if rag is not None:
+        # The arm attached a new RAG tool: is its search called? Read from
+        # the train rows the measurement just stored, at no cost.
+        applied = await _rag_applied(ctx, item, rc_id, rag)
+        if applied.status == "not_applied":
+            out = await _rag_dead_end(
+                ctx, item, exp_mem, applied.reason, rc_id=rc_id, status="not_applied"
+            )
+            out.measurement = measurement_summary(measurement)
+            return out
+        rag_line = f"rag: {rag.line}; {applied.reason}"
+        ctx.log.event(
+            "rag",
+            item_id=item.id,
+            rc_id=rc_id,
+            status=applied.status,
+            line=f"rag {rc_id}: {applied.reason}",
+        )
     try:
         bundle = await ctx.analyzer.run_experiment_analysis(
             item,
@@ -976,6 +1013,8 @@ async def _execute_plan_item(
 
     # The code-composed lines on the record the planner reads.
     lines = [f"measurement: {measurement.line}"]
+    if rag_line is not None:
+        lines.append(rag_line)
     if bundle.latency is not None or bundle.cost is not None:
         lines += [
             latency_line("latency", bundle.latency),
@@ -996,6 +1035,173 @@ async def _execute_plan_item(
     )
     done.measurement = measurement_summary(measurement)
     return done
+
+
+@dataclass(frozen=True)
+class RagChange:
+    """The RAG tools an arm attaches and its parent does not: one line for
+    the record, and the names the model calls the search tools by."""
+
+    line: str
+    tool_names: frozenset[str]
+
+
+def _names_rag_lever(item: ExperimentItem) -> bool:
+    return (
+        isinstance(item.work, FixWork)
+        and item.work.technique.strip().lower() == rag_lever.LEVER
+    )
+
+
+async def _rag_dead_end(
+    ctx: Ctx,
+    item: ExperimentItem,
+    exp_mem: str,
+    reason: str,
+    *,
+    status: str,
+    rc_id: str | None = None,
+) -> ItemOutcome:
+    """End an arm on the RAG lever's own rules: a dead end, with the reason
+    on the record, in the wave log and on the item."""
+    if status != "not_applied":
+        reason = f"rag: {reason}"
+    elif not reason.startswith("lever not applied: "):
+        reason = f"lever not applied: {reason}"
+    await _experiment_write(
+        ctx, item.id, "mark_dead_end", ctx.memory.mark_dead_end(exp_mem, reason[:200])
+    )
+    ctx.log.event(
+        "rag",
+        item_id=item.id,
+        rc_id=rc_id,
+        status=status,
+        line=f"rag {rc_id or item.id}: {reason}",
+    )
+    ctx.log.event("item_detail", item_id=item.id, detail=f"dead end: {reason}")
+    return _outcome(item, "dead_end", rc_id=rc_id, experiment_memory_id=exp_mem)
+
+
+async def _check_rag(
+    ctx: Ctx, item: ExperimentItem, exp_mem: str, parent_rc_id: str, rc_id: str
+) -> ItemOutcome | RagChange | None:
+    """The RAG lever's rules on a built run config, read by code from the
+    two run configs and from the documents on disk.
+
+    - The item names the lever (`technique: rag`) and the run config
+      attaches no RAG tool that its parent does not: a dead end, "lever not
+      applied".
+    - A new RAG tool is not a RAG config of the project: a dead end.
+    - A document that a new RAG tool searches holds the whole input of an
+      eval item (`rag_lever.scan_documents`): a dead end, before any train
+      spend. The reason names documents, never an item.
+    - Else, for an arm that attaches a new RAG tool: the change in one
+      line, with the document check's line. The caller checks the traces
+      after the measurement.
+    - No new RAG tool, and the item names another lever: None.
+
+    The check runs for every lever, so an arm that attaches an existing
+    RAG tool under `tool_config` is held to the same rule. Run configs that
+    cannot be read are logged, and the item goes on."""
+    from kiln_harness_tuner.probes import task_run_configs
+
+    try:
+        rows = {str(r.get("id")): r for r in await task_run_configs(ctx)}
+        parent = rows[parent_rc_id].get("run_config_properties")
+        child = rows[rc_id].get("run_config_properties")
+    except Exception as exc:
+        ctx.log.event("rag_check_unavailable", rc_id=rc_id, error=repr(exc)[:200])
+        return None
+    added = rag_lever.added_tools(parent, child)
+    if not added:
+        if not _names_rag_lever(item):
+            return None
+        return await _rag_dead_end(
+            ctx,
+            item,
+            exp_mem,
+            f"the item's technique is {rag_lever.LEVER}, but {rc_id} attaches no"
+            f" RAG tool that its parent ({parent_rc_id}) does not attach",
+            rc_id=rc_id,
+            status="not_applied",
+        )
+    project = f"/api/projects/{ctx.target.project_id}"
+    root = Path(ctx.target.project_path).expanduser().resolve()
+    lines: list[str] = []
+    names: set[str] = set()
+    for tool_id in added:
+        rag_id = rag_lever.rag_config_id(tool_id)
+        try:
+            config = await ctx.kiln.call("GET", f"{project}/rag_configs/{rag_id}")
+        except KilnError:
+            config = None
+        if not isinstance(config, dict):
+            return await _rag_dead_end(
+                ctx,
+                item,
+                exp_mem,
+                f"{tool_id} is not a RAG config of the project",
+                rc_id=rc_id,
+                status="refused",
+            )
+        extractor = config.get("extractor_config")
+        extractor_id = (
+            extractor.get("id") if isinstance(extractor, dict) else None
+        ) or config.get("extractor_config_id")
+        findings = await asyncio.to_thread(
+            rag_lever.check_documents,
+            root,
+            ctx.target.task_id,
+            str(extractor_id or ""),
+            config.get("tags"),
+        )
+        if findings.block is not None:
+            return await _rag_dead_end(
+                ctx,
+                item,
+                exp_mem,
+                f"{tool_id}: {findings.block}",
+                rc_id=rc_id,
+                status="blocked",
+            )
+        names.add(str(config.get("tool_name") or ""))
+        lines.append(f"{rag_lever.describe(config)}; {findings.line}")
+    line = "adds " + " | ".join(lines)
+    ctx.log.event(
+        "rag",
+        item_id=item.id,
+        rc_id=rc_id,
+        parent_rc_id=parent_rc_id,
+        status="changed",
+        tool_ids=list(added),
+        line=f"rag {rc_id}: {line}",
+    )
+    ctx.log.event("item_detail", item_id=item.id, detail=f"rag: {line}")
+    return RagChange(line=line, tool_names=frozenset(n for n in names if n))
+
+
+async def _rag_applied(
+    ctx: Ctx, item: ExperimentItem, rc_id: str, change: RagChange
+) -> LeverVerdict:
+    """Is the new search tool called? The trace of each stored train row of
+    the arm, over the evals the item targets (`rag_lever.applied_verdict`).
+    Rows that cannot be read leave the lever unverified."""
+    from kiln_harness_tuner.analysis import _runs_by_item
+    from kiln_harness_tuner.orchestrator import _active_evals
+
+    wanted = {t.eval_id for t in item.evaluation_target}
+    runs: dict[str, dict] = {}
+    try:
+        for eval_def, config_id in await _active_evals(ctx):
+            eval_id = str(eval_def["id"])
+            if wanted and eval_id not in wanted:
+                continue
+            rows = await ctx.analyzer.stored_results(eval_id, config_id, rc_id, "train")
+            for item_id, run in _runs_by_item(rows).items():
+                runs[f"{eval_id}:{item_id}"] = run
+    except Exception as exc:  # the verdict is then "unverified", never a stop
+        ctx.log.event("rag_check_unavailable", rc_id=rc_id, error=repr(exc)[:200])
+    return rag_lever.applied_verdict(runs, set(change.tool_names))
 
 
 async def _build_rc(

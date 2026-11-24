@@ -77,6 +77,10 @@ _TASK_RUN_PATH = re.compile(
 _CODE_TOOLS_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/code_tools$")
 _SKILLS_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/skills$")
 _CODE_TRUST_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/add_code_trust$")
+_RAG_CONFIG_PATH = re.compile(
+    r"^/api/projects/(?P<pid>[^/]+)/rag_configs/(?P<rid>[^/]+)$"
+)
+_RAG_CONFIGS_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/rag_configs$")
 _MEMORIES_BY_IDS_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/memories/by_ids$")
 _MEMORY_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/memories/(?P<mid>[^/]+)$")
 
@@ -323,6 +327,12 @@ class FakeKiln:
         self.drive_handler: Any = None
         self.task_runs: dict[str, dict[str, Any]] = {}
         self.job_drives: list[tuple[str, str, str]] = []
+        # RAG configs by id, served by `GET …/rag_configs` and
+        # `GET …/rag_configs/{id}` in the shape with sub-configs;
+        # `PATCH …/rag_configs/{id}` applies the body and records it in
+        # `rag_config_patches`. An unknown id answers 404.
+        self.rag_configs: dict[str, dict[str, Any]] = {}
+        self.rag_config_patches: list[tuple[str, dict[str, Any]]] = []
         self.code_tools: list[dict[str, Any]] = []
         self.skills: list[dict[str, Any]] = []
         self.code_trust_posts: int = 0
@@ -733,6 +743,16 @@ class FakeKiln:
                     raise KilnAPIError(method, url_path, 500, {"detail": "drive 500"})
                 return response
             return make_probe_run()
+        if _RAG_CONFIGS_PATH.match(url_path) and method.upper() == "GET":
+            return [dict(r) for r in self.rag_configs.values()]
+        if (m := _RAG_CONFIG_PATH.match(url_path)) and m["rid"] != "progress":
+            row = self.rag_configs.get(m["rid"])
+            if row is None:
+                raise KilnAPIError(method, url_path, 404, {"detail": "not found"})
+            if method.upper() == "PATCH":
+                self.rag_config_patches.append((m["rid"], dict(body or {})))
+                row.update(body or {})
+            return dict(row)
         if _CODE_TOOLS_PATH.match(url_path):
             if method.upper() == "POST":
                 row = {**(body or {}), "id": f"tool_{len(self.code_tools) + 1}"}

@@ -34,18 +34,25 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from kiln_harness_tuner import rag_lever
 from kiln_harness_tuner.gateway import model_info
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
 from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
-from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
+from kiln_harness_tuner.kiln import (
+    JOB_WAIT_MARGIN_SECS,
+    KilnAPIError,
+    KilnError,
+    KilnTransportError,
+)
+from kiln_harness_tuner.kiln_names import kiln_name
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.rag_lever import RAG_TOOL_PREFIX
 
 Call = Callable[..., Awaitable[Any]]
-RAG_TOOL_PREFIX = "kiln_tool::rag::"
 KILN_TASK_TOOL_PREFIX = "kiln_task::"
 # The prompts of a called task that the gateway renders: a saved prompt, a
 # run config's frozen prompt, a fine-tune's prompt, and the generators that
@@ -1043,6 +1050,128 @@ class Gateway:
             for r in rows
         ]
 
+    def _own_rag_configs(self) -> list[str]:
+        """The ids of the RAG configs this run created, from the registry
+        that every session of the run shares."""
+        self.s.load_created()
+        prefix = f"{rag_lever.RAG_CONFIG_KIND}:"
+        return [
+            key.removeprefix(prefix)
+            for key, (kind, _split, _e) in self.s.created.items()
+            if kind == rag_lever.RAG_CONFIG_KIND
+        ]
+
+    async def _rag_models(
+        self, path: str, role: str, in_use: dict[str, set[tuple[str, str]]]
+    ) -> list[m.RagModelOption]:
+        """The embedding or reranker models Kiln offers, each with the
+        model rule's answer for a new RAG config of this run."""
+        options: list[m.RagModelOption] = []
+        for entry in _rows(await self.call("GET", path)):
+            provider = str(entry.get("provider_id") or "")
+            for model in _rows(entry.get("models")):
+                refusal = rag_lever.model_refusal(
+                    self.s.policy, in_use, role, provider, str(model.get("id") or "")
+                )
+                options.append(
+                    m.project(
+                        m.RagModelOption,
+                        model,
+                        model_provider_name=provider,
+                        model_name=str(model.get("id") or ""),
+                        allowed=refusal is None,
+                        note=refusal,
+                    )
+                )
+        return options
+
+    async def list_rag_parts(self, req: m.NoArgs) -> m.RagParts:
+        """What a new RAG config can be made from: the project's extractor,
+        chunker, embedding, vector store and reranker configs, the embedding
+        and reranker models Kiln offers with the model rule's answer for
+        each, the library's tags, and the limits of `create_rag_config`."""
+        project = self.s.project
+        (
+            extractors,
+            chunkers,
+            embeddings,
+            stores,
+            rerankers,
+            rag_rows,
+        ) = await asyncio.gather(
+            *(
+                self.call("GET", f"{project}/{name}")
+                for name in (
+                    "extractor_configs",
+                    "chunker_configs",
+                    "embedding_configs",
+                    "vector_store_configs",
+                    "reranker_configs",
+                    "rag_configs",
+                )
+            )
+        )
+        own = self._own_rag_configs()
+        rag_rows = _rows(rag_rows)
+        in_use = rag_lever.in_use_pairs(rag_rows, own)
+        self.s.load_created()
+        root = self.s.project_path
+        tags = rag_lever.library_tags(root) if root is not None else {"": 0}
+
+        def options(rows: Any, part: str, kind: str | None) -> list[m.RagPartOption]:
+            out = []
+            for row in _rows(rows):
+                if row.get("is_archived") is True:
+                    continue
+                part_id = str(row.get("id") or "")
+                props = row.get("properties")
+                extracted = None
+                if part == "extractor" and root is not None:
+                    scope = rag_lever.read_scope(root, part_id, None)
+                    extracted = len(scope.documents) - len(scope.not_extracted)
+                out.append(
+                    m.project(
+                        m.RagPartOption,
+                        row,
+                        properties=props if isinstance(props, dict) else {},
+                        used_by=[
+                            str(r.get("id"))
+                            for r in rag_rows
+                            if str((r.get(f"{part}_config") or {}).get("id")) == part_id
+                        ],
+                        created_by_this_run=kind is not None
+                        and f"{kind}:{part_id}" in self.s.created,
+                        extracted_documents=extracted,
+                    )
+                )
+            return out
+
+        kinds = rag_lever.PART_KINDS
+        return m.RagParts(
+            documents=tags.get("", 0),
+            document_tags={t: n for t, n in sorted(tags.items()) if t},
+            extractors=options(extractors, "extractor", None),
+            chunkers=options(chunkers, "chunker", kinds["chunker"]),
+            embeddings=options(embeddings, "embedding", kinds["embedding"]),
+            vector_stores=options(stores, "vector_store", kinds["search"]),
+            rerankers=options(rerankers, "reranker", kinds["reranker"]),
+            embedding_models=await self._rag_models(
+                "/api/available_embedding_models", "embedding", in_use
+            ),
+            reranker_models=await self._rag_models(
+                "/api/available_reranker_models", "reranker", in_use
+            ),
+            created_this_run=len(own),
+            max_created_per_run=rag_lever.MAX_CREATED_PER_RUN,
+            index_max_bytes=rag_lever.INDEX_MAX_BYTES,
+            note=(
+                "create_rag_config takes an extractor config of this list and"
+                " never starts an extraction: it indexes only documents that"
+                " the extractor has extracted. A model with allowed=false is"
+                " refused."
+            ),
+        )
+
     # ------------------------------------------------------------ Kiln task tools
 
     async def get_kiln_task_tool(self, req: m.ById) -> m.KilnTaskToolView:
@@ -1115,7 +1244,34 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _rag_check(self, props: dict[str, Any]) -> None:
+        """The rules for the RAG tools a run config attaches: each is a RAG
+        config of this project that is not archived, and one that this run
+        created has a complete index. A search of a config with no index
+        returns nothing, so the arm would measure the parent."""
+        own = set(self._own_rag_configs()) if rag_lever.rag_tool_ids(props) else set()
+        for tool_id in rag_lever.rag_tool_ids(props):
+            rag_id = rag_lever.rag_config_id(tool_id)
+            try:
+                row = await self.call("GET", f"{self.s.project}/rag_configs/{rag_id}")
+            except KilnAPIError as exc:
+                if exc.status_code != 404:
+                    raise
+                row = None
+            if not isinstance(row, dict):
+                raise GatewayError(f"{tool_id} is not a RAG config of this project")
+            if row.get("is_archived") is True:
+                raise GatewayError(
+                    f"{tool_id} is archived: Kiln does not offer its search tool"
+                )
+            if rag_id in own and not (await self._rag_index_view(rag_id)).complete:
+                raise GatewayError(
+                    f"the index of {tool_id} is not complete; call"
+                    " index_rag_config with its id, then create the run config"
+                )
+
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
+        await self._rag_check(req.run_config_properties)
         self._policy_check(req.run_config_properties)
         row = await self.call(
             "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
@@ -1256,6 +1412,377 @@ class Gateway:
             body={"is_archived": req.archived},
         )
         return m.project(m.SkillView, row)
+
+    # ------------------------------------------------------------ RAG configs
+
+    async def _rag_index_view(
+        self, rag_id: str, stream: dict[str, Any] | None = None, note: str | None = None
+    ) -> m.RagIndexView:
+        """The index state Kiln computes for one RAG config, with the
+        errors of the index run that just ended (`stream`), when one did."""
+        response = await self.call(
+            "POST",
+            f"{self.s.project}/rag_configs/progress",
+            body={"rag_config_ids": [rag_id]},
+        )
+        progress = response.get(rag_id) if isinstance(response, dict) else None
+        progress = progress if isinstance(progress, dict) else {}
+        count = rag_lever._count
+        return m.RagIndexView(
+            rag_config_id=rag_id,
+            complete=rag_lever.index_complete(progress),
+            documents=count(progress, "total_document_count"),
+            documents_done=count(progress, "total_document_completed_count"),
+            chunks=count(progress, "total_chunk_count"),
+            chunks_indexed=count(progress, "total_chunk_completed_count"),
+            errors=rag_lever.progress_errors(stream or {}),
+            note=note,
+        )
+
+    async def _index_rag_config(self, rag_id: str) -> m.RagIndexView:
+        """Run Kiln's index of one RAG config and wait for it, at most
+        `INDEX_WAIT_TIMEOUT_SECS`. Kiln skips every step a document already
+        went through, so a second run goes on from the first."""
+        note = None
+        stream: dict[str, Any] = {}
+        try:
+            body = await self.call(
+                "GET",
+                f"{self.s.project}/rag_configs/{rag_id}/run",
+                timeout_secs=rag_lever.INDEX_WAIT_TIMEOUT_SECS,
+                retries=False,
+            )
+            stream = rag_lever.stream_progress(body)
+        except KilnTransportError:
+            note = (
+                "the index did not end in"
+                f" {rag_lever.INDEX_WAIT_TIMEOUT_SECS:.0f} seconds. Call"
+                " index_rag_config with this id to go on."
+            )
+        view = await self._rag_index_view(rag_id, stream, note)
+        if not view.complete and view.note is None:
+            view.note = (
+                "the index is not complete. Read `errors`, then call"
+                " index_rag_config with this id to run it again."
+            )
+        return view
+
+    def _own_rag_config(self, rag_id: str, what: str) -> str:
+        rag_id = rag_lever.rag_config_id(rag_id)
+        if rag_id not in self._own_rag_configs():
+            raise GatewayError(
+                f"RAG config {rag_id} was not created through this gateway in"
+                f" this run; {what} only a RAG config that create_rag_config made"
+            )
+        return rag_id
+
+    async def index_rag_config(self, req: m.ById) -> m.RagIndexView:
+        """Run the index of a RAG config this run created again, and give
+        its state. For a create whose index did not end or had errors."""
+        return await self._index_rag_config(
+            self._own_rag_config(req.id, "this operation indexes")
+        )
+
+    async def archive_rag_config(self, req: m.Archive) -> m.RagConfigView:
+        rag_id = self._own_rag_config(req.id, "this operation archives")
+        row = await self.call(
+            "PATCH",
+            f"{self.s.project}/rag_configs/{rag_id}",
+            body={"is_archived": req.archived},
+        )
+        return await self.get_rag_config(
+            m.ById(id=str((row or {}).get("id") or rag_id))
+        )
+
+    async def _rag_part_row(
+        self, listing: str, part_id: str, what: str
+    ) -> dict[str, Any]:
+        """One config of the project by id, from its list route."""
+        for row in _rows(await self.call("GET", f"{self.s.project}/{listing}")):
+            if str(row.get("id")) == part_id:
+                return row
+        raise GatewayError(f"no {what} config {part_id} in this project")
+
+    async def _rag_model_offered(
+        self, path: str, provider: str, model: str, what: str
+    ) -> None:
+        offered = [
+            f"{entry.get('provider_id')}/{row.get('id')}"
+            for entry in _rows(await self.call("GET", path))
+            for row in _rows(entry.get("models"))
+        ]
+        if f"{provider}/{model}" not in offered:
+            raise GatewayError(
+                f"Kiln offers no {what} model {provider}/{model}. It offers:"
+                f" {', '.join(sorted(offered)[:40]) or 'none'}"
+            )
+
+    async def create_rag_config(self, req: m.RagConfigCreate) -> m.RagConfigCreated:
+        """A new RAG config of the project, made from parts and indexed. A
+        new run config attaches it as `kiln_tool::rag::<id>`.
+
+        The extractor is a config of the project: the tuner creates none
+        and starts no extraction. Each other part is a config of the
+        project or a new one.
+
+        Every check runs before the first write (`kiln_harness_tuner.rag_lever`):
+        the run's limit on RAG configs, the model rule for the extractor,
+        embedding and reranker models, that every document to index has an
+        extraction, the index budget, and the document check. The new
+        records go in the run's registry the moment each exists, so a
+        create that fails half-way still names what it left."""
+        project = self.s.project
+        root = self.s.project_path
+        if root is None:
+            raise GatewayError(
+                "this gateway has no project path, so it cannot read the"
+                " documents that the RAG config would index"
+            )
+        own = self._own_rag_configs()
+        if len(own) >= rag_lever.MAX_CREATED_PER_RUN:
+            raise GatewayError(
+                f"this run already created {len(own)} RAG configs, the most one"
+                " run creates. Attach one of them, or archive none and plan"
+                " the next variant in a later run"
+            )
+        extractor = await self._rag_part_row(
+            "extractor_configs", req.extractor_config_id, "extractor"
+        )
+        if extractor.get("is_archived") is True:
+            raise GatewayError(
+                f"extractor config {req.extractor_config_id} is archived"
+            )
+        embedding: dict[str, Any] | None = None
+        if req.embedding_config_id is not None:
+            embedding = await self._rag_part_row(
+                "embedding_configs", req.embedding_config_id, "embedding"
+            )
+            embedding_pair = rag_lever._pair(embedding)
+        else:
+            assert req.new_embedding is not None
+            embedding_pair = (
+                req.new_embedding.model_provider_name,
+                req.new_embedding.model_name,
+            )
+            await self._rag_model_offered(
+                "/api/available_embedding_models", *embedding_pair, "embedding"
+            )
+        chunker: dict[str, Any] | None = None
+        semantic = False
+        chunker_embedding_pair = None
+        if req.chunker_config_id is not None:
+            chunker = await self._rag_part_row(
+                "chunker_configs", req.chunker_config_id, "chunker"
+            )
+            semantic = chunker.get("chunker_type") == "semantic"
+            inner = (chunker.get("properties") or {}).get("embedding_config_id")
+            if semantic and inner:
+                chunker_embedding_pair = rag_lever._pair(
+                    await self._rag_part_row(
+                        "embedding_configs", str(inner), "embedding"
+                    )
+                )
+        else:
+            assert req.new_chunker is not None
+            semantic = req.new_chunker.chunker_type == "semantic"
+        if req.vector_store_config_id is not None:
+            await self._rag_part_row(
+                "vector_store_configs", req.vector_store_config_id, "vector store"
+            )
+        reranker_pair = None
+        if req.reranker_config_id is not None:
+            reranker_pair = rag_lever._pair(
+                await self._rag_part_row(
+                    "reranker_configs", req.reranker_config_id, "reranker"
+                )
+            )
+        elif req.new_reranker is not None:
+            reranker_pair = (
+                req.new_reranker.model_provider_name,
+                req.new_reranker.model_name,
+            )
+            await self._rag_model_offered(
+                "/api/available_reranker_models", *reranker_pair, "reranker"
+            )
+        # The model rule: the documents and every query go to these models.
+        rag_rows = _rows(await self.call("GET", f"{project}/rag_configs"))
+        in_use = rag_lever.in_use_pairs(rag_rows, own)
+        for role, pair in (
+            ("extractor", rag_lever._pair(extractor)),
+            ("embedding", embedding_pair),
+            ("embedding", chunker_embedding_pair),
+            ("reranker", reranker_pair),
+        ):
+            if pair is None:
+                continue
+            refusal = rag_lever.model_refusal(self.s.policy, in_use, role, *pair)
+            if refusal is not None:
+                raise GatewayError(refusal)
+        # The documents: extracted, inside the index budget, and with no
+        # eval item among them.
+        scope = rag_lever.read_scope(root, req.extractor_config_id, req.tags)
+        if not scope.documents:
+            raise GatewayError(
+                "no document of the library carries "
+                + (f"one of the tags {req.tags}" if req.tags else "any tag or text")
+                + ": the RAG config would index nothing"
+            )
+        missing = scope.not_extracted
+        if missing:
+            raise GatewayError(
+                f"{len(missing)} of the {len(scope.documents)} document(s) to"
+                f" index have no extraction for extractor config"
+                f" {req.extractor_config_id} (document"
+                f" {', '.join(missing[: rag_lever.FINDING_IDS])}). The tuner"
+                " starts no extraction. Take an extractor config that has"
+                " extracted them (list_rag_parts), index fewer documents"
+                " (`tags`), or ask the owner to run the extraction in Kiln"
+            )
+        plan = rag_lever.index_plan(
+            scope,
+            chunker_id=req.chunker_config_id,
+            embedding_id=req.embedding_config_id,
+            semantic=semantic,
+        )
+        if (refusal := plan.refusal()) is not None:
+            raise GatewayError(refusal)
+        findings = rag_lever.scan_documents(
+            scope.documents, rag_lever.eval_item_texts(root, self.s.task_id)
+        )
+        if findings.block is not None:
+            raise GatewayError(findings.block)
+
+        # The writes.
+        run = self.s.run_dir.name if self.s.run_dir is not None else "a run"
+        why = (
+            f"Part of the RAG config {req.name}. Created by Kiln Harness Tuner ({run})."
+        )
+        made: dict[str, str] = {}
+
+        async def create(part: str, route: str, body: dict[str, Any]) -> str:
+            try:
+                row = await self.call("POST", f"{project}/{route}", body=body)
+            except KilnAPIError as exc:
+                left = f" It left: {made}." if made else ""
+                raise GatewayError(
+                    f"the new {part} config was refused: {exc.body!r}.{left}"[:1500]
+                ) from exc
+            part_id = str((row if isinstance(row, dict) else {}).get("id") or "")
+            if not part_id:
+                raise GatewayError(f"the new {part} config was not created")
+            self.s.record(
+                f"{rag_lever.PART_KINDS[part]}:{part_id}",
+                rag_lever.PART_KINDS[part],
+                "meta",
+            )
+            made[part] = part_id
+            return part_id
+
+        def named(part: str) -> dict[str, Any]:
+            return {"name": kiln_name(f"{req.name} {part}", 120), "description": why}
+
+        embedding_id = req.embedding_config_id
+        if req.new_embedding is not None:
+            body = named("embedding") | {
+                "model_provider_name": req.new_embedding.model_provider_name,
+                "model_name": req.new_embedding.model_name,
+                "properties": {"dimensions": req.new_embedding.dimensions}
+                if req.new_embedding.dimensions is not None
+                else {},
+            }
+            embedding_id = await create("embedding", "create_embedding_config", body)
+        chunker_id = req.chunker_config_id
+        if req.new_chunker is not None:
+            new = req.new_chunker
+            props: dict[str, Any] = {"chunker_type": new.chunker_type}
+            if new.chunker_type == "semantic":
+                props |= {
+                    "embedding_config_id": embedding_id,
+                    "buffer_size": new.buffer_size,
+                    "breakpoint_percentile_threshold": (
+                        new.breakpoint_percentile_threshold
+                    ),
+                }
+            else:
+                props |= {
+                    "chunk_size": new.chunk_size,
+                    "chunk_overlap": new.chunk_overlap,
+                }
+            body = named("chunker") | {
+                "chunker_type": new.chunker_type,
+                "properties": props,
+            }
+            chunker_id = await create("chunker", "create_chunker_config", body)
+        store_id = req.vector_store_config_id
+        if req.new_search is not None:
+            body = named("search") | {
+                "store_type": req.new_search.store_type,
+                "properties": {"similarity_top_k": req.new_search.similarity_top_k},
+            }
+            store_id = await create("search", "create_vector_store_config", body)
+        reranker_id = req.reranker_config_id
+        if req.new_reranker is not None:
+            body = named("reranker") | {
+                "top_n": req.new_reranker.top_n,
+                "model_provider_name": req.new_reranker.model_provider_name,
+                "model_name": req.new_reranker.model_name,
+                "properties": {"type": "cohere_compatible"},
+            }
+            reranker_id = await create("reranker", "create_reranker_config", body)
+        note = (
+            f"Search tool of task {self.s.task_id}. Created by Kiln Harness"
+            f" Tuner ({run})."
+        )
+        rag_body: dict[str, Any] = {
+            "name": req.name,
+            "description": f"{req.description.strip()}\n\n{note}"
+            if req.description and req.description.strip()
+            else note,
+            "tool_name": req.tool_name,
+            "tool_description": req.tool_description,
+            "extractor_config_id": req.extractor_config_id,
+            "chunker_config_id": chunker_id,
+            "embedding_config_id": embedding_id,
+            "vector_store_config_id": store_id,
+            "reranker_config_id": reranker_id,
+            "tags": req.tags,
+        }
+        if req.provenance is not None:
+            rag_body["provenance"] = req.provenance
+        try:
+            row = await self.call(
+                "POST", f"{project}/rag_configs/create_rag_config", body=rag_body
+            )
+        except KilnAPIError as exc:
+            left = f" Its new parts exist: {made}." if made else ""
+            raise GatewayError(
+                f"the RAG config was refused: {exc.body!r}.{left}"[:1500]
+            ) from exc
+        rag_id = str((row if isinstance(row, dict) else {}).get("id") or "")
+        if not rag_id:
+            raise GatewayError("the RAG config was not created (no id returned)")
+        self.s.record(
+            f"{rag_lever.RAG_CONFIG_KIND}:{rag_id}", rag_lever.RAG_CONFIG_KIND, "meta"
+        )
+        index = await self._index_rag_config(rag_id)
+        return m.RagConfigCreated(
+            tool_id=f"{RAG_TOOL_PREFIX}{rag_id}",
+            rag_config=await self.get_rag_config(m.ById(id=rag_id)),
+            created_parts=made,
+            index=index,
+            paid_documents=plan.paid_documents,
+            paid_bytes=plan.paid_bytes,
+            document_check=findings.line,
+            note=(
+                "Attach tool_id in tools_config.tools of a new run config."
+                " Test the search with rag_search first. A RAG config never"
+                " changes: another chunker, search type or reranker is a new"
+                " RAG config."
+                if index.complete
+                else "The index is not complete: create_run_config refuses"
+                " tool_id until index_rag_config says complete."
+            ),
+        )
 
     # ------------------------------------------------------------ eval build
 
@@ -1539,6 +2066,13 @@ OPS = _ops(
     ),
     ("list_documents", m.NoArgs, "The project's documents: names, kinds, tags."),
     (
+        "list_rag_parts",
+        m.NoArgs,
+        "What a new RAG config can be made from: the project's extractor,"
+        " chunker, embedding, search and reranker configs, the embedding and"
+        " reranker models with the model policy's answer, and the limits.",
+    ),
+    (
         "get_kiln_task_tool",
         m.ById,
         "The task a kiln_task:: tool calls, and its run config and prompt.",
@@ -1556,6 +2090,19 @@ OPS = _ops(
     ("test_code_tool", m.CodeToolTestRequest, "Dry-run code tool code."),
     ("trust_code_tools", m.NoArgs, "Trust the project's code tools to run."),
     ("archive_skill", m.Archive, "Archive a skill."),
+    (
+        "create_rag_config",
+        m.RagConfigCreate,
+        "A new RAG config from parts, indexed (model policy, index budget and"
+        " documents checked). Attach its kiln_tool::rag:: id on a new run"
+        " config.",
+    ),
+    (
+        "index_rag_config",
+        m.ById,
+        "Run the index of a RAG config this run created again; its state.",
+    ),
+    ("archive_rag_config", m.Archive, "Archive a RAG config this run created."),
     ("create_spec", m.SpecCreate, "A new spec."),
     ("create_eval", m.EvalCreate, "A new eval, splits assigned by the gateway."),
     (
@@ -1602,6 +2149,7 @@ _TOOL_READS = (
     "get_rag_config",
     "rag_search",
     "list_documents",
+    "list_rag_parts",
     "get_kiln_task_tool",
 )
 _ARTIFACTS = (
@@ -1645,6 +2193,9 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_CODE_TOOLS,
         "archive_code_tool",
         "archive_skill",
+        "create_rag_config",
+        "index_rag_config",
+        "archive_rag_config",
     ),
     "probe": (
         *_TASK,

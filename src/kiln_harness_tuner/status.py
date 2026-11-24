@@ -46,6 +46,7 @@ from kiln_harness_tuner.schemas import (
     ProbeItem,
     ProbeResult,
     PromotionDecision,
+    RagConfigRecord,
     RcChange,
     RemeasureItem,
     RunStatus,
@@ -517,6 +518,17 @@ class RunStatusTracker:
             except ValidationError:
                 continue
         self._status.detections_by_rc[rc] = kept
+
+    def _on_rag_configs(self, rag_configs: Sequence[object] = (), **_: object) -> None:
+        # The RAG configs the run created, for the report's RAG configs
+        # section. A record that does not validate is left out.
+        kept = []
+        for raw in rag_configs:
+            try:
+                kept.append(RagConfigRecord.model_validate(raw))
+            except ValidationError:
+                continue
+        self._status.rag_configs = kept
 
     def _on_baseline_review(self, review: object = None, **_: object) -> None:
         # Each review of a baseline, for the report's smells appendix. A

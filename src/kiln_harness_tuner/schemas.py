@@ -2138,6 +2138,21 @@ class WaveStatus(BaseModel):
     #   be noted in RunStatus/the report
 
 
+class RagConfigRecord(BaseModel):
+    """One RAG config this run created, as the run ends
+    (`rag_lever.close_rag_configs`). `summary`: its tool, search type,
+    chunker, embedding model, reranker and tags, in one line. `attached_by`:
+    the run configs of the task that attach its search tool."""
+
+    id: str
+    tool_id: str
+    name: str | None = None
+    tool_name: str | None = None
+    summary: str = ""
+    attached_by: list[str] = []
+    archived: bool = False
+
+
 class RunStatus(BaseModel):
     project_id: str
     task_id: str
@@ -2235,6 +2250,9 @@ class RunStatus(BaseModel):
     # Each review of a baseline by the baseline reviewer, in order
     #   (`baseline_review` events): done, skipped, failed or off.
     baseline_reviews: list[BaselineReview] = []
+    # The RAG configs this run created (`rag_configs` event, at the end of
+    #   the run) — the report's RAG configs section.
+    rag_configs: list[RagConfigRecord] = []
 
 
 class ReportInput(BaseModel):
