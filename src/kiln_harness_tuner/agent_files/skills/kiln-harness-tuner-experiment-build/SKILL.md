@@ -87,7 +87,9 @@ going looking.
    An **`input_transform` arm** changes only the template that renders
    the task input into the first user message. The knowledge lever
    `levers/input_transform.md` gives the template language, the steps and
-   the limits. Check the template with `validate_input_transform`, then
+   the limits. Check the template with `validate_input_transform`: it
+   must compile, render on every train input (`render_failure_count: 0`),
+   and its `sample` must be the message you intend. Then
    make one `POST` of a run config identical to the parent except
    `input_transform` (`{"type": "jinja", "template": "…"}`). List the
    fields that the template removes, cuts, renames or computes in

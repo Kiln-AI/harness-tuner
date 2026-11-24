@@ -735,6 +735,17 @@ class InputTransformValidate(In):
             "variable, `input`: the task input."
         ),
     )
+    item_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="The train item whose rendered text `sample` shows.",
+    )
+
+
+class RenderFailure(Out):
+    item_id: str
+    error: str
 
 
 class InputTransformValidation(Out):
@@ -747,6 +758,25 @@ class InputTransformValidation(Out):
         description=(
             "False on a multi-turn task: create_run_config refuses a new "
             "template there."
+        ),
+    )
+    train_items_rendered: int = Field(
+        default=0, description="How many train inputs the template was rendered on."
+    )
+    render_failure_count: int = Field(
+        default=0,
+        description=(
+            "How many of them the template fails on. create_run_config "
+            "refuses a template that fails on a train input."
+        ),
+    )
+    render_failures: list[RenderFailure] = []
+    sample_item_id: str | None = None
+    sample: str | None = Field(
+        default=None,
+        description=(
+            "The first user message the model would read for the train item "
+            "`sample_item_id`: the rendered template."
         ),
     )
     note: str | None = None

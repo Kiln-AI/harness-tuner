@@ -42,7 +42,10 @@ from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, tr
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
 from kiln_harness_tuner.input_transform import (
     MULTI_TURN_REFUSAL,
+    RENDER_FAILURES_SHOWN,
     TRANSFORM_KEY,
+    RenderReport,
+    render_on_inputs,
     transform_of,
     transform_problem,
 )
@@ -1132,18 +1135,53 @@ class Gateway:
         row = row if isinstance(row, dict) else {}
         return bool(row.get("valid")), _text(row.get("error"), 1000)
 
+    def _render_on_train(
+        self, template: str, sample_id: str | None = None
+    ) -> RenderReport:
+        """The template rendered on every train input on disk that one call
+        can drive (`input_transform.render_on_inputs`)."""
+        inputs = {
+            item_id: inp.structured if inp.structured is not None else inp.plaintext
+            for item_id, inp in self._inputs_on_disk().items()
+            if not inp.needs_eval_job
+        }
+        if sample_id is not None and sample_id not in inputs:
+            raise GatewayError(f"{sample_id} is not a train item this gateway can read")
+        return render_on_inputs(template, inputs, sample_id)
+
     async def validate_input_transform(
         self, req: m.InputTransformValidate
     ) -> m.InputTransformValidation:
-        """Does Kiln compile the template, and does the lever apply to this
-        task? No run config is made, and no model is called."""
-        valid, error = await self._template_check(req.template)
+        """Does Kiln compile the template, does the lever apply to this
+        task, and does the template render on every train input? No run
+        config is made, and no model is called."""
+        try:
+            valid, error = await self._template_check(req.template)
+        except KilnError as exc:
+            raise GatewayError(
+                f"Kiln could not check the template: {exc}. The Kiln server"
+                " needs the route POST /api/validate_input_transform_template."
+            ) from exc
         applies = not await self._driver().multi_turn()
+        notes = [] if applies else [f"{MULTI_TURN_REFUSAL}."]
+        report = RenderReport()
+        if valid and applies:
+            report = self._render_on_train(req.template, req.item_id)
+            if report.note:
+                notes.append(report.note)
         return m.InputTransformValidation(
             valid=valid,
             error=None if valid else error,
             applies=applies,
-            note=None if applies else f"{MULTI_TURN_REFUSAL}.",
+            train_items_rendered=report.checked,
+            render_failure_count=len(report.failures),
+            render_failures=[
+                m.RenderFailure(item_id=item_id, error=error)
+                for item_id, error in report.failures[:RENDER_FAILURES_SHOWN]
+            ],
+            sample_item_id=report.sample[0] if report.sample else None,
+            sample=report.sample[1] if report.sample else None,
+            note=" ".join(notes) or None,
         )
 
     async def _input_transform_check(self, props: dict[str, Any]) -> None:
@@ -1153,8 +1191,10 @@ class Gateway:
         shape (`input_transform.transform_problem`). A transform that a run
         config of the task already has is copied, and it passes: on every
         lever but this one, the build copies the parent's transform. A NEW
-        transform is refused on a multi-turn task, and Kiln's compile check
-        runs on its template first, so the refusal names the error."""
+        transform is refused on a multi-turn task. Kiln's compile check
+        runs on its template first, so the refusal names the error. Then
+        the template is rendered on every train input: one that fails on
+        an input is refused, because that item's run would fail."""
         transform = transform_of(props)
         if transform is None:
             return
@@ -1173,10 +1213,17 @@ class Gateway:
         try:
             valid, error = await self._template_check(transform["template"])
         except KilnError:
-            return  # Kiln compiles the template again when it saves it
+            valid, error = True, None  # Kiln compiles it again when it saves it
         if not valid:
             raise GatewayError(
                 f"{TRANSFORM_KEY}.template is not a valid Jinja2 template: {error}"
+            )
+        report = self._render_on_train(transform["template"])
+        if report.failures:
+            raise GatewayError(
+                f"{TRANSFORM_KEY}: {report.failure_line}. A field that an input"
+                " does not have is an error: guard it with `is defined` or"
+                " `| default(...)`."
             )
 
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
@@ -1617,7 +1664,8 @@ OPS = _ops(
         "validate_input_transform",
         m.InputTransformValidate,
         "Check an input transform's Jinja template before create_run_config:"
-        " does Kiln compile it, and does the lever apply to this task.",
+        " does Kiln compile it, does the lever apply to this task, and does it"
+        " render on every train input. Shows the rendered text of one item.",
     ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),

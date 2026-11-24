@@ -22,7 +22,11 @@ result is the first user message that the model reads. When it is null,
 the model reads the input as it is.
 
 Kiln stores the original input on the task run. The rendered text is in
-the trace, as the first user message.
+the trace, as the first user message. In a trace file of the gateway, the
+`Input` of the header is the original, and the first `user` block is what
+the model read. A judge or a code scorer that reads the task input reads
+the original. A judge that reads the full trace also sees the rendered
+message.
 
 The template reads one variable, `input`:
 
@@ -31,9 +35,10 @@ The template reads one variable, `input`:
 - any other plaintext input is the text.
 
 The template language is Jinja2 in a sandbox. It has the built-in Jinja
-filters and tests (`truncate`, `length`, `join`, `sum`, `sort`, `default`,
-`selectattr`, `tojson`) and one more filter, `fromjson`. It has no import,
-no file and no network.
+filters and tests (`truncate`, `length`, `join`, `sum`, `min`, `max`,
+`sort`, `default`, `selectattr`, `tojson`) and two more filters:
+`fromjson`, and `format_trace` for a conversation trace. It has no
+import, no file and no network.
 
 ## How the tuner changes it
 
@@ -45,12 +50,15 @@ no file and no network.
 3. Write the template. Start from the parent's template when it has one.
    Change only what the experiment's hypothesis names.
 4. Check it with `validate_input_transform`. The answer says if Kiln
-   compiles the template (`valid`, `error`) and if the lever applies to
-   this task (`applies`).
+   compiles the template (`valid`, `error`), if the lever applies to this
+   task (`applies`), and on which train inputs the template fails
+   (`render_failures`). `sample` is the first user message for one train
+   item, with no model call. Name an item with `item_id` to see its text.
 5. Create a new run config with `create_run_config`. Copy every property
-   of the parent, and set `input_transform`.
+   of the parent, and set `input_transform`. A template that fails on a
+   train input is refused.
 6. Drive two or three train items with `run_task`, and read the first
-   user message in each trace file. It is the rendered template.
+   `user` block in each trace file. It is the rendered template.
 
 Rules of the object:
 
@@ -64,6 +72,9 @@ Rules of the object:
   model must read JSON.
 - **Whitespace**: a line that holds only a block tag (`{% if %}`,
   `{% for %}`) leaves no empty line.
+- **`truncate` has a tolerance.** It leaves a text that is up to 5
+  characters over the limit whole. A slice (`input.text[:500]`) cuts at
+  the exact length.
 - On every other lever, copy the parent's `input_transform` as it is.
 
 ## Limits
@@ -81,6 +92,9 @@ Rules of the object:
   a label, and it cannot call a tool or a model.
 - **It changes what the model reads, not what the model returns.** The
   output schema and the output mode are other levers.
+- The render check reads train inputs only. An input of another split,
+  or of production, can lack a field that every train input has: guard
+  each field that the input schema does not require.
 - The language has no date parsing. Dates in one ISO form can be compared
   as text. A difference in days cannot be computed.
 - A template is at most 20,000 characters. Instructions belong in the

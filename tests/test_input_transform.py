@@ -154,6 +154,64 @@ class TestTheDrives:
         assert it.applied_verdict({}, {"i1": "x"}).status == "unverified"
 
 
+class TestTheRender:
+    """Kiln's own engine, from the installed library, on task inputs."""
+
+    def test_a_structured_and_a_json_text_input_render_the_same(self):
+        report = it.render_on_inputs(
+            KEEP_TWO,
+            {
+                "a": {"depot": "A", "question": "q1"},
+                "b": '{"depot": "A", "question": "q1"}',
+            },
+        )
+        assert (report.checked, report.failures) == (2, [])
+        assert report.sample == ("a", "Depot: A\nQuestion: q1")
+
+    def test_a_plain_text_input_is_the_text(self):
+        report = it.render_on_inputs(
+            "Post: {{ input | truncate(9, true, '…') }}", {"a": "0123456789" * 3}
+        )
+        assert report.sample == ("a", "Post: 01234567…")
+
+    def test_a_missing_field_is_a_failure_of_that_input(self):
+        report = it.render_on_inputs(
+            KEEP_TWO, {"a": {"depot": "A", "question": "q"}, "b": {"depot": "B"}}
+        )
+        ((item_id, error),) = report.failures
+        assert item_id == "b" and error.startswith("UndefinedError")
+        assert "1 of 2 train inputs, for example b" in report.failure_line
+
+    def test_a_computed_feature_renders(self):
+        template = (
+            "Open: {{ not input.closed and not input.archived }}\n"
+            "Rows: {{ input.rows | length }},"
+            " total {{ input.rows | sum(attribute='n') }}"
+        )
+        report = it.render_on_inputs(
+            template,
+            {"a": {"closed": False, "archived": False, "rows": [{"n": 2}, {"n": 3}]}},
+        )
+        assert report.sample == ("a", "Open: True\nRows: 2, total 5")
+
+    def test_no_input_and_no_engine_are_notes_not_failures(self, monkeypatch):
+        assert "no train input" in it.render_on_inputs(KEEP_TWO, {}).note
+
+        def unavailable(_template):
+            raise it.RenderUnavailable("no engine")
+
+        monkeypatch.setattr(it, "_renderer", unavailable)
+        report = it.render_on_inputs(KEEP_TWO, {"a": {"depot": "A"}})
+        assert (report.checked, report.failures) == (0, [])
+        assert report.note == "not rendered: no engine"
+
+    def test_a_template_the_library_does_not_compile_is_unavailable(self):
+        report = it.render_on_inputs(
+            "{{ input | a_filter_of_a_newer_kiln }}", {"a": "x"}
+        )
+        assert report.checked == 0 and report.note.startswith("not rendered:")
+
+
 class TestTheLeverVerdict:
     def test_a_drive_carries_its_first_user_message(self):
         run = {"trace": [{"role": "user", "content": "Depot: Halden"}]}
@@ -214,6 +272,22 @@ def _routes(*rows: dict, valid: bool = True, turn_mode: str = "single_turn") -> 
     }
 
 
+def _json_inputs(tmp_path, *, drop_question_on_tr2: bool = False) -> None:
+    """Make the two train inputs of the gateway's project JSON records."""
+    from test_quarantine import Project
+
+    project = Project(tmp_path / "proj")
+    second = (
+        {"depot": "B"} if drop_question_on_tr2 else {"depot": "B", "question": "q2"}
+    )
+    project.eval_input(
+        "tr1",
+        ["train_a"],
+        text=json.dumps({"depot": "A", "question": "q1", "audit": 7}),
+    )
+    project.eval_input("tr2", ["train_a", "train_b"], text=json.dumps(second))
+
+
 def _create(gateway, properties: dict):
     return _run(
         gateway, "create_run_config", name="n", run_config_properties=properties
@@ -221,17 +295,92 @@ def _create(gateway, properties: dict):
 
 
 class TestTheGateway:
-    def test_validate_answers_kilns_compile_check(self, tmp_path):
+    def test_validate_answers_kilns_compile_check_and_renders_train_inputs(
+        self, tmp_path
+    ):
         gateway, kiln = _gateway(tmp_path, _routes())
+        _json_inputs(tmp_path)
         out = _run(gateway, "validate_input_transform", template=KEEP_TWO)
-        assert out == {"valid": True, "error": None, "applies": True, "note": None}
+        assert out == {
+            "valid": True,
+            "error": None,
+            "applies": True,
+            "train_items_rendered": 2,
+            "render_failure_count": 0,
+            "render_failures": [],
+            "sample_item_id": "tr1",
+            "sample": "Depot: A\nQuestion: q1",
+            "note": None,
+        }
         assert ("POST", VALIDATE, None, {"template": KEEP_TWO}) in kiln.calls
+
+    def test_validate_shows_the_rendered_text_of_a_named_train_item(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, _routes())
+        _json_inputs(tmp_path)
+        out = _run(
+            gateway, "validate_input_transform", template=KEEP_TWO, item_id="tr2"
+        )
+        assert (out["sample_item_id"], out["sample"]) == (
+            "tr2",
+            "Depot: B\nQuestion: q2",
+        )
+        # Never a held-out item, and never an unknown one.
+        for item_id in ("va1", "nope"):
+            with pytest.raises(gw.GatewayError, match="not a train item"):
+                _run(
+                    gateway,
+                    "validate_input_transform",
+                    template=KEEP_TWO,
+                    item_id=item_id,
+                )
+
+    def test_validate_names_the_train_inputs_the_template_fails_on(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, _routes())
+        _json_inputs(tmp_path, drop_question_on_tr2=True)
+        out = _run(gateway, "validate_input_transform", template=KEEP_TWO)
+        assert out["valid"] is True  # Kiln compiles it: the fault is in the data
+        assert (out["train_items_rendered"], out["render_failure_count"]) == (2, 1)
+        (failure,) = out["render_failures"]
+        assert failure["item_id"] == "tr2"
+        assert "has no attribute 'question'" in failure["error"]
+        assert out["sample_item_id"] == "tr1"
+        guarded = KEEP_TWO.replace(
+            "{{ input.question }}", "{{ input.question | default('none') }}"
+        )
+        out = _run(gateway, "validate_input_transform", template=guarded)
+        assert out["render_failure_count"] == 0
+
+    def test_validate_on_a_server_with_no_compile_route_is_a_clear_refusal(
+        self, tmp_path
+    ):
+        def missing(_q, _body):
+            raise KilnAPIError("POST", VALIDATE, 404, {"detail": "Not Found"})
+
+        routes = _routes()
+        routes[("POST", VALIDATE)] = missing
+        gateway, _ = _gateway(tmp_path, routes)
+        with pytest.raises(gw.GatewayError, match="needs the route POST"):
+            _run(gateway, "validate_input_transform", template=KEEP_TWO)
+
+    def test_a_template_the_library_cannot_render_is_reported_not_refused(
+        self, tmp_path, monkeypatch
+    ):
+        def unavailable(_template):
+            raise it.RenderUnavailable("the installed kiln-ai library has no engine")
+
+        monkeypatch.setattr(it, "_renderer", unavailable)
+        gateway, _ = _gateway(tmp_path, _routes(_rc("rc_base")))
+        out = _run(gateway, "validate_input_transform", template=KEEP_TWO)
+        assert out["valid"] is True and out["train_items_rendered"] == 0
+        assert out["note"].startswith("not rendered: the installed kiln-ai library")
+        assert _create(gateway, props(KEEP_TWO))["id"] == "rc_new"
 
     def test_validate_gives_the_compile_error(self, tmp_path):
         gateway, _ = _gateway(tmp_path, _routes(valid=False))
         out = _run(gateway, "validate_input_transform", template="{{ input }")
         assert out["valid"] is False
         assert out["error"] == "unexpected '}' (line 1)"
+        assert out["train_items_rendered"] == 0 and out["sample"] is None
 
     def test_validate_says_the_lever_does_not_apply_to_a_multi_turn_task(
         self, tmp_path
@@ -240,6 +389,7 @@ class TestTheGateway:
         out = _run(gateway, "validate_input_transform", template=KEEP_TWO)
         assert out["valid"] is True and out["applies"] is False
         assert "single-turn tasks only" in out["note"]
+        assert out["train_items_rendered"] == 0
 
     def test_validate_refuses_an_empty_or_too_long_template(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, _routes())
@@ -257,8 +407,9 @@ class TestTheGateway:
             r for r, ops in gw.ROLE_OPS.items() if "create_run_config" in ops
         }
 
-    def test_a_new_template_is_compiled_then_created(self, tmp_path):
+    def test_a_new_template_is_compiled_rendered_then_created(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, _routes(_rc("rc_base")))
+        _json_inputs(tmp_path)
         out = _create(gateway, props(KEEP_TWO))
         assert out["run_config_properties"]["input_transform"] == jinja(KEEP_TWO)
         posts = [c[1] for c in kiln.calls if c[0] == "POST"]
@@ -268,6 +419,18 @@ class TestTheGateway:
         gateway, kiln = _gateway(tmp_path, _routes(_rc("rc_base"), valid=False))
         with pytest.raises(gw.GatewayError, match="not a valid Jinja2 template"):
             _create(gateway, props("{{ input }"))
+        assert ("POST", f"{GATEWAY_BASE}/run_configs") not in [
+            c[:2] for c in kiln.calls
+        ]
+
+    def test_a_template_that_fails_on_a_train_input_is_refused(self, tmp_path):
+        gateway, kiln = _gateway(tmp_path, _routes(_rc("rc_base")))
+        _json_inputs(tmp_path, drop_question_on_tr2=True)
+        with pytest.raises(gw.GatewayError) as refused:
+            _create(gateway, props(KEEP_TWO))
+        assert "fails to render on 1 of 2 train inputs, for example tr2" in str(
+            refused.value
+        )
         assert ("POST", f"{GATEWAY_BASE}/run_configs") not in [
             c[:2] for c in kiln.calls
         ]
@@ -318,6 +481,7 @@ class TestTheGateway:
         routes = _routes(_rc("rc_base"))
         routes[("POST", VALIDATE)] = missing
         gateway, _ = _gateway(tmp_path, routes)
+        _json_inputs(tmp_path)
         assert _create(gateway, props(KEEP_TWO))["id"] == "rc_new"
 
     def test_the_task_view_carries_the_turn_mode(self, tmp_path):

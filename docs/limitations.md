@@ -219,9 +219,12 @@ input into the first user message. On a multi-turn task the gateway
 refuses a new template and the loop ends an arm that changes one: the
 tuner has no evidence for a template that also renders each later user
 message. A screen and a code probe cannot change the template: only a
-build session can. Kiln's compile check finds a syntax error, not a field
-that an input lacks, so a template can still fail on some items: those
-items get no output. "Applied" means that the first user message differs
+build session can. The gateway renders a new template on every train
+input, with the engine of the installed `kiln-ai` library, and refuses one
+that fails. It reads train inputs only, so a field that only a val or test
+input lacks still fails that item, with no output. A library older than
+the template engine, or one that does not compile a template that the
+server compiled, renders nothing, and the answer says so. "Applied" means that the first user message differs
 from the parent's on at least one paired train item. It does not say that
 the template does what the hypothesis intends.
 

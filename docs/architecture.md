@@ -1980,8 +1980,11 @@ It is enforced at every place a run config comes into being or is used:
   (provider, model) pair must pass; a non-`kiln_agent` config is refused.
   `create_run_config` also holds the rules of the input transform: the
   value is null or a Jinja template that Kiln compiles, and a new template
-  is refused on a multi-turn task. `validate_input_transform` runs Kiln's
-  compile check with no run config made.
+  is refused on a multi-turn task. A new template is also rendered on
+  every train input, with the engine of the installed `kiln-ai` library,
+  and one that fails on an input is refused. `validate_input_transform`
+  runs Kiln's compile check and the same render with no run config made,
+  and returns the rendered text of one train item.
   The gateway reads the policy from `runs/<run_id>/model_policy.json`, a
   copy no agent can write; an unreadable copy refuses every model;
 - **the analyzer's `rc_guard`**, awaited before every eval job and every
