@@ -1973,6 +1973,11 @@ class RcBuildInput(BaseModel):
     #   tool it does not attach — each finding names the reference and
     #   where it is. Empty on a first build.
     reference_findings: list[str] = []
+    # `kiln_harness_tuner.growth`: the same one rebuild when the built run
+    #   config adds more harness text to its parent's than the growth limit
+    #   allows — the one finding gives the sizes, the limit and the places
+    #   that added the most. Empty on a first build.
+    growth_findings: list[str] = []
 
 
 class ProbeTrainInput(BaseModel):

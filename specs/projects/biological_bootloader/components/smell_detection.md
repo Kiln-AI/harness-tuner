@@ -252,9 +252,10 @@ ROLE_OPS["baseline_review"] = (
 - No `get_train_expected` and no `get_task_run` (its answer for a dataset
   item is the labelled output). An expected output serves only to judge
   whether an answer is right, and the reviewer must not judge that
-  (decided in the code review of phase 7). The trace folder's `_expected/`
-  files stay readable to the role; the skill tells the reviewer not to
-  open them.
+  (decided in the code review of phase 7). The dispatcher denies the role
+  the trace folder's `_expected/` files, for each agent CLI
+  (`dispatch.run_fence.denied_trace_reads`). The skill also tells the
+  reviewer not to open them.
 
 ### 4.4 The skill's procedure
 

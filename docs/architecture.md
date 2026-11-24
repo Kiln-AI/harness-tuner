@@ -357,6 +357,21 @@ The full path:
      fifth of the train items is boilerplate; a string the parent or the
      task's instructions already have is not added. A match is a leak, and
      the review does not run.
+   - **The trace-copy pre-check**, in code, free, with the exact-match
+     pre-check. Agents read the parent's train traces as files, so a build
+     can copy a passage from one. Every eight-word run of the lines the
+     build added is searched for in the trace files of the PARENT run
+     config in the run's trace folder (section 12), in three parts of each
+     trace: the judge's reason, the agent's output and reasoning, and the
+     user turns. Four kinds of run are not a copy: a run that the parent's
+     text or the task's instructions have; a run of a train input (the
+     exact-match pre-check has those); a run that a tool result of those
+     traces has (text from the environment, which a build may move into
+     the harness); and a run in the traces of more than a fifth of the
+     items read, or of every item read. A match is a leak — the finding
+     starts `trace copy:` — and the review does not run. The search reads
+     at most `TRACE_COPY_MAX_BYTES` (64 MiB) of trace files; a
+     `generality_traces_unread` event counts the files it left out.
    - **The review.** One `generality_review` session (no tools) reads what
      the build added to the prompt, to the skills and to the code tools (a
      diff against the version each new one replaces), beside the task's
@@ -394,6 +409,22 @@ The full path:
    with a line, and a `judge copy: …` detail line on the item. Code only,
    no spend. A check that cannot read its inputs is logged and does not
    stop the item.
+   **The growth limit**
+   ([`growth.py`](../src/kiln_harness_tuner/growth.py)) runs at the same
+   point, on every build, merges included. It counts the characters of the
+   WHOLE text of the built run config — its prompt and every file of its
+   skills and code tools — and subtracts the count of its parent. A build
+   that adds more than `GROWTH_LIMIT_CHARS` (200,000 characters) is over
+   the limit. The count is the net change, so a skill replaced by one of
+   the same size, or text moved from a skill into the prompt, adds nothing.
+   A build over the limit shares the one rebuild: `growth_findings` holds
+   one finding, with both sizes, the limit and the places that added the
+   most. A rebuild still over the limit ends the item `dead_end` before any
+   train spend. A reused run config is checked and never rebuilt. The
+   finding is a `growth:` line on the record, carried past the verdict, a
+   `growth` event with a line, and a `growth: over — …` detail line on the
+   item. Code only, no spend. When text of either run config cannot be
+   read, the check is logged as `unchecked` and does not stop the item.
    **The reference check**
    ([`reference_check.py`](../src/kiln_harness_tuner/reference_check.py)) runs at the
    same point, on every build, merges included. It looks for names that
@@ -1066,6 +1097,12 @@ reads a list: it takes the last `"type": "result"` event.
    nothing else is opened. Codex gives the same roles the folder as a
    `read` path of their permission profile, and OpenCode as a `read` and
    `external_directory` allow; their other roles cannot read it.
+
+   One part of the trace folder is denied to one of these roles. The
+   baseline reviewer must not read an expected output, and the
+   `_expected/` folder holds them. Each agent CLI denies that folder to the
+   roles in `NO_EXPECTED_ROLES` (`dispatch.run_fence.denied_trace_reads`;
+   section 18.5 has the rule of each CLI).
 
    What an agent needs from the project reaches it another way: train
    items for a probe arrive in its input (`ProbeInput.train_inputs`,
@@ -2189,10 +2226,23 @@ traces: up to `REVIEW_ITEMS_PER_EVAL` (4) items per active eval and
 `REVIEW_MAX_ITEMS` (20) in all, in the order of the train set. It names the
 smells it finds and says whether each detection holds. It reads train only,
 writes nothing, and does not diagnose a failed eval item. It has no
-`get_train_expected` and no `get_task_run`. Its trace-folder read rule also
-lets it read the `_expected/` files that the `get_train_expected` calls of
-other roles write there. Its skill forbids them; no settings rule denies
-them.
+`get_train_expected` and no `get_task_run`. The `get_train_expected` calls
+of other roles write `_expected/` files in the trace folder, which the
+reviewer reads. The dispatcher denies it that one folder, for each agent
+CLI (`dispatch.run_fence.denied_trace_reads`, for the roles in
+`gateway.ops.NO_EXPECTED_ROLES`):
+
+- Claude Code: a `Read(…/_expected/**)` deny rule in
+  `settings.baseline_review.json`, which beats the allow of the trace
+  folder for Read, Grep and Glob, and a sandbox `denyRead` of the folder
+  for Bash. The sandbox applies the narrower path, so the deny holds inside
+  the scratch tree that `allowRead` opens.
+- Codex: a `"deny"` entry for the folder in the permission profile. Codex
+  applies the entry of the deeper path.
+- OpenCode: a `deny` pattern for the folder in the `read` and
+  `external_directory` rules, after the allow of the trace folder.
+
+Its skill also tells it not to open them.
 
 Code checks each finding's smell id against the smell documents, merges
 two findings of one smell, keeps at most `REVIEW_MAX_FINDINGS` (15), and

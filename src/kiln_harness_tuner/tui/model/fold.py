@@ -87,6 +87,7 @@ CHECK_FINDINGS = {
     "judge_copy": "copied",
     "generality": "leaked",
     "reference_check": "found",
+    "growth": "over",
 }
 BASELINE_PROGRESS_PREFIX = "baseline measuring: "
 
@@ -979,6 +980,9 @@ class RunModel:
 
     def _on_reference_check(self, s: Stamped, f: Mapping[str, Any]) -> None:
         self._check("reference_check", f)
+
+    def _on_growth(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        self._check("growth", f)
 
     def _on_queue_drawn(self, s: Stamped, f: Mapping[str, Any]) -> None:
         item = self.item(f.get("item_id"))

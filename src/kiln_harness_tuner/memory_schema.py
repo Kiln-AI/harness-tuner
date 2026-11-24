@@ -1063,7 +1063,9 @@ PREDICTED_EFFECT_MAX_CHARS = 300
 HEAD_ID_MAX_CHARS = 120  # a run config, eval or memory id; a group name
 CONFLICT_FLAGS_MAX_CHARS = 600
 CHANGE_MAX_CHARS = 300  # the build's `change:` summary
-FINDING_MAX_CHARS = 400  # a `generality:`, `judge copy:` or `reference check:`
+FINDING_MAX_CHARS = (
+    400  # a `generality:`, `judge copy:`, `reference check:` or `growth:`
+)
 #   finding
 
 
@@ -1175,6 +1177,7 @@ CARRIED_KEYS = (
     "generality",
     "judge copy",
     "reference check",
+    "growth",
 )
 # Every `key: value` line of an experiment record that code reads
 # back (`ExperimentView`). The append clamp (`memory._fit_experiment_content`)
@@ -1264,6 +1267,9 @@ class ExperimentView:
     # Content `reference check:` — what the build names and does
     #   not attach (`kiln_harness_tuner.reference_check`), as for `generality`
     reference_check: str | None = None
+    # Content `growth:` — the growth limit's finding
+    #   (`kiln_harness_tuner.growth`), as for `generality`
+    growth: str | None = None
 
     @classmethod
     def from_record(cls, record: MemoryRecord) -> ExperimentView:
@@ -1312,6 +1318,7 @@ class ExperimentView:
             generality=first.get("generality"),
             judge_copy=first.get("judge copy"),
             reference_check=first.get("reference check"),
+            growth=first.get("growth"),
             ingredients=tuple(ingredients),
             rejection_noted=rejection_noted,
             held_noted=held_noted,

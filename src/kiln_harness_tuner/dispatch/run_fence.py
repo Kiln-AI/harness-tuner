@@ -13,6 +13,11 @@ that has none, in every settings file it passes. Only `scratch/` is ever
 left open. So an entry is denied from the first session that starts after
 it exists, whoever created it and whether or not it is listed. A session
 already running when the entry appears keeps the rules it started with.
+
+The trace folder is inside `scratch/`, so the rules above leave it open.
+`denied_trace_reads` names the part of it that one role must not read: the
+expected-output files, for the roles in `gateway.ops.NO_EXPECTED_ROLES`.
+Each dispatcher turns that folder into a deny in its own agent CLI's terms.
 """
 
 from __future__ import annotations
@@ -23,6 +28,9 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
+from kiln_harness_tuner.gateway.ops import NO_EXPECTED_ROLES
+from kiln_harness_tuner.gateway.trace_files import EXPECTED, traces_dir
+
 logger = logging.getLogger(__name__)
 
 SCRATCH = "scratch"
@@ -32,6 +40,18 @@ def read_rule(path: Path) -> str:
     """The `Read(...)` deny rule for one path (a tree for a directory)."""
     body = str(path).lstrip("/")
     return f"Read(//{body}/**)" if path.is_dir() else f"Read(//{body})"
+
+
+def denied_trace_reads(run_dir: Path, role: str) -> list[Path]:
+    """The folders inside the run's trace folder that `role` must not read:
+    the expected-output files (`_expected/`), for a role in
+    `NO_EXPECTED_ROLES`. Empty for every other role. The folder is created,
+    so that a deny rule names a path that exists when the session starts."""
+    if role not in NO_EXPECTED_ROLES:
+        return []
+    folder = traces_dir(run_dir.resolve()) / EXPECTED
+    folder.mkdir(parents=True, exist_ok=True)
+    return [folder]
 
 
 def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> list[str]:

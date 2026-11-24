@@ -36,6 +36,7 @@ from kiln_harness_tuner.analysis import (
     success_by_speed_rule,
 )
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
+from kiln_harness_tuner.growth import GrowthCheck, check_growth
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
 from kiln_harness_tuner.measure import (
@@ -806,7 +807,8 @@ async def _execute_plan_item(
     # BEFORE any train budget is spent on it (`kiln_harness_tuner.generality`), and
     # its whole text for eval text (`kiln_harness_tuner.judge_copy`),
     # and for names it does not attach
-    # (`kiln_harness_tuner.reference_check`).
+    # (`kiln_harness_tuner.reference_check`), and its size against its
+    # parent's (`kiln_harness_tuner.growth`).
     reviewed = await _review_build(
         ctx, item, baseline, exp_mem, parent_rc_id, rc.data, reused=bool(reused)
     )
@@ -1151,6 +1153,47 @@ async def _check_copies(
     return check
 
 
+async def _note_growth(ctx: Ctx, exp_mem: str, finding: str) -> None:
+    try:
+        await ctx.memory.record_growth(exp_mem, finding)
+    except Exception as exc:  # the finding is in the wave log either way
+        ctx.log.event(
+            "memory_write_failed",
+            write="growth",
+            what="the growth limit's finding",
+            exp_mem_id=exp_mem,
+            error=repr(exc),
+        )
+
+
+async def _check_growth(
+    ctx: Ctx, item: ExperimentItem, rc_id: str, parent_rc_id: str
+) -> GrowthCheck:
+    """One growth check, logged like the judge-copy check: a `growth` event
+    per check, and a `growth:` detail line on the item when the build is
+    over the limit or the check could not read something."""
+    check = await check_growth(ctx, rc_id, parent_rc_id)
+    told = check.status != "within"
+    ctx.log.event(
+        "growth",
+        item_id=item.id,
+        rc_id=rc_id,
+        status=check.status,
+        added_chars=check.added_chars,
+        findings=list(check.findings),
+        note=check.note,
+        line=f"growth {rc_id}: {check.status}"
+        + (f" — {check.summary}" if told else ""),
+    )
+    if told:
+        ctx.log.event(
+            "item_detail",
+            item_id=item.id,
+            detail=f"growth: {check.status} — {check.summary}",
+        )
+    return check
+
+
 async def _note_references(ctx: Ctx, exp_mem: str, finding: str) -> None:
     try:
         await ctx.memory.record_reference_check(exp_mem, finding)
@@ -1261,6 +1304,10 @@ async def _review_build(
     `refuse` it joins the one rebuild like the other two; under `off` the
     check does not run.
 
+    A fourth check (`kiln_harness_tuner.growth`) compares the size of the
+    build's harness text with its parent's. A build over the limit joins
+    the one rebuild like the first two.
+
     A `reused` run config (`existing_rc_id`) is checked too: a check cut by
     a stopped run can leave one unchecked. It is never rebuilt — reuse means
     "measure this exact run config", and a rebuild has none of the stored
@@ -1268,6 +1315,7 @@ async def _review_build(
     copies = await _check_copies(ctx, item, built.rc_id, baseline.rc_id)
     first = await _check(ctx, item, built.rc_id, parent_rc_id)
     refs = await _check_references(ctx, item, built.rc_id, parent_rc_id)
+    growth = await _check_growth(ctx, item, built.rc_id, parent_rc_id)
     refuse = ctx.reference_check == "refuse"
     if first.note and first.status != "leaked":
         await _note_generality(ctx, exp_mem, first.note)
@@ -1275,8 +1323,11 @@ async def _review_build(
         await _note_judge_copy(ctx, exp_mem, copies.note)
     if refs is not None and refs.note and refs.status != "found":
         await _note_references(ctx, exp_mem, refs.note)
+    if growth.note and growth.status != "over":
+        await _note_growth(ctx, exp_mem, growth.note)
     leaked_first = first.status == "leaked"
     copied_first = copies.status == "copied"
+    grew_first = growth.status == "over"
     refused_first = refuse and _found(refs)
     # Under `warn` the line waits for the outcome: a rebuild for another
     # check replaces the run config, and the one line must say what the
@@ -1292,7 +1343,7 @@ async def _review_build(
             dangling += f" ({refs.note})"
         if warned_first:
             dangling += "; a warning, not a refusal"
-    if not leaked_first and not copied_first and not refused_first:
+    if not (leaked_first or copied_first or refused_first or grew_first):
         if warned_first:
             await _note_references(ctx, exp_mem, dangling)
         return built
@@ -1302,12 +1353,15 @@ async def _review_build(
     copied = f"{which} {built.rc_id} copies eval text ({copies.summary})"
     if copies.note:
         copied += f" ({copies.note})"
+    grew = f"{which} {built.rc_id} is over the growth limit ({growth.summary})"
 
     async def note_first(suffix: str) -> None:
         if leaked_first:
             await _note_generality(ctx, exp_mem, f"{leaked}; {suffix}")
         if copied_first:
             await _note_judge_copy(ctx, exp_mem, f"{copied}; {suffix}")
+        if grew_first:
+            await _note_growth(ctx, exp_mem, f"{grew}; {suffix}")
         if refused_first or warned_first:
             await _note_references(ctx, exp_mem, f"{dangling}; {suffix}")
 
@@ -1321,6 +1375,10 @@ async def _review_build(
                     leaked_first,
                 ),
                 ("judge copy: the reused run config copies eval text", copied_first),
+                (
+                    "growth: the reused run config is over the growth limit",
+                    grew_first,
+                ),
                 (
                     "reference check: the reused run config names what it does"
                     " not attach",
@@ -1346,6 +1404,7 @@ async def _review_build(
             rejected_rc_id=built.rc_id,
             generality_findings=list(first.leaks) if leaked_first else [],
             judge_copy_findings=list(copies.findings) if copied_first else [],
+            growth_findings=list(growth.findings) if grew_first else [],
             reference_findings=list(refs.findings)
             if refs is not None and refused_first
             else [],
@@ -1361,6 +1420,8 @@ async def _review_build(
                 if leaked_first
                 else "judge copy"
                 if copied_first
+                else "growth"
+                if grew_first
                 else "reference check"
             )
             await _experiment_write(
@@ -1381,8 +1442,10 @@ async def _review_build(
     copies2 = await _check_copies(ctx, item, new_rc, baseline.rc_id)
     second = await _check(ctx, item, new_rc, parent_rc_id)
     refs2 = await _check_references(ctx, item, new_rc, parent_rc_id)
+    growth2 = await _check_growth(ctx, item, new_rc, parent_rc_id)
     leaked_again = second.status == "leaked"
     copied_again = copies2.status == "copied"
+    grew_again = growth2.status == "over"
     refused_again = refuse and _found(refs2)
     # The record: what each check found on the first build, and what it
     # found on the rebuild.
@@ -1428,6 +1491,27 @@ async def _review_build(
         )
     elif copies2.note:
         await _note_judge_copy(ctx, exp_mem, copies2.note)
+    if grew_first and grew_again:
+        await _note_growth(
+            ctx,
+            exp_mem,
+            f"{grew}; the rebuild {new_rc} is still over the limit ({growth2.summary})",
+        )
+    elif grew_first:
+        await _note_growth(
+            ctx,
+            exp_mem,
+            f"{grew}; rebuilt once as {new_rc} — "
+            + (growth2.note if growth2.status == "unchecked" else "within the limit"),
+        )
+    elif grew_again:
+        await _note_growth(
+            ctx,
+            exp_mem,
+            f"the rebuild {new_rc} is over the growth limit ({growth2.summary})",
+        )
+    elif growth2.note:
+        await _note_growth(ctx, exp_mem, growth2.note)
     if refs2 is not None:
         dangling2 = f"the rebuild {new_rc} names what it does not attach"
         if (refused_first and refused_again) or (warned_first and _found(refs2)):
@@ -1467,6 +1551,12 @@ async def _review_build(
             "judge copy: still copies eval text after one rebuild"
             if copied_first
             else "judge copy: the rebuild copies eval text"
+        )
+    if grew_again:
+        reasons.append(
+            "growth: still over the growth limit after one rebuild"
+            if grew_first
+            else "growth: the rebuild is over the growth limit"
         )
     if refused_again:
         reasons.append(

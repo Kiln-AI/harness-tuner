@@ -191,7 +191,11 @@ measurement, code checked what your earlier build added to the parent's
 prompt, to the text of its attached skills and to its code tools. It found
 text that memorises the train set or games the measurement — each finding
 quotes it. A finding that starts `exact match:` is a train string code found
-copied verbatim; the others are a reviewer's reading.
+copied verbatim. A finding that starts `trace copy:` is a run of eight or
+more words that code found in a train trace of the parent: in the judge's
+reason, in the agent's output or in a user turn. The others are a
+reviewer's reading. For a `trace copy:` finding, state the rule behind the
+passage in your own words. Do not quote a trace.
 Build a NEW run config for the same item, from the same parent, with the
 same mechanism and without that text: replace a named entity, id, value or
 expected answer with the general rule or method behind it, and drop a
@@ -231,6 +235,24 @@ a copy that gets past this point.
 Write every rule in your own words on a first build too: never paste a judge
 prompt, a spec or an eval description into the prompt, a skill or a code
 tool, and never name an eval.
+
+## A rebuild after a growth refusal
+
+`rejected_rc_id` and `growth_findings` are set (with or without the findings
+of the other checks). Right after your earlier build, code counted the
+characters of its WHOLE text — the prompt, every file of the attached skills
+and code tools — and those of its parent. Your build added more than the
+limit for one change. The finding gives both sizes, the limit, and the
+places that added the most.
+
+Build a NEW run config for the same item, from the same parent, with the
+same mechanism and with less text: keep the rule or the method, and remove
+the data, the long lists and the repeated text. If the item needs a large
+body of reference material, say so in `build_notes`. Do not reuse
+`rejected_rc_id` and do not edit it. This is your only rebuild: if the new
+build is still over the limit, the experiment ends before it is measured.
+If the item cannot work with less text, that is the answer — return
+`failed_expected` and say so.
 
 ## A rebuild after a dangling reference
 

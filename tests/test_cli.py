@@ -1363,6 +1363,41 @@ class TestRenderRunConfigs:
                 read_rule not in json.loads(shared.read_text())["permissions"]["allow"]
             )
 
+    def test_the_design_reviewer_may_not_read_expected_outputs(self, tmp_path):
+        """The expected-output files are in the trace folder, which the
+        design reviewer reads. Its settings deny that one folder in both
+        layers: a `Read` deny rule (it beats the trace folder's allow) and
+        a sandbox `denyRead` (the narrower path applies inside the scratch
+        tree that `allowRead` opens). No other role gets the deny."""
+        from kiln_harness_tuner.gateway.ops import (
+            NO_EXPECTED_ROLES,
+            ROLE_OPS,
+            TRACE_READER_ROLES,
+        )
+
+        assert NO_EXPECTED_ROLES == {"baseline_review"}
+        # A role that is denied the files holds no operation that gives it
+        # an expected output, or a path to one.
+        for role in NO_EXPECTED_ROLES:
+            assert role in TRACE_READER_ROLES
+            assert not {"get_train_expected", "get_task_run"} & set(ROLE_OPS[role])
+        (_, _), run_dir = self.make(tmp_path)
+        expected = (run_dir / "scratch" / "traces" / "_expected").resolve()
+        assert expected.is_dir()
+        rule = f"Read(//{str(expected).lstrip('/')}/**)"
+        for role in ROLE_OPS:
+            settings = json.loads((run_dir / f"settings.{role}.json").read_text())
+            filesystem = settings["sandbox"]["filesystem"]
+            denied = role in NO_EXPECTED_ROLES
+            assert (rule in settings["permissions"]["deny"]) == denied, role
+            assert (str(expected) in filesystem["denyRead"]) == denied, role
+            # The scratch tree stays the one re-opened tree: the deny is the
+            # narrower path inside it.
+            assert str((run_dir / "scratch").resolve()) in filesystem["allowRead"]
+        for shared in ("settings.json", "settings.readonly.json"):
+            settings = json.loads((run_dir / shared).read_text())
+            assert rule not in settings["permissions"]["deny"], shared
+
     def test_settings_scope_writes_to_scratch(self, tmp_path):
         (_, settings_path), run_dir = self.make(tmp_path)
         settings = json.loads(settings_path.read_text())
