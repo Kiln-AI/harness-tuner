@@ -80,7 +80,7 @@ from kiln_harness_tuner.items import (
     execute_plan_item,
 )
 from kiln_harness_tuner.judge_copy import read_eval_texts
-from kiln_harness_tuner.kiln import KilnError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 from kiln_harness_tuner.latency import (
     PairedPass,
     arm_line,
@@ -164,6 +164,7 @@ from kiln_harness_tuner.schemas import (
     PromotionInput,
     RegressedIssue,
     ScreenResult,
+    SubAgentRecord,
     TargetBlock,
     TrainDetectability,
     lane_for_source,
@@ -178,6 +179,12 @@ from kiln_harness_tuner.smells import ensure_baseline_reviewed, planner_detectio
 from kiln_harness_tuner.snapshots import snapshot_memory
 from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
+from kiln_harness_tuner.sub_agents import (
+    KILN_TASK_TOOL_PREFIX,
+    created_sub_agents,
+    read_sub_agent,
+    sub_agent_tool_ids,
+)
 from kiln_harness_tuner.viability import (
     drop_settled_rescreens,
     initial_screen_request,
@@ -387,6 +394,13 @@ class Ctx:
     # on first use by `driver_for` and kept for the run.
     eval_job_driver: Any = None
     _rc_pairs: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
+    # The sub-agents of each run config (`kiln_harness_tuner.sub_agents`):
+    # rc id -> its `kiln_task::` tool ids, and tool id -> the (provider,
+    # model) of the run config the tool pins.
+    _rc_sub_agent_tools: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    _sub_agent_pairs: dict[str, tuple[str | None, str | None]] = field(
+        default_factory=dict
+    )
     # The detectability and noise checks (`kiln_harness_tuner.detectability`,
     # `kiln_harness_tuner.noise`).
     #   `detectability_check`: run the free pre-run check after the baseline's
@@ -554,6 +568,7 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         # no report — the operator asked us to stop NOW.
         ctx.log.event("exit", reason="interrupted")
         raise
+    await close_sub_agents(ctx)
     if ctx.write_report is not None:  # report seam (report.py)
         return await ctx.write_report(ctx, exit_reason)
     return exit_reason
@@ -3010,10 +3025,86 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
             moved.append(rc_id)
     if moved:
         ctx._rc_pairs.clear()
+        ctx._rc_sub_agent_tools.clear()
         line = f"archived {len(moved)} probe run config(s) out of the project"
         ctx.log.event("probe_rcs_archived", rc_ids=moved, line=line)
         logger.info("%s", line)
     return len(moved)
+
+
+async def close_sub_agents(ctx: Ctx) -> int:
+    """The run-end step for the sub-agents this run created (the gateway's
+    registry names them): say which run configs of the subject task attach
+    each one, and archive the tool of each one that NO run config attaches.
+    Such a tool is debris of a build: nothing can call it. A tool that a run
+    config attaches is never archived, promoted or not, so every run config
+    this run measured still runs. No task is deleted. One `sub_agents` event
+    carries the records, for the report. Best-effort: a failure is logged,
+    never fatal. Returns how many tools it archived."""
+    if ctx.run_dir is None:
+        return 0
+    created = created_sub_agents(ctx.run_dir)
+    if not created:
+        return 0
+    project = f"/api/projects/{ctx.target.project_id}"
+    try:
+        rows = await task_run_configs(ctx)
+    except KilnError as exc:
+        ctx.log.event("sub_agents_unread", error=repr(exc)[:200])
+        rows = None
+    attached: dict[str, list[str]] = {}
+    for row in rows or []:
+        for tool_id in sub_agent_tool_ids(row.get("run_config_properties")):
+            attached.setdefault(tool_id, []).append(str(row.get("id")))
+    records: list[SubAgentRecord] = []
+    archived = 0
+    for made in created:
+        record = SubAgentRecord(
+            task_id=made.task_id,
+            tool_id=made.tool_id,
+            run_config_id=made.run_config_id,
+            attached_by=attached.get(made.tool_id or "", []),
+        )
+        records.append(record)
+        if made.tool_id is None:
+            continue
+        try:
+            sub = await read_sub_agent(
+                ctx.kiln.call, ctx.target.project_id, made.tool_id
+            )
+        except KilnError:
+            sub = None
+        if sub is not None:
+            record.tool_name = sub.tool_name or None
+            record.model_provider_name, record.model_name = sub.pair
+            record.archived = sub.archived
+        # `rows is None`: the run configs could not be listed, so nothing
+        # is known to be unattached, and nothing is archived.
+        if rows is None or record.attached_by or record.archived:
+            continue
+        try:
+            await ctx.kiln.call(
+                "POST",
+                f"{project}/tool_servers/{made.tool_id.removeprefix(KILN_TASK_TOOL_PREFIX)}"
+                "/archive",
+                body={"is_archived": True},
+            )
+        except KilnError as exc:
+            logger.warning("could not archive sub-agent tool %s: %s", made.tool_id, exc)
+            continue
+        record.archived = True
+        archived += 1
+    line = f"sub-agents: this run created {len(records)}" + (
+        f"; archived {archived} tool(s) that no run config attaches" if archived else ""
+    )
+    ctx.log.event(
+        "sub_agents",
+        sub_agents=[r.model_dump(mode="json") for r in records],
+        archived=archived,
+        line=line,
+    )
+    logger.info("%s", line)
+    return archived
 
 
 async def _allowed_models(ctx: Ctx, baseline_rc_id: str) -> list[dict[str, str]]:
@@ -3134,7 +3225,34 @@ async def _rc_pair(ctx: Ctx, rc_id: str) -> tuple[str | None, str | None]:
     if rc_id not in ctx._rc_pairs:
         for row in await task_run_configs(ctx):
             ctx._rc_pairs[str(row.get("id"))] = run_config_pair(row)
+            ctx._rc_sub_agent_tools[str(row.get("id"))] = tuple(
+                dict.fromkeys(sub_agent_tool_ids(row.get("run_config_properties")))
+            )
     return ctx._rc_pairs.get(rc_id, (None, None))
+
+
+async def rc_sub_agent_pairs(
+    ctx: Ctx, rc_id: str
+) -> dict[str, tuple[str | None, str | None]]:
+    """tool id -> the (provider, model) of each sub-agent the run config
+    attaches. (None, None) for a tool whose Kiln task tool or pinned run
+    config is not found: the policy then refuses it."""
+    await _rc_pair(ctx, rc_id)
+    pairs: dict[str, tuple[str | None, str | None]] = {}
+    for tool_id in ctx._rc_sub_agent_tools.get(rc_id, ()):
+        if tool_id not in ctx._sub_agent_pairs:
+            try:
+                sub = await read_sub_agent(
+                    ctx.kiln.call, ctx.target.project_id, tool_id
+                )
+            except KilnAPIError as exc:
+                if exc.status_code != 404:
+                    raise
+                sub = None
+            # A tool pins its run config for good, so the pair never changes.
+            ctx._sub_agent_pairs[tool_id] = sub.pair if sub else (None, None)
+        pairs[tool_id] = ctx._sub_agent_pairs[tool_id]
+    return pairs
 
 
 async def policy_refusal(ctx: Ctx, rc_id: str) -> str | None:
@@ -3144,7 +3262,15 @@ async def policy_refusal(ctx: Ctx, rc_id: str) -> str | None:
         return None
     provider, model = await _rc_pair(ctx, rc_id)
     refusal = ctx.model_policy.refusal(provider, model)
-    return None if refusal is None else f"rc {rc_id}: {refusal}"
+    if refusal is not None:
+        return f"rc {rc_id}: {refusal}"
+    # The policy holds for the sub-agents too: a `kiln_task::` tool sends
+    # the task's data to the model of the run config it pins.
+    for tool_id, pair in (await rc_sub_agent_pairs(ctx, rc_id)).items():
+        refusal = ctx.model_policy.refusal(*pair)
+        if refusal is not None:
+            return f"rc {rc_id}: sub-agent tool {tool_id}: {refusal}"
+    return None
 
 
 async def require_policy(ctx: Ctx, rc_id: str) -> None:
@@ -3188,7 +3314,11 @@ async def pin_baseline_model(ctx: Ctx, rc_id: str) -> None:
             rc_id,
         )
         return
-    data = keep_policy(provider, model)
+    try:
+        subs = await rc_sub_agent_pairs(ctx, rc_id)
+    except KilnError:
+        subs = {}
+    data = keep_policy(provider, model, [(p, m) for p, m in subs.values() if p and m])
     ctx.model_policy = ModelPolicy.from_json(data, source=KEEP_SOURCE)
     if ctx.run_dir is not None:
         (ctx.run_dir / "model_policy.json").write_text(
@@ -3216,6 +3346,22 @@ async def _note_baseline_policy(ctx: Ctx, rc_id: str) -> None:
             rc_id,
             refusal,
         )
+    try:
+        subs = await rc_sub_agent_pairs(ctx, rc_id)
+    except KilnError:
+        return
+    for tool_id, pair in subs.items():
+        refusal = ctx.model_policy.refusal(*pair)
+        if refusal is not None:
+            reason = f"sub-agent tool {tool_id}: {refusal}"
+            ctx.log.event("baseline_outside_policy", rc_id=rc_id, reason=reason)
+            logger.warning(
+                "the baseline %s attaches a sub-agent outside the model policy"
+                " (%s) — it is measured as the reference; no arm may keep that"
+                " sub-agent",
+                rc_id,
+                reason,
+            )
 
 
 def lever_costs(ctx: Ctx) -> dict[str, LeverCost]:

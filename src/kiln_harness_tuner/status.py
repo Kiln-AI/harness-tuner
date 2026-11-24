@@ -51,6 +51,7 @@ from kiln_harness_tuner.schemas import (
     RunStatus,
     ScreenResult,
     SetupReport,
+    SubAgentRecord,
     TrialResult,
     UnloadableEval,
     WaveStatus,
@@ -517,6 +518,17 @@ class RunStatusTracker:
             except ValidationError:
                 continue
         self._status.detections_by_rc[rc] = kept
+
+    def _on_sub_agents(self, sub_agents: Sequence[object] = (), **_: object) -> None:
+        # The sub-agents the run created, for the report's sub-agents
+        # appendix. A record that does not validate is left out.
+        kept = []
+        for raw in sub_agents:
+            try:
+                kept.append(SubAgentRecord.model_validate(raw))
+            except ValidationError:
+                continue
+        self._status.sub_agents = kept
 
     def _on_baseline_review(self, review: object = None, **_: object) -> None:
         # Each review of a baseline, for the report's smells appendix. A

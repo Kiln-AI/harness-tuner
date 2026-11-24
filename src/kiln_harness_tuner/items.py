@@ -93,6 +93,7 @@ from kiln_harness_tuner.stop_rules import (
     merge_rules,
     noise_flip_rate,
 )
+from kiln_harness_tuner.sub_agents import sub_agent_tool_ids
 
 logger = logging.getLogger(__name__)
 
@@ -666,6 +667,35 @@ async def _is_model_swap(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
     return any(parent.get(k) != child.get(k) for k in SWAP_KEYS)
 
 
+# What an untimed arm's record says when its run config attaches a
+# sub-agent: Kiln's usage holds the run's own model calls, and an eval job
+# keeps no record of the sub-agent's run.
+SUB_AGENT_PASSIVE_NOTE = (
+    "the latency and cost above come from stored eval runs, which leave out"
+    " the calls of the sub-agent tool(s) {tools}"
+)
+
+
+async def _sub_agent_tools(ctx: Ctx, rc_id: str) -> tuple[str, ...]:
+    """The `kiln_task::` tool ids the run config attaches. A config that
+    cannot be read reads as none, and is logged."""
+    try:
+        return tuple(dict.fromkeys(sub_agent_tool_ids(await rc_props(ctx, rc_id))))
+    except Exception as exc:
+        ctx.log.event("sub_agent_check_unavailable", rc_id=rc_id, error=repr(exc)[:200])
+        return ()
+
+
+async def _changes_sub_agents(ctx: Ctx, parent_rc_id: str, rc_id: str) -> bool:
+    """Does the arm attach, drop or replace a sub-agent against its parent?
+    Such an arm is timed: only a drive through the run endpoint records the
+    sub-agent's usage, and the lever check reads the drives' traces for a
+    call of the new tool."""
+    parent = await _sub_agent_tools(ctx, parent_rc_id)
+    child = await _sub_agent_tools(ctx, rc_id)
+    return set(parent) != set(child)
+
+
 def _set_state(ctx: Ctx, item_id: str, state: str) -> None:
     """One `item_state` event."""
     ctx.log.event("item_state", item_id=item_id, state=state)
@@ -883,6 +913,17 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
+    # An untimed arm reads its latency and cost off stored eval runs, and
+    # those leave a sub-agent's calls out. The analyzer and the record are
+    # told, so nobody reads a cheap delegating arm as a cheap arm.
+    measurement_notes: list[str] = []
+    timed = measurement.latency is not None or measurement.cost is not None
+    sub_tools = () if timed else await _sub_agent_tools(ctx, rc_id)
+    if sub_tools:
+        measurement_notes.append(
+            SUB_AGENT_PASSIVE_NOTE.format(tools=", ".join(sub_tools))
+        )
+
     _set_state(ctx, item.id, "analyzing")
     await snapshot_memory(ctx, f"{item.id}-analysis-before")
     res = await call_with_retries(
@@ -894,6 +935,7 @@ async def _execute_plan_item(
             experiment_memory_id=exp_mem,
             speed_rule=speed_rule_text(ctx.objective) if efficiency else None,
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
+            measurement_notes=measurement_notes,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -983,6 +1025,7 @@ async def _execute_plan_item(
         ]
     else:
         lines += passive_lines(bundle)
+    lines += measurement_notes
     res.data.memory_content = res.data.memory_content.rstrip() + "\n" + "\n".join(lines)
     await _experiment_write(
         ctx, item.id, "record_verdict", ctx.memory.record_verdict(exp_mem, res.data)
@@ -1535,14 +1578,17 @@ async def _measure_arm(
 ) -> Measured:
     """The arm through the engine: every item of its targeted evals' train
     split, the objective's rules merged with the planner's for this arm.
-    Timing drives run when speed or cost decide, or when the arm is a
-    model-level swap (its lever is checked on them). Under quality any other
+    Timing drives run when speed or cost decide, when the arm is a
+    model-level swap (its lever is checked on them), or when the arm adds,
+    drops or replaces a sub-agent (its lever is checked on them too, and
+    only they record the sub-agent's usage). Under quality any other
     arm is not timed: no reference or parent re-drives. Its
     latency and cost stay visible from the stored eval runs (each row's
     passive `latency` and `cost`)."""
     from kiln_harness_tuner.viability import screen_seed
 
     swap = await _is_model_swap(ctx, parent_rc_id, rc_id)
+    sub_agent = await _changes_sub_agents(ctx, parent_rc_id, rc_id)
     named = list(getattr(item.work, "target_items", None) or [])
     residual = (
         isinstance(item.work, FixWork)
@@ -1572,7 +1618,7 @@ async def _measure_arm(
         objective=ctx.objective,
         full=True,
         named=named,
-        timing=is_efficiency(ctx.objective) or swap,
+        timing=is_efficiency(ctx.objective) or swap or sub_agent,
         source="measurement",
         item_id=item.id,
         progress=lambda _rc, line: ctx.log.event(

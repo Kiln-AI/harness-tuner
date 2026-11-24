@@ -10,6 +10,14 @@ run's LLM call latencies, which for a single-turn task is the wall-clock time
 of the call. Eval results carry it as `task_run_usage.total_llm_latency_ms`
 (the server resolves it from the scored task run).
 
+**A sub-agent's calls are not in that number.** Kiln's `usage` holds the
+model calls of the run itself. When the task calls a sub-agent (a
+`kiln_task::` tool), the sub-agent's run has its own `usage`. A drive
+through `POST …/run` saves that run, and `timed_drives` adds its latency
+and cost to the drive's (`kiln_harness_tuner.sub_agents`). An eval job does
+not save it: the numbers read off stored eval runs, and the drives that
+must go through an eval job, leave the sub-agent's calls out.
+
 **The comparison is paired.** Latency moves with provider load and with the
 loop's own concurrency, so a new arm is never compared with a number stored
 hours ago. Both arms are compared on the SAME items, item by item:
@@ -652,6 +660,9 @@ class DrivePass:
     costs: dict[str, dict[str, float]] | None = None  # rc -> item -> $/request
     # rc -> item -> `levers.lever_evidence` of that drive
     evidence: dict[str, dict[str, dict[str, Any]]] | None = None
+    # rc -> the sub-agent calls whose usage is not in its latencies and
+    # costs (Kiln saved no run for them). Absent: every call is counted.
+    sub_agent_unread: dict[str, int] | None = None
 
 
 def _drive_error_text(exc: Exception) -> str:
@@ -683,6 +694,11 @@ async def timed_drives(
     the task run the job drove. The job's errors carry the provider's
     text, so no diagnosis job follows.
 
+    A drive that calls a sub-agent gets the usage of the sub-agent's runs
+    added to its own (`sub_agents.with_sub_agent_usage`), so its latency
+    and cost are those of the whole request. A call with no saved run is
+    counted in `sub_agent_unread`.
+
     Quota and billing failures stop the run (`ProviderQuotaError`): a drive
     error whose text names one raises at once, never retried. The studio
     server answers a failed run with a generic 500 ("An unexpected error
@@ -699,6 +715,7 @@ async def timed_drives(
         classify_provider_message,
     )
     from kiln_harness_tuner.schemas import ErrorInfo
+    from kiln_harness_tuner.sub_agents import with_sub_agent_usage
 
     arms = list(arms)
     props = {rc: await rc_props(ctx, rc) for rc in arms}
@@ -712,6 +729,16 @@ async def timed_drives(
     outputs: dict[str, dict[str, Any]] = {rc: {} for rc in arms}
     costs: dict[str, dict[str, float]] = {rc: {} for rc in arms}
     evidence: dict[str, dict[str, dict[str, Any]]] = {rc: {} for rc in arms}
+    unread: dict[str, int] = {}
+
+    async def whole(rc: str, run: dict[str, Any]) -> dict[str, Any]:
+        """The drive with its sub-agents' usage added."""
+        total, added = await with_sub_agent_usage(
+            ctx.kiln.call, ctx.target.project_id, run
+        )
+        if added.unread:
+            unread[rc] = unread.get(rc, 0) + added.unread
+        return total
 
     def stop_on_quota(
         rc: str, inp: Any, text: str, cause: Exception | None = None
@@ -742,7 +769,7 @@ async def timed_drives(
             run, overhead, text = await run_by_job(rc, inp)
             if run is None:
                 return None, overhead, text
-            return record(rc, inp, run, overhead)
+            return record(rc, inp, await whole(rc, run), overhead)
         body: dict[str, Any] = {
             "run_config_properties": props[rc],
             "tags": [LATENCY_RUN_TAG, f"{LATENCY_RUN_TAG}_{label}"],
@@ -764,7 +791,8 @@ async def timed_drives(
             text = _drive_error_text(exc)
             stop_on_quota(rc, inp, text, cause=exc)
             return None, 0.0, text
-        return record(rc, inp, run if isinstance(run, dict) else {}, 0.0)
+        run = await whole(rc, run if isinstance(run, dict) else {})
+        return record(rc, inp, run, 0.0)
 
     def record(
         rc: str, inp: Any, run: dict[str, Any], overhead: float
@@ -810,7 +838,9 @@ async def timed_drives(
             for rc_failures in failures.values():
                 for key in rc_failures:
                     rc_failures[key] += f"; diagnosed on {item}: {diagnosis[:160]}"
-    return DrivePass(latencies, failures, cost, len(inputs), outputs, costs, evidence)
+    return DrivePass(
+        latencies, failures, cost, len(inputs), outputs, costs, evidence, unread or None
+    )
 
 
 def run_cost(run: Mapping[str, Any]) -> float:

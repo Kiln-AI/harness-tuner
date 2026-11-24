@@ -582,6 +582,9 @@ class Measured:
     vs_parent: LatencyComparison | None = None
     vs_parent_cost: LatencyComparison | None = None
     lever_note: str = ""
+    # Set when the timing drives called a sub-agent whose usage Kiln did
+    # not record: the latency and cost then leave those calls out.
+    usage_note: str = ""
     spend_usd: float = 0.0
     chunks: int = 0
     planned_chunks: int = 0
@@ -642,6 +645,7 @@ class _State:
     error: ErrorInfo | None = None
     spend: float = 0.0
     lever_note: str = ""
+    sub_agent_unread: int = 0
     evidence_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     lever_checked: bool = False
     budget: Budget | None = None
@@ -1182,6 +1186,9 @@ async def _measure(
                     1 for out in produced.values() if not output_valid(out, schema)
                 )
                 s.evidence_seen.update((drives.evidence or {}).get(s.cand.rc_id) or {})
+                s.sub_agent_unread += (drives.sub_agent_unread or {}).get(
+                    s.cand.rc_id, 0
+                )
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
@@ -1208,6 +1215,16 @@ async def _measure(
                         parent_props.get(s.cand.parent_rc_id),
                         parent_ev,
                     )
+                    if verdict.status == "applied" and verdict.reason:
+                        # What the drives show of a sub-agent: the tool was
+                        # called. On the record, so an audit can read it.
+                        s.lever_note = verdict.reason
+                        ctx.log.event(
+                            "lever_applied",
+                            item_id=spec.item_id,
+                            rc_id=s.cand.rc_id,
+                            line=f"{s.cand.label}: {verdict.reason}",
+                        )
                     if verdict.status == "unverified":
                         # Neither signal shows on these drives: logged, and
                         # the candidate goes on (the drives cannot tell).
@@ -1381,6 +1398,12 @@ async def _measure(
             stop=s.stop,
             error=s.error,
             lever_note=s.lever_note,
+            usage_note=(
+                f"latency and cost exclude {s.sub_agent_unread} sub-agent"
+                " call(s) with no usage record"
+                if s.sub_agent_unread
+                else ""
+            ),
             spend_usd=s.spend,
             chunks=s.chunks,
             planned_chunks=len(bounds),
@@ -1469,6 +1492,8 @@ def measured_body(m: Measured) -> str:
             )
     if m.lever_note:
         parts.append(m.lever_note)
+    if m.usage_note:
+        parts.append(m.usage_note)
     return " · ".join(parts)
 
 

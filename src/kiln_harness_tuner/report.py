@@ -36,6 +36,7 @@ from kiln_harness_tuner.schemas import (
     ReportPaths,
     RunStatus,
     ScreenResult,
+    SubAgentRecord,
     spend_lane_labels,
 )
 from kiln_harness_tuner.snapshots import snapshot_memory
@@ -841,6 +842,68 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
 
 
 SMELLS_APPENDIX_HEADING = "## Design review"
+SUB_AGENTS_APPENDIX_HEADING = "## Sub-agents"
+
+
+def render_sub_agents_appendix(status: RunStatus) -> str:
+    """The `## Sub-agents` section: each sub-agent this run created, with
+    its tool, its task, the run config that the tool pins, its model, the
+    run configs of the subject task that attach it, and its state against
+    the final baseline. Empty string when the run created none."""
+    if not status.sub_agents:
+        return ""
+    final = status.baseline_history[-1] if status.baseline_history else None
+
+    def state(record: SubAgentRecord) -> str:
+        if record.tool_id is None:
+            return "not complete: the create stopped before the tool existed"
+        if final is not None and final in record.attached_by:
+            return f"in the final baseline `{_md(final)}`"
+        if record.archived:
+            return "archived: no run config attaches it"
+        if record.attached_by:
+            return "not in the final baseline"
+        return "not attached"
+
+    def code(value: str | None) -> str:
+        return f"`{_md(value)}`" if value else "—"
+
+    lines = [
+        SUB_AGENTS_APPENDIX_HEADING,
+        "",
+        "The sub-agents that this run created. Code renders this section. A"
+        " sub-agent is a Kiln task in the same project, which the subject"
+        " task calls through a `kiln_task::` tool. The tool pins one run"
+        " config of that task. The run archives a tool that no run config"
+        " attaches, and it deletes no task: a sub-agent that is not in the"
+        " final baseline stays in the project, for you to keep or remove in"
+        " the Kiln app.",
+        "",
+        "| tool | tool id | task | run config | model | attached by | state |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for record in status.sub_agents:
+        model = (
+            f"{record.model_provider_name}/{record.model_name}"
+            if record.model_provider_name and record.model_name
+            else None
+        )
+        attached = ", ".join(code(rc) for rc in record.attached_by) or "—"
+        lines.append(
+            f"| {_md(record.tool_name or '—')} | {code(record.tool_id)}"
+            f" | {code(record.task_id)} | {code(record.run_config_id)}"
+            f" | {_md(model or '—')} | {attached} | {state(record)} |"
+        )
+    lines += [
+        "",
+        "The latency and the cost of a request do not include a sub-agent's"
+        " calls in Kiln's usage numbers. The loop adds them on the drives it"
+        " makes through the run endpoint, and it times each experiment that"
+        " adds or removes a sub-agent on such drives. The numbers that come"
+        " from stored eval runs, and the spend of eval jobs above, leave the"
+        " sub-agent's calls out.",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _number(value: float | None) -> str:
@@ -1120,6 +1183,9 @@ class ReportWriter:
         smells = render_smells_appendix(status)
         if smells:
             markdown = markdown.rstrip("\n") + "\n\n" + smells
+        sub_agents = render_sub_agents_appendix(status)
+        if sub_agents:
+            markdown = markdown.rstrip("\n") + "\n\n" + sub_agents
         path = self.report_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")

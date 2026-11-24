@@ -36,6 +36,12 @@ baseline's pair is known (`keep_policy`): one exception, the baseline's
 (provider, model), and nothing else. So "keep the model" is enforced by the
 same checks as a policy file.
 
+A sub-agent is subject to the policy. A run config that attaches a
+`kiln_task::` tool sends the task's data to the model of the run config
+that the tool pins, so that pair is checked with the run config's own: in
+the gateway when a run config or a sub-agent is created, and in the loop
+before a run config is measured or promoted.
+
 Judges are not subject to the policy: an eval config names its model under
 `model_provider`/`model_name` (not `model_provider_name`), evals are frozen,
 and the policy is about the task under optimisation.
@@ -73,17 +79,31 @@ def resolve_models(models: str | None, objective: str) -> str:
     return "any" if is_efficiency(objective) else "keep"
 
 
-def keep_policy(provider: str, model: str) -> dict[str, Any]:
+def keep_policy(
+    provider: str, model: str, sub_agents: Iterable[tuple[str, str]] = ()
+) -> dict[str, Any]:
     """The policy `--models keep` stands for, as JSON: the baseline's one
-    pair, as an exception. Every other pair is refused."""
+    pair, as an exception. Every other pair is refused. `sub_agents`: the
+    pairs of the sub-agents that the baseline attaches. They are exceptions
+    too: to keep the models is to keep every model the baseline calls."""
+    extra = [pair for pair in dict.fromkeys(sub_agents) if pair != (provider, model)]
+    kept = "".join(f", and its sub-agents' {p}/{m}" for p, m in extra)
     return {
         "description": (
-            f"Keep the task's model: {provider}/{model} ({KEEP_SOURCE})."
+            f"Keep the task's model: {provider}/{model}{kept} ({KEEP_SOURCE})."
             " No other model or provider is allowed. Thinking level,"
             " temperature and top_p may change."
         ),
         "exceptions": [
-            {"provider": provider, "model": model, "reason": "the baseline's model"}
+            {"provider": provider, "model": model, "reason": "the baseline's model"},
+            *(
+                {
+                    "provider": p,
+                    "model": m,
+                    "reason": "the model of a sub-agent of the baseline",
+                }
+                for p, m in extra
+            ),
         ],
     }
 

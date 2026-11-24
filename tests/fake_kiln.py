@@ -10,6 +10,7 @@ responses. Everything is recorded for assertions.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import unicodedata
 from typing import Any
@@ -79,6 +80,15 @@ _SKILLS_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/skills$")
 _CODE_TRUST_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/add_code_trust$")
 _MEMORIES_BY_IDS_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/memories/by_ids$")
 _MEMORY_PATH = re.compile(r"^/api/projects/(?P<pid>[^/]+)/memories/(?P<mid>[^/]+)$")
+# Sub-agents: a `kiln_task` tool server's saved record and its archive
+# route, and every route under a sub-agent's task.
+_TOOL_SERVER_CONFIG_PATH = re.compile(
+    r"^/api/projects/[^/]+/tool_servers/(?P<sid>[^/]+)/config$"
+)
+_TOOL_SERVER_ARCHIVE_PATH = re.compile(
+    r"^/api/projects/[^/]+/tool_servers/(?P<sid>[^/]+)/archive$"
+)
+_SUB_TASK_PATH = re.compile(r"^/api/projects/[^/]+/tasks/(?P<tid>[^/]+)(?P<rest>/.*)?$")
 
 
 def make_score(
@@ -298,6 +308,15 @@ class FakeKiln:
         # its id (`tool_id`, `function_name`, `description`, `parameters`).
         # An id that is not here answers 404.
         self.tool_definitions: dict[str, Any] = {}
+        # Sub-agents (`add_sub_agent`): `tool_servers[server_id]` is the
+        # saved tool server record that `GET …/tool_servers/{id}/config`
+        # serves, and `sub_tasks[task_id]` holds a sub-agent task's record
+        # and its run configs. A sub-agent's task run is served from
+        # `task_runs`, like any run. `tool_server_archives` lists the
+        # servers archived through the API, in order.
+        self.tool_servers: dict[str, dict[str, Any]] = {}
+        self.sub_tasks: dict[str, dict[str, Any]] = {}
+        self.tool_server_archives: list[str] = []
         # Code probes: `POST …/run_configs` appends a row here
         # (and to `run_configs` when it is a list) and returns it;
         # `POST …/run` records the body in `run_posts` and serves the next
@@ -432,6 +451,94 @@ class FakeKiln:
 
     # ---- memory helpers ----
 
+    def add_sub_agent(
+        self,
+        server_id: str,
+        task_id: str,
+        rc_id: str,
+        *,
+        tool_name: str = "ask_expert",
+        description: str = "Ask the expert.",
+        instruction: str = "You are an expert. Answer the question.",
+        provider: str = "openai",
+        model: str = "gpt-test",
+        prompt: dict[str, Any] | None = None,
+        tools: list[str] | None = None,
+        prompt_id: str = "simple_prompt_builder",
+        output_json_schema: str | None = None,
+    ) -> str:
+        """Script one sub-agent: its task, the run config its tool pins and
+        the `kiln_task` tool server. Returns the tool id."""
+        self.tool_servers[server_id] = {
+            "id": server_id,
+            "type": "kiln_task",
+            "name": tool_name,
+            "properties": {
+                "name": tool_name,
+                "description": description,
+                "task_id": task_id,
+                "run_config_id": rc_id,
+                "is_archived": False,
+            },
+        }
+        self.sub_tasks[task_id] = {
+            "task": {
+                "id": task_id,
+                "name": f"Sub-agent {task_id}",
+                "instruction": instruction,
+                "output_json_schema": output_json_schema,
+            },
+            "run_configs": [
+                {
+                    "id": rc_id,
+                    "name": rc_id,
+                    "prompt": prompt,
+                    "run_config_properties": {
+                        "type": "kiln_agent",
+                        "model_name": model,
+                        "model_provider_name": provider,
+                        "prompt_id": prompt_id,
+                        "tools_config": {"tools": list(tools or [])},
+                    },
+                }
+            ],
+        }
+        return f"kiln_task::{server_id}"
+
+    def _sub_agent_route(self, method: str, url_path: str, body: Any) -> Any:
+        """The answer of a sub-agent route, or `NotImplemented` when the
+        path is none of them."""
+        if (m := _TOOL_SERVER_CONFIG_PATH.match(url_path)) and method == "GET":
+            if m["sid"] not in self.tool_servers:
+                raise KilnAPIError(method, url_path, 404, {"detail": "no such server"})
+            return json.loads(json.dumps(self.tool_servers[m["sid"]]))
+        if (m := _TOOL_SERVER_ARCHIVE_PATH.match(url_path)) and method == "POST":
+            if m["sid"] not in self.tool_servers:
+                raise KilnAPIError(method, url_path, 404, {"detail": "no such server"})
+            server = self.tool_servers[m["sid"]]
+            server["properties"]["is_archived"] = bool((body or {}).get("is_archived"))
+            self.tool_server_archives.append(m["sid"])
+            return json.loads(json.dumps(server))
+        m = _SUB_TASK_PATH.match(url_path)
+        if not m or m["tid"] not in self.sub_tasks or method != "GET":
+            return NotImplemented
+        sub, rest = self.sub_tasks[m["tid"]], m["rest"] or ""
+        if rest == "":
+            return dict(sub["task"])
+        if rest == "/run_configs":
+            return [dict(rc) for rc in sub["run_configs"]]
+        if rest.startswith("/gen_prompt/"):
+            if self.gen_prompt_fails:
+                raise KilnAPIError(method, url_path, 500, {"detail": "render failed"})
+            if rest.removeprefix("/gen_prompt/") != "simple_prompt_builder":
+                raise KilnAPIError(method, url_path, 400, {"detail": "unknown prompt"})
+            return {
+                "prompt_id": "simple_prompt_builder",
+                "prompt": str(sub["task"].get("instruction") or ""),
+                "chain_of_thought_instructions": None,
+            }
+        return NotImplemented  # a run of the task is served like any run
+
     def add_memory(
         self,
         overview: str,
@@ -559,6 +666,10 @@ class FakeKiln:
         retries: bool = True,
     ) -> Any:
         self.calls.append((method, url_path, query_params, body))
+        if self.tool_servers or self.sub_tasks:
+            answer = self._sub_agent_route(method.upper(), url_path, body)
+            if answer is not NotImplemented:
+                return answer
 
         if url_path == "/ping":
             return self.ping_response

@@ -23,6 +23,17 @@ directory (the code), and the description the model is shown — the function
 name, the tool description and the parameters schema from `code_tool.kiln`.
 A build can write the train set into a code tool as easily as into a prompt,
 so the generality check reads it too.
+
+A sub-agent is attached as a `kiln_task::<tool server id>` tool
+(`kiln_harness_tuner.sub_agents`). Its text is two things. The subject model
+reads the tool's name, description and parameters. The sub-agent's model
+reads the prompt of the run config that the tool pins, the output schema of
+its task, and the skills and code tools that run config attaches. A build
+can write a train answer into a sub-agent's prompt as easily as into the
+subject's, so every reader of this module reads the sub-agent too. The task,
+its run config and the tool server come from the API. A prompt that Kiln
+builds from the sub-agent task's stored runs is not read, and the
+sub-agents' text is then unreadable (None).
 """
 
 from __future__ import annotations
@@ -35,6 +46,11 @@ from typing import TYPE_CHECKING, Any
 from kiln_harness_tuner.integrity import strings_in
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.skill_installer.bundle import installed_skill_dir
+from kiln_harness_tuner.sub_agents import (
+    SubAgent,
+    read_sub_agent,
+    sub_agent_tool_ids,
+)
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -58,8 +74,12 @@ def prompt_strings(row: dict[str, Any]) -> list[str]:
     return texts
 
 
-async def rc_prompt_text(ctx: Ctx, row: dict[str, Any] | None) -> str | None:
+async def rc_prompt_text(
+    ctx: Ctx, row: dict[str, Any] | None, task_id: str | None = None
+) -> str | None:
     """The prompt text a run config sends, or None when it cannot be read.
+    `task_id`: the task the run config belongs to, when it is not the run's
+    own task (a sub-agent's).
 
     Its frozen prompt when it carries one; else the prompt its `prompt_id`
     names, as the server renders it (`gen_prompt` renders every kind: a
@@ -78,7 +98,9 @@ async def rc_prompt_text(ctx: Ctx, row: dict[str, Any] | None) -> str | None:
         # No frozen prompt and no prompt id: no instructions of its own to
         # read (Kiln requires a prompt id, so only a hand-made row is this).
         return ""
-    base = f"/api/projects/{ctx.target.project_id}/tasks/{ctx.target.task_id}"
+    base = (
+        f"/api/projects/{ctx.target.project_id}/tasks/{task_id or ctx.target.task_id}"
+    )
     try:
         rendered = await ctx.kiln.call("GET", f"{base}/gen_prompt/{prompt_id}")
     except KilnError:
@@ -293,11 +315,86 @@ def read_code_tool(project_path: str | Path, tool_id: str) -> CodeToolText | Non
 
 
 @dataclass(frozen=True)
+class SubAgentText:
+    """One attached sub-agent's text. `tool_id`: its `kiln_task::` tool id.
+    `name`: the tool name the subject model calls. `files` maps
+    `SUB_AGENT_DESCRIPTION` (what the subject model is shown),
+    `SUB_AGENT_PROMPT` (what the sub-agent's model is told),
+    `SUB_AGENT_OUTPUT_SCHEMA` when its task has one, and each file of each
+    skill and code tool its run config attaches, to its text."""
+
+    tool_id: str
+    name: str
+    files: dict[str, str]
+    derived_from: tuple[str, ...] = ()
+
+
+SUB_AGENT_DESCRIPTION = "description"
+SUB_AGENT_PROMPT = "prompt"
+SUB_AGENT_OUTPUT_SCHEMA = "output schema"
+
+
+def _schema(value: Any) -> Any:
+    """A task's schema as data: Kiln stores it as JSON text."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+async def read_sub_agent_text(ctx: Ctx, sub: SubAgent) -> SubAgentText | None:
+    """The sub-agent's text, or None when a part cannot be read: its run
+    config is missing, its prompt is built from stored runs or does not
+    render, or a skill or code tool of its run config is not readable."""
+    if sub.run_config is None or sub.prompt_reads_runs:
+        return None
+    prompt = await rc_prompt_text(ctx, sub.run_config, task_id=sub.task_id)
+    if prompt is None:
+        return None
+    thinking = sub.task.get("thinking_instruction")
+    if isinstance(thinking, str) and thinking.strip() and thinking not in prompt:
+        prompt = f"{prompt}\n{thinking}"
+    description = {
+        "tool_name": sub.tool_name,
+        "tool_description": sub.tool_description,
+        "parameters": _schema(sub.task.get("input_json_schema")),
+    }
+    files = {
+        SUB_AGENT_DESCRIPTION: json.dumps(description, indent=2, ensure_ascii=False),
+        SUB_AGENT_PROMPT: prompt,
+    }
+    output_schema = _schema(sub.task.get("output_json_schema"))
+    if output_schema is not None:
+        files[SUB_AGENT_OUTPUT_SCHEMA] = json.dumps(
+            output_schema, indent=2, ensure_ascii=False
+        )
+    for skill_id in rc_skill_ids(sub.run_config):
+        skill = read_skill(ctx.target.project_path, skill_id)
+        if skill is None:
+            return None
+        for path, text in skill.files.items():
+            files[f"skill {skill.name}, {path}"] = text
+    for tool_id in rc_code_tool_ids(sub.run_config):
+        tool = read_code_tool(ctx.target.project_path, tool_id)
+        if tool is None:
+            return None
+        for path, text in tool.files.items():
+            files[f"code tool {tool.name}, {path}"] = text
+    return SubAgentText(
+        tool_id=sub.tool_id, name=sub.tool_name or sub.server_id, files=files
+    )
+
+
+@dataclass(frozen=True)
 class RcText:
     """Everything a run config gives the subject model to read. `prompt`:
     None when it cannot be read. `skills`: the attached skills by id, None
     when one of them cannot be read (or the run config row is missing).
     `code_tools`: the same for the attached code tools.
+    `sub_agents`: the same for the attached sub-agents, by tool id. A
+    sub-agent's text is also what its own model is told.
     `tool_ids`: every tool id the run config attaches, in its tool order;
     `found`: False when its row is missing."""
 
@@ -308,6 +405,8 @@ class RcText:
     code_tools: dict[str, CodeToolText] | None = None
     tool_ids: tuple[str, ...] = ()
     found: bool = True
+    sub_agent_ids: tuple[str, ...] = ()
+    sub_agents: dict[str, SubAgentText] | None = None
 
 
 async def rc_texts(
@@ -328,6 +427,7 @@ async def rc_texts(
     except KilnError:
         return dict.fromkeys(rc_ids, unread)
     cache: dict[str, SkillText | None] = {}
+    sub_cache: dict[str, SubAgentText | None] = {}
     texts: dict[str, RcText] = {}
     for rc_id in rc_ids:
         row = rows.get(rc_id)
@@ -344,6 +444,13 @@ async def rc_texts(
             if tool_id not in tool_cache:
                 tool_cache[tool_id] = read_code_tool(ctx.target.project_path, tool_id)
         tools = {i: tool_cache[i] for i in tool_ids}
+        sub_ids = tuple(
+            dict.fromkeys(sub_agent_tool_ids(row.get("run_config_properties")))
+        )
+        for sub_id in sub_ids:
+            if sub_id not in sub_cache:
+                sub_cache[sub_id] = await _sub_agent_text(ctx, sub_id)
+        subs = {i: sub_cache[i] for i in sub_ids}
         texts[rc_id] = RcText(
             prompt=await rc_prompt_text(ctx, row),
             skill_ids=skill_ids,
@@ -359,16 +466,41 @@ async def rc_texts(
                 else {i: v for i, v in tools.items() if v is not None}
             ),
             tool_ids=rc_tool_ids(row),
+            sub_agent_ids=sub_ids,
+            sub_agents=(
+                None
+                if any(v is None for v in subs.values())
+                else {i: v for i, v in subs.items() if v is not None}
+            ),
         )
     return texts
 
 
+def sub_agent_texts(rc: RcText) -> dict[str, SubAgentText] | None:
+    """The run config's sub-agent texts: {} when it attaches no sub-agent,
+    None when it attaches one whose text cannot be read."""
+    return rc.sub_agents if rc.sub_agent_ids else {}
+
+
+async def _sub_agent_text(ctx: Ctx, tool_id: str) -> SubAgentText | None:
+    try:
+        sub = await read_sub_agent(ctx.kiln.call, ctx.target.project_id, tool_id)
+    except KilnError:
+        return None
+    return await read_sub_agent_text(ctx, sub) if sub is not None else None
+
+
 def whole_texts(rc: RcText) -> dict[str, str]:
     """Where a run config gives the model text -> that whole text: "the
-    prompt", "skill <name>, <file>" and "code tool <name>, <file>". The
-    generality check and the judge-copy check name a place this way."""
+    prompt", "skill <name>, <file>", "code tool <name>, <file>" and
+    "sub-agent <name>, <file>". The generality check and the judge-copy
+    check name a place this way."""
     texts = {"the prompt": rc.prompt or ""}
-    for kind, bundles in (("skill", rc.skills), ("code tool", rc.code_tools)):
+    for kind, bundles in (
+        ("skill", rc.skills),
+        ("code tool", rc.code_tools),
+        ("sub-agent", rc.sub_agents),
+    ):
         for bundle in (bundles or {}).values():
             for path, text in bundle.files.items():
                 texts[f"{kind} {bundle.name}, {path}"] = text

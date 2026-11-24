@@ -23,6 +23,14 @@ nothing (`lever_verdict`):
   `output.source`, in its `usage`, or on a trace message. A drive served by
   another model or provider than the run config names is not applied (a
   direct contradiction); a switch no drive records is UNVERIFIED.
+- **sub-agent**, a `kiln_task::` tool the run config attaches and its
+  parent does not: the tool messages of each drive's trace name the
+  sub-agent tool that answered (`sub_agents.calls_by_tool`). The lever is
+  applied when at least one drive calls a new sub-agent tool, and the
+  verdict then says in how many drives. It is not applied when
+  `MIN_SUB_AGENT_DRIVES` or more drives have a trace and none calls one:
+  the subject model never delegates, so the sub-agent changes nothing. It
+  is UNVERIFIED when fewer drives have a trace.
 
 An unverified lever is logged and the candidate goes on; only "not
 applied" stops it.
@@ -35,6 +43,8 @@ from dataclasses import dataclass
 from statistics import median
 from typing import Any
 
+from kiln_harness_tuner.sub_agents import calls_by_tool, sub_agent_tool_ids
+
 NO_THINKING = frozenset({None, "", "none", "off", "disabled"})
 _REASONING_TOKEN_KEYS = ("reasoning_tokens", "thinking_tokens")
 
@@ -45,6 +55,8 @@ def _num(value: Any) -> float:
 
 TOKEN_MOVE = 1.25  # a median ratio at or beyond 1.25x (or 1/1.25x) moved
 MIN_TOKEN_PAIRS = 2
+# Fewer traced drives than this cannot show that a sub-agent is never called.
+MIN_SUB_AGENT_DRIVES = 3
 _OUTPUT_TOKEN_KEYS = ("output_tokens", "completion_tokens")
 _MODEL_KEYS = ("model_name", "model")
 _PROVIDER_KEYS = ("model_provider", "model_provider_name", "provider")
@@ -59,7 +71,9 @@ def _first(mapping: Any, keys: Sequence[str]) -> Any:
 def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
     """What one task run shows about the levers: `reasoning` (any reasoning
     content or reasoning tokens), and the `model` / `provider` that served
-    it (None when the run does not record them)."""
+    it (None when the run does not record them), and `sub_agent_calls`
+    (tool id -> the calls of that sub-agent tool; None when the run has no
+    trace)."""
     trace = [m for m in (run.get("trace") or []) if isinstance(m, Mapping)]
     reasoning = any(
         m.get("role") == "assistant" and (m.get("reasoning_content") or "")
@@ -101,13 +115,14 @@ def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
         "model": model,
         "provider": provider,
         "output_tokens": float(tokens) if isinstance(tokens, (int, float)) else None,
+        "sub_agent_calls": calls_by_tool(run),
     }
 
 
 @dataclass(frozen=True)
 class LeverVerdict:
     status: str  # "applied" | "not_applied" | "unverified"
-    reason: str = ""
+    reason: str = ""  # on "applied": what the drives show, when it is worth a line
 
 
 def _token_ratio(
@@ -189,9 +204,39 @@ def lever_verdict(
         unverified.append(
             f"{want_model}@{want_provider}: no drive records the model that served it"
         )
+    shown = ""
+    old_tools = set(sub_agent_tool_ids(parent)) if parent is not None else None
+    new_tools = (
+        [t for t in dict.fromkeys(sub_agent_tool_ids(props)) if t not in old_tools]
+        if old_tools is not None
+        else []
+    )
+    if new_tools:
+        names = ", ".join(new_tools)
+        traced = [
+            calls
+            for e in evidence.values()
+            if isinstance(calls := e.get("sub_agent_calls"), Mapping)
+        ]
+        called = sum(1 for calls in traced if any(calls.get(t) for t in new_tools))
+        if called:
+            shown = f"sub-agent tool {names} called in {called} of {len(traced)} drives"
+        elif len(traced) >= MIN_SUB_AGENT_DRIVES:
+            return LeverVerdict(
+                "not_applied",
+                f"lever not applied: the run config attaches the sub-agent tool"
+                f" {names}, but 0 of {len(traced)} drives call it. The subject"
+                " model does not delegate: its prompt or the tool description"
+                " does not say when to call the sub-agent",
+            )
+        else:
+            unverified.append(
+                f"sub-agent tool {names}: {len(traced)} drive(s) with a trace,"
+                " none calls it"
+            )
     if unverified:
         return LeverVerdict("unverified", "lever unverified: " + "; ".join(unverified))
-    return LeverVerdict("applied")
+    return LeverVerdict("applied", shown)
 
 
 def lever_not_applied(
