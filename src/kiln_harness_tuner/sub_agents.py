@@ -9,9 +9,10 @@ sub-agent's task: one turn, with no state from an earlier call.
 This module is the one reader of that structure. The gateway and the loop's
 own code both use it, so they agree on what a sub-agent is:
 
-- `read_sub_agents`: the sub-agents a run config attaches, each with its
-  task and the run config its tool pins. The model policy and the integrity
-  checks read the sub-agent's model and its text from here.
+- `read_sub_agent`, `read_sub_agent_tree`: the sub-agents a run config
+  attaches, each with its task and the run config its tool pins, and the
+  sub-agents of those. The model policy and the integrity checks read the
+  sub-agent's model and its text from here.
 - `sub_agent_calls`: the calls of sub-agent tools that a task run's trace
   shows. This is the evidence that the lever was applied.
 - `latency_measured`, `cost_measured`: whether a run's latency and cost
@@ -48,7 +49,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from kiln_harness_tuner.kiln import KilnError
+from kiln_harness_tuner.kiln import KilnAPIError, KilnError
 
 Call = Callable[..., Awaitable[Any]]
 
@@ -73,6 +74,19 @@ CREATED_FILE = "gateway_created.jsonl"
 SUB_AGENT_TASK_KIND = "sub_agent_task"
 SUB_AGENT_RUN_CONFIG_KIND = "sub_agent_run_config"
 SUB_AGENT_TOOL_KIND = "sub_agent_tool"
+
+
+def prompt_reads_runs(prompt_id: Any) -> bool:
+    """Does this prompt id name a generator that builds its text from the
+    task's stored runs (few-shot, multi-shot, repairs)? A missing id is
+    not one."""
+    if not isinstance(prompt_id, str) or not prompt_id:
+        return False
+    return prompt_id not in RUN_FREE_PROMPT_GENERATORS and not prompt_id.startswith(
+        RUN_FREE_PROMPT_PREFIXES
+    )
+
+
 # A sub-agent can attach a sub-agent of its own. The usage of nested runs
 # is added down to this depth.
 MAX_USAGE_DEPTH = 3
@@ -129,12 +143,7 @@ class SubAgent:
         stored runs? A frozen prompt on the run config is never one."""
         if isinstance((self.run_config or {}).get("prompt"), dict):
             return False
-        prompt_id = self.properties.get("prompt_id")
-        if not isinstance(prompt_id, str) or not prompt_id:
-            return False
-        return prompt_id not in RUN_FREE_PROMPT_GENERATORS and not prompt_id.startswith(
-            RUN_FREE_PROMPT_PREFIXES
-        )
+        return prompt_reads_runs(self.properties.get("prompt_id"))
 
     @property
     def pair(self) -> tuple[str | None, str | None]:
@@ -187,15 +196,31 @@ async def read_sub_agent(call: Call, project_id: str, tool_id: str) -> SubAgent 
     )
 
 
-async def read_sub_agents(
-    call: Call, project_id: str, props: Any
+async def read_sub_agent_tree(
+    call: Call, project_id: str, props: Any, depth: int = MAX_USAGE_DEPTH
 ) -> dict[str, SubAgent | None]:
     """tool id -> the sub-agent, for each `kiln_task::` tool that run-config
-    properties attach. None: the id names no Kiln task tool."""
-    return {
-        tool_id: await read_sub_agent(call, project_id, tool_id)
-        for tool_id in dict.fromkeys(sub_agent_tool_ids(props))
-    }
+    properties attach, and for each one that those sub-agents attach,
+    `depth` levels down. None: the id names no Kiln task tool (Kiln answers
+    404, or the server is of another kind). Raises any other `KilnError`."""
+    found: dict[str, SubAgent | None] = {}
+    for tool_id in dict.fromkeys(sub_agent_tool_ids(props)):
+        if tool_id in found:
+            continue
+        try:
+            sub = await read_sub_agent(call, project_id, tool_id)
+        except KilnAPIError as exc:
+            if exc.status_code != 404:
+                raise
+            sub = None
+        found[tool_id] = sub
+        if sub is not None and depth > 1:
+            below = await read_sub_agent_tree(
+                call, project_id, sub.properties, depth - 1
+            )
+            for key, value in below.items():
+                found.setdefault(key, value)
+    return found
 
 
 # ---- what a run created ----
@@ -319,10 +344,6 @@ LATENCY_NOT_MEASURED = (
     "not measured: a drive of this run config calls a sub-agent, and the"
     " latency of a run leaves the sub-agent's time out"
 )
-COST_NOT_MEASURED = (
-    "not measured: a drive of this run config calls a sub-agent, and its run"
-    " does not hold the sub-agent's usage"
-)
 
 
 def calls_a_sub_agent(run: Mapping[str, Any]) -> bool:
@@ -401,6 +422,18 @@ class SubAgentUsage:
             else "; it is not in `usage`"
         )
         return text + ". The latency in `usage` never includes a sub-agent's time"
+
+
+def lower_bound_note(metrics: Sequence[str]) -> str:
+    """The line for a comparison whose reference calls a sub-agent: its
+    numbers are lower bounds, so the comparison can only understate a
+    gain. "" when there is none."""
+    if not metrics:
+        return ""
+    return (
+        f"the baseline's {' and '.join(metrics)} leave its sub-agent out: a"
+        " lower bound, so a gain against it is a real gain"
+    )
 
 
 def usage_line(infos: Sequence[SubAgentUsage], drives: int) -> str:

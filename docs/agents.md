@@ -287,10 +287,11 @@ scope check, and it is there because this failure is hard to see otherwise.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
 `AnalysisBundle` (the label-free numbers table plus every named hole in it),
-and its own experiment memory id. `measurement_notes` is set when a run
-config of the comparison attaches a sub-agent and the arm has no paired
-timing: its latency and cost are then not measured, and the rows carry
-none ([architecture.md](architecture.md) section 19.4).
+and its own experiment memory id. `measurement_notes` names each metric
+that is not measured because a run config of the comparison calls or
+attaches a sub-agent: the latency always, and the cost when the runs do not
+hold the sub-agent's usage. The rows and the bundle then carry no number for
+that metric ([architecture.md](architecture.md) section 19.4).
 
 **Must return** `ExperimentResult`:
 

@@ -84,28 +84,31 @@ def keep_policy(
 ) -> dict[str, Any]:
     """The policy `--models keep` stands for, as JSON: the baseline's one
     pair, as an exception. Every other pair is refused. `sub_agents`: the
-    pairs of the sub-agents that the baseline attaches. They are exceptions
-    too: to keep the models is to keep every model the baseline calls."""
+    pairs of the sub-agents that the baseline attaches. They are
+    `sub_agent_exceptions`: a sub-agent may keep its model, and the subject
+    may not move to it."""
     extra = [pair for pair in dict.fromkeys(sub_agents) if pair != (provider, model)]
     kept = "".join(f", and its sub-agents' {p}/{m}" for p, m in extra)
-    return {
+    data: dict[str, Any] = {
         "description": (
             f"Keep the task's model: {provider}/{model}{kept} ({KEEP_SOURCE})."
             " No other model or provider is allowed. Thinking level,"
             " temperature and top_p may change."
         ),
         "exceptions": [
-            {"provider": provider, "model": model, "reason": "the baseline's model"},
-            *(
-                {
-                    "provider": p,
-                    "model": m,
-                    "reason": "the model of a sub-agent of the baseline",
-                }
-                for p, m in extra
-            ),
+            {"provider": provider, "model": model, "reason": "the baseline's model"}
         ],
     }
+    if extra:
+        data["sub_agent_exceptions"] = [
+            {
+                "provider": p,
+                "model": m,
+                "reason": "the model of a sub-agent of the baseline",
+            }
+            for p, m in extra
+        ]
+    return data
 
 
 class ModelPolicyError(ValueError):
@@ -147,15 +150,20 @@ class ModelPolicy:
     deny: tuple[Rule, ...] = ()
     exceptions: tuple[Rule, ...] = ()
     description: str = ""
+    # Exact pairs that a sub-agent may use and the subject may not.
+    sub_agent_exceptions: tuple[Rule, ...] = ()
 
-    def decide(self, provider: str | None, model: str | None) -> Decision:
+    def decide(
+        self, provider: str | None, model: str | None, *, sub_agent: bool = False
+    ) -> Decision:
         if not provider or not model:
             return Decision(
                 False,
                 "the run config names no model provider and model, so the"
                 " policy cannot place it",
             )
-        for rule in self.exceptions:
+        extra = self.sub_agent_exceptions if sub_agent else ()
+        for rule in (*self.exceptions, *extra):
             if rule.provider == provider and rule.model == model:
                 return Decision(True, f"exception {rule.label()}")
         for rule in self.deny:
@@ -167,9 +175,13 @@ class ModelPolicy:
                 return Decision(True, f"allowed by {rule.label()}")
         return Decision(False, "no allow rule matches it")
 
-    def refusal(self, provider: str | None, model: str | None) -> str | None:
-        """None when the pair is allowed, else a one-line reason."""
-        decision = self.decide(provider, model)
+    def refusal(
+        self, provider: str | None, model: str | None, *, sub_agent: bool = False
+    ) -> str | None:
+        """None when the pair is allowed, else a one-line reason. With
+        `sub_agent`, for the run config that a sub-agent's tool pins: the
+        `sub_agent_exceptions` count too."""
+        decision = self.decide(provider, model, sub_agent=sub_agent)
         if decision.allowed:
             return None
         return f"model {provider}/{model} is outside the model policy: {decision.why}"
@@ -185,6 +197,10 @@ class ModelPolicy:
             "exceptions": [
                 r.label() + (f" ({r.reason})" if r.reason else "")
                 for r in self.exceptions
+            ],
+            "sub_agent_exceptions": [
+                r.label() + (f" ({r.reason})" if r.reason else "")
+                for r in self.sub_agent_exceptions
             ],
             "order": "exceptions, then deny, then allow; anything else is refused",
         }
@@ -203,7 +219,13 @@ class ModelPolicy:
     def from_json(data: Any, source: str = "the policy") -> ModelPolicy:
         if not isinstance(data, dict):
             raise ModelPolicyError(f"{source} must be a JSON object")
-        unknown = set(data) - {"description", "allow", "deny", "exceptions"}
+        unknown = set(data) - {
+            "description",
+            "allow",
+            "deny",
+            "exceptions",
+            "sub_agent_exceptions",
+        }
         if unknown:
             raise ModelPolicyError(
                 f"{source} has unknown key(s) {sorted(unknown)} — a misspelled"
@@ -215,7 +237,10 @@ class ModelPolicy:
                 f"{source} allows nothing: give at least one allow rule or exception"
             )
         exceptions = _rules(data.get("exceptions"), "exceptions", source)
-        for rule in exceptions:
+        sub_agent_exceptions = _rules(
+            data.get("sub_agent_exceptions"), "sub_agent_exceptions", source
+        )
+        for rule in (*exceptions, *sub_agent_exceptions):
             if _WILDCARDS & set(rule.provider + rule.model):
                 raise ModelPolicyError(
                     f"{source}: exception {rule.label()} has a wildcard — an"
@@ -226,6 +251,7 @@ class ModelPolicy:
             deny=_rules(data.get("deny"), "deny", source),
             exceptions=exceptions,
             description=str(data.get("description") or ""),
+            sub_agent_exceptions=sub_agent_exceptions,
         )
 
     @staticmethod

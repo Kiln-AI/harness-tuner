@@ -115,13 +115,16 @@ change.
   `failures` for each item. Its costs are cleared too when one such run
   does not hold the sub-agent's usage. `DrivePass.unmeasured_latency` and
   `.unmeasured_cost` name those run configs, and `DrivePass.sub_agents`
-  holds the `SubAgentUsage` of each drive with a call. The gate's
-  `paired_drive_pass` and the baseline timing read `failures` as the
-  reason of a missing pair, so they need no change.
+  holds the `SubAgentUsage` of each drive with a call. The withheld values
+  are kept in `DrivePass.lower_latencies` and `.lower_costs`, and
+  `reference_latencies` / `reference_costs` give them for the reference
+  side of a comparison: the gate's `paired_drive_pass` and the engine use
+  them for the baseline, never for a candidate.
 - `measure.py`: two sets of withheld run configs for the whole
   measurement. After each timing chunk, the withheld values of a side are
   cleared, and `Evidence.unmeasured[metric]` holds the reason when the
-  side is the candidate or the baseline. `Measured.latency` and `.cost`
+  side is the candidate. A withheld reference is not cleared: its lower
+  bound stays, and `lower_bound_note` goes on the measured line. `Measured.latency` and `.cost`
   are built only for a metric that is measured. `Measured.usage_note` is
   `usage_line(…)`. An applied verdict with a reason becomes the
   `lever_note` and a `lever_applied` event.
@@ -175,7 +178,8 @@ change.
 - The cost test depends on Kiln-AI/Kiln#2077 as written: the `usage` key
   on the sub-agent tool message. A change of that key in review turns the
   test off, and the cost is then not measured.
-- With a sub-agent in the baseline, no candidate can be compared with it
-  on speed, and on cost only when the runs hold the sub-agent's usage.
+- With a sub-agent in the baseline, a candidate that keeps one cannot be
+  compared with it on speed. A candidate that drops it is compared with
+  the baseline's lower bound.
 - A sub-agent that a code tool calls leaves no tool message of its own,
   so the guard does not see it.

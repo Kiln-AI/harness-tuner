@@ -2290,9 +2290,16 @@ A sub-agent's input is the task's data, so its model is held to the model
 policy (section 17) at each place the subject's is: in the gateway, when a
 sub-agent is created and when a run config that attaches one is created or
 driven; in `policy_refusal`, before a run config is measured and at the
-gate. The baseline chain stays exempt. Under `--models keep`, the pinned
-policy holds the baseline's pair and the pair of each sub-agent that the
-baseline attaches. A new sub-agent then runs on one of those pairs.
+gate. The check follows a sub-agent of a sub-agent, three levels down
+(`sub_agents.read_sub_agent_tree`, `orchestrator.rc_sub_agent_pairs`). A
+sub-agent that cannot be read refuses the run config: at the gate and in
+the measurement guard it is a refusal, never an error that ends the run.
+The baseline chain stays exempt. Under `--models keep`, the pinned policy
+holds the baseline's pair as an exception, and the pair of each sub-agent
+that the baseline attaches as a `sub_agent_exception`: a pair that only a
+sub-agent may use (`ModelPolicy.refusal(…, sub_agent=True)`). So a new
+sub-agent runs on one of those pairs, and the subject cannot move to its
+sub-agent's model.
 
 ### 19.3 The integrity checks
 
@@ -2342,18 +2349,27 @@ sub-agent out. A metric that is not measured is withheld, in code:
   item, and each item has the reason (`sub_agents.LATENCY_NOT_MEASURED`).
   It has no cost either when the run of one such drive does not hold the
   sub-agent's usage. One drive is enough: the items that call no sub-agent
-  are not a fair sample of the requests. A comparison of a withheld metric
-  has no pair, so it is `incomplete` and gives no verdict.
-- **The measurement engine.** The values of a withheld side (the
-  candidate or the baseline) are cleared for every chunk, and
-  `Evidence.unmeasured` holds the reason for each metric. Under `speed`
-  the `not_better` rule stops a candidate with no latency, and under
-  `cost` one with no cost, before a judge is paid for. A parent whose
-  values are withheld only ends the check against the parent.
+  are not a fair sample of the requests. A drive with no trace, of a run
+  config that attaches a sub-agent, is withheld too: it cannot show that
+  it called none. A candidate's comparison of a withheld metric has no
+  pair, so it is `incomplete` and gives no verdict.
+- **The reference is a lower bound.** The withheld values are kept
+  (`DrivePass.lower_latencies`, `.lower_costs`) and used for the
+  REFERENCE side only (`DrivePass.reference_latencies`): a baseline that
+  calls a sub-agent is cheaper and faster on paper than it is, so a
+  candidate that beats its numbers beats it. A candidate that drops the
+  baseline's sub-agent can therefore win on speed or cost. The measured
+  line says that the baseline's numbers are a lower bound.
+- **The measurement engine.** The values of a withheld candidate are
+  cleared for every chunk, and `Evidence.unmeasured` holds the reason for
+  each metric. Under `speed` the `not_better` rule stops a candidate with
+  no latency, and under `cost` one with no cost, before a judge is paid
+  for. A parent whose values are withheld only ends the check against the
+  parent.
 - **The analysis table.** The passive latency of stored eval runs is left
-  off the rows when a run of either side calls a sub-agent, and the
-  passive cost when a run of either side does not hold the sub-agent's
-  usage (`Analyzer`).
+  off the rows when a run of the candidate calls a sub-agent, and the
+  passive cost when one does not hold the sub-agent's usage (`Analyzer`).
+  The baseline's runs give a lower bound, as above.
 - **The agents.** A train result row whose run calls a sub-agent has no
   latency, no cost unless the run holds the sub-agent's usage, and a
   `usage_note`. The analyzer's input names what was not measured

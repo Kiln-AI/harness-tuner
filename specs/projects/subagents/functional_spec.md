@@ -63,7 +63,9 @@ Checks, all before the first write:
 1. The request is valid (the table above).
 2. The run config is a `kiln_agent` config, and its model passes the model
    policy.
-3. Its `tools_config.tools` has no `kiln_task::` tool, no
+3. Its prompt is not a generator that builds its text from the task's
+   stored runs (few-shot, multi-shot, repairs).
+4. Its `tools_config.tools` has no `kiln_task::` tool, no
    `kiln_tool::call_kiln_api` and no `kiln_tool::memory::` tool. An OpenEnv
    tool is allowed (section 4).
 
@@ -116,10 +118,13 @@ The policy is checked for a sub-agent's (provider, model) pair:
 - in the gateway: `create_sub_agent`, `create_run_config`, `run_task`;
 - in the loop: before each measurement of a run config, and at the gate.
 
-The baseline chain is exempt, as for its own model. A tool id that names
-no sub-agent is refused. Under `--models keep`, the pinned policy holds
-the baseline's pair and the pair of each sub-agent that the baseline
-attaches.
+The check follows a sub-agent of a sub-agent, three levels down. The
+baseline chain is exempt, as for its own model. A tool id that names no
+sub-agent is refused, and so is a sub-agent that cannot be read (in the
+loop this is a refusal, never an error that ends the run). Under
+`--models keep`, the pinned policy holds the baseline's pair as an
+exception, and the pair of each sub-agent that the baseline attaches as a
+`sub_agent_exception`, which only a sub-agent may use.
 
 ## 6. The integrity checks
 
@@ -171,10 +176,11 @@ What follows from them:
   not retried, and it is not diagnosed as a failure.
 - A run config with a timing drive whose cost is not measured has no cost
   from the timing drives, on any of its items.
-- A comparison of a withheld metric, with that run config as the candidate
-  or the baseline, has no pair. It is incomplete and never "clearly
-  faster" or "clearly cheaper". A withheld parent only ends the check
-  against the parent.
+- A comparison of a withheld metric, with that run config as the
+  candidate, has no pair. It is incomplete and never "clearly faster" or
+  "clearly cheaper". A withheld parent only ends the check against the
+  parent. A withheld baseline keeps its values as a lower bound, and the
+  candidate is compared with them.
 - Under `speed`, a candidate whose latency is withheld stops at the end of
   its timing, before a judge is paid for, with "latency not measured: the
   drives of the candidate call a sub-agent, …". Under `cost`, a candidate

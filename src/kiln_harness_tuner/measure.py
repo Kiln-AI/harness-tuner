@@ -135,7 +135,11 @@ from kiln_harness_tuner.stop_rules import (
     rule_text,
     run_budget_line,
 )
-from kiln_harness_tuner.sub_agents import not_measured_note, usage_line
+from kiln_harness_tuner.sub_agents import (
+    lower_bound_note,
+    not_measured_note,
+    usage_line,
+)
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -648,6 +652,9 @@ class _State:
     spend: float = 0.0
     lever_note: str = ""
     sub_agent_drives: list[Any] = field(default_factory=list)
+    # The metrics ("latency", "cost") whose reference values leave the
+    # reference's sub-agent out: lower bounds.
+    lower_bound: set[str] = field(default_factory=set)
     evidence_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     lever_checked: bool = False
     budget: Budget | None = None
@@ -1181,8 +1188,11 @@ async def _measure(
                 s.pairs_done += len(batch)
                 ev.latency.update(drives.latencies.get(s.cand.rc_id, {}))
                 ev.cost.update(costs.get(s.cand.rc_id, {}))
-                ev.ref_latency.update(drives.latencies.get(spec.reference_rc_id, {}))
-                ev.ref_cost.update(costs.get(spec.reference_rc_id, {}))
+                # A reference that calls a sub-agent gives its lower bounds:
+                # a candidate that beats them beats the reference.
+                ref = spec.reference_rc_id
+                ev.ref_latency.update(drives.reference_latencies(ref))
+                ev.ref_cost.update(drives.reference_costs(ref))
                 if ev.parent_latency is not None:
                     ev.parent_latency.update(
                         drives.latencies.get(s.cand.parent_rc_id, {})
@@ -1195,36 +1205,30 @@ async def _measure(
                 )
                 s.evidence_seen.update((drives.evidence or {}).get(s.cand.rc_id) or {})
                 s.sub_agent_drives += (drives.sub_agents or {}).get(s.cand.rc_id, [])
-                # A side whose drives call a sub-agent has no latency, and
-                # no cost when its runs do not hold the sub-agent's usage.
-                # That holds for every chunk, so the earlier values go too.
-                sides = (
-                    ("the candidate", s.cand.rc_id, ev.latency, ev.cost),
-                    ("the baseline", spec.reference_rc_id, ev.ref_latency, ev.ref_cost),
+                # A candidate whose drives call a sub-agent has no latency,
+                # and no cost when its runs do not hold the sub-agent's
+                # usage. That holds for every chunk, so the earlier values
+                # go too. A withheld parent only ends the check against the
+                # parent. A withheld reference stays, as a lower bound.
+                for metric, word, withheld_rcs, own_values, parents in (
                     (
-                        "its parent",
-                        s.cand.parent_rc_id,
+                        "latency_ms",
+                        "latency",
+                        no_latency,
+                        ev.latency,
                         ev.parent_latency,
-                        ev.parent_cost,
                     ),
-                )
-                for metric, word, withheld_rcs, index in (
-                    ("latency_ms", "latency", no_latency, 2),
-                    ("cost_usd", "cost", no_cost, 3),
+                    ("cost_usd", "cost", no_cost, ev.cost, ev.parent_cost),
                 ):
-                    who = []
-                    for side in sides:
-                        if side[1] in withheld_rcs and side[index] is not None:
-                            side[index].clear()
-                            # A withheld parent only ends the check against
-                            # the parent: the candidate is still compared
-                            # with the baseline.
-                            if side[0] != "its parent":
-                                who.append(side[0])
-                    if who:
+                    if s.cand.rc_id in withheld_rcs:
+                        own_values.clear()
                         ev.unmeasured[metric] = not_measured_note(
-                            " and ".join(dict.fromkeys(who)), [word]
+                            "the candidate", [word]
                         )
+                    if s.cand.parent_rc_id in withheld_rcs and parents is not None:
+                        parents.clear()
+                    if spec.reference_rc_id in withheld_rcs:
+                        s.lower_bound.add(word)
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
@@ -1434,8 +1438,15 @@ async def _measure(
             stop=s.stop,
             error=s.error,
             lever_note=s.lever_note,
-            usage_note=usage_line(s.sub_agent_drives, len(s.evidence_seen))
-            or "; ".join(ev.unmeasured.values()),
+            usage_note="; ".join(
+                part
+                for part in (
+                    usage_line(s.sub_agent_drives, len(s.evidence_seen))
+                    or "; ".join(ev.unmeasured.values()),
+                    lower_bound_note(sorted(s.lower_bound)),
+                )
+                if part
+            ),
             spend_usd=s.spend,
             chunks=s.chunks,
             planned_chunks=len(bounds),

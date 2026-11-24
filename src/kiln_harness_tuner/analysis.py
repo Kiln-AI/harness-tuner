@@ -1678,11 +1678,12 @@ class Analyzer:
         # A stored run that calls a sub-agent carries the latency of its own
         # model calls only, and its cost holds the sub-agent's only when
         # Kiln wrote that usage in the run (`kiln_harness_tuner.sub_agents`).
-        # A comparison of the other numbers would show a delegating arm as
-        # cheap and fast, so the rows carry none.
-        if not all(latency_measured(run) for run in all_runs):
+        # A candidate's such number would show a delegating arm as cheap and
+        # fast, so the rows carry none. A baseline's is a lower bound: a
+        # comparison with it can only understate a gain, so it stays.
+        if not all(latency_measured(run) for run in candidate_runs):
             latency = None
-        if not all(cost_measured(run) for run in all_runs):
+        if not all(cost_measured(run) for run in candidate_runs):
             cost = None
         rows = []
         for spec, values_a, values_b in paired:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from conftest import fix_item, make_ctx, make_result
 from fake_dispatcher import ok
 from fake_kiln import FakeKiln
@@ -83,8 +84,8 @@ from kiln_harness_tuner.sub_agents import (
     created_sub_agents,
     latency_measured,
     read_sub_agent,
+    read_sub_agent_tree,
     read_sub_agent_usage,
-    read_sub_agents,
     sub_agent_calls,
     sub_agent_tool_ids,
     usage_line,
@@ -173,7 +174,7 @@ async def test_a_tool_whose_run_config_is_gone_has_no_model():
     kiln = FakeKiln()
     kiln.add_sub_agent(SERVER, SUB_TASK, SUB_RC)
     kiln.sub_tasks[SUB_TASK]["run_configs"] = []
-    (sub,) = (await read_sub_agents(kiln.call, PROJECT, _props(TOOL))).values()
+    (sub,) = (await read_sub_agent_tree(kiln.call, PROJECT, _props(TOOL))).values()
     assert sub.run_config is None and sub.pair == (None, None)
 
 
@@ -400,6 +401,53 @@ async def test_one_run_without_the_usage_key_withholds_the_cost_of_all(tmp_path)
     assert drives.costs["rc_cand"] == {} and drives.unmeasured_cost == {"rc_cand"}
 
 
+async def test_a_drive_with_no_trace_of_a_sub_agent_run_config_is_withheld(
+    tmp_path,
+):
+    """A run with no trace cannot show that it called no sub-agent. For a
+    run config that attaches one, its numbers are not measured."""
+    ctx, inputs = _drive_ctx(tmp_path)
+    with_sub = _rc("rc_cand")
+    with_sub["run_config_properties"]["tools_config"] = {"tools": [TOOL]}
+    ctx.kiln.run_configs = [_rc("rc_base"), with_sub]
+
+    def no_trace(_body):
+        run = _run()
+        del run["trace"]
+        return run
+
+    ctx.kiln.run_handler = no_trace
+    drives = await timed_drives(ctx, ["rc_base", "rc_cand"], inputs, "x")
+    assert drives.latencies["rc_cand"] == {} and drives.costs["rc_cand"] == {}
+    assert drives.unmeasured_cost == {"rc_cand"}
+    # A run config with no sub-agent and no trace keeps its numbers.
+    assert set(drives.latencies["rc_base"].values()) == {300.0}
+
+
+async def test_a_baseline_that_calls_a_sub_agent_is_a_lower_bound(tmp_path):
+    """The baseline's numbers leave its sub-agent out, so they are lower
+    than the request's. A candidate that calls no sub-agent and beats them
+    beats the baseline: the comparison stands. A candidate that calls one
+    stays withheld."""
+    ctx, inputs = _drive_ctx(tmp_path)
+
+    def drive(body):
+        if body["task_run_config_id"] == "rc_base":
+            return _run(_tool_message(), cost=0.05, latency=5000)
+        return _run(cost=0.001, latency=100)
+
+    ctx.kiln.run_handler = drive
+    paired = await paired_drive_pass(ctx, "rc_base", ["rc_cand"], inputs, "train", "x")
+    latency, cost = paired.latency["rc_cand"], paired.cost["rc_cand"]
+    # Four pairs, all present: none is dropped for the sub-agent.
+    assert latency.n_items == 4 and latency.dropped_items == {}
+    assert latency.baseline_median_ms == 5000.0 and latency.candidate_median_ms == 100.0
+    assert cost.n_items == 4 and cost.baseline_median_ms == 0.05
+    drives = await timed_drives(ctx, ["rc_base"], inputs, "y")
+    assert drives.latencies["rc_base"] == {}  # never the arm's own number
+    assert set(drives.reference_latencies("rc_base").values()) == {5000.0}
+
+
 def test_the_line_on_a_record_says_what_is_measured():
     left_out = [
         SubAgentUsage(calls=1, cost=0.02, latency_ms=700.0, in_run_usage=False),
@@ -606,13 +654,30 @@ async def test_a_tool_that_names_no_sub_agent_is_refused():
 
 
 def test_to_keep_the_models_is_to_keep_the_sub_agents_models():
+    """The sub-agent may keep its model. The subject may not move to it:
+    the user chose to keep the subject's model."""
     policy = ModelPolicy.from_json(
         keep_policy("openai", "gpt-test", [("groq", "kimi"), ("openai", "gpt-test")])
     )
     assert policy.refusal("openai", "gpt-test") is None
-    assert policy.refusal("groq", "kimi") is None
-    assert policy.refusal("groq", "other") is not None
-    assert len(keep_policy("openai", "gpt-test")["exceptions"]) == 1
+    assert policy.refusal("openai", "gpt-test", sub_agent=True) is None
+    assert policy.refusal("groq", "kimi", sub_agent=True) is None
+    assert policy.refusal("groq", "kimi") is not None  # the subject
+    assert policy.refusal("groq", "other", sub_agent=True) is not None
+    assert "sub_agent_exceptions" not in keep_policy("openai", "gpt-test")
+    assert policy.summary()["sub_agent_exceptions"] == [
+        "groq/kimi (the model of a sub-agent of the baseline)"
+    ]
+
+
+def test_a_sub_agent_exception_must_be_one_exact_pair():
+    with pytest.raises(ValueError, match="wildcard"):
+        ModelPolicy.from_json(
+            {
+                "exceptions": [{"provider": "openai", "model": "m"}],
+                "sub_agent_exceptions": [{"provider": "groq", "model": "*"}],
+            }
+        )
 
 
 async def test_models_keep_pins_the_baselines_sub_agent_model_too(tmp_path):
@@ -621,16 +686,91 @@ async def test_models_keep_pins_the_baselines_sub_agent_model_too(tmp_path):
     ctx.run_dir = tmp_path
     ctx.kiln.add_sub_agent(SERVER, SUB_TASK, SUB_RC, provider="groq", model="kimi")
     own = {"model_provider_name": "openai", "model_name": "gpt-test"}
-    ctx.kiln.run_configs = [_attaches("rc_base", "p", TOOL, **own)]
+    ctx.kiln.run_configs = [
+        _attaches("rc_base", "p", TOOL, **own),
+        # A candidate that moves the subject to the sub-agent's model.
+        _attaches("rc_moved", "p", TOOL, model_provider_name="groq", model_name="kimi"),
+    ]
     await pin_baseline_model(ctx, "rc_base")
 
-    assert ctx.model_policy.refusal("groq", "kimi") is None
-    assert ctx.model_policy.refusal("groq", "other") is not None
+    assert ctx.model_policy.refusal("groq", "kimi", sub_agent=True) is None
+    assert ctx.model_policy.refusal("groq", "other", sub_agent=True) is not None
     written = json.loads((tmp_path / "model_policy.json").read_text())
-    assert {(e["provider"], e["model"]) for e in written["exceptions"]} == {
-        ("openai", "gpt-test"),
-        ("groq", "kimi"),
-    }
+    assert [(e["provider"], e["model"]) for e in written["exceptions"]] == [
+        ("openai", "gpt-test")
+    ]
+    assert [(e["provider"], e["model"]) for e in written["sub_agent_exceptions"]] == [
+        ("groq", "kimi")
+    ]
+    # The baseline, with its sub-agent, is allowed; the moved subject is not.
+    assert await policy_refusal(ctx, "rc_base") is None
+    refusal = await policy_refusal(ctx, "rc_moved")
+    assert refusal is not None and "groq/kimi" in refusal and "sub-agent" not in refusal
+
+
+async def test_the_policy_holds_for_a_sub_agent_of_a_sub_agent():
+    """A sub-agent that the user made can attach one of its own. That one
+    gets the task's data too."""
+    ctx = _policy_ctx("openai")
+    ctx.kiln.sub_tasks[SUB_TASK]["run_configs"][0]["run_config_properties"][
+        "tools_config"
+    ] = {"tools": ["kiln_task::inner"]}
+    ctx.kiln.add_sub_agent("inner", "424242900031", "424242900032", provider="groq")
+    refusal = await policy_refusal(ctx, "rc_sub")
+    assert refusal is not None and "sub-agent tool kiln_task::inner" in refusal
+
+
+async def test_a_sub_agent_that_cannot_be_read_is_refused_not_a_crash():
+    """The gate and the measurement guard call this: one failed read must
+    refuse the candidate, never end the run."""
+    ctx = _policy_ctx("openai")
+    real = ctx.kiln.call
+
+    async def down(method, path, *args, **kwargs):
+        if "tool_servers" in path:
+            raise KilnAPIError(method, path, 500, {"detail": "down"})
+        return await real(method, path, *args, **kwargs)
+
+    ctx.kiln.call = down
+    refusal = await policy_refusal(ctx, "rc_sub")
+    assert refusal is not None and "could not be read" in refusal
+    # The failed read is not kept: the next check reads again.
+    ctx.kiln.call = real
+    assert await policy_refusal(ctx, "rc_sub") is None
+
+
+async def test_a_quota_stop_still_archives_an_orphan_sub_agent_tool(
+    tmp_path, monkeypatch
+):
+    from kiln_harness_tuner import orchestrator as orch
+    from kiln_harness_tuner.provider_errors import ProviderQuotaError
+    from kiln_harness_tuner.schemas import ErrorInfo
+
+    ctx = make_ctx()
+    ctx.run_dir = tmp_path
+    ctx.kiln.add_sub_agent(SERVER, SUB_TASK, SUB_RC)
+    ctx.kiln.run_configs = [_attaches("rc_base", "p")]
+    _created(tmp_path)
+
+    async def quota(*_args, **_kwargs):
+        raise ProviderQuotaError(
+            ErrorInfo(error_class="quota_exhausted", detail="out of credits")
+        )
+
+    monkeypatch.setattr(orch, "_run_loop", quota)
+    assert await orch.orchestrate(ctx, "g", timeout_mins=10) == "quota_exhausted"
+    assert ctx.kiln.tool_server_archives == [SERVER]
+    assert [k for k, _ in ctx.log.events if k == "sub_agents"]
+
+
+async def test_a_failed_close_never_masks_the_exit(monkeypatch):
+    from kiln_harness_tuner import orchestrator as orch
+
+    async def broken(_ctx):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(orch, "close_sub_agents", broken)
+    await orch._close_sub_agents_safely(make_ctx())  # does not raise
 
 
 # ---- the integrity checks read the sub-agent's text ----
@@ -1130,3 +1270,32 @@ async def test_a_baseline_sub_agent_outside_the_policy_is_said_once_at_the_start
     ctx = _policy_ctx("openai")
     await _note_baseline_policy(ctx, "rc_sub")
     assert not [k for k, _ in ctx.log.events if k == "baseline_outside_policy"]
+
+
+async def test_dropping_the_baselines_sub_agent_can_win_on_speed(tmp_path):
+    """The baseline calls a sub-agent; the candidate calls none. The
+    baseline's latency is a lower bound, and the candidate beats it: the
+    candidate is clearly faster, and its record says why the comparison
+    holds."""
+    ctx = _sub_agent_arm(tmp_path, called=False)
+    ctx.objective = "speed"
+    own = {"model_provider_name": "openai", "model_name": "m"}
+    ctx.kiln.run_configs = [
+        _attaches("rc_base", BASE_PROMPT, TOOL, **own),
+        _attaches("rc_new", BASE_PROMPT, **own),
+    ]
+
+    def drive(body):
+        if body["task_run_config_id"] == "rc_base":
+            return _run(_tool_message(), cost=0.05, latency=5000)
+        return _run(cost=0.001, latency=100)
+
+    ctx.kiln.run_handler = drive
+    outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    assert outcome.status == "completed", outcome
+    (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
+    assert analysis.bundle.latency.clearly_faster
+    assert analysis.measurement_notes == []
+    record = ctx.kiln.memories[outcome.experiment_memory_id]["content"]
+    assert "the baseline's cost and latency leave its sub-agent out" in record

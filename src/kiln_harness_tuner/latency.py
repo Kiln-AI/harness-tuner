@@ -66,6 +66,7 @@ from statistics import median
 from typing import TYPE_CHECKING, Any, Literal
 
 from kiln_harness_tuner.schemas import LatencyComparison
+from kiln_harness_tuner.sub_agents import LATENCY_NOT_MEASURED
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -640,7 +641,18 @@ async def paired_drive_pass(
     latency: dict[str, LatencyComparison] = {}
     cost: dict[str, LatencyComparison] = {}
     ids = [i.id for i in inputs]
-    reference = timings_of(drives, baseline_rc_id)
+    # A baseline that calls a sub-agent is compared by its lower bounds: a
+    # candidate that beats them beats the baseline. A candidate that calls
+    # one stays withheld (`timed_drives`).
+    reference = ArmTimings(
+        latencies=drives.reference_latencies(baseline_rc_id),
+        costs=drives.reference_costs(baseline_rc_id),
+        failures={
+            k: v
+            for k, v in drives.failures.get(baseline_rc_id, {}).items()
+            if v != LATENCY_NOT_MEASURED
+        },
+    )
     for rc in candidate_rc_ids:
         latency[rc], cost[rc] = compare_arms(
             reference, timings_of(drives, rc), ids, split
@@ -670,6 +682,25 @@ class DrivePass:
     # does not hold the sub-agent's usage).
     unmeasured_latency: frozenset[str] = frozenset()
     unmeasured_cost: frozenset[str] = frozenset()
+    # The withheld values of those run configs. Each one is a LOWER bound
+    # of the request's value: the sub-agent's part is missing. Only the
+    # reference side of a comparison may use them: a candidate that beats
+    # the reference's lower bound beats the reference.
+    lower_latencies: dict[str, dict[str, float]] | None = None
+    lower_costs: dict[str, dict[str, float]] | None = None
+
+    def reference_latencies(self, rc_id: str) -> dict[str, float]:
+        """`rc_id`'s latencies as the reference side of a comparison: its
+        lower bounds when they are withheld."""
+        if rc_id in self.unmeasured_latency:
+            return dict((self.lower_latencies or {}).get(rc_id, {}))
+        return dict(self.latencies.get(rc_id, {}))
+
+    def reference_costs(self, rc_id: str) -> dict[str, float]:
+        """The same for the costs."""
+        if rc_id in self.unmeasured_cost:
+            return dict((self.lower_costs or {}).get(rc_id, {}))
+        return dict((self.costs or {}).get(rc_id, {}))
 
 
 def _drive_error_text(exc: Exception) -> str:
@@ -708,8 +739,12 @@ async def timed_drives(
     one such drive does not hold the sub-agent's usage
     (`sub_agents.cost_measured`). One drive is enough: the other items
     would be the requests that call no sub-agent, and so a biased sample.
-    The usage of the sub-agents' calls is read for information
-    (`sub_agents`), and it is never added to a drive's.
+    A drive with no trace, of a run config that attaches a sub-agent, is
+    withheld too: it cannot show that it called none. The withheld values
+    are kept as lower bounds (`lower_latencies`, `lower_costs`), for the
+    reference side of a comparison only. The usage of the sub-agents'
+    calls is read for information (`sub_agents`), and it is never added to
+    a drive's.
 
     Quota and billing failures stop the run (`ProviderQuotaError`): a drive
     error whose text names one raises at once, never retried. The studio
@@ -730,7 +765,11 @@ async def timed_drives(
     from kiln_harness_tuner.sub_agents import (
         LATENCY_NOT_MEASURED as NOT_MEASURED,
     )
-    from kiln_harness_tuner.sub_agents import read_sub_agent_usage
+    from kiln_harness_tuner.sub_agents import (
+        read_sub_agent_usage,
+        sub_agent_calls,
+        sub_agent_tool_ids,
+    )
 
     arms = list(arms)
     props = {rc: await rc_props(ctx, rc) for rc in arms}
@@ -747,14 +786,22 @@ async def timed_drives(
     sub_agents: dict[str, list[Any]] = {}
     no_latency: set[str] = set()
     no_cost: set[str] = set()
+    # rc -> item -> the latency of a drive that called a sub-agent.
+    held: dict[str, dict[str, float]] = {rc: {} for rc in arms}
 
     async def partial(rc: str, run: dict[str, Any]) -> bool:
         """Does the drive call a sub-agent? Its latency is then not the
         request's. Its cost is not either, unless the run holds the
-        sub-agent's usage. What the drive shows of the sub-agents' usage
-        is kept for information."""
+        sub-agent's usage. A drive with no trace, of a run config that
+        attaches a sub-agent, may have called one: neither is measured.
+        What the drive shows of the sub-agents' usage is kept for
+        information."""
         info = await read_sub_agent_usage(ctx.kiln.call, ctx.target.project_id, run)
         if not info.calls:
+            if sub_agent_calls(run) is None and sub_agent_tool_ids(props[rc]):
+                no_latency.add(rc)
+                no_cost.add(rc)
+                return True
             return False
         sub_agents.setdefault(rc, []).append(info)
         no_latency.add(rc)
@@ -831,6 +878,8 @@ async def timed_drives(
         if run_cost(run) > 0:
             costs[rc][inp.id] = run_cost(run)
         if partial:
+            if value:
+                held[rc][inp.id] = value
             return None, run_cost(run) + overhead, NOT_MEASURED
         why = "" if value else "no latency on the returned run"
         return value, run_cost(run) + overhead, why
@@ -859,11 +908,15 @@ async def timed_drives(
     await asyncio.gather(*(one_item(i, inp) for i, inp in enumerate(inputs)))
     # A run config with one such drive has no latency at all, and no cost
     # at all when a run does not hold the sub-agent's usage.
+    lower_latencies: dict[str, dict[str, float]] = {}
+    lower_costs: dict[str, dict[str, float]] = {}
     for rc in no_latency:
+        lower_latencies[rc] = {**latencies[rc], **held[rc]}
         latencies[rc].clear()
         for inp in inputs:
             failures[rc].setdefault(inp.id, NOT_MEASURED)
     for rc in no_cost:
+        lower_costs[rc] = dict(costs[rc])
         costs[rc].clear()
     failed = [
         (rc, item)
@@ -892,6 +945,8 @@ async def timed_drives(
         sub_agents or None,
         frozenset(no_latency),
         frozenset(no_cost),
+        lower_latencies or None,
+        lower_costs or None,
     )
 
 

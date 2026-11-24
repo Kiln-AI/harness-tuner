@@ -189,6 +189,7 @@ from kiln_harness_tuner.status import item_summary, plan_headline
 from kiln_harness_tuner.stop_rules import default_stop_rules, noise_flip_rate
 from kiln_harness_tuner.sub_agents import (
     KILN_TASK_TOOL_PREFIX,
+    MAX_USAGE_DEPTH,
     created_sub_agents,
     read_sub_agent,
     sub_agent_tool_ids,
@@ -410,6 +411,7 @@ class Ctx:
     _sub_agent_pairs: dict[str, tuple[str | None, str | None]] = field(
         default_factory=dict
     )
+    _sub_agent_children: dict[str, tuple[str, ...]] = field(default_factory=dict)
     # The detectability and noise checks (`kiln_harness_tuner.detectability`,
     # `kiln_harness_tuner.noise`).
     #   `detectability_check`: run the free pre-run check after the baseline's
@@ -551,6 +553,7 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
             )
         stop_line = quota_stop_line(exc.error.error_class, exc.error.detail)
         ctx.log.event("provider_quota", line=stop_line, detail=exc.error.detail)
+        await _close_sub_agents_safely(ctx)
         ctx.log.event("exit", reason=exit_reason, detail=exc.error.detail)
         logger.error("%s", stop_line)
         logger.error(
@@ -564,6 +567,7 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         return exit_reason
     except Exception as exc:
         reason = f"fatal:{type(exc).__name__}"
+        await _close_sub_agents_safely(ctx)
         ctx.log.event("exit", reason=reason, detail=str(exc)[:500])
         logger.error("run died on a fatal error: %r", exc)
         if progress.waves_started and ctx.write_fallback is not None:
@@ -3114,6 +3118,15 @@ async def archive_probe_run_configs(ctx: Ctx) -> int:
     return len(moved)
 
 
+async def _close_sub_agents_safely(ctx: Ctx) -> None:
+    """`close_sub_agents` on an exit that is already an error (a quota stop,
+    a fatal error): it never adds an error of its own."""
+    try:
+        await close_sub_agents(ctx)
+    except Exception as exc:
+        logger.warning("could not close the run's sub-agents: %r", exc)
+
+
 async def close_sub_agents(ctx: Ctx) -> int:
     """The run-end step for the sub-agents this run created (the gateway's
     registry names them): say which run configs of the subject task attach
@@ -3317,23 +3330,35 @@ async def rc_sub_agent_pairs(
     ctx: Ctx, rc_id: str
 ) -> dict[str, tuple[str | None, str | None]]:
     """tool id -> the (provider, model) of each sub-agent the run config
-    attaches. (None, None) for a tool whose Kiln task tool or pinned run
-    config is not found: the policy then refuses it."""
+    attaches, and of the sub-agents of those, `MAX_USAGE_DEPTH` levels
+    down. (None, None) for a tool whose Kiln task tool or pinned run config
+    is not found: the policy then refuses it. Raises a `KilnError` that is
+    not a 404; nothing read before it is lost from the cache."""
     await _rc_pair(ctx, rc_id)
     pairs: dict[str, tuple[str | None, str | None]] = {}
-    for tool_id in ctx._rc_sub_agent_tools.get(rc_id, ()):
-        if tool_id not in ctx._sub_agent_pairs:
-            try:
-                sub = await read_sub_agent(
-                    ctx.kiln.call, ctx.target.project_id, tool_id
+    level = list(ctx._rc_sub_agent_tools.get(rc_id, ()))
+    for _depth in range(MAX_USAGE_DEPTH):
+        below: list[str] = []
+        for tool_id in level:
+            if tool_id in pairs:
+                continue
+            if tool_id not in ctx._sub_agent_pairs:
+                try:
+                    sub = await read_sub_agent(
+                        ctx.kiln.call, ctx.target.project_id, tool_id
+                    )
+                except KilnAPIError as exc:
+                    if exc.status_code != 404:
+                        raise
+                    sub = None
+                # A tool pins its run config for good, so this never changes.
+                ctx._sub_agent_pairs[tool_id] = sub.pair if sub else (None, None)
+                ctx._sub_agent_children[tool_id] = (
+                    sub_agent_tool_ids(sub.properties) if sub else ()
                 )
-            except KilnAPIError as exc:
-                if exc.status_code != 404:
-                    raise
-                sub = None
-            # A tool pins its run config for good, so the pair never changes.
-            ctx._sub_agent_pairs[tool_id] = sub.pair if sub else (None, None)
-        pairs[tool_id] = ctx._sub_agent_pairs[tool_id]
+            pairs[tool_id] = ctx._sub_agent_pairs[tool_id]
+            below += ctx._sub_agent_children.get(tool_id, ())
+        level = below
     return pairs
 
 
@@ -3347,9 +3372,15 @@ async def policy_refusal(ctx: Ctx, rc_id: str) -> str | None:
     if refusal is not None:
         return f"rc {rc_id}: {refusal}"
     # The policy holds for the sub-agents too: a `kiln_task::` tool sends
-    # the task's data to the model of the run config it pins.
-    for tool_id, pair in (await rc_sub_agent_pairs(ctx, rc_id)).items():
-        refusal = ctx.model_policy.refusal(*pair)
+    # the task's data to the model of the run config it pins. A sub-agent
+    # that cannot be read is refused, not let through: the gate and the
+    # measurement guard must not die on one read.
+    try:
+        subs = await rc_sub_agent_pairs(ctx, rc_id)
+    except KilnError as exc:
+        return f"rc {rc_id}: its sub-agents could not be read ({repr(exc)[:160]})"
+    for tool_id, pair in subs.items():
+        refusal = ctx.model_policy.refusal(*pair, sub_agent=True)
         if refusal is not None:
             return f"rc {rc_id}: sub-agent tool {tool_id}: {refusal}"
     return None
@@ -3433,7 +3464,7 @@ async def _note_baseline_policy(ctx: Ctx, rc_id: str) -> None:
     except KilnError:
         return
     for tool_id, pair in subs.items():
-        refusal = ctx.model_policy.refusal(*pair)
+        refusal = ctx.model_policy.refusal(*pair, sub_agent=True)
         if refusal is not None:
             reason = f"sub-agent tool {tool_id}: {refusal}"
             ctx.log.event("baseline_outside_policy", rc_id=rc_id, reason=reason)

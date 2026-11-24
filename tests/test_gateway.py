@@ -2066,6 +2066,49 @@ class TestSubAgents:
         assert "bad output mode" in str(err.value)
         assert created_sub_agents(tmp_path / "run") == [CreatedSubAgent(SUB_TASK)]
 
+    @pytest.mark.parametrize(
+        "prompt_id", ["few_shot_prompt_builder", "repairs_prompt_builder"]
+    )
+    def test_a_prompt_built_from_stored_runs_is_refused(self, tmp_path, prompt_id):
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes({}))
+        props = {**SUB_PROPS, "prompt_id": prompt_id}
+        with pytest.raises(gw.GatewayError, match="stored runs"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert kiln.calls == []
+
+    def test_a_sub_agent_of_a_sub_agent_outside_the_policy_is_refused(self, tmp_path):
+        routes = {
+            **_attached_sub_agent("openai"),
+            ("GET", f"{P}/tool_servers/inner/config"): {
+                "id": "inner",
+                "type": "kiln_task",
+                "properties": {"task_id": "424242700011", "run_config_id": "rc_in"},
+            },
+            ("GET", f"{P}/tasks/424242700011"): {"id": "424242700011"},
+            ("GET", f"{P}/tasks/424242700011/run_configs"): [
+                {
+                    "id": "rc_in",
+                    "run_config_properties": {
+                        "model_name": "kimi",
+                        "model_provider_name": "groq",
+                    },
+                }
+            ],
+        }
+        rcs = routes[("GET", f"{P}/tasks/{SUB_TASK}/run_configs")]
+        rcs[0]["run_config_properties"]["tools_config"] = {
+            "tools": ["kiln_task::inner"]
+        }
+        policy = ModelPolicy.from_json(OPENAI_ONLY)
+        gateway, kiln = _gateway(tmp_path, routes, policy=policy)
+        with pytest.raises(gw.GatewayError, match="kiln_task::inner"):
+            self._attach(gateway)
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
     def test_only_the_build_agent_creates_a_sub_agent(self):
         roles = [r for r, ops in gw.ROLE_OPS.items() if "create_sub_agent" in ops]
         assert roles == ["create_experiment_rc"]

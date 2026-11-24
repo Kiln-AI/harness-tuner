@@ -46,17 +46,16 @@ from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.sub_agents import (
     CREATED_FILE,
     KILN_TASK_TOOL_PREFIX,
-    RUN_FREE_PROMPT_GENERATORS,
-    RUN_FREE_PROMPT_PREFIXES,
     SUB_AGENT_RUN_CONFIG_KIND,
     SUB_AGENT_TASK_KIND,
     SUB_AGENT_TOOL_KIND,
     SubAgent,
     cost_measured,
     latency_measured,
+    prompt_reads_runs,
     read_sub_agent,
+    read_sub_agent_tree,
     read_sub_agent_usage,
-    sub_agent_tool_ids,
     tool_ids_of,
 )
 
@@ -1105,9 +1104,7 @@ class Gateway:
         prompt_id = view.run_config.prompt_id
         if view.run_config.prompt is not None or not prompt_id:
             return view
-        if prompt_id not in RUN_FREE_PROMPT_GENERATORS and not prompt_id.startswith(
-            RUN_FREE_PROMPT_PREFIXES
-        ):
+        if prompt_reads_runs(prompt_id):
             # A generator such as few-shot or repairs builds its text from
             # the called task's stored runs, which the loop does not split:
             # one made while a held-out item was driven would show here.
@@ -1123,30 +1120,27 @@ class Gateway:
 
     # ------------------------------------------------------------ writes
 
-    def _policy_check(self, props: dict[str, Any]) -> None:
+    def _policy_check(self, props: dict[str, Any], *, sub_agent: bool = False) -> None:
         if props.get("type", "kiln_agent") != "kiln_agent":
             raise GatewayError("only kiln_agent run configs can be created here")
         if self.s.policy is not None:
             refusal = self.s.policy.refusal(
-                props.get("model_provider_name"), props.get("model_name")
+                props.get("model_provider_name"),
+                props.get("model_name"),
+                sub_agent=sub_agent,
             )
             if refusal is not None:
                 raise GatewayError(refusal)
 
     async def _sub_agent_check(self, props: dict[str, Any]) -> None:
         """The rules for the sub-agents a run config of the subject task
-        attaches: each `kiln_task::` tool is a Kiln task tool of this
-        project, its task is not the subject task, and the run config it
-        pins is inside the model policy. The model policy is about where
-        the task's data is sent, and a sub-agent's input is the task's
-        data."""
-        for tool_id in dict.fromkeys(sub_agent_tool_ids(props)):
-            try:
-                sub = await read_sub_agent(self.call, self.s.project_id, tool_id)
-            except KilnAPIError as exc:
-                if exc.status_code != 404:
-                    raise
-                sub = None
+        attaches, and for the sub-agents of those, three levels down: each
+        `kiln_task::` tool is a Kiln task tool of this project, its task is
+        not the subject task, and the run config it pins exists and is
+        inside the model policy. The model policy is about where the task's
+        data is sent, and a sub-agent's input is the task's data."""
+        tree = await read_sub_agent_tree(self.call, self.s.project_id, props)
+        for tool_id, sub in tree.items():
             if sub is None:
                 raise GatewayError(f"{tool_id} is not a Kiln task tool of this project")
             if sub.task_id == self.s.task_id:
@@ -1164,7 +1158,7 @@ class Gateway:
     def _sub_agent_policy(self, sub: SubAgent) -> None:
         if self.s.policy is None:
             return
-        refusal = self.s.policy.refusal(*sub.pair)
+        refusal = self.s.policy.refusal(*sub.pair, sub_agent=True)
         if refusal is not None:
             raise GatewayError(f"sub-agent tool {sub.tool_id}: {refusal}")
 
@@ -1279,7 +1273,16 @@ class Gateway:
         props = dict(req.run_config_properties)
         props.setdefault("type", "kiln_agent")
         props.setdefault("prompt_id", "simple_prompt_builder")
-        self._policy_check(props)
+        self._policy_check(props, sub_agent=True)
+        if prompt_reads_runs(props.get("prompt_id")):
+            # Few-shot and repair prompts are built from the new task's
+            # stored runs. The loop does not split them, and a drive of a
+            # held-out item through the run endpoint saves one there.
+            raise GatewayError(
+                f"a sub-agent's prompt cannot be the generator"
+                f" {props['prompt_id']!r}: it builds its text from the task's"
+                " stored runs. Put the instructions in `instruction`"
+            )
         refused = [
             t
             for t in tool_ids_of(props)

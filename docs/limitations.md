@@ -220,8 +220,9 @@ requests can have no call in the first drives, and the arm then ends as
 only on a Kiln that records it.** A sub-agent is a Kiln task that the agent
 calls as a tool. The latency of a run is the time of its own model calls,
 so a run config that calls a sub-agent has no latency number: it cannot win
-under `--objective speed`, and when your baseline calls a sub-agent, no
-candidate can be compared with it on speed. The cost of such a run is
+under `--objective speed`. When your baseline calls a sub-agent, its numbers
+are a lower bound, so a candidate that drops the sub-agent and still beats
+them wins; a candidate that keeps one cannot. The cost of such a run is
 measured only when Kiln writes the sub-agent's usage in the run that calls
 it (Kiln-AI/Kiln#2077, not merged when this was written). The loop tests
 each run for that, and it never adds the numbers itself. On a Kiln that
@@ -403,9 +404,10 @@ is the gateway's code, not the hook's.
 **The model policy covers the subject's run configs, not the judges.** Eval
 configs keep whatever model they have. And the baseline chain is measured
 whatever its model; only arms are refused. The policy also covers the
-sub-agents that a run config attaches. Under `--models keep`, a new
-sub-agent can run only on the baseline's model, or on the model of a
-sub-agent that the baseline attaches.
+sub-agents that a run config attaches, and their own sub-agents. Under
+`--models keep`, a new sub-agent can run only on the baseline's model, or
+on the model of a sub-agent that the baseline attaches; the task itself
+keeps the baseline's model.
 
 **Write containment has one sanctioned hole, and two roles hold it.** File
 writes are denied outside the run's scratch tree, and the skill-installer MCP

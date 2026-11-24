@@ -115,8 +115,11 @@ choices that the owner can change: each one is the conservative choice.
    the default of a quality run, a new sub-agent runs on the baseline's
    model, at any thinking level, or on the model of a sub-agent that the
    baseline attaches. So the techniques that need a second model need
-   `--models any` or a policy file. The other choice was a separate list of
-   models for sub-agents. It was not taken: one rule for one question.
+   `--models any` or a policy file. The models of the baseline's
+   sub-agents are `sub_agent_exceptions` of the policy: pairs that a
+   sub-agent may use and the subject may not. (A self-review found that
+   plain exceptions let the subject move to its sub-agent's model, which
+   breaks the choice to keep it.)
 9. **The integrity rules hold for the sub-agent's text.** Its tool
    description, its prompt, its output schema and the text of its own
    skills and code tools are read by the same checks as the subject's.
@@ -227,16 +230,21 @@ A metric that is not measured is withheld, in code:
 
 - A run config with a timing drive that calls a sub-agent has no latency
   from the timing drives, on any item. It has no cost either when the run
-  of one such drive does not hold the sub-agent's usage. The measurement
-  engine, the gate's paired pass and the baseline timing all read those
-  drives, so a comparison of a withheld metric is incomplete and gives no
-  verdict.
+  of one such drive does not hold the sub-agent's usage. A drive with no
+  trace, of a run config that attaches a sub-agent, is withheld too. The
+  measurement engine, the gate's paired pass and the baseline timing all
+  read those drives, so a candidate's comparison of a withheld metric is
+  incomplete and gives no verdict.
+- The withheld values of the baseline are a lower bound: a baseline that
+  calls a sub-agent is cheaper and faster on paper than it is. So they
+  stay as the reference side of a comparison, and a candidate that drops
+  the sub-agent and still beats them wins. The record says so.
 - Under `speed`, a candidate with no latency stops with the reason. Under
   `cost`, a candidate with no cost does. So a candidate that calls a
   sub-agent never wins on speed, and it wins on cost only on a Kiln with
   the change.
 - The passive latency and cost of stored eval runs are left off the
-  analysis table by the same two tests.
+  analysis table by the same two tests, applied to the candidate's runs.
 - A train result row shows no latency, and no cost unless the run holds
   the sub-agent's usage.
 - The record, the analyzer's input and the report say what was not

@@ -235,7 +235,8 @@ def lever_verdict(
                 " none calls it"
             )
     if unverified:
-        return LeverVerdict("unverified", "lever unverified: " + "; ".join(unverified))
+        reason = "lever unverified: " + "; ".join(unverified)
+        return LeverVerdict("unverified", f"{reason}; {shown}" if shown else reason)
     return LeverVerdict("applied", shown)
 
 
