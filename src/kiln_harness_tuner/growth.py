@@ -8,15 +8,21 @@ harness text that only grows is a known failure of maintained instruction
 files.
 
 So every build is measured against its parent before any train spend: the
-characters of the whole harness text (`prompt_text.whole_texts`: the
-prompt, and every file of the attached skills and code tools) of the built
-run config, minus those of its parent. A build that adds more than
-`GROWTH_LIMIT_CHARS` is refused. The count is the net change: a build that
-replaces a large skill with another of the same size adds nothing.
+size of the whole harness (`harness_size`) of the built run config, minus
+that of its parent. The size is the characters of the text the model reads
+(`prompt_text.whole_texts`: the prompt, and the text files of the attached
+skills and code tools), plus the bytes of the files that the text readers
+leave out (a binary file, or one over `prompt_text.ASSET_MAX_BYTES`). A
+build that adds more than `GROWTH_LIMIT_CHARS` is refused. The count is the
+net change: a build that replaces a large skill with another of the same
+size adds nothing.
 
-The limit is one constant, and it refuses only a clear case. A full-size
-`SKILL.md` is about 20,000 characters, so the limit is ten of them in one
-change. The skill installer's own cap on one skill bundle is 2 MiB.
+The limit is one constant, and it refuses only a clear case. Public skill
+guidance keeps a `SKILL.md` under about 5,000 tokens, about 20,000
+characters (specs/projects/biological_bootloader/research/
+harness-optimization/instructions-and-context/skill-authoring-and-
+maintenance.md), so the limit is ten of them in one change. The skill
+installer's own cap on one skill bundle is 2 MiB.
 
 On a refusal the build agent gets the finding for ONE rebuild, with the
 findings of the other build checks (`items._review_build`). A rebuild that
@@ -30,9 +36,18 @@ Code only, no model call, no spend.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from kiln_harness_tuner.prompt_text import RcText, rc_texts, whole_texts
+from kiln_harness_tuner.prompt_text import (
+    CODE_TOOL_RECORD,
+    RcText,
+    _tree_files,
+    code_tool_dir,
+    rc_texts,
+    whole_texts,
+)
+from kiln_harness_tuner.skill_installer.bundle import installed_skill_dir
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -43,26 +58,64 @@ GROWTH_LIMIT_CHARS = 200_000
 GROWTH_PLACES = 3
 
 
-def harness_chars(rc: RcText) -> int:
-    """The characters of everything the run config gives the model to read."""
-    return sum(len(text) for text in whole_texts(rc).values())
+def _left_out(directory: Path | None, read: dict[str, str], parts: tuple[str, ...]):
+    """`(relative path, bytes)` of each file under `directory` (or under its
+    `parts` subfolders) that the text reader left out of `read`."""
+    if directory is None:
+        return []
+    roots = [directory / p for p in parts] if parts else [directory]
+    return [
+        (rel, path.stat().st_size)
+        for root in roots
+        for path in _tree_files(root)
+        if (rel := path.relative_to(directory).as_posix()) not in read
+        and path.name != CODE_TOOL_RECORD
+    ]
 
 
-def growth_findings(parent: RcText, candidate: RcText) -> list[str]:
-    """One finding when the candidate's harness text is more than
-    `GROWTH_LIMIT_CHARS` characters longer than the parent's, else none. It
-    names the places that added the most: a place the parent does not have
-    counts in full."""
+def harness_places(rc: RcText, project_path: str | Path | None = None) -> dict:
+    """Where the run config gives the model something to read -> its size:
+    the characters of each text (`whole_texts`), and the bytes of each file
+    of an attached skill or code tool that the text readers left out.
+    `project_path` None: the text only."""
+    places: dict[str, int] = {w: len(t) for w, t in whole_texts(rc).items()}
+    if project_path is None:
+        return places
+    skills_dir = Path(project_path).expanduser() / "skills"
+    for skill in (rc.skills or {}).values():
+        directory = installed_skill_dir(skills_dir, skill.skill_id)
+        for rel, size in _left_out(directory, skill.files, ("references", "assets")):
+            places[f"skill {skill.name}, {rel}"] = size
+    for tool in (rc.code_tools or {}).values():
+        directory = code_tool_dir(project_path, tool.tool_id)
+        for rel, size in _left_out(directory, tool.files, ()):
+            places[f"code tool {tool.name}, {rel}"] = size
+    return places
+
+
+def harness_size(rc: RcText, project_path: str | Path | None = None) -> int:
+    """The size of everything the run config gives the model to read."""
+    return sum(harness_places(rc, project_path).values())
+
+
+def growth_findings(
+    parent: RcText, candidate: RcText, project_path: str | Path | None = None
+) -> list[str]:
+    """One finding when the candidate's harness is more than
+    `GROWTH_LIMIT_CHARS` larger than the parent's, else none. It names the
+    places that added the most: a place the parent does not have counts in
+    full."""
     limit = GROWTH_LIMIT_CHARS
-    before, after = harness_chars(parent), harness_chars(candidate)
+    parent_places = harness_places(parent, project_path)
+    candidate_places = harness_places(candidate, project_path)
+    before, after = sum(parent_places.values()), sum(candidate_places.values())
     added = after - before
     if added <= limit:
         return []
-    parent_places = whole_texts(parent)
     grew = sorted(
         (
-            (len(text) - len(parent_places.get(where, "")), where)
-            for where, text in whole_texts(candidate).items()
+            (size - parent_places.get(where, 0), where)
+            for where, size in candidate_places.items()
         ),
         reverse=True,
     )
@@ -121,9 +174,17 @@ async def check_growth(ctx: Ctx, rc_id: str, parent_rc_id: str) -> GrowthCheck:
             "unchecked",
             note=f"not checked — {' and '.join(unread)} could not be read",
         )
-    findings = growth_findings(parent, candidate)
+    project = ctx.target.project_path
+    try:
+        findings = growth_findings(parent, candidate, project)
+        added = harness_size(candidate, project) - harness_size(parent, project)
+    except OSError as exc:
+        return GrowthCheck(
+            "unchecked",
+            note=f"not checked — a skill or code-tool file could not be read ({exc})"[
+                :300
+            ],
+        )
     return GrowthCheck(
-        "over" if findings else "within",
-        findings=findings,
-        added_chars=harness_chars(candidate) - harness_chars(parent),
+        "over" if findings else "within", findings=findings, added_chars=added
     )

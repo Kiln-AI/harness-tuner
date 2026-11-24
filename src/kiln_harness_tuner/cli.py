@@ -1117,14 +1117,13 @@ def render_run_configs(
             per_role["permissions"]["allow"].append(
                 f"Read(//{str(traces_root).lstrip('/')}/**)"
             )
-        for folder in denied_trace_reads(run_dir, role):
-            # The expected-output files, denied to this role in both
-            # layers. A permission deny beats the allow above, for Read,
-            # Grep and Glob. The sandbox applies the narrower path, so this
-            # `denyRead` holds inside the scratch tree that `allowRead`
-            # opens, for Bash and its children.
-            per_role["permissions"]["deny"].append(read_rule(folder))
-            per_role["sandbox"]["filesystem"]["denyRead"].append(str(folder))
+        if denied := denied_trace_reads(run_dir, role):
+            # The expected-output files. A permission deny beats the allow
+            # above, for Read, Grep and Glob. The role gets no Bash: the bare
+            # `Bash` deny removes the tool (and `claude_cli` does not allow
+            # it). The sandbox `denyRead` is one more layer.
+            per_role["permissions"]["deny"] += ["Bash", *map(read_rule, denied)]
+            per_role["sandbox"]["filesystem"]["denyRead"] += map(str, denied)
         (run_dir / f"settings.{role}.json").write_text(
             json.dumps(per_role, indent=2, ensure_ascii=False) + "\n"
         )

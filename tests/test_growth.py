@@ -14,7 +14,7 @@ import kiln_harness_tuner.growth as growth
 from kiln_harness_tuner.growth import (
     check_growth,
     growth_findings,
-    harness_chars,
+    harness_size,
 )
 from kiln_harness_tuner.items import execute_plan_item
 from kiln_harness_tuner.memory_schema import ExperimentView, MemoryRecord
@@ -85,7 +85,7 @@ def test_the_real_limit_refuses_only_a_clear_case(monkeypatch):
 
 def test_growth_is_the_net_change_of_the_whole_text():
     parent = _rc("p" * 100, **{"SKILL.md": "s" * 1000})
-    assert harness_chars(parent) == 1100
+    assert harness_size(parent) == 1100
     # At the limit is not over it.
     assert not growth_findings(parent, _rc("p" * 500, **{"SKILL.md": "s" * 1000}))
     assert growth_findings(parent, _rc("p" * 501, **{"SKILL.md": "s" * 1000}))
@@ -109,6 +109,42 @@ def test_the_finding_gives_the_sizes_the_limit_and_the_places():
         " 1,100); the limit for one change is 400. The largest additions: skill"
         " depot, references/table.md (+900), the prompt (+50)"
     )
+
+
+async def test_a_file_the_text_readers_leave_out_counts_in_bytes(tmp_path):
+    """A binary asset, or one over the text cap, is not text the model is
+    shown as a whole, but it is still part of the harness: its bytes count."""
+    install_skill(tmp_path, "424242000001", "depot", skill_md("depot", "Line."))
+    install_skill(
+        tmp_path, "424242000002", "depot", skill_md("depot", "Line."), {"t.md": "x"}
+    )
+    directory = tmp_path / "skills" / "424242000002 - depot" / "assets"
+    directory.mkdir(parents=True)
+    (directory / "table.bin").write_bytes(b"\xff\xfe" + bytes(LIMIT))
+    ctx = make_ctx()
+    on_disk(ctx, tmp_path)
+    ctx.kiln.run_configs = [
+        skill_rc("rc_base", BASE, "424242000001"),
+        skill_rc("rc_new", BASE, "424242000002"),
+    ]
+    check = await check_growth(ctx, "rc_new", "rc_base")
+    assert check.status == "over"
+    assert "skill depot, assets/table.bin (+402)" in check.findings[0]
+
+
+async def test_a_build_over_the_limit_is_not_sent_to_the_paid_review():
+    ctx = _ctx(("rc_new", LONG), ("rc_new2", GENERAL))
+    seed_measurement(ctx.kiln, "rc_new2")
+    ctx.dispatch.queue("create_experiment_rc", _built("rc_new"), _built("rc_new2"))
+    ctx.dispatch.queue("generality_review", _clean_review())
+    ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
+    await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    (review,) = ctx.dispatch.calls_to("generality_review")
+    assert review.candidate_rc_id == "rc_new2"
+    events = [f for k, f in ctx.log.events if k == "generality"]
+    assert events[0]["status"] == "unchecked"
+    assert "the growth limit already refuses this build" in events[0]["line"]
 
 
 async def test_text_that_cannot_be_read_is_unchecked_not_within(tmp_path):
@@ -151,7 +187,7 @@ async def test_a_build_over_the_limit_gets_one_rebuild_with_the_finding():
     ctx = _ctx(("rc_new", LONG), ("rc_new2", GENERAL))
     seed_measurement(ctx.kiln, "rc_new2")
     ctx.dispatch.queue("create_experiment_rc", _built("rc_new"), _built("rc_new2"))
-    ctx.dispatch.queue("generality_review", _clean_review(), _clean_review())
+    ctx.dispatch.queue("generality_review", _clean_review())
     ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
     outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
 
@@ -184,7 +220,6 @@ async def test_a_rebuild_still_over_the_limit_is_a_dead_end_before_any_spend():
     ctx = _ctx(("rc_new", LONG), ("rc_new2", LONG + " More."))
     seed_measurement(ctx.kiln, "rc_new2")
     ctx.dispatch.queue("create_experiment_rc", _built("rc_new"), _built("rc_new2"))
-    ctx.dispatch.queue("generality_review", _clean_review(), _clean_review())
     outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
 
     assert outcome.status == "dead_end"
@@ -203,7 +238,6 @@ async def test_a_rebuild_still_over_the_limit_is_a_dead_end_before_any_spend():
 
 async def test_a_reused_run_config_over_the_limit_is_not_rebuilt():
     ctx = _ctx(("rc_old", LONG))
-    ctx.dispatch.queue("generality_review", _clean_review())
     item = fix_item()
     item.work.existing_rc_id = "rc_old"
     outcome = await execute_plan_item(ctx, item, BASELINE, ["rc_base"], 1)

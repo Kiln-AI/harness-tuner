@@ -364,14 +364,17 @@ The full path:
      config in the run's trace folder (section 12), in three parts of each
      trace: the judge's reason, the agent's output and reasoning, and the
      user turns. Four kinds of run are not a copy: a run that the parent's
-     text or the task's instructions have; a run of a train input (the
-     exact-match pre-check has those); a run that a tool result of those
-     traces has (text from the environment, which a build may move into
-     the harness); and a run in the traces of more than a fifth of the
-     items read, or of every item read. A match is a leak — the finding
-     starts `trace copy:` — and the review does not run. The search reads
-     at most `TRACE_COPY_MAX_BYTES` (64 MiB) of trace files; a
-     `generality_traces_unread` event counts the files it left out.
+     text, the task's instructions or the parent's `_system/` files (the
+     system prompt and the tool definitions as Kiln sent them) have; a run
+     of a train input (the exact-match pre-check has those); a run that a
+     tool result of those traces has (text from the environment, which a
+     build may move into the harness); and a run in the traces of more
+     than a fifth of the items read (and of more than two), or of every
+     item read when there are two or more. A match is a leak — the finding
+     starts `trace copy:` — and the review does not run. The search runs
+     in a worker thread and reads at most `TRACE_COPY_MAX_BYTES` (64 MiB)
+     of files; a `generality_traces_unread` event counts the trace files
+     it left out.
    - **The review.** One `generality_review` session (no tools) reads what
      the build added to the prompt, to the skills and to the code tools (a
      diff against the version each new one replaces), beside the task's
@@ -411,13 +414,17 @@ The full path:
    stop the item.
    **The growth limit**
    ([`growth.py`](../src/kiln_harness_tuner/growth.py)) runs at the same
-   point, on every build, merges included. It counts the characters of the
-   WHOLE text of the built run config — its prompt and every file of its
-   skills and code tools — and subtracts the count of its parent. A build
-   that adds more than `GROWTH_LIMIT_CHARS` (200,000 characters) is over
-   the limit. The count is the net change, so a skill replaced by one of
-   the same size, or text moved from a skill into the prompt, adds nothing.
-   A build over the limit shares the one rebuild: `growth_findings` holds
+   point, on every build, merges included, and runs first of the four. It
+   measures the size of the WHOLE harness of the built run config — the
+   characters of its prompt and of each text file of its skills and code
+   tools, and the bytes of each other file of them (a binary file, or one
+   over 256 KiB, which the text readers leave out) — and subtracts the size
+   of its parent. A build that adds more than `GROWTH_LIMIT_CHARS` (200,000)
+   is over the limit. The count is the net change, so a skill replaced by
+   one of the same size, or text moved from a skill into the prompt, adds
+   nothing. A build over the limit is rebuilt whatever the other checks
+   find, so its generality check runs the free pre-checks and no review
+   session. A build over the limit shares the one rebuild: `growth_findings` holds
    one finding, with both sizes, the limit and the places that added the
    most. A rebuild still over the limit ends the item `dead_end` before any
    train spend. A reused run config is checked and never rebuilt. The
@@ -2234,9 +2241,11 @@ CLI (`dispatch.run_fence.denied_trace_reads`, for the roles in
 
 - Claude Code: a `Read(…/_expected/**)` deny rule in
   `settings.baseline_review.json`, which beats the allow of the trace
-  folder for Read, Grep and Glob, and a sandbox `denyRead` of the folder
-  for Bash. The sandbox applies the narrower path, so the deny holds inside
-  the scratch tree that `allowRead` opens.
+  folder for Read, Grep and Glob (a permission deny beats every allow).
+  The role gets no Bash: `claude_cli.DEFAULT_ALLOWED_TOOLS` leaves it out,
+  and a bare `Bash` deny rule removes the tool. So the fence does not
+  depend on how the OS sandbox orders `allowRead` and `denyRead`. A
+  sandbox `denyRead` of the folder is there too.
 - Codex: a `"deny"` entry for the folder in the permission profile. Codex
   applies the entry of the deeper path.
 - OpenCode: a `deny` pattern for the folder in the `read` and

@@ -1075,6 +1075,10 @@ class TestGrantedMcpToolsExist:
         tools = DEFAULT_ALLOWED_TOOLS["baseline_review"]
         assert set(role_tools("baseline_review")) <= set(tools)
         assert {"Read", "Grep", "Glob"} <= set(tools)
+        # No Bash: the read fence on expected outputs rests on permission
+        # rules only (`run_fence.denied_trace_reads`).
+        assert "Bash" not in tools
+        assert "Bash" in DEFAULT_ALLOWED_TOOLS["batch_plan"]
         assert not [t for t in tools if t.startswith("mcp__skill_installer__")]
         assert not [t for t in tools if t.endswith(("memory_create", "run_task"))]
         assert AGENT_TIMEOUTS_SECS["baseline_review"] == 20 * 60

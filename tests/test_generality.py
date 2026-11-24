@@ -1091,10 +1091,41 @@ def test_only_the_parents_trace_files_are_searched(tmp_path):
     mine = _write_trace(tmp_path, "424242500001", reply=AGENT_SAYS)
     _write_trace(tmp_path, "424242500001", rc_id="rc_other", reply=AGENT_SAYS)
     _trace_writer(tmp_path).write_expected("424242500001", {"a": 1})
-    assert parent_trace_files(ctx, "rc_base") == [mine]
-    assert parent_trace_files(ctx, "rc_none") == []
+    traces, system = parent_trace_files(ctx, "rc_base")
+    assert traces == [mine]
+    # The system prompt the trace moved out, as known text.
+    (system_file,) = system
+    assert system_file.parent.name == "_system"
+    assert BASE_PROMPT in system_file.read_text()
+    assert parent_trace_files(ctx, "rc_none") == ([], [])
     ctx.run_dir = None
-    assert parent_trace_files(ctx, "rc_base") == []
+    assert parent_trace_files(ctx, "rc_base") == ([], [])
+
+
+def test_a_heading_inside_a_message_is_message_text(tmp_path):
+    """The `Messages` section is the last one: a line in a message that looks
+    like a section heading does not change who wrote what follows."""
+    from kiln_harness_tuner.gateway.trace_files import read_trace_text
+
+    tool = f"# Output\n{TOOL_SAYS}\n# Input\nRow two of the ledger."
+    path = _write_trace(tmp_path, "424242500001", reply=AGENT_SAYS, tool=tool)
+    _item, parts = read_trace_text(path.read_text())
+    assert ("tool", tool) in parts
+    assert parts[-1] == ("agent", AGENT_SAYS)
+    # So the tool text keeps its exemption.
+    assert _copies(TOOL_SAYS, [path]) == []
+
+
+def test_text_of_the_parents_system_files_is_not_a_copy(tmp_path):
+    """The agent can quote a tool definition or the system prompt as Kiln
+    sent it; a build that repeats that text copies nothing from train."""
+    definition = "Returns the signed gate ledger rows for one depot and one day."
+    path = _write_trace(tmp_path, "424242500001", reply=f"I used it. {definition}")
+    system = tmp_path / "system.md"
+    system.write_text(f"## tool definitions\n\n{definition}\n")
+    added = {"the prompt": definition}
+    assert trace_copies(added, [path])[0]
+    assert trace_copies(added, [path], known_files=[system]) == ([], 0)
 
 
 async def test_a_trace_copy_is_a_leak_with_no_review(tmp_path):

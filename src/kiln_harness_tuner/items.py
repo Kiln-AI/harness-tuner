@@ -1076,17 +1076,23 @@ async def _note_generality(ctx: Ctx, exp_mem: str, finding: str) -> None:
 
 
 async def _check(
-    ctx: Ctx, item: ExperimentItem, rc_id: str, parent_rc_id: str
+    ctx: Ctx,
+    item: ExperimentItem,
+    rc_id: str,
+    parent_rc_id: str,
+    review: bool = True,
 ) -> GeneralityCheck:
     """One generality check, logged: a `generality` event per check, and a
     detail line on the item when there was something to review. The item
-    is REVIEWING only while a review session runs."""
+    is REVIEWING only while a review session runs. `review=False`: the
+    free pre-checks only."""
     check = await check_generality(
         ctx,
         item,
         rc_id,
         parent_rc_id,
         before_review=lambda: _set_state(ctx, item.id, "reviewing"),
+        review=review,
     )
     ctx.log.event(
         "generality",
@@ -1312,10 +1318,15 @@ async def _review_build(
     a stopped run can leave one unchecked. It is never rebuilt — reuse means
     "measure this exact run config", and a rebuild has none of the stored
     rows it was reused for — so a finding ends the item a dead end."""
-    copies = await _check_copies(ctx, item, built.rc_id, baseline.rc_id)
-    first = await _check(ctx, item, built.rc_id, parent_rc_id)
-    refs = await _check_references(ctx, item, built.rc_id, parent_rc_id)
+    # The free checks first. A build over the growth limit is rebuilt
+    # whatever the review says, so the review session is not paid for it:
+    # the generality check runs its free pre-checks only.
     growth = await _check_growth(ctx, item, built.rc_id, parent_rc_id)
+    copies = await _check_copies(ctx, item, built.rc_id, baseline.rc_id)
+    first = await _check(
+        ctx, item, built.rc_id, parent_rc_id, review=growth.status != "over"
+    )
+    refs = await _check_references(ctx, item, built.rc_id, parent_rc_id)
     refuse = ctx.reference_check == "refuse"
     if first.note and first.status != "leaked":
         await _note_generality(ctx, exp_mem, first.note)
@@ -1439,10 +1450,12 @@ async def _review_build(
         return await _infra_outcome(ctx, item, rebuilt, exp_mem, rc_id=built.rc_id)
     await _record_build(ctx, item, exp_mem, rebuilt.data, rebuild=True)
     new_rc = rebuilt.data.rc_id
-    copies2 = await _check_copies(ctx, item, new_rc, baseline.rc_id)
-    second = await _check(ctx, item, new_rc, parent_rc_id)
-    refs2 = await _check_references(ctx, item, new_rc, parent_rc_id)
     growth2 = await _check_growth(ctx, item, new_rc, parent_rc_id)
+    copies2 = await _check_copies(ctx, item, new_rc, baseline.rc_id)
+    second = await _check(
+        ctx, item, new_rc, parent_rc_id, review=growth2.status != "over"
+    )
+    refs2 = await _check_references(ctx, item, new_rc, parent_rc_id)
     leaked_again = second.status == "leaked"
     copied_again = copies2.status == "copied"
     grew_again = growth2.status == "over"

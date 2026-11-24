@@ -1390,6 +1390,8 @@ class TestRenderRunConfigs:
             filesystem = settings["sandbox"]["filesystem"]
             denied = role in NO_EXPECTED_ROLES
             assert (rule in settings["permissions"]["deny"]) == denied, role
+            # No Bash for the role: the bare name removes the tool.
+            assert ("Bash" in settings["permissions"]["deny"]) == denied, role
             assert (str(expected) in filesystem["denyRead"]) == denied, role
             # The scratch tree stays the one re-opened tree: the deny is the
             # narrower path inside it.

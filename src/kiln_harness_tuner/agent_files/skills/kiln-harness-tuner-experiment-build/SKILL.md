@@ -194,7 +194,8 @@ quotes it. A finding that starts `exact match:` is a train string code found
 copied verbatim. A finding that starts `trace copy:` is a run of eight or
 more words that code found in a train trace of the parent: in the judge's
 reason, in the agent's output or in a user turn. The others are a
-reviewer's reading. For a `trace copy:` finding, state the rule behind the
+reviewer's reading. A build over the growth limit gets no review, only the
+code checks, so its rebuild is the first build the reviewer reads. For a `trace copy:` finding, state the rule behind the
 passage in your own words. Do not quote a trace.
 Build a NEW run config for the same item, from the same parent, with the
 same mechanism and without that text: replace a named entity, id, value or
@@ -239,11 +240,12 @@ tool, and never name an eval.
 ## A rebuild after a growth refusal
 
 `rejected_rc_id` and `growth_findings` are set (with or without the findings
-of the other checks). Right after your earlier build, code counted the
-characters of its WHOLE text — the prompt, every file of the attached skills
-and code tools — and those of its parent. Your build added more than the
-limit for one change. The finding gives both sizes, the limit, and the
-places that added the most.
+of the other checks). Right after your earlier build, code measured the
+size of its WHOLE harness — the characters of the prompt and of the text
+files of the attached skills and code tools, and the bytes of their other
+files — and that of its parent. Your build added more than the limit for
+one change. The finding gives both sizes, the limit, and the places that
+added the most. A merge is one change too.
 
 Build a NEW run config for the same item, from the same parent, with the
 same mechanism and with less text: keep the rule or the method, and remove

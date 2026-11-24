@@ -57,14 +57,16 @@ The check has four further parts:
   PARENT run config, in the run's trace folder, for each eight-word run of
   the added text. It reads three parts of a trace: the judge's reason, the
   agent's output and reasoning, and the user turns. A match is a leak with
-  no review. Four kinds of run are not a copy: a run the parent's text or
-  the task's instructions have; a run of a train input (the exact-match
-  pre-check has those); a run a tool result of those traces has (text from
-  the environment, which a build may move into the harness); and a run in
-  the traces of many items (boilerplate, by the rule of the exact-match
-  pre-check, or in the traces of every item read). Only the parent's
-  traces are searched: the agent can repeat only the harness text of the
-  run config that made the trace, and for the parent that text is known.
+  no review. Four kinds of run are not a copy: a run that the parent's
+  text, the task's instructions or the parent's `_system/` files (the
+  system prompt and the tool definitions as Kiln sent them) have; a run of
+  a train input (the exact-match pre-check has those); a run a tool result
+  of those traces has (text from the environment, which a build may move
+  into the harness); and a run in the traces of many items (boilerplate, by
+  the rule of the exact-match pre-check, or in the traces of every item
+  read). Only the parent's traces are searched: the agent can repeat only
+  the harness text of the run config that made the trace, and for the
+  parent that text is known. The search runs in a worker thread.
 - **Expected outputs for the reviewer.** Agents can read train labels
   (`get_train_expected`), so a build can copy one. The reviewer gets the
   expected output of every train item it is shown (`train_expected`).
@@ -87,6 +89,7 @@ that asks for a scrub. Code only; once per baseline, like the first half.
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import re
@@ -98,6 +101,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from kiln_harness_tuner.gateway.trace_files import (
     AGENT,
     JUDGE,
+    SYSTEM,
     TOOL,
     USER,
     read_trace_text,
@@ -565,22 +569,43 @@ _TRACE_AUTHORS = {
 }
 
 
-def parent_trace_files(ctx: Ctx, parent_rc_id: str) -> list[Path]:
-    """The train trace files of the parent run config that the gateway
-    wrote in this run: `<trace folder>/<rc>/<eval>/<item>.md`. Not the
-    `_system/` and `_stats` entries. [] with no run directory."""
+def parent_trace_files(ctx: Ctx, parent_rc_id: str) -> tuple[list[Path], list[Path]]:
+    """The files the gateway wrote in this run for the parent run config:
+    its train traces (`<trace folder>/<rc>/<eval>/<item>.md`), and its
+    `_system/` files (the system prompt and the tool definitions that the
+    traces share). Not the `_stats` entries. Both empty with no run
+    directory."""
     if ctx.run_dir is None:
-        return []
+        return [], []
     folder = traces_dir(Path(ctx.run_dir)) / safe_name(parent_rc_id)
     if not folder.is_dir():
-        return []
-    return [
-        path
-        for path in sorted(folder.rglob("*.md"))
-        if path.is_file()
-        and not path.is_symlink()
-        and not any(p.startswith("_") for p in path.relative_to(folder).parts)
+        return [], []
+    files = [
+        p for p in sorted(folder.rglob("*.md")) if p.is_file() and not p.is_symlink()
     ]
+    traces = [
+        p
+        for p in files
+        if not any(part.startswith("_") for part in p.relative_to(folder).parts)
+    ]
+    system = [p for p in files if p.relative_to(folder).parts[0] == SYSTEM]
+    return traces, system
+
+
+def _read_known(files: list[Path], budget: int) -> tuple[str, int]:
+    """The text of `files` while it fits in `budget` bytes, and the bytes
+    left. A file that cannot be read is skipped."""
+    texts: list[str] = []
+    for path in files:
+        try:
+            size = path.stat().st_size
+            if size > budget:
+                continue
+            texts.append(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        budget -= size
+    return "\n".join(texts), budget
 
 
 def trace_copies(
@@ -588,6 +613,7 @@ def trace_copies(
     files: list[Path],
     known: str = "",
     docs: list[TrainDoc] | None = None,
+    known_files: list[Path] | None = None,
 ) -> tuple[list[str], int]:
     """One finding per passage of the added text that a trace file holds
     verbatim: `"<run>" in <where> is copied from the train trace of item
@@ -595,11 +621,14 @@ def trace_copies(
     `TRACE_COPY_MAX_BYTES`, or not text).
 
     `known`: text the run config may repeat (the task's instructions and
-    the parent's own text). `docs`: the train items, whose input runs are
-    the exact-match pre-check's and are not searched here. Code, no model."""
+    the parent's own text). `known_files`: files of more such text (the
+    parent's `_system/` files), read first, inside the same byte budget.
+    `docs`: the train items, whose input runs are the exact-match
+    pre-check's and are not searched here. Code, no model."""
     if not added or not files:
         return [], 0
-    exempt = _runs(known)
+    system_text, budget = _read_known(known_files or [], TRACE_COPY_MAX_BYTES)
+    exempt = _runs(known) | _runs(system_text)
     for doc in docs or []:
         exempt |= _runs(doc.input_text)
     wanted: set[str] = set()
@@ -609,10 +638,13 @@ def trace_copies(
     if not wanted:
         return [], 0
     n = MATCH_RUN_WORDS
+    # A run is built only where a wanted run can start: most words of a
+    # trace start none.
+    starts = {run.split(" ", 1)[0] for run in wanted}
     found: dict[str, dict[str, set[str]]] = {}  # run -> author -> items
     from_tools: set[str] = set()
     items: set[str] = set()
-    budget, unread = TRACE_COPY_MAX_BYTES, 0
+    unread = 0
     for path in files:
         try:
             size = path.stat().st_size
@@ -629,6 +661,8 @@ def trace_copies(
         for author, part in parts:
             words = _WORD.findall(part.casefold())
             for i in range(len(words) - n + 1):
+                if words[i] not in starts:
+                    continue
                 run = " ".join(words[i : i + n])
                 if run not in wanted:
                     continue
@@ -666,18 +700,33 @@ def trace_copies(
     return findings, unread
 
 
+def _parent_trace_copies(
+    ctx: Ctx,
+    parent_rc_id: str,
+    added: dict[str, str],
+    known: str,
+    docs: list[TrainDoc],
+) -> tuple[list[str], int]:
+    """`trace_copies` over the parent's files: run in a worker thread, as
+    it reads and splits up to `TRACE_COPY_MAX_BYTES` of text."""
+    traces, system = parent_trace_files(ctx, parent_rc_id)
+    return trace_copies(added, traces, known, docs, known_files=system)
+
+
 async def check_generality(
     ctx: Ctx,
     item: ExperimentItem,
     rc_id: str,
     parent_rc_id: str,
     before_review: Callable[[], None] | None = None,
+    review: bool = True,
 ) -> GeneralityCheck:
     """Review what the build at `rc_id` added to `parent_rc_id`'s
     instructions — its prompt and its skills' text. One `generality_review`
     dispatch, on the item retry ladder, when either differs; none when both
     are the same. `before_review` runs just before that dispatch (the
-    item's state)."""
+    item's state). `review=False`: the free pre-checks only, and no
+    session (another check already refuses the build)."""
     from kiln_harness_tuner.items import ITEM_DISPATCH_BACKOFFS, call_with_retries
 
     texts = await rc_texts(ctx, [parent_rc_id, rc_id])
@@ -746,9 +795,11 @@ async def check_generality(
             ctx.log.event("generality_parent_known", item_id=item.id, matches=passed)
     # The trace-copy pre-check: the parent's own text is always known here.
     # The agent that made the parent's traces read it, and can repeat it.
-    copies, unread_traces = trace_copies(
+    copies, unread_traces = await asyncio.to_thread(
+        _parent_trace_copies,
+        ctx,
+        parent_rc_id,
         added,
-        parent_trace_files(ctx, parent_rc_id),
         "\n".join([instructions, *whole_texts(parent_text).values()]),
         docs,
     )
@@ -768,6 +819,11 @@ async def check_generality(
                 *(f"trace copy: {c}" for c in copies),
             ],
             note=note,
+        )
+    if not review:
+        return GeneralityCheck(
+            "unchecked",
+            note="not reviewed — the growth limit already refuses this build",
         )
     work = item.work
     targets = list(work.target_items) if isinstance(work, FixWork) else []

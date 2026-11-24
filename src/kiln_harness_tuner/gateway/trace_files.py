@@ -377,7 +377,9 @@ def read_trace_text(text: str) -> tuple[str | None, list[tuple[str, str]]]:
     the system and developer markers, and the arguments of tool calls. A
     line of a message that looks like a marker of this format starts a new
     part: the reader is for a search of the text, not for an exact copy of
-    the stored trace."""
+    the stored trace. The `Messages` section is the last one the writer
+    puts in a file, so once it starts, a line that looks like a section
+    heading is text of a message."""
     item_id: str | None = None
     parts: list[tuple[str, str]] = []
     section: str | None = None
@@ -391,7 +393,7 @@ def read_trace_text(text: str) -> tuple[str | None, list[tuple[str, str]]]:
         lines.clear()
 
     for line in text.splitlines():
-        if line in _SECTION_LINES:
+        if line in _SECTION_LINES and section != MESSAGES_SECTION:
             close()
             section = _SECTION_LINES[line]
             author = {JUDGE_SECTION: JUDGE, OUTPUT_SECTION: AGENT}.get(section)
