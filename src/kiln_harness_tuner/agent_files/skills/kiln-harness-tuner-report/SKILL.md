@@ -215,7 +215,7 @@ Never leave a block out: it is the one gate outcome that says a prompt
 copies an eval.>
 
 ## Experiments, by wave
-<per wave: one line per item — label, `change.summary` when the item carries a `change` (the build agent's structured what-changed block — cite its `changes` entries when the outcome turns on one of them), outcome numbers (from memory_overview),
+<per wave: one line per item — label, its lever when the arm changed the input transform (its experiment record then has an `input transform:` line: write "lever: input_transform" and what that line says about the change and whether it was applied), `change.summary` when the item carries a `change` (the build agent's structured what-changed block — cite its `changes` entries when the outcome turns on one of them), outcome numbers (from memory_overview),
 or the failure class. Include rejected_summary highlights and tripwires.>
 
 ## Issues moved
