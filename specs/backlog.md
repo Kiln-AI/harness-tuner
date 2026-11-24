@@ -152,15 +152,6 @@ tools that must not change.
 
 Replace many narrow tools with one general API tool, and add the skill that describes the API.
 
-### Tool-result clearing
-
-- Kind: technique
-- Where: knowledge, kiln
-- Depends on: Compaction and tool-result clearing in Kiln
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Clear old tool results from the context. It is separate from compaction.
-
 ### A stronger model as an adviser to a cheap one
 
 - Kind: technique
@@ -179,33 +170,6 @@ A cheap model calls a stronger model as a tool when it needs advice.
 
 A cascade: the cheap model answers, and a stronger model takes the cases where it is not sure.
 
-### Examples chosen for each input
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Few-shot examples selected for the input at hand, not one fixed set.
-
-### Examples from the agent's own successes
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Few-shot examples taken from train items that the agent got right.
-
-### A check of each example against its input
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Check that each example agrees with its input before it is added to the prompt.
-
 ### A short index of the reference material, always in context
 
 - Kind: technique
@@ -223,15 +187,6 @@ A compact index of the reference material in the prompt, so that the agent knows
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Send each type of input to its own prompt.
-
-### One call for each field
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Fill each field of a structured output with its own call.
 
 ### A step outside the model that replaces a model step
 
@@ -277,15 +232,6 @@ Stop when the goal is met. Do not repeat a call that returned nothing.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Route each type of request to its own instruction set, with a review of the tool calls.
-
-### A thinking level set by the type of input
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-More thinking for the hard types of input, less for the easy ones.
 
 ### A short hand-written version of a promoted change
 
@@ -340,15 +286,6 @@ A tool result gives names that the agent can read, not only ids.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Tool names with a common prefix for each service or group.
-
-### A probe for room to improve
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Before an arm on the wording, probe whether the failing items can pass at all.
 
 ### Fine-tuning as a late step
 
@@ -424,24 +361,6 @@ Order: the same prompt, a new baseline, fix only what got worse, then remove old
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Order: stable failures, items that flip, stable passes, and the spread of cost and latency.
-
-### Playbook: the order of work for a support agent
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Order: the plan of a run for an agent that answers customers.
-
-### Playbook: the order of work for an analyst over data
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Order: the plan of a run for an agent that queries data and reports on it.
 
 ### Playbook: a rule ignored in place, followed from a tool result
 
@@ -599,24 +518,6 @@ Too many skills; too many tools.
 
 Not in Kiln. Compaction is planned. Tool-result clearing is not planned yet.
 
-### A switch of model or thinking level in mid-conversation
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 14; overview 7.9
-
-Not in Kiln. A sub-agent can approximate the advisor pattern today.
-
-### Inline guardrails
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: overview 7.9
-
-Not in Kiln.
-
 ### Run config fields
 
 - Kind: gap
@@ -665,33 +566,6 @@ leak risk before anything teaches it.
 
 The v2 eval-input routes, multi-turn synthetic items and world resets are not reachable. Decide
 what the tuner must read.
-
-### Code files in skills
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 17
-
-Kiln skills read text only and cannot run code. Code goes in code tools. The knowledge states it.
-
-### Other decision-model providers
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 16
-
-Only one decision-model provider exists. This matters when a restriction excludes it.
-
-### Decision models for uses other than a classifier
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: overview 7.4; [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 7
-
-Kiln supports decision models for tasks with a classifier shape only.
 
 ### A decision that turns on one or two items
 
