@@ -141,6 +141,10 @@ flowchart TD
       the smells that it finds, with evidence, and says whether each code
       detection holds. It reads train only, and writes nothing. Code writes
       one `smell` issue for each finding.
+   3. After a promotion, code closes each smell issue of an earlier
+      baseline that the new baseline no longer shows. A detector decides
+      for a smell that only code detects. The design review decides for a
+      smell that needs a reader: it reads the earlier issue again.
 
    A review that fails, or that `--no-design-review` turns off, does not
    stop the run: the planner still gets the code detections. No review runs

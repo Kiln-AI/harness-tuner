@@ -64,4 +64,12 @@ def detect(inputs: DetectorInputs) -> list[Detection]:
     ]
 
 
-DETECTOR = Detector(id="old_model", smell="old-model", run=detect)
+def blind(inputs: DetectorInputs) -> bool:
+    return (
+        inputs.model is None
+        or inputs.model.release_date is None
+        or inputs.run_date is None
+    )
+
+
+DETECTOR = Detector(id="old_model", smell="old-model", run=detect, blind=blind)

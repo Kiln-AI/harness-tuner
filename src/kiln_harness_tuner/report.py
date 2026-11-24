@@ -869,16 +869,21 @@ def render_smells_appendix(status: RunStatus) -> str:
     """The `## Design review` section: for each baseline of the run, the
     status of its design review, the facts that the detectors in code found
     (with the reviewer's reading of each), and the reviewer's findings, each
-    of which code wrote as a smell issue. A smell names a document of the
-    knowledge skill, which gives the remedies. Empty string when there is
-    nothing to show and every review was done."""
+    of which code wrote as a smell issue. Then the smell issues of earlier
+    baselines that code closed, because this baseline no longer shows the
+    smell. A smell names a document of the knowledge skill, which gives the
+    remedies. Empty string when there is nothing to show and every review
+    was done."""
     reviews = {review.rc_id: review for review in status.baseline_reviews}
 
     def worth_showing(rc_id: str) -> bool:
         review = reviews.get(rc_id)
         return bool(status.detections_by_rc.get(rc_id)) or (
             review is not None
-            and (review.status != "done" or bool(review.findings or review.notes))
+            and (
+                review.status != "done"
+                or bool(review.findings or review.notes or review.closed_issues)
+            )
         )
 
     shown = [
@@ -898,7 +903,9 @@ def render_smells_appendix(status: RunStatus) -> str:
         " findings, in the reviewer's words, which code wrote as smell issues."
         " Each smell is a document of the knowledge skill, which says how to"
         " confirm it and gives the remedies. A smell is evidence, not a"
-        " verdict.",
+        " verdict. A third table, when there is one, lists the smell issues of"
+        " earlier baselines that code closed, because this baseline no longer"
+        " shows the smell.",
     ]
     for rc_id in shown:
         review = reviews.get(rc_id)
@@ -941,6 +948,23 @@ def render_smells_appendix(status: RunStatus) -> str:
                 )
         if review is not None and review.notes.strip():
             lines += ["", f"Reviewer's notes: {_md(review.notes)}"]
+        if review is not None and review.closed_issues:
+            notes = {c.issue_id: c.note for c in review.issue_checks if c.note}
+            lines += [
+                "",
+                "Smell issues of earlier baselines that this baseline no longer"
+                " shows. Code closed each one.",
+                "",
+                "| issue | smell | found in | decided by | basis | reviewer's note |",
+                "|---|---|---|---|---|---|",
+            ]
+            for closure in review.closed_issues:
+                lines.append(
+                    f"| `{_md(closure.issue_id)}` | {_md(closure.smell)}"
+                    f" | `{_md(closure.found_in_rc)}` | {closure.closed_by}"
+                    f" | {_md(closure.basis)}"
+                    f" | {_md(notes.get(closure.issue_id, '')) or '—'} |"
+                )
     return "\n".join(lines) + "\n"
 
 

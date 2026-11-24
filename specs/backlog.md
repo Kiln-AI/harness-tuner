@@ -524,15 +524,6 @@ Eval: measure a structural change against plain retries with the same number of 
 
 Eval: the score goes up, and the outputs get worse in a way that the eval does not see.
 
-### Smell: very many skills
-
-- Kind: smell
-- Where: knowledge
-- Depends on: None
-- Source: overview 9
-
-The agent has so many skills that their descriptions crowd its context.
-
 ### Smell: an old model
 
 - Kind: smell
@@ -580,15 +571,6 @@ prompt. The diagnosis is the technique `Prompt cache usage`.
 - Source: [design notes](projects/biological_bootloader/knowledge_system_design.md)
 
 The evals test less than the agent does in production.
-
-### Detectors from the harness counts
-
-- Kind: detector
-- Where: tuner
-- Depends on: None
-- Source: functional spec 12.3
-
-Too many skills; too many tools.
 
 ### Compaction and tool-result clearing in Kiln
 
@@ -767,15 +749,6 @@ Compare the spread of the predicted labels with the spread of the expected label
 
 The report names a defect outside the harness, which no experiment can fix.
 
-### A baseline review that closes a smell issue
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-The baseline reviewer closes a smell issue that a new baseline no longer shows.
-
 ### Rename the code field `technique` to `lever`
 
 - Kind: code
@@ -846,3 +819,13 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### One smell issue across baselines
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [architecture](../docs/architecture.md), section 18.6
+
+A smell that a new baseline still shows gets a second issue, and the earlier issue stays open.
+Carry one issue across baselines, or close the earlier one with a link to the new one.

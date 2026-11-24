@@ -439,6 +439,10 @@ class Ctx:
     #   they were run on. Run again when a promotion moves the baseline.
     detections: list[Detection] = field(default_factory=list)
     detected_rc_id: str | None = None
+    # The detectors whose answer on that baseline is sure: each ran with no
+    #   error and could read what it needs. Only such a detector shows that
+    #   its smell is absent (`smells.run.close_earlier_smell_issues`).
+    sure_detectors: frozenset[str] = frozenset()
     # The baseline reviewer (`smells.ensure_baseline_reviewed`): once for each
     #   baseline, after the detectors (cli: on, unless `--no-design-review`;
     #   other tests leave it off). `reviewed_rc_id`: the baseline the step
@@ -744,10 +748,12 @@ async def _run_loop(
         # The smell detectors, then the baseline reviewer, once for each
         # baseline: at wave 1, and on the wave after a promotion. It never
         # raises, apart from a quota error. A wrap-up wave runs the detectors
-        # only: no planner after it would read the review. The time limit is
+        # only: no planner after it would read the review. The step also
+        # closes the open smell issues of the earlier baselines of `lineage`
+        # that this baseline no longer shows. The time limit is
         # not checked again after the review: it is checked at wave
         # boundaries only, and the review is part of this wave.
-        await ensure_baseline_reviewed(ctx, baseline, wrap_up=wrap_up)
+        await ensure_baseline_reviewed(ctx, baseline, wrap_up=wrap_up, lineage=lineage)
 
         # The planning dispatch is a full agent session and the run's longest
         # silence (minutes with only the header printed) —

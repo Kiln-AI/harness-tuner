@@ -520,8 +520,11 @@ The detectors run in each of these cases.
 **Given** `BaselineReviewInput`: the baseline run config id; `detections`,
 the facts that the detectors found; `samples`, for each active eval up to 4
 of the baseline's stored train items and 20 in all, taken in the order of
-the train set and never chosen by score; and `known_smells`, the id of each
-smell document. Everything else it reads for itself, through its gateway
+the train set and never chosen by score; `known_smells`, the id of each
+smell document; and `earlier_issues`, the open smell issues of the
+baselines that this one replaced and that need a reader, at most 15, each
+with its id, its smell, the earlier run config and its text. Everything
+else it reads for itself, through its gateway
 operations: the run config, its prompt, its skills, its tools and their
 definitions, and the train traces of the samples (and more, when a smell
 needs more evidence).
@@ -535,6 +538,9 @@ needs more evidence).
   planner chooses.
 - `detection_checks`, one `DetectionCheck` for each detection: `holds` is
   true, false, or null when reading cannot tell, with a one-sentence note.
+- `issue_checks`, one `SmellIssueCheck` for each earlier issue: `shows` is
+  true when the present baseline still shows the smell, false when it does
+  not, or null when reading cannot tell, with a one-sentence note.
 - `notes`, a design issue that fits no smell.
 
 **Code writes the issues.** The role has no write of any kind. Code checks
@@ -545,7 +551,19 @@ issue for each finding (`memory.record_smell`): tags `issue`, `p1`,
 `smell`, `smell_<id>` and `audited_rc_<rc>`, bound to no eval, so that the
 planner can plan a fix arm on it. An open issue of the same smell and run
 config is not written twice. A write that fails keeps the other issues,
-and the review's reason names it. The review gets one retry, and none after
+and the review's reason names it.
+
+**Code closes the earlier issues.** A smell issue of an earlier baseline
+is closed when the present baseline no longer shows the smell
+([architecture.md](architecture.md) section 18.6). For a smell that only
+code detects, code decides alone: each of its detectors could tell, and
+none fires. For a smell that an agent detects, the reviewer decides with
+`shows: false`, and code checks that the review returned no finding of
+that smell and that no detector of it fires. Code writes the `FIXED:`
+prefix and one line with its own basis (`memory.close_smell`). Any other
+reading keeps the issue open.
+
+The review gets one retry, and none after
 a time-out or a result that cannot be read, because it sits before the
 planner on the run's clock.
 

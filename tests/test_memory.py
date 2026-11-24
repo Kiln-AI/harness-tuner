@@ -1670,6 +1670,54 @@ async def test_another_run_config_and_a_baseline_audit_issue_do_not_match():
     ]
 
 
+async def test_open_smell_issues_gives_the_open_issues_of_the_named_run_configs():
+    kiln = FakeKiln()
+    writer = make_writer(kiln)
+    wanted = await smell_issue(kiln)
+    closed = await smell_issue(kiln, IssueState.FIXED, rc_id="rc_older")
+    elsewhere = await smell_issue(kiln, rc_id="rc_other")
+    audit = await writer.record_baseline_audit("rc_base", ["a train item"])
+    found = await writer.open_smell_issues(["rc_base", "rc_older"])
+    assert [view.id for view in found] == [wanted]
+    assert found[0].content
+    assert not {closed, elsewhere, audit} & {view.id for view in found}
+
+
+async def test_open_smell_issues_reads_nothing_for_no_run_config():
+    kiln = FakeKiln()
+    await smell_issue(kiln)
+    calls = len(kiln.calls)
+    assert await make_writer(kiln).open_smell_issues([]) == []
+    assert len(kiln.calls) == calls
+
+
+async def test_close_smell_writes_the_prefix_and_one_line():
+    kiln = FakeKiln()
+    issue = await smell_issue(kiln)
+    before = kiln.memories[issue]["content"]
+    writer = make_writer(kiln)
+    assert await writer.close_smell(
+        issue, "rc_new", "the detector `many_tools` did not fire"
+    )
+    record = kiln.memories[issue]
+    assert issue_state(record["overview"]) == IssueState.FIXED
+    assert record["overview"].startswith("FIXED: issue: fixed-call-chain — ")
+    assert record["tags"] == SMELL_TAGS
+    assert record["content"] == (
+        f"{before}\n- no longer shown on baseline rc_new ({writer._date()}):"
+        " the detector `many_tools` did not fire"
+    )
+
+
+@pytest.mark.parametrize("state", CLOSED_STATES)
+async def test_close_smell_leaves_a_closed_issue_as_it_is(state):
+    kiln = FakeKiln()
+    issue = await smell_issue(kiln, state)
+    before = dict(kiln.memories[issue])
+    assert not await make_writer(kiln).close_smell(issue, "rc_new", "a basis")
+    assert kiln.memories[issue] == before
+
+
 async def test_another_smell_on_the_same_run_config_does_not_match():
     kiln = FakeKiln()
     other = await smell_issue(kiln, finding=SMELL.model_copy(update={"smell": "x"}))

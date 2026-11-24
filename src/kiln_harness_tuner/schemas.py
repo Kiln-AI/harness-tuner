@@ -1788,6 +1788,39 @@ class DetectionCheck(BaseModel):
     note: str = ""
 
 
+class EarlierSmellIssue(BaseModel):
+    """One open smell issue that the review of an earlier baseline wrote,
+    for the baseline reviewer to read again on the present baseline
+    (`smells.run.close_earlier_smell_issues`)."""
+
+    issue_id: str
+    smell: str  # the id of a smell document
+    rc_id: str  # the earlier baseline in which it was found
+    summary: str = Field(max_length=1200)  # what was seen then, and where
+
+
+class SmellIssueCheck(BaseModel):
+    """The baseline reviewer's reading of one earlier smell issue on the
+    present baseline."""
+
+    issue_id: str
+    shows: bool | None  # None: reading could not tell
+    note: str = ""
+
+
+class SmellIssueClosure(BaseModel):
+    """One smell issue of an earlier baseline that code closed, because the
+    present baseline no longer shows the smell. `closed_by`: `code` when
+    the detectors decide alone, `review` when the baseline reviewer read
+    the issue again. `basis` is composed by code."""
+
+    issue_id: str
+    smell: str
+    found_in_rc: str  # the earlier baseline in which it was found
+    closed_by: Literal["code", "review"]
+    basis: str
+
+
 class PlannerDetection(Detection):
     """One code detection as the planner gets it, with the baseline
     reviewer's reading of it (`DetectionCheck`), matched by smell and
@@ -1819,11 +1852,15 @@ class BaselineReviewInput(BaseModel):
     detections: list[Detection]
     samples: list[TraceSample]
     known_smells: list[str]  # the ids of every smell document
+    # The open smell issues of earlier baselines that need a reader: the
+    #   reviewer says whether the present baseline still shows each one.
+    earlier_issues: list[EarlierSmellIssue] = []
 
 
 class BaselineReviewResult(BaseModel):
     findings: list[SmellFinding] = []
     detection_checks: list[DetectionCheck] = []
+    issue_checks: list[SmellIssueCheck] = []
     notes: str = ""  # a design issue that fits no smell, in a few lines
 
 
@@ -1843,6 +1880,11 @@ class BaselineReview(BaseModel):
     issue_ids: list[str] = []
     detection_checks: list[DetectionCheck] = []
     notes: str = ""
+    # The reviewer's reading of each earlier smell issue in its input, and
+    #   the earlier smell issues that code closed on this baseline (any
+    #   status: the detectors run when the review does not).
+    issue_checks: list[SmellIssueCheck] = []
+    closed_issues: list[SmellIssueClosure] = []
 
 
 class BatchPlanInput(BaseModel):

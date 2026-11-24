@@ -652,6 +652,12 @@ class IssueNote:
         return f"- WONT_FIX ({date}): {reason}"
 
     @staticmethod
+    def smell_gone(date: str, rc_id: str, basis: str) -> str:
+        """A smell issue of an earlier baseline, closed by code: `basis` is
+        code's own sentence, never an agent's."""
+        return f"- no longer shown on baseline {rc_id} ({date}): {basis}"
+
+    @staticmethod
     def eval_built(eval_id: str, date: str) -> str:
         """The durable eval↔issue link, the human-readable twin of
         the `eval_<id>` tag."""

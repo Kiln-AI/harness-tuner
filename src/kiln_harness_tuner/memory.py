@@ -1628,6 +1628,43 @@ class MemoryWriter:
         records = await self._get_many(s.id for s in summaries)
         return [IssueView.from_record(r) for r in records]
 
+    async def open_smell_issues(self, rc_ids: Iterable[str]) -> list[IssueView]:
+        """Every smell issue that is not closed and that was found in one of
+        the run configs `rc_ids`, hydrated. One listing read, and no read at
+        all when `rc_ids` is empty."""
+        wanted = {f"{AUDITED_RC_TAG_PREFIX}{rc_id}" for rc_id in rc_ids}
+        if not wanted:
+            return []
+        summaries = await self._list(
+            self.task_scope, [RecordKind.ISSUE.value, SMELL_TAG]
+        )
+        records = await self._get_many(
+            s.id
+            for s in summaries
+            if wanted & set(s.tags)
+            and issue_state(s.overview) not in ISSUE_TERMINAL_STATES
+        )
+        return [IssueView.from_record(r) for r in records]
+
+    async def close_smell(self, issue_id: str, rc_id: str, basis: str) -> bool:
+        """Close a smell issue of an earlier baseline that the baseline
+        `rc_id` no longer shows: the `FIXED:` prefix and one line with
+        `basis`, code's own sentence. False, and no write, when the issue is
+        closed already: the loop never rewrites a decided issue."""
+        issue = await self._get_issue(issue_id)
+        if issue.state in ISSUE_TERMINAL_STATES:
+            return False
+        await self._patch(
+            issue_id,
+            {
+                "overview": set_state_prefix(issue.overview, IssueState.FIXED),
+                "content": _append_content(
+                    issue.content, IssueNote.smell_gone(self._date(), rc_id, basis)
+                ),
+            },
+        )
+        return True
+
     async def record_smell(
         self, finding: SmellFinding, rc_id: str, *, title: str | None = None
     ) -> str:
