@@ -4,6 +4,7 @@ record, the analysis input, the next plan's input and the report. A grade
 is caution: no test here may show it change `successful` or a stop rule.
 """
 
+import pytest
 from conftest import fix_item, make_ctx, make_result, make_tracker
 from fake_dispatcher import ok
 from fake_kiln import make_eval, make_run
@@ -126,7 +127,7 @@ def test_breaks_within_noise_do_not_flag():
     g = grade([row("f1", False, True), *passes(40, broke=2)], target_items=["f1"])
     assert g.targets_pass is True
     assert g.breaks_clear is False and g.flagged is False
-    assert g.noise_rate == 0.10 and g.alpha == 0.05
+    assert g.noise_rate == pytest.approx(0.10) and g.alpha == 0.05
     assert g.other_breaks == {"eval_1": ["p0", "p1"]}
     assert g.lines == [
         "predicted fixes: 1 of 1 target item now pass",
@@ -155,14 +156,14 @@ def test_the_break_test_reads_the_runs_noise_rate():
     assert grade(judged).breaks_clear is True
     # A run that measured a flip rate of 0.30 expects 12 breaks in 40.
     noisy = grade(judged, noise_rate=0.30)
-    assert noisy.breaks_clear is False and noisy.noise_rate == 0.30
+    assert noisy.breaks_clear is False and noisy.noise_rate == pytest.approx(0.30)
 
 
 def test_a_fragile_item_raises_the_null_of_the_break_test():
     # Items that other configs often fail break by chance more often.
     fragile = [row(f"p{i}", True, i >= 10, fragility=0.4) for i in range(40)]
     g = grade(fragile)
-    assert g.noise_rate == 0.4 and g.breaks_clear is False
+    assert g.noise_rate == pytest.approx(0.4) and g.breaks_clear is False
 
 
 def test_a_target_that_still_fails_flags():
