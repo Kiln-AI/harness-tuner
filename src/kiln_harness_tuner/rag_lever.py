@@ -649,7 +649,7 @@ def progress_errors(progress: Mapping[str, Any]) -> list[str]:
     return errors
 
 
-def _count(progress: Mapping[str, Any], key: str) -> int:
+def progress_count(progress: Mapping[str, Any], key: str) -> int:
     value = progress.get(key)
     return value if isinstance(value, int) else 0
 
@@ -658,13 +658,13 @@ def index_complete(progress: Mapping[str, Any]) -> bool:
     """Every document went through every step, and every chunk is in the
     index. An index with no chunk is not complete: a search of it returns
     nothing."""
-    documents = _count(progress, "total_document_count")
-    chunks = _count(progress, "total_chunk_count")
+    documents = progress_count(progress, "total_document_count")
+    chunks = progress_count(progress, "total_chunk_count")
     return (
         documents > 0
-        and _count(progress, "total_document_completed_count") >= documents
+        and progress_count(progress, "total_document_completed_count") >= documents
         and chunks > 0
-        and _count(progress, "total_chunk_completed_count") >= chunks
+        and progress_count(progress, "total_chunk_completed_count") >= chunks
     )
 
 

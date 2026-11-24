@@ -171,17 +171,13 @@ class TestTheIndexBudget:
             scope, chunker_id=None, embedding_id=None, semantic=False
         )
         assert "200 bytes" in (plan.refusal() or "")
-        assert (
-            rag_lever.index_plan(
-                rag_lever.read_scope(tmp_path, EXTRACTOR, None).__class__(
-                    scope.documents[:1]
-                ),
-                chunker_id=None,
-                embedding_id=None,
-                semantic=False,
-            ).refusal()
-            is None
+        one = rag_lever.index_plan(
+            rag_lever.Scope(scope.documents[:1]),
+            chunker_id=None,
+            embedding_id=None,
+            semantic=False,
         )
+        assert one.refusal() is None
 
 
 # ------------------------------------------------------------------ the model rule
@@ -637,6 +633,22 @@ class TestCreateRagConfig:
             _run(
                 gateway, "create_rag_config", **dict(CREATE, chunker_config_id=CHUNKER)
             )
+
+    def test_a_refused_index_run_still_names_the_config(self, tmp_path):
+        lib = Library()
+        routes = lib.routes()
+
+        def refused(_q, _b):
+            raise gw.KilnAPIError("GET", "run", 422, {"detail": "archived"})
+
+        routes[("GET", f"{P}/rag_configs/{NEW_RAG}/run")] = refused
+        gateway, _kiln = _gateway(tmp_path, routes)
+        add_document(gateway.s.project_path, "d1", "Water at the base.")
+        lib.progress = {}
+        made = _run(gateway, "create_rag_config", **CREATE)
+        assert made["tool_id"].endswith(NEW_RAG)
+        assert made["index"]["complete"] is False
+        assert "refused the index run" in made["index"]["note"]
 
     def test_an_index_that_did_not_end_is_run_again(self, tmp_path):
         lib = Library()

@@ -1427,7 +1427,7 @@ class Gateway:
         )
         progress = response.get(rag_id) if isinstance(response, dict) else None
         progress = progress if isinstance(progress, dict) else {}
-        count = rag_lever._count
+        count = rag_lever.progress_count
         return m.RagIndexView(
             rag_config_id=rag_id,
             complete=rag_lever.index_complete(progress),
@@ -1459,6 +1459,9 @@ class Gateway:
                 f" {rag_lever.INDEX_WAIT_TIMEOUT_SECS:.0f} seconds. Call"
                 " index_rag_config with this id to go on."
             )
+        except KilnAPIError as exc:
+            # The config exists: the caller still gets its id and state.
+            note = f"Kiln refused the index run: {exc.body!r}"[:500]
         view = await self._rag_index_view(rag_id, stream, note)
         if not view.complete and view.note is None:
             view.note = (
@@ -1646,8 +1649,11 @@ class Gateway:
         )
         if (refusal := plan.refusal()) is not None:
             raise GatewayError(refusal)
-        findings = rag_lever.scan_documents(
-            scope.documents, rag_lever.eval_item_texts(root, self.s.task_id)
+        # The scan reads files: off the event loop, so the server stays live.
+        findings = await asyncio.to_thread(
+            rag_lever.scan_documents,
+            scope.documents,
+            rag_lever.eval_item_texts(root, self.s.task_id),
         )
         if findings.block is not None:
             raise GatewayError(findings.block)
