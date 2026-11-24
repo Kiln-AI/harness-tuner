@@ -321,6 +321,9 @@ SETUP_LINE_EVENTS = frozenset(
         "eval_item_dropped",
         # Each design review of a baseline.
         "baseline_review",
+        # The check of the spread of labels: a line only for a collapsed
+        # row, one time for each run config.
+        "label_spread",
     }
 )
 

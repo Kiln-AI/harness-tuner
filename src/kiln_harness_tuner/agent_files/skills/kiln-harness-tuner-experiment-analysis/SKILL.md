@@ -101,6 +101,33 @@ that name. When they fail on the missing skill or tool, say so in
 `next:` line can ask for the same lever built again with the names and the
 attachments in agreement.
 
+**The spread of labels, on a classifier task.** `bundle.label_spreads` is
+empty unless the task's output schema has a field with a closed set of
+values. Then it holds, for each label field, one row for the candidate
+(`role: candidate`) and one for its parent (`role: parent`). A row counts,
+on the train items, the labels that the run config gave (`predicted`)
+beside the labels that the items expect (`expected`), class by class.
+`top_label` is the class given most often. `collapse_fraction` is the net
+share of the items of the other classes that got it: 0 when the two
+spreads agree, 1 when every item got that class. `collapsed` is a data
+flag, like `significant`: the fraction is at or above `collapse_limit`,
+and its `p_value` is below .05. `predicted_outside` counts outputs with no
+value of the closed set. Read the two rows together with the score rows:
+
+- The parent's row is collapsed and the candidate's is not, and the score
+  moved: the change fixed the shape of the failure. Say so in `findings`.
+- The candidate's row is no longer collapsed and the score did not move:
+  the errors went to other classes. That is not a fix.
+- The candidate's row is collapsed and the parent's is not: the change
+  pushed the answers to one class. Name `top_label` in `findings`, also
+  when the targeted score rose, and read some traces of the items that
+  lost their class.
+
+The rows are facts about counts. They never set `successful` alone, and
+the two rows can cover different items (`n_items`). The playbook
+`references/playbooks/classifier-collapses-to-one-class.md` of the
+knowledge skill gives the causes to look for.
+
 **Spend: `bundle cost`, and nothing else.** `bundle.spend_total_usd` is the
 ONE spend figure an EXP record reports, and it is **always labeled `bundle
 cost`** — never "spend", "cost", "eval cost" or a bare dollar figure, so

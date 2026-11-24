@@ -1084,6 +1084,66 @@ def render_fallback_report(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+LABEL_SPREAD_APPENDIX_HEADING = "## Label spread"
+
+
+def render_label_spread_appendix(status: RunStatus) -> str:
+    """The `## Label spread` section, for a classifier task: for each
+    baseline of the run, and for each candidate with a collapsed row, the
+    count of each class that the run config gave on the train items beside
+    the count that the items expect (`kiln_harness_tuner.label_spread`).
+    Train only. Empty string when the check read no run config."""
+    shown = {
+        rc_id: rows
+        for rc_id, rows in status.label_spreads_by_rc.items()
+        if any(row.role == "baseline" or row.collapsed for row in rows)
+    }
+    if not shown:
+        return ""
+    lines = [
+        LABEL_SPREAD_APPENDIX_HEADING,
+        "",
+        "For a classifier task: the labels that a run config gave on the"
+        " train items, beside the labels that the same items expect. Code"
+        " renders this section, from train items only. It shows each baseline"
+        " of the run, and each candidate with a collapsed row. A row is"
+        " `collapsed` when, net, at least the limit share of the items that"
+        " expect another class got the class given most often, and the"
+        " difference is past chance (p below 0.05). A collapsed row is a fact"
+        " about the counts, not a verdict.",
+    ]
+    for rc_id, rows in shown.items():
+        for row in rows:
+            fraction = (
+                "n/a"
+                if row.collapse_fraction is None
+                else f"{row.collapse_fraction * 100:.0f}%"
+            )
+            p_value = "n/a" if row.p_value is None else f"{row.p_value:.3g}"
+            lines += [
+                "",
+                f"{row.role.capitalize()} `{_md(rc_id)}`, field"
+                f" `{_md(row.output_field)}`, {row.n_items} train item(s):"
+                f" **{'collapsed' if row.collapsed else 'not collapsed'}** onto"
+                f" `{_md(row.top_label)}` (collapse fraction {fraction}, limit"
+                f" {row.collapse_limit * 100:.0f}%, p {p_value}).",
+                "",
+                "| class | expected | given |",
+                "|---|---:|---:|",
+            ]
+            lines += [
+                f"| {_md(c.label)} | {c.expected} | {c.predicted} |"
+                for c in row.classes
+            ]
+            if row.more_classes:
+                lines.append(f"| ({row.more_classes} more) | | |")
+            if row.predicted_outside:
+                lines.append(
+                    f"| (no value of the closed set) | 0 | {row.predicted_outside} |"
+                )
+    return "\n".join(lines)
+
+
 class ReportWriter:
     """The `Ctx.write_report` seam implementation: dispatch the report_writer
     agent on the loop-level ladder, then CODE writes the file."""
@@ -1120,6 +1180,9 @@ class ReportWriter:
         smells = render_smells_appendix(status)
         if smells:
             markdown = markdown.rstrip("\n") + "\n\n" + smells
+        spreads = render_label_spread_appendix(status)
+        if spreads:
+            markdown = markdown.rstrip("\n") + "\n\n" + spreads
         path = self.report_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(markdown, encoding="utf-8")

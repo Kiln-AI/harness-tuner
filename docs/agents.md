@@ -161,6 +161,11 @@ It also gets `train_detectability` — per active (eval,
 score), the baseline's train items with room to improve and the fewest wins
 a significant result needs — and, with `--noise-check`, `train_noise`. Both
 are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
+`label_spreads` are, on a classifier task, the labels that the present
+baseline gave on the train items beside the labels that the items expect,
+one row for each label field, with a `collapsed` flag
+([architecture.md](architecture.md) section 7.3). It is empty on a task that
+is not a classifier, and `label_spread_note` says why.
 `detections` are the facts that the smell detectors in code found in the
 present baseline's harness (the `baseline_review` section below): each names a
 smell document and states a number and the reference it was compared with,
@@ -286,8 +291,11 @@ scope check, and it is there because this failure is hard to see otherwise.
 **Dispatched** once per `experiment` item, after code has measured it.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
-`AnalysisBundle` (the label-free numbers table plus every named hole in it),
-and its own experiment memory id.
+`AnalysisBundle` (the numbers table, with no verdict label, plus every named
+hole in it), and its own experiment memory id. On a classifier task the
+bundle's `label_spreads` holds the classes that the candidate and its parent
+gave on train beside the classes that the items expect
+([architecture.md](architecture.md) section 7.3).
 
 **Must return** `ExperimentResult`:
 
@@ -382,7 +390,10 @@ label their numbers val-grade.
 
 Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
-([architecture.md](architecture.md) section 11).
+([architecture.md](architecture.md) section 11). On a classifier task, code
+appends the `## Label spread` section too: the classes given beside the
+classes expected, on train, for each baseline and for each candidate with a
+collapsed row.
 
 **Skill:** `kiln-harness-tuner-report`. Where the knowledge helps it explain
 the run, the template names `references/report.md` of the knowledge skill.

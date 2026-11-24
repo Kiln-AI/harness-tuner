@@ -452,15 +452,6 @@ Order: the plan of a run for an agent that queries data and reports on it.
 
 Failure: the agent ignores a rule where it is, and follows it when it comes back in a tool result.
 
-### Playbook: a classifier whose answers collapse to one class
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Failure: a classifier gives one class to most inputs.
-
 ### Playbook: a change that fixes its target and breaks passing items
 
 - Kind: playbook
@@ -748,15 +739,6 @@ risk. The next wave grades the predictions.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 A fix must pass the items that led to it, and break none that passed.
-
-### A check of the spread of labels, for a classifier
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Compare the spread of the predicted labels with the spread of the expected labels.
 
 ### A "fix elsewhere" result in the report
 

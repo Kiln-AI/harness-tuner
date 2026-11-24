@@ -38,6 +38,7 @@ from kiln_harness_tuner.schemas import (
     GateBlock,
     ItemOutcome,
     ItemStatus,
+    LabelSpread,
     MeasureIssueBaselineItem,
     MergeWork,
     ModelPreflightResult,
@@ -517,6 +518,22 @@ class RunStatusTracker:
             except ValidationError:
                 continue
         self._status.detections_by_rc[rc] = kept
+
+    def _on_label_spread(
+        self, rc: object = None, spreads: Sequence[object] = (), **_: object
+    ) -> None:
+        # The label spread of each run config that the check read, for the
+        # report's label-spread section: the last read of each. A row that
+        # does not validate is left out.
+        if not isinstance(rc, str):
+            return
+        kept = []
+        for raw in spreads:
+            try:
+                kept.append(LabelSpread.model_validate(raw))
+            except ValidationError:
+                continue
+        self._status.label_spreads_by_rc[rc] = kept
 
     def _on_baseline_review(self, review: object = None, **_: object) -> None:
         # Each review of a baseline, for the report's smells appendix. A

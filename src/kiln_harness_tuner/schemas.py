@@ -1247,6 +1247,52 @@ class LatencyComparison(BaseModel):
     incomplete: bool = False
 
 
+class LabelCount(BaseModel):
+    """One class of a label field: how many train items expect it, and how
+    many got it."""
+
+    label: str
+    expected: int
+    predicted: int
+
+
+class LabelSpread(BaseModel):
+    """The spread of the labels that one run config gave, beside the spread
+    of the expected labels, for one label field of a classifier task
+    (`kiln_harness_tuner.label_spread`). TRAIN items only, and only the
+    items that have both an expected label and a stored output. The numbers
+    are counts; `collapsed` is a data flag that code computes from them,
+    like `significant`. No val: an expected label on val or test is never
+    read."""
+
+    rc_id: str
+    role: Literal["baseline", "candidate", "parent"]
+    output_field: str  # the field of the task output that holds the label
+    reference_key: str  # the key of an item's reference that holds the
+    #   expected label ("" when the reference is the label itself)
+    n_items: int
+    # The classes with a count, largest first, at most `SHOWN_CLASSES`
+    #   rows; `more_classes` is how many classes with a count are not shown.
+    classes: list[LabelCount]
+    more_classes: int = 0
+    predicted_outside: int = 0  # outputs with no value of the closed set
+    top_label: str  # the class that the run config gave most often
+    top_predicted_share: float
+    top_expected_share: float
+    # Of the items that expect another class, the net share that got
+    #   `top_label`: (predicted share - expected share) / (1 - expected
+    #   share). 0: the two spreads agree on this class. 1: every item got
+    #   it. None when every item expects `top_label`.
+    collapse_fraction: float | None = None
+    # Exact two-sided test on the items where the expected class and the
+    #   given class disagree about `top_label`. None when there are none.
+    p_value: float | None = None
+    collapsed: bool = False  # collapse_fraction >= collapse_limit, and
+    #   p_value < the significance alpha
+    collapse_limit: float
+    fact: str  # the same numbers as one sentence
+
+
 class PerEvalResult(BaseModel):
     """Assembled by analysis.py (code) — one row per expanded (eval, score)
     pair."""
@@ -1354,6 +1400,11 @@ class AnalysisBundle(BaseModel):
     latency: LatencyComparison | None = None
     cost: LatencyComparison | None = None  # The same paired pass,
     #   per-request cost of the task call (metric cost_usd)
+    # A classifier task only (`kiln_harness_tuner.label_spread`): the spread
+    #   of the labels that the candidate gave on train, and the spread that
+    #   its parent gave, each beside the expected spread. Empty for a task
+    #   that is not a classifier, and when the check could not run.
+    label_spreads: list[LabelSpread] = []
 
 
 class IngredientOutcome(BaseModel):  # attribution rows
@@ -1945,6 +1996,13 @@ class BatchPlanInput(BaseModel):
     #   reviewer's reading of it when a review of this baseline read it.
     #   Empty when none was found.
     detections: list[PlannerDetection] = []
+    # A classifier task only (`kiln_harness_tuner.label_spread`): for each
+    #   label field, the spread of the labels that the PRESENT baseline
+    #   gave on train beside the spread of the expected labels. Train only,
+    #   recomputed every wave. `label_spread_note`: one line when the check
+    #   ran on no field, or left a field out, with the reason.
+    label_spreads: list[LabelSpread] = []
+    label_spread_note: str | None = None
 
 
 class EvalBuildInput(BaseModel):
@@ -2235,6 +2293,10 @@ class RunStatus(BaseModel):
     # Each review of a baseline by the baseline reviewer, in order
     #   (`baseline_review` events): done, skipped, failed or off.
     baseline_reviews: list[BaselineReview] = []
+    # The label spread of each run config that the check read
+    #   (`label_spread` events), by its rc id: the last read of each. Train
+    #   only. The report's label-spread section.
+    label_spreads_by_rc: dict[str, list[LabelSpread]] = {}
 
 
 class ReportInput(BaseModel):

@@ -720,6 +720,80 @@ lineage there is no screen — measure the parent.
 A screen-out is not a verdict. It is recorded as unmeasured attribution, and
 the analyst is told to read it that way.
 
+### 7.3 The spread of labels, for a classifier
+
+[`label_spread.py`](../src/kiln_harness_tuner/label_spread.py). A classifier
+can give one class to most inputs. A pass rate shows that items fail, not
+that the failures have one shape. So, for a classifier task, code counts the
+labels that a run config gave on the train items, and puts them beside the
+labels that the same items expect. Code only: it reads the project on disk
+and stored train rows, so it starts no job and costs nothing.
+
+**Which task is a classifier.** Code decides from the task's output schema
+(`output_json_schema` of the task record on disk). A label field is a
+top-level property whose schema is a closed set of two or more values: an
+`enum`, a `boolean`, a `const`, an `anyOf` or `oneOf` of those, or a local
+`$ref` to one. The shape is not clear, and the check does not run, for a
+task with no output schema (a free-text answer can be a label, but code
+cannot know the set), for a closed set below the top level, and for a list
+of labels. Nothing is guessed: `label_spread_note` says why.
+
+**Which field holds the label.** A closed-set field is compared only when
+the train references hold its expected value, because a spread with nothing
+beside it says nothing: a correct classifier on data where one class is
+common also gives one class to most inputs. Code pairs a field with a key
+of the eval inputs' `reference`, first by name (the key and the field have
+the same name once words such as `expected` and `label` are removed), else
+by values (the one key whose every train value is in the field's closed
+set). A field that pairs with no key, or with more than one, is left out
+and named in the note. Each paired field gets its own row.
+
+**Train only.** An expected label on val or test is held-out knowledge. The
+expected labels are read only for the eval inputs of the run's train set
+(`train_set.json`, section 6), and the given labels only from stored
+`split=train` rows whose item is in that set. So the rows go to agents
+before the gate. A test holds this: a val item changes no count.
+
+**The numbers** (`LabelSpread`), over the items that have both an expected
+label and a stored output: the count of each class, expected and given;
+`predicted_outside`, the outputs with no value of the closed set;
+`top_label`, the class given most often; and `collapse_fraction`, which is
+(given count of `top_label` − expected count) / (items that expect another
+class). It is the net share of the other classes' items that got
+`top_label`: 0 when the two spreads agree, 1 when every item got it.
+`p_value` is the exact two-sided McNemar test on the items where the
+expected class and the given class disagree about `top_label`.
+
+**When it is called a collapse.** `collapsed` is true when
+`collapse_fraction` is at least `COLLAPSE_FRACTION` (0.5) and `p_value` is
+below `SIGNIFICANCE_ALPHA`. The limit rests on the definition of the
+failure, not on a measurement: "one class to most inputs", and "most" is
+more than half. At 0.5 or above, `top_label` always has more than half of
+all the items, whatever the expected spread is. The measure is a share of
+the other classes' items, so one limit holds for two classes and for
+twenty, and for a common class and a rare one. The p-value keeps a set of a
+few items from the flag: a full collapse needs six items of other classes.
+`collapsed` is a data flag, like `significant`. No code decision reads it.
+
+**Where the rows go.**
+
+- The planner: `BatchPlanInput.label_spreads` and `label_spread_note`, for
+  the present baseline, recomputed every wave from the stored train rows
+  that the planning step reads anyway.
+- The analyzer: `AnalysisBundle.label_spreads`, one row for the candidate
+  and one for its parent, on the evals of the table.
+- The wave log: a `label_spread` event for each read (`rc`, `role`,
+  `collapsed`, `spreads`, `note`), and the `label_spreads` of each
+  `arm_results` event. A collapsed row prints one terminal line, one time
+  for each run config.
+- The report: the `## Label spread` section (section 11).
+
+The check is advisory. A project that cannot be read, or an error in the
+check, gives no row and a note or a `label_spread_failed` event, never a
+lost wave or a failed item. The playbook
+`classifier-collapses-to-one-class` of the knowledge skill says what to try
+on a collapsed row.
+
 ## 8. Memory
 
 [`memory.py`](../src/kiln_harness_tuner/memory.py) owns **when** a record is written;
@@ -983,6 +1057,13 @@ way.
   id of the `smell` issue code wrote). It is folded from the
   `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
   `RunStatus.baseline_reviews`), and the fallback report has it too.
+  "## Label spread" (`render_label_spread_appendix`) is there on a classifier
+  task (section 7.3). For each baseline of the run, and for each candidate
+  with a collapsed row, it gives one line (collapsed or not, onto which
+  class, the collapse fraction, the limit and the p-value) and a table of
+  each class with its expected count and its given count. Train only. It
+  is folded from the `label_spread` events
+  (`RunStatus.label_spreads_by_rc`), and the fallback report has it too.
 - **The transcripts.** The dispatcher copies every agent session's
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
@@ -1260,6 +1341,8 @@ src/kiln_harness_tuner/
   probes.py         code-answered probes and the reconnaissance battery
   setup.py          baseline seeding, the eval ↔ issue sync, the split audit
   detectability.py  the pre-run check: the floor, the refusal
+  label_spread.py   for a classifier: the labels given beside the labels
+                    expected, on train, and the collapse flag
   noise.py          the opt-in run-to-run noise check
   quarantine.py     the start-up split check: held-out ids, stored results
   latency.py        per-item latency, the paired comparison, the drive pass
