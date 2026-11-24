@@ -817,14 +817,18 @@ EXPERIMENT_TRANSITIONS: dict[ExperimentState, frozenset[ExperimentState]] = {
 }
 STAMPABLE_STATES = frozenset({ExperimentState.VERDICT, ExperimentState.REFUTED})
 # The states that count as a failure of the arm's idea (the three-failures
-# rule, `MemoryWriter.rejected_ideas`): a result that says the idea did not
-# work. FAILED (infra), ABANDONED and CAPPED are not results, and a verdict
-# is a win on train whatever the val gate did with it later.
+# rule, `MemoryWriter.rejected_ideas`): a train measurement that says the
+# arm did not fix its issue. REFUTED is the analysis; NOT LANDED is the
+# measurement engine's stop on the items the arm was built to fix. A DEAD
+# END is not counted: most are a fault of the build (a generality leak, a
+# judge copy, a missing reference) or a lever that did not apply, not a
+# measurement of the idea. FAILED (infra), ABANDONED and CAPPED are not
+# results, and a verdict is a win on train whatever the val gate did with
+# it later.
 IDEA_FAILURE_STATES = frozenset(
     {
         ExperimentState.REFUTED,
         ExperimentState.NOT_LANDED,
-        ExperimentState.DEAD_END,
     }
 )
 # The two stamps the val gate appends AFTER the state: `— PROMOTED <MM-DD>`
@@ -1135,20 +1139,26 @@ class DroppedIdea:
     `dead_end` with the `dropped_idea` tag. It lasts across waves and runs.
 
         overview  DROPPED IDEA: <idea> on issue <issue id> — failed <n>
-                  times (<arm labels>)
-        content   issue / idea / failures / arms / rule / date"""
+                  times (<arm labels>)[ — LIFTED <MM-DD>]
+        content   issue / idea / failures / arms / rule / date [/ lifted]
+
+    A later win of the idea on the issue lifts the drop: code appends
+    ` — LIFTED <MM-DD>` to the overview and a `lifted:` line, and a lifted
+    record no longer keeps the idea dropped."""
 
     issue_id: str
     idea: str
     failures: int
     arms: tuple[str, ...] = ()
     date: str = ""
+    lifted: str = ""  # the date of the win that lifted the drop
 
     OVERVIEW_LEAD = "DROPPED IDEA: "
+    LIFTED_STAMP = " — LIFTED "
     RULE = (
         f"code drops an idea for an issue after {IDEA_DROP_FAILURES} failed arms"
-        " and no win. A failed arm ends REFUTED, NOT LANDED or DEAD END. The"
-        " idea is the lever and the technique documents the hypothesis names."
+        " and no win. A failed arm ends REFUTED or NOT LANDED. The idea is"
+        " the lever and the technique documents the hypothesis names."
     )
 
     @property
@@ -1174,6 +1184,8 @@ class DroppedIdea:
         pairs.append(("rule", self.RULE))
         if self.date:
             pairs.append(("date", self.date))
+        if self.lifted:
+            pairs.append(("lifted", self.lifted))
         return render_kv(pairs)
 
     @classmethod
@@ -1196,6 +1208,7 @@ class DroppedIdea:
             failures=failures,
             arms=arms,
             date=found.get("date", ""),
+            lifted=found.get("lifted", ""),
         )
 
 
@@ -1465,18 +1478,20 @@ class ExperimentView:
     def idea_key(self) -> str | None:
         """The idea this arm tried on its issue, for the three-failures rule:
         the `idea:` line, else — for a record from before that line existed —
-        the key made from the lever and from the hypothesis line when the
-        record still has one. None when the lever is not known."""
+        the lever alone. Not the hypothesis: a verdict replaces the opening,
+        so most older records have lost it, and a key read from it would
+        split one kind of older arm over two ideas. None when the lever is
+        not known."""
         if self.idea:
             return self.idea
         lever = self.lever
-        return None if lever is None else idea_key(lever, self.hypothesis)
+        return None if lever is None else idea_key(lever)
 
     @property
     def failed(self) -> bool:
-        """This arm is a failure of its idea: the analysis refuted it, the
-        measurement engine stopped it, or it is a proven dead end. An infra
-        failure, an abandoned arm and a capped arm are not results."""
+        """This arm is a failure of its idea: the analysis refuted it, or
+        the measurement engine stopped it on its target items
+        (`IDEA_FAILURE_STATES`)."""
         return self.state in IDEA_FAILURE_STATES
 
     @property

@@ -174,16 +174,56 @@ class TestTheCard:
         # The trace file has all of it.
         assert "x" * 5000 in Path(card["trace_path"]).read_text()
 
-    def test_a_page_ends_at_the_answer_cap(self, tmp_path):
-        p_rows = [_row("f1", 0.0, "y" * 700), _row("f2", 0.0, "z" * 700), *ROWS[2:]]
-        gateway, _ = _gateway(tmp_path, p_rows)
+    def test_a_page_ends_at_the_limit(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, ROWS)
         first = _cards(gateway, limit=1)
         assert [c["item_id"] for c in first["cards"]] == ["f1"]
         assert first["next_offset"] == 1 and first["total"] == 2
         second = _cards(gateway, limit=1, offset=1)
         assert [c["item_id"] for c in second["cards"]] == ["f2"]
         assert second["next_offset"] is None
-        assert len(json.dumps(first)) < gw.ANSWER_MAX_CHARS
+
+    def test_a_page_ends_at_the_answer_cap(self, tmp_path, monkeypatch):
+        p_rows = [_row("f1", 0.0, "y" * 500), _row("f2", 0.0, "z" * 500), *ROWS[2:]]
+        gateway, _ = _gateway(tmp_path, p_rows)
+        whole = _cards(gateway)
+        assert [c["item_id"] for c in whole["cards"]] == ["f1", "f2"]
+        # A cap that holds the page and one card, not two: the default
+        # limit of 10 does not end this page, the cap does.
+        one = len(json.dumps(whole["cards"][0]))
+        monkeypatch.setattr(gw, "ANSWER_MAX_CHARS", len(json.dumps(whole)) - one)
+        first = _cards(gateway)
+        assert [c["item_id"] for c in first["cards"]] == ["f1"]
+        assert first["next_offset"] == 1
+
+    def test_replicate_rows_fold_into_one_card(self, tmp_path):
+        skipped = _row("f1", None, "SKIPPED RUN", skipped_reason="no output")
+        rows = [
+            *ROWS,
+            _row("p3", 0.0, "a failing replicate"),
+            _row("p1", 0.0, "fails twice", id="er_p1_b"),
+            _row("p1", 0.0, "fails twice", id="er_p1_c"),
+            skipped,
+        ]
+        rows[-2]["eval_run"]["id"] = "er_p1_c"
+        rows[-3]["eval_run"]["id"] = "er_p1_b"
+        rows[-1]["eval_run"]["id"] = "er_f1_skip"
+        gateway, _ = _gateway(tmp_path, rows)
+        out = _cards(gateway)
+        # Five train items, each counted once. p3 is 1 and 0: a mean of
+        # 0.5 is a pass, as the engine reads it. p1 is 1, 0, 0: a fail.
+        assert (out["failed"], out["passed"], out["unscored"]) == (3, 2, 0)
+        assert [c["item_id"] for c in out["cards"]] == ["f1", "f2", "p1"]
+        f1 = out["cards"][0]
+        # The skipped row is not a score, and the card's trace is its row.
+        assert f1["output"] == "deny"
+        assert "deny" in Path(f1["trace_path"]).read_text()
+        assert "SKIPPED RUN" not in Path(f1["trace_path"]).read_text()
+
+    def test_an_empty_id_list_is_every_item(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, ROWS)
+        out = _cards(gateway, item_ids=[])
+        assert [c["item_id"] for c in out["cards"]] == ["f1", "f2"]
 
     def test_ten_full_cards_fit_in_one_answer(self):
         card = gw.m.FailureCard(
@@ -372,6 +412,19 @@ class TestTheReadersNote:
         assert card["failure_kind"] == "config"
         assert card["read_on_run_config_id"] == OTHER_RC
         assert card["read_by"] == "analyze_experiment_results"
+
+    def test_a_note_can_name_the_run_config_it_read(self, tmp_path):
+        gateway, _ = _gateway(tmp_path, ROWS)
+        parent = self.NOTE.model_copy(update={"run_config_id": OTHER_RC})
+        append_notes(
+            gateway.s.run_dir,
+            [parent],
+            run_config_id=RC,
+            by="analyze_experiment_results",
+            source="w1-1",
+        )
+        card = _cards(gateway)["cards"][0]
+        assert card["read_on_run_config_id"] == OTHER_RC
 
     def test_a_note_on_a_held_out_item_reaches_no_card(self, tmp_path):
         gateway, _ = _gateway(tmp_path, ROWS)

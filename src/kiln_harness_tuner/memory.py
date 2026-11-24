@@ -698,7 +698,8 @@ class MemoryWriter:
 
         `dropped`: `IDEA_DROP_FAILURES` failures and no win on the issue. A
         `dropped_idea` record keeps an idea dropped when the experiment
-        records that counted it are gone; a later win lifts the drop. The
+        records that counted it are gone; a later win lifts the drop, and a
+        lifted record keeps nothing (`sync_dropped_ideas` stamps it). The
         list has dropped ideas first, then the most failures. `arms` is in
         the order of the memory listing."""
         rows = await self._list(self.task_scope, [RecordKind.EXPERIMENT.value])
@@ -726,8 +727,9 @@ class MemoryWriter:
             issue_id, idea = key
             arms = list(failures.get(key, {}).values())
             memory_id, record_view = stored.get(key, (None, None))
+            keeps = record_view is not None and not record_view.lifted
             count = len(arms)
-            if record_view is not None and record_view.failures > count:
+            if keeps and record_view.failures > count:
                 # The arms' records are gone: the dropped record has the count.
                 count, arms = record_view.failures, list(record_view.arms)
             won = wins.get(key, 0)
@@ -737,8 +739,7 @@ class MemoryWriter:
                     idea=idea,
                     failures=count,
                     wins=won,
-                    dropped=won == 0
-                    and (count >= IDEA_DROP_FAILURES or record_view is not None),
+                    dropped=won == 0 and (count >= IDEA_DROP_FAILURES or keeps),
                     arms=arms,
                     dropped_memory_id=memory_id,
                 )
@@ -750,16 +751,25 @@ class MemoryWriter:
         rows = await self._list(self.task_scope, [DROPPED_IDEA_TAG])
         return await self._get_many(row.id for row in rows) if rows else []
 
-    async def record_dropped_ideas(
+    async def sync_dropped_ideas(
         self, ideas: list[RejectedIdea]
-    ) -> list[RejectedIdea]:
-        """Write the `dropped_idea` record of each dropped idea that has none
-        yet (`DroppedIdea`: a task-scope `dead_end`, so a planner reads it
-        with the dead ends, in this run and in every later one). Returns the
-        ideas whose record this call wrote, with the record's id; `ideas`
-        gets the ids too."""
+    ) -> tuple[list[RejectedIdea], list[RejectedIdea]]:
+        """Bring the `dropped_idea` records in line with `ideas`:
+
+        - write the record of each dropped idea that has none yet
+          (`DroppedIdea`: a task-scope `dead_end`, so a planner reads it
+          with the dead ends, in this run and in every later one);
+        - stamp ` — LIFTED <MM-DD>` on the record of an idea that a later
+          win lifted, once, so the record no longer reads as a dead end.
+
+        Returns `(written, lifted)`. `ideas` gets the new records' ids."""
         written: list[RejectedIdea] = []
+        lifted: list[RejectedIdea] = []
         for idea in ideas:
+            if not idea.dropped and idea.dropped_memory_id and idea.wins:
+                if await self._lift_dropped_idea(idea.dropped_memory_id):
+                    lifted.append(idea)
+                continue
             if not idea.dropped or idea.dropped_memory_id is not None:
                 continue
             record = DroppedIdea(
@@ -776,7 +786,31 @@ class MemoryWriter:
                 [RecordKind.DEAD_END.value, DROPPED_IDEA_TAG],
             )
             written.append(idea)
-        return written
+        return written, lifted
+
+    async def _lift_dropped_idea(self, memory_id: str) -> bool:
+        """Stamp a `dropped_idea` record as lifted. False when it is
+        already lifted, or is not a record code wrote."""
+        record = await self._get(memory_id)
+        parsed = DroppedIdea.parse(record.content)
+        if parsed is None or parsed.lifted:
+            return False
+        stamp = self._date()
+        lifted = DroppedIdea(
+            issue_id=parsed.issue_id,
+            idea=parsed.idea,
+            failures=parsed.failures,
+            arms=parsed.arms,
+            date=parsed.date,
+            lifted=stamp,
+        )
+        overview = _fit_stateful(
+            lifted.overview_head,
+            lifted.overview_tail,
+            f"{DroppedIdea.LIFTED_STAMP}{stamp}",
+        )
+        await self._patch(memory_id, {"overview": overview, "content": lifted.render()})
+        return True
 
     async def issues_by_eval(self) -> dict[str, list[str]]:
         """eval id → the ids of the task's `issue` records bound to it (the

@@ -28,6 +28,7 @@ from kiln_harness_tuner.memory import (
 from kiln_harness_tuner.memory_schema import (
     CONTENT_MAX_CHARS,
     HISTORY_TRUNCATION_MARKER,
+    IDEA_MAX_CHARS,
     ISSUE_TERMINAL_STATES,
     OVERVIEW_MAX_CHARS,
     SETUP_DELIMITER,
@@ -3086,9 +3087,14 @@ async def test_three_failed_arms_of_one_idea_on_one_issue_drop_it():
     (idea,) = await writer.rejected_ideas()
     assert (idea.issue_memory_id, idea.idea) == ("issue_1", "prompt")
     assert (idea.failures, idea.dropped) == (2, False)
-    assert await writer.record_dropped_ideas([idea]) == []
+    assert await writer.sync_dropped_ideas([idea]) == ([], [])
 
+    # A dead end is the build's fault, not a measurement of the idea.
     await _arm(writer, kiln, " — DEAD END (generality: names a train item)")
+    (idea,) = await writer.rejected_ideas()
+    assert (idea.failures, idea.dropped) == (2, False)
+
+    await _arm(writer, kiln, " — REFUTED", rc="rc_3")
     (idea,) = await writer.rejected_ideas()
     assert (idea.failures, idea.wins, idea.dropped) == (3, 0, True)
     assert len(idea.arms) == 3 and all(a.startswith("EXP ") for a in idea.arms)
@@ -3101,7 +3107,7 @@ async def test_code_writes_one_lasting_record_for_a_dropped_idea():
         await _arm(writer, kiln, " — REFUTED", rc=rc)
 
     ideas = await writer.rejected_ideas()
-    (written,) = await writer.record_dropped_ideas(ideas)
+    (written,), _ = await writer.sync_dropped_ideas(ideas)
     record = kiln.memories[written.dropped_memory_id]
     assert record["scope"] == "task::t1"
     assert record["tags"] == ["dead_end", "dropped_idea"]
@@ -3117,7 +3123,7 @@ async def test_code_writes_one_lasting_record_for_a_dropped_idea():
     # The next wave, and the next run, read the record and write no second one.
     again = await make_writer(kiln).rejected_ideas()
     assert again[0].dropped_memory_id == written.dropped_memory_id
-    assert await make_writer(kiln).record_dropped_ideas(again) == []
+    assert await make_writer(kiln).sync_dropped_ideas(again) == ([], [])
     assert len([m for m in kiln.memories.values() if "dropped_idea" in m["tags"]]) == 1
 
 
@@ -3125,7 +3131,7 @@ async def test_the_drop_outlives_the_experiment_records():
     kiln = FakeKiln()
     writer = make_writer(kiln)
     ids = [await _arm(writer, kiln, " — REFUTED", rc=f"rc_{n}") for n in range(3)]
-    await writer.record_dropped_ideas(await writer.rejected_ideas())
+    await writer.sync_dropped_ideas(await writer.rejected_ideas())
     for mem_id in ids:
         del kiln.memories[mem_id]
 
@@ -3144,6 +3150,7 @@ async def test_what_does_not_count_as_a_failure():
     await _arm(writer, kiln, " — ABANDONED (run stopped)", rc="rc_3")
     await _arm(writer, kiln, " — CAPPED (capped at $2 after 9 items)", rc="rc_4")
     await _arm(writer, kiln, " — RUNNING")
+    await _arm(writer, kiln, " — DEAD END (lever not applied)", rc="rc_5")
     # The same build measured again counts once with the arm that built it.
     await _arm(writer, kiln, " — REFUTED", existing_rc_id="rc_2")
     # A merge has no one issue.
@@ -3188,22 +3195,61 @@ async def test_a_win_on_the_issue_keeps_the_idea():
     writer = make_writer(kiln)
     for rc in ("rc_1", "rc_2", "rc_3"):
         await _arm(writer, kiln, " — REFUTED", rc=rc)
-    await writer.record_dropped_ideas(await writer.rejected_ideas())
+    await writer.sync_dropped_ideas(await writer.rejected_ideas())
     # A later arm of the same idea wins on train: the drop is lifted.
     await _arm(writer, kiln, "", rc="rc_4")
 
     (idea,) = await writer.rejected_ideas()
     assert (idea.failures, idea.wins, idea.dropped) == (3, 1, False)
 
+    # The record is stamped once, and no longer reads as a dead end.
+    _, (lifted,) = await writer.sync_dropped_ideas([idea])
+    record = kiln.memories[lifted.dropped_memory_id]
+    assert record["overview"].endswith(" — LIFTED 07-22")
+    assert DroppedIdea.parse(record["content"]).lifted == "07-22"
+    assert await writer.sync_dropped_ideas(await writer.rejected_ideas()) == ([], [])
+
+
+async def test_a_lifted_record_keeps_nothing_when_the_arms_are_gone():
+    kiln = FakeKiln()
+    writer = make_writer(kiln)
+    ids = [await _arm(writer, kiln, " — REFUTED", rc=f"rc_{n}") for n in range(3)]
+    await writer.sync_dropped_ideas(await writer.rejected_ideas())
+    ids.append(await _arm(writer, kiln, "", rc="rc_9"))
+    await writer.sync_dropped_ideas(await writer.rejected_ideas())
+    for mem_id in ids:
+        del kiln.memories[mem_id]
+    (idea,) = await make_writer(kiln).rejected_ideas()
+    assert idea.dropped is False
+
+
+async def test_the_dropped_record_fits_the_overview_cap_with_a_long_idea():
+    kiln = FakeKiln()
+    writer = make_writer(kiln)
+    long = " ".join(f"techniques/technique-number-{n}.md" for n in range(12))
+    for n in range(5):
+        await _arm(writer, kiln, " — REFUTED", rc=f"rc_{n}", hypothesis=long)
+    (idea,) = await writer.rejected_ideas()
+    assert idea.dropped and len(idea.idea) <= IDEA_MAX_CHARS
+    (written,), _ = await writer.sync_dropped_ideas([idea])
+    overview = kiln.memories[written.dropped_memory_id]["overview"]
+    assert len(overview) <= OVERVIEW_MAX_CHARS
+    assert overview.startswith("DROPPED IDEA: prompt + technique-number-0")
+    # The content keeps the whole key, so the next read matches the record.
+    again = await make_writer(kiln).rejected_ideas()
+    assert again[0].dropped_memory_id == written.dropped_memory_id
+
 
 async def test_a_record_from_before_the_idea_line_counts_by_its_lever():
     kiln = FakeKiln()
     for n in range(3):
+        # Only the NOT LANDED one kept its hypothesis: the key ignores it.
+        hypothesis = "hypothesis: techniques/x.md\n" if n == 2 else ""
         kiln.add_memory(
-            f"EXP 070{n}-w1-1: old arm — REFUTED",
+            f"EXP 070{n}-w1-1: old arm — {'NOT LANDED (0/1)' if n == 2 else 'REFUTED'}",
             "task::t1",
             ["experiment"],
-            content=f"issue: issue_1\ntechnique: Tool Config\nrc: rc_{n}",
+            content=f"{hypothesis}issue: issue_1\ntechnique: Tool Config\nrc: rc_{n}",
         )
     (idea,) = await make_writer(kiln).rejected_ideas()
     assert (idea.idea, idea.failures, idea.dropped) == ("tool config", 3, True)

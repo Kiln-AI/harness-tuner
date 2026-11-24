@@ -189,9 +189,10 @@ findings; each names its smell and the run config it was found in (the
 **Must return** `BatchPlan` — `items`, a `rejected_summary` that carries
 repeat-deferral counts forward, `open_questions`, and optionally `probe_phase`,
 `screen` (a screening round instead of a wave: no items, a list of variants
-code measures on the screening subset), `loop_exit`, or `failure_notes`
-(the kind of failure and the step that lost it, for each failing baseline
-item whose trace it read; code puts them on the next planner's cards). Two validators hold shapes the schema alone would not:
+code measures on the screening subset) or `loop_exit`. With any of them
+it may return `failure_notes`: the kind of failure and the step that lost
+it, for each failing baseline item whose trace it read; code puts them on
+the next planner's cards. Two validators hold shapes the schema alone would not:
 `loop_exit` and `items` are mutually exclusive, because the loop honours
 `loop_exit` by terminating *instead of* running the wave; and a probe-phase
 plan carries probes only.

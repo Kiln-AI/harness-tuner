@@ -798,19 +798,25 @@ each technique document of the knowledge skill that its hypothesis names
 (`techniques/<id>.md`), sorted (`memory_schema.idea_key`). `FixOpening`
 writes it on an `idea:` line, and `record_verdict` carries the line over
 the analyzer's content (`CARRIED_KEYS`). A record from before the line
-existed gets the key from its lever and its hypothesis line.
+existed gets the key from its lever alone: a verdict replaces the
+opening, so most older records have lost their hypothesis line.
 `MemoryWriter.rejected_ideas` reads every experiment record of the task,
 so the count covers every run on the task. A failure is an arm that ended
-`REFUTED`, `NOT LANDED` or `DEAD END` (`IDEA_FAILURE_STATES`); an infra
-failure, an abandoned arm and a capped arm are not results. Failures are
+`REFUTED` or `NOT LANDED` (`IDEA_FAILURE_STATES`): a train measurement
+that says the arm did not fix its issue. A `DEAD END` is not counted: most
+are a fault of the build (a generality leak, a judge copy, a missing
+reference) or a lever that did not apply. An infra failure, an abandoned
+arm and a capped arm are not results. Failures are
 counted by run config, so an arm that measures an existing run config
 again counts once with the arm that built it. A verdict is a win. An idea
 with `IDEA_DROP_FAILURES` (3) failures on an issue and no win is dropped,
-and code writes its record once (`record_dropped_ideas`): a task-scope
+and code writes its record once (`sync_dropped_ideas`): a task-scope
 `dead_end` with the tag `dropped_idea`, the overview `DROPPED IDEA: <idea>
 on issue <id> — failed <n> times (<arms>)` and the content `DroppedIdea`.
 The record keeps the drop when the experiment records are gone. A later
-win on the issue lifts it. The key does not read the meaning of a
+win on the issue lifts it: code stamps the record ` — LIFTED <MM-DD>` with
+a `lifted:` line (one `idea_lifted` event), and a lifted record keeps
+nothing. The key does not read the meaning of a
 hypothesis: two different prompt changes that name no technique document
 are one idea. That is the conservative choice: it drops an idea sooner,
 and the planner can still plan an arm on it, with a reason.
@@ -1229,7 +1235,11 @@ reads a list: it takes the last `"type": "result"` event.
    same expected output, then shared tags that not every item has, then
    the closest input by word overlap. An item fails when a score with a
    direction is under half of its range; a row with no such score is
-   `unscored`. A reader makes the other two parts, the step that lost the
+   `unscored`. Replicate rows of one item fold into the mean of their
+   scores, as in the measurement engine, and a skipped row is not a score.
+   A reader that read another run config's trace (the analyzer, on the
+   parent) names it in the note's `run_config_id`; code keeps it only when
+   it is the candidate, its parent or the baseline. A reader makes the other two parts, the step that lost the
    item and the kind of failure: the analyzer returns
    `ExperimentResult.failure_notes` for the candidate, and the planner
    returns `BatchPlan.failure_notes` for the baseline. Code appends them

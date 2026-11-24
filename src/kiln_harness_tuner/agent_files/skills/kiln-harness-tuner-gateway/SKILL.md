@@ -235,7 +235,6 @@ mcp__kiln_harness_tuner_gateway__list_providers(include_not_available=true)
 | `get_eval_config` | `eval_id`, `eval_config_id` | the judge: type, model, properties (its prompt or steps) |
 | `list_specs` / `get_spec` | — / `id` | specs: name, definition, priority, status, tags, eval id |
 | `get_train_results` | `eval_id`, `run_config_id`, `item_ids?`, `limit?` (≤500, default 100), `offset?` | the run config's stored results on the eval's TRAIN items, one page: per item the scores, cost, latency, `output_preview` (the first 300 characters), `skipped_reason` when the run was skipped rather than scored, `trace_path` and `trace_summary`; plus `dropped` (rows not provably train), `total`, `next_offset`, `stats_path` (the run config's `_stats.md`) and `traces_dir` |
-
 | `get_failure_cards` | `eval_id`, `run_config_id`, `item_ids?` (≤200), `limit?` (≤50, default 10), `offset?` | one card for each TRAIN item the run config fails on the eval, one page: see "Failure cards" below |
 
 `get_train_results` always reads split `train` and the eval's current
@@ -282,11 +281,15 @@ It also has `item_id`, `scores`, `failed_scores` (the scores that fail),
   reader read: when it is not the run config of the card, the note is
   about the same item on another run config, so check it against this
   trace before you use it. `failure_kind` is `config`, `eval_data`,
-  `judge`, `environment` or `noise`.
+  `judge`, `environment` or `noise`. A reader that read the trace of
+  another run config than the one it was asked about names it in the
+  note's `run_config_id`.
 - **Pass and fail.** An item fails when a score with a direction is under
   half of its range, in the good direction. An `informational` score and a
   custom score are not read. A row with no score that code can read is
-  counted in `unscored`, and has no card.
+  counted in `unscored`, and has no card. Several stored rows of one item
+  are replicates: a card reads the mean of their scores, as the
+  measurement engine does, and a skipped row is not a score.
 
 The page has `cards`, `failed`, `passed`, `unscored`, `dropped`, `kinds`
 (the failing items by `failure_kind`, with `unread` for an item with no

@@ -289,13 +289,24 @@ def store_failure_notes(
     run_config_id: str,
     by: str,
     source: str,
+    also_read: Collection[str] = (),
 ) -> int:
     """Store a reader's failure notes in the run folder
     (`kiln_harness_tuner.failure_notes`) and log one `failure_notes` event.
-    The gateway joins them to the planner's failure cards. A file that
-    cannot be written loses the notes only: the item goes on."""
+    The gateway joins them to the planner's failure cards. A note names
+    the run config whose trace was read: `run_config_id`, or its own
+    `run_config_id` when that is in `also_read` (the analyzer reads the
+    parent's traces too); any other value falls back to `run_config_id`. A
+    file that cannot be written loses the notes only: the item goes on."""
     if not notes:
         return 0
+    allowed = {run_config_id, *also_read}
+    notes = [
+        n
+        if n.run_config_id in allowed
+        else n.model_copy(update={"run_config_id": run_config_id})
+        for n in notes
+    ]
     try:
         written = append_notes(
             ctx.run_dir, notes, run_config_id=run_config_id, by=by, source=source
@@ -955,6 +966,14 @@ async def _execute_plan_item(
         run_config_id=rc_id,
         by="analyze_experiment_results",
         source=item.id,
+        also_read=[
+            rc
+            for rc in (
+                getattr(item.work, "parent_rc_id", None),
+                baseline.rc_id,
+            )
+            if rc
+        ],
     )
 
     # `successful` is the ticket into the val gate, and the code

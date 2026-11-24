@@ -32,6 +32,8 @@ from kiln_harness_tuner.orchestrator import (
     SpendMeter,
     _active_evals,
     _eval_train_sizes,
+    _flag_dropped_ideas,
+    _rejected_ideas,
     _run_wave,
     orchestrate,
     time_limit_detail,
@@ -51,6 +53,7 @@ from kiln_harness_tuner.schemas import (
     PromotionDecision,
     RcBuildResult,
     RegressedIssue,
+    RejectedIdea,
     WinRef,
 )
 from kiln_harness_tuner.setup import EvalSplitAuditError, SetupPreconditionError
@@ -2974,6 +2977,31 @@ async def test_three_failed_arms_drop_the_idea_and_the_planner_sees_it():
     assert ctx.dispatch.calls_to("create_experiment_rc")
 
 
+def test_an_arm_on_an_existing_run_config_is_not_flagged():
+    ctx = make_ctx()
+    idea = RejectedIdea(
+        issue_memory_id="issue_1", idea="prompt", failures=3, dropped=True
+    )
+    fresh, reuse = fix_item("w1-1"), fix_item("w1-2")
+    reuse.work.existing_rc_id = "rc_old"
+    other = fix_item("w1-3")
+    other.work.technique = "skill"
+    _flag_dropped_ideas(ctx, make_plan(fresh, reuse, other), [idea], wave=1)
+    flagged = [f["item_id"] for k, f in ctx.log.events if k == "dropped_idea_planned"]
+    assert flagged == ["w1-1"]
+
+
+async def test_a_failed_memory_read_leaves_the_list_empty():
+    ctx = make_ctx()
+
+    async def broken():
+        raise KilnAPIError("GET", "/memories", 500, {"detail": "down"})
+
+    ctx.memory.rejected_ideas = broken
+    assert await _rejected_ideas(ctx, wave=1) == []
+    assert [k for k, _ in ctx.log.events] == ["rejected_ideas_unavailable"]
+
+
 async def test_the_readers_failure_notes_are_stored_for_the_cards(tmp_path):
     ctx = make_ctx()
     ctx.run_dir = tmp_path
@@ -2982,19 +3010,33 @@ async def test_the_readers_failure_notes_are_stored_for_the_cards(tmp_path):
     note = FailureNote(
         eval_id="eval_1", item_id="item_7", kind="config", lost_at="final reply"
     )
+    on_parent = note.model_copy(
+        update={"item_id": "item_8", "run_config_id": "rc_base"}
+    )
+    made_up = note.model_copy(update={"item_id": "item_9", "run_config_id": "rc_x"})
     plan = make_plan(fix_item("w1-1"))
     plan.failure_notes = [note]
     ctx.dispatch.queues["batch_plan"][0] = ok(plan)
     ctx.dispatch.queues["analyze_experiment_results"][0] = ok(
-        make_result(failure_notes=[note.model_copy(update={"kind": "judge"})])
+        make_result(
+            failure_notes=[
+                note.model_copy(update={"kind": "judge"}),
+                on_parent,
+                made_up,
+            ]
+        )
     )
 
     await orchestrate(ctx, "", timeout_mins=180)
 
     notes = load_notes(tmp_path)
-    assert [(n.by, n.kind, n.run_config_id) for n in notes] == [
-        ("batch_plan", "config", "rc_base"),
-        ("analyze_experiment_results", "judge", "rc_cand"),
+    assert [(n.by, n.item_id, n.run_config_id) for n in notes] == [
+        ("batch_plan", "item_7", "rc_base"),
+        ("analyze_experiment_results", "item_7", "rc_cand"),
+        # The analyzer read the parent's trace: kept. An unknown run config
+        # falls back to the candidate.
+        ("analyze_experiment_results", "item_8", "rc_base"),
+        ("analyze_experiment_results", "item_9", "rc_cand"),
     ]
     assert [f["by"] for k, f in ctx.log.events if k == "failure_notes"] == [
         "batch_plan",

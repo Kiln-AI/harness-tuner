@@ -105,6 +105,39 @@ def verdict(
     return not failed, failed
 
 
+def fold_rows(
+    rows: Iterable[tuple[str, dict[str, Any]]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """One row for each item, in the order of each item's first row.
+
+    Several stored rows for one item are replicates. The rows that were
+    not skipped fold into the last of them, with each score the mean over
+    the rows that carry it, as the measurement engine reads replicates
+    (`analysis._runs_by_item`). An item whose rows were all skipped keeps
+    its last row, so it is counted as unscored. The trace file of a card
+    is then the trace of the row the card shows."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item, row in rows:
+        groups.setdefault(item, []).append(row)
+    folded: list[tuple[str, dict[str, Any]]] = []
+    for item, group in groups.items():
+        kept = [r for r in group if not r.get("skipped_reason")]
+        if len(kept) <= 1:
+            folded.append((item, kept[0] if kept else group[-1]))
+            continue
+        keys = {k for r in kept for k in (r.get("scores") or {})}
+        scores: dict[str, Any] = {}
+        for key in keys:
+            values = [
+                float(v)
+                for r in kept
+                if isinstance(v := (r.get("scores") or {}).get(key), (int, float))
+            ]
+            scores[key] = sum(values) / len(values) if values else None
+        folded.append((item, {**kept[-1], "scores": scores}))
+    return folded
+
+
 def clip(text: str | None, limit: int) -> tuple[str | None, bool]:
     """`text` cut to `limit` characters, and whether it was cut."""
     if text is None:

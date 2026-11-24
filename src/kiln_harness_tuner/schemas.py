@@ -373,6 +373,10 @@ class FailureNote(BaseModel):
     # The failure pattern: a playbook id of the knowledge skill, or a few
     #   words when no playbook fits.
     pattern: str | None = None
+    # The run config whose trace the reader read, when it is not the one it
+    #   was asked about (the analyzer reading the parent's trace). Code keeps
+    #   it only when it is the candidate, its parent or the baseline.
+    run_config_id: str | None = None
 
 
 class RejectedIdea(BaseModel):

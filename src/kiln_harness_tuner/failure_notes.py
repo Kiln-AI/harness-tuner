@@ -68,14 +68,17 @@ def append_notes(
     source: str,
 ) -> int:
     """Append `notes` to the run's notes file, and return how many lines
-    were written. Each line is one `os.write` on an `O_APPEND` file, so the
-    lines of concurrent items do not mix. A note with no item, no eval or an
-    empty `lost_at` is not written. No run folder: nothing is written."""
+    were written. A note's own `run_config_id` wins over `run_config_id`:
+    the caller checks it first (`items.store_failure_notes`). Each line is
+    one `os.write` on an `O_APPEND` file, so the lines of concurrent items
+    do not mix. A note with no item, no eval or an empty `lost_at` is not
+    written. No run folder: nothing is written."""
     if run_dir is None:
         return 0
     written = 0
     for note in notes:
         lost_at = _one_line(note.lost_at, LOST_AT_MAX_CHARS)
+        read_on = note.run_config_id or run_config_id
         if not (note.eval_id and note.item_id and lost_at):
             continue
         line = json.dumps(
@@ -83,7 +86,7 @@ def append_notes(
                 "ts": datetime.now().isoformat(timespec="seconds"),
                 "eval_id": note.eval_id,
                 "item_id": note.item_id,
-                "run_config_id": run_config_id,
+                "run_config_id": read_on,
                 "kind": note.kind,
                 "lost_at": lost_at,
                 "pattern": _one_line(note.pattern, PATTERN_MAX_CHARS)

@@ -623,7 +623,7 @@ class Gateway:
         and a card gives the path. An item asked for by id that is not a
         train item of the eval is refused by name."""
         train = self.s.train_items(req.eval_id)
-        if req.item_ids is not None:
+        if req.item_ids:
             refused = [i for i in req.item_ids if i not in train]
             if refused:
                 raise GatewayError(f"{NOT_TRAIN} Refused: {', '.join(refused[:10])}.")
@@ -641,14 +641,15 @@ class Gateway:
         scored: dict[str, failure_cards.Scored] = {}
         failed_scores: dict[str, list[str]] = {}
         unscored = 0
-        for item, row in train_rows:
+        # One record for each item: replicate rows fold into the mean of
+        # their scores, as the measurement engine folds them
+        # (`analysis._runs_by_item`), and a skipped row is not a score.
+        for item, row in failure_cards.fold_rows(train_rows):
             view = self._result_row(results, config_id, item, row, writer)
             passed, failed = failure_cards.verdict(view.scores, specs)
             if passed is None or view.skipped_reason:
                 unscored += 1
                 continue
-            # One row for each item: a later row of the same item replaces
-            # the earlier one, in the order the server gives.
             views[item], raw[item], failed_scores[item] = view, row, failed
             text = row.get("input") if isinstance(row.get("input"), str) else None
             scored[item] = failure_cards.scored_row(item, passed, text, docs.get(item))
@@ -670,7 +671,7 @@ class Gateway:
         for i in failures:
             kind = noted[i].kind if noted[i] is not None else failure_cards.UNREAD
             kinds[kind] = kinds.get(kind, 0) + 1
-        if req.item_ids is not None:
+        if req.item_ids:
             asked = list(dict.fromkeys(req.item_ids))
             every = [i for i in asked if i in set(failures)]
             not_failed = [i for i in asked if i not in set(failures)]

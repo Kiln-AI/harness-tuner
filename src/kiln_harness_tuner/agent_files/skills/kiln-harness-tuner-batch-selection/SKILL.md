@@ -531,14 +531,20 @@ experiment records. Nothing in it comes from val.
   (`techniques/<id>.md`): `prompt`, or `prompt + few-shot-examples`. Two
   arms on one issue are the same idea when both parts are equal. An arm
   that names no technique document is the plain use of its lever.
-- **A failure** is an arm that ended `— REFUTED`, `— NOT LANDED` or
-  `— DEAD END`. An infra failure, an abandoned arm and a capped arm do not
-  count. An arm that measures an existing run config again
+- **A failure** is an arm that ended `— REFUTED` or `— NOT LANDED`: a
+  train measurement that says the arm did not fix its issue. A `— DEAD
+  END` does not count (most are a fault of the build, such as a
+  generality leak, or a lever that did not apply), and neither does an
+  infra failure, an abandoned arm or a capped arm. An arm that measures an existing run config again
   (`existing_rc_id`) counts once with the arm that built it.
 - **`dropped: true`**: the idea failed three times on that issue and never
   won on it. Code writes a `dead_end` record for it, with the tag
   `dropped_idea` and the overview `DROPPED IDEA: <idea> on issue <id> —
-  failed <n> times (…)`. You read it with the dead ends.
+  failed <n> times (…)`. You read it with the dead ends. A later win of
+  the idea on that issue lifts the drop: the record stays, and
+  `rejected_ideas` then shows `dropped: false` with `wins` above 0, and
+  code stamps the record `— LIFTED <MM-DD>`. `rejected_ideas` is the
+  current state.
 
 Do not plan a dropped idea on its issue again. Change the lever, apply a
 technique that the failed arms did not apply (and name its file in the
@@ -547,7 +553,7 @@ document only to change the key: the builder opens the file that you
 name, and builds what it says. An idea with two failures has one attempt
 left: read why the two arms failed before you spend it. Code does not
 remove an arm on a dropped idea from your plan. It logs the arm
-(`dropped_idea_planned`), and the report can show it. When you have a
+(`dropped_idea_planned`) in the run's log. When you have a
 reason that the record does not know (for example, the baseline changed
 the surface that the failed arms edited), plan the arm and give that
 reason in its `hypothesis` and in `rejected_summary`.
@@ -887,7 +893,10 @@ Per experiment item:
   measurement to learn that it fixed nothing; the first chunk says so for a
   few drives. A `— NOT LANDED` record means the
   BUILD missed, not that the lever is disproven: plan a different build for
-  the same targets (say what changes) — never resubmit the same rc.
+  the same targets (say what changes) — never resubmit the same rc. Each
+  `— NOT LANDED` arm still counts as one failure of its idea for the
+  three-failures rule (Step 1): after two, make the third build differ in
+  more than its words.
 - **The discriminating block — on by default.** When you name
   no `target_items`, the first chunk of a fix arm's queue is its
   discriminating block: from the parent's stored train rows on the arm's
@@ -1190,7 +1199,7 @@ its cost. The run then goes straight to the report.
   re-carried by later waves.)
 - **`failure_notes`** — optional. One note for each failing baseline item
   whose trace you read this wave: `{eval_id, item_id, kind, lost_at,
-  pattern}`. `kind` is the failure class: `config`, `eval_data`, `judge`,
+  pattern}`. A note is about the baseline's trace. `kind` is the failure class: `config`, `eval_data`, `judge`,
   `environment` or `noise` (the analysis skill defines them). `lost_at` is
   the step that lost the item, in one line: the message where the run went
   wrong, and what came before it (before any tool call, with a call to a

@@ -385,7 +385,9 @@ promotion pass together with the planner's `promotion_candidate` intent.
   (`get_failure_cards`), beside the input, the output and the expected
   output. Write a note only for a trace that you read: a guess on a card
   reads as a fact to the planner. Train items only. An empty list is
-  valid when the candidate fails nothing that you read.
+  valid when the candidate fails nothing that you read. A note is about
+  the candidate's trace; for a trace of the parent or the baseline that
+  you read, set the note's `run_config_id` to that run config.
 - A measured negative is a normal, valuable verdict: return envelope
   `status: "ok"` with `successful: false`. Reserve `failed_expected` for
   "I could not produce a judgment at all", with the reason in `detail`.

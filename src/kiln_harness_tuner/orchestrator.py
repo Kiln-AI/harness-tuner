@@ -3250,8 +3250,9 @@ async def _rejected_ideas(ctx: Ctx, wave: int) -> list[RejectedIdea]:
     """`BatchPlanInput.rejected_ideas`, and the three-failures rule: code
     counts the failed arms of each idea on each issue from the experiment
     records (`MemoryWriter.rejected_ideas`), and writes the `dropped_idea`
-    record of an idea that reached the count (`record_dropped_ideas`), with
-    one `idea_dropped` event. A planned arm on a dropped idea is logged
+    record of an idea that reached the count (`sync_dropped_ideas`), with
+    one `idea_dropped` event, or stamps it lifted after a win
+    (`idea_lifted`). A planned arm on a dropped idea is logged
     (`_flag_dropped_ideas`), not removed. Advisory like `lever_attempts`: a
     read or a write that fails is logged and the wave goes on."""
     try:
@@ -3260,10 +3261,22 @@ async def _rejected_ideas(ctx: Ctx, wave: int) -> list[RejectedIdea]:
         ctx.log.event("rejected_ideas_unavailable")
         return []
     try:
-        written = await ctx.memory.record_dropped_ideas(ideas)
+        written, lifted = await ctx.memory.sync_dropped_ideas(ideas)
     except KilnError as exc:
         ctx.log.event("memory_write_failed", write="dropped_idea", error=repr(exc))
-        written = []
+        written, lifted = [], []
+    for idea in lifted:
+        ctx.log.event(
+            "idea_lifted",
+            wave=wave,
+            issue_memory_id=idea.issue_memory_id,
+            idea=idea.idea,
+            memory_id=idea.dropped_memory_id,
+            line=(
+                f"idea no longer dropped: {idea.idea} on issue"
+                f" {idea.issue_memory_id}, after a win"
+            ),
+        )
     for idea in written:
         ctx.log.event(
             "idea_dropped",
@@ -3304,6 +3317,10 @@ def _flag_dropped_ideas(
                 item_id=item.id,
                 issue_memory_id=work.issue_memory_id,
                 idea=idea,
+                line=(
+                    f"{item.id}: planned on a dropped idea ({idea} on issue"
+                    f" {work.issue_memory_id})"
+                ),
             )
 
 
