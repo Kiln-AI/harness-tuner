@@ -825,3 +825,16 @@ def test_no_rag_config_no_section():
     tracker = make_tracker()
     assert render_rag_appendix(tracker.snapshot()) == ""
     assert RagConfigRecord(id="x", tool_id="kiln_tool::rag::x").summary == ""
+
+
+def test_a_screen_or_a_probe_cannot_attach_a_rag_tool():
+    from kiln_harness_tuner.schemas import ProbeCheck, ScreenCandidate
+
+    tools = {"tools_config": {"tools": ["kiln_tool::rag::424242600020"]}}
+    with pytest.raises(ValueError, match="technique: rag"):
+        ScreenCandidate(id="s1-1", overrides=tools)
+    with pytest.raises(ValueError, match="technique: rag"):
+        ProbeCheck(overrides=tools, count="tool_calls")
+    ScreenCandidate(
+        id="s1-2", overrides={"tools_config": {"tools": ["kiln_tool::code::c"]}}
+    )

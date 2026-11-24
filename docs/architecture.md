@@ -429,6 +429,23 @@ The full path:
    check. Every check is a `reference_check` event with a line. Code only,
    no spend. A check that cannot read its inputs is logged and does not
    stop the item.
+   **The RAG check**
+   ([`rag_lever.py`](../src/kiln_harness_tuner/rag_lever.py)) runs before
+   the three checks above, and again on the one rebuild. It reads the two
+   run configs. An item whose `technique` is `rag` and whose run config
+   attaches no RAG tool (`kiln_tool::rag::<id>`) that its parent does not
+   ends `dead_end`, "lever not applied". For each RAG tool that the run
+   config adds, under any technique, code reads the documents that the RAG
+   config indexes (their extracted text on disk) and every eval item of the
+   task in every split. A document that holds the whole input of an eval
+   item ends the arm `dead_end` (event `rag`, status `blocked`) before any
+   train spend; a document that holds the whole expected output of an eval
+   item is a flag on the record. Otherwise the change is a `rag` event
+   (status `changed`) and, after the train measurement, code reads the
+   stored train rows of the arm: the search tool is called in one of them
+   (applied), in none of two or more (`dead_end`, "lever not applied"), or
+   there are too few traces (unverified). The line goes on the record.
+   Section 19 has the lever.
 5. `run_experiment_analysis` — code. Section 7.
 6. One `analyze_experiment_results` dispatch, given the item, the run-config
    id, the numbers and the memory id. It has data and ids, never edit surface.
@@ -983,6 +1000,11 @@ way.
   id of the `smell` issue code wrote). It is folded from the
   `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
   `RunStatus.baseline_reviews`), and the fallback report has it too.
+  "## RAG configs (code-computed)" (`render_rag_appendix`) is there when
+  the run created a RAG config: each one with its tool id, its parts in
+  one line, the run configs that attach it and its state against the
+  final baseline. It is folded from the `rag_configs` event that the run
+  end writes (`RunStatus.rag_configs`).
 - **The transcripts.** The dispatcher copies every agent session's
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
@@ -1239,6 +1261,8 @@ src/kiln_harness_tuner/
   reconcile.py      the spend ledger checked against this run's records
   objective.py      the quality, speed and cost objectives
   levers.py         the check that a declared lever took effect
+  rag_lever.py      the RAG lever: the document check, the index budget,
+                    the model rule, the lever check, the run-end archive
   integrity.py      the reward-hacking code checks at the promotion gate
   orchestrator.py   the wave loop, the promotion gate, the tripwire, the
                     janitor, the budget
@@ -1942,7 +1966,12 @@ It is enforced at every place a run config comes into being or is used:
   trial, so a run config that exists by any other route is never measured
   (`ModelPolicyRefused`, the item fails);
 - **the gate**, which drops a refused candidate before the val pass;
-- **code probes**, which never fork or drive a refused model.
+- **code probes**, which never fork or drive a refused model;
+- **the gateway, on `create_rag_config`**: the extractor, embedding and
+  reranker models of a new RAG config must pass, because the documents
+  and every search query are sent to them. A pair that a RAG config of the
+  project used in the same role before the run is allowed, unless a deny
+  rule matches it (section 19).
 
 The model preflight (section 3.1, step 9) checks the allowed models at
 start-up. A model it flags is left out of `allowed_models`, is not
@@ -2082,7 +2111,7 @@ matter, and its directory gives its type:
 
 | Type | Directory | What it is |
 |---|---|---|
-| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `output_mode`, `model`). |
+| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `output_mode`, `model`, `rag`). |
 | Technique | `references/techniques/` | One optimisation: when to use it and when not, its alternatives, how, a cheap check that it took effect, its cost, what to do when it does not move an eval, priors and confidence. It names the levers it uses. |
 | Playbook | `references/playbooks/` | How to solve one problem or reach one goal, as an ordered list of techniques, each with its condition. Its kind is `goal`, `order`, `failure`, `eval` or `design`. |
 | Smell | `references/smells/` | An issue in the design of the agent, true whether an eval passes or fails: how to recognise it, how to confirm it, who can detect it, and at least one remedy. |
@@ -2216,3 +2245,62 @@ gives "Design review skipped: <reason>." or "Design review failed:
 A resumed run reviews a baseline again when its first review wrote no
 issue (it found no smell, or every write failed), because the check for an
 earlier review reads the smell issues in memory.
+
+## 19. The RAG lever
+
+A RAG config indexes the project's documents and gives the agent the
+search tool `kiln_tool::rag::<id>`. The build agent creates one with the
+gateway operation `create_rag_config`, and attaches its tool on a new run
+config. The code is [`rag_lever.py`](../src/kiln_harness_tuner/rag_lever.py)
+and `Gateway.create_rag_config`. The decisions are in
+[the project record](../specs/projects/rag-lever/project_overview.md).
+
+**What the build agent creates.** A chunker config, an embedding config, a
+vector store config (the search type), a reranker config and the RAG
+config. It reuses an extractor config of the project, and it starts no
+extraction. `list_rag_parts` lists the parts and the models it can use.
+
+**The order of `create_rag_config`.** Every check runs before the first
+write:
+
+1. the run's limit: at most `MAX_CREATED_PER_RUN` (6) RAG configs, counted
+   in the run's registry `gateway_created.jsonl`;
+2. each part that the request names exists; each new model is one that
+   Kiln offers (`/api/available_embedding_models`,
+   `/api/available_reranker_models`);
+3. the model rule (section 17) on the extractor, embedding and reranker
+   models, and on the embedding model of a semantic chunker;
+4. each document to index has an extraction for the extractor config;
+5. the index budget: the bytes of extracted text that the index sends to
+   the embedding model, at most `INDEX_MAX_BYTES` (20,000,000, about five
+   million tokens). A document that already has embeddings for the same
+   extractor, chunker and embedding config is not counted. A semantic
+   chunker counts twice;
+6. the document check: no document to index holds the whole input of an
+   eval item of the task, in any split. The check reads at most
+   `SCAN_MAX_BYTES` (80,000,000) of text. A finding names documents, never
+   items.
+
+Then the new parts, the RAG config (each in the registry the moment it
+exists), and the index: `GET …/rag_configs/{id}/run`, read to its end, at
+most `INDEX_WAIT_TIMEOUT_SECS` (600). The answer gives the index state from
+`POST …/rag_configs/progress`. `index_rag_config` runs the index again;
+Kiln skips every step that a document went through.
+
+**The rules on a run config.** `create_run_config` refuses a RAG tool that
+is not a RAG config of the project, that is archived, or that the run
+created and whose index is not complete. A screen candidate and a probe
+check cannot attach a RAG tool. The loop's checks on an arm are in
+section 4.
+
+**Cost.** Kiln reports no cost for an embedding call or a reranker call.
+So the index, and the query embedding and the reranker call of each
+search, are in no cost figure and not in `--budget-usd`. The latency of a
+run is the time of its model calls, so it leaves out the time of a search.
+
+**The run end.** After the loop, `close_rag_configs` reads the run's
+registry, archives each RAG config of the run that no run config of the
+task attaches (`PATCH …/rag_configs/{id}`, `is_archived`), and writes one
+`rag_configs` event for the report. A config that a run config attaches is
+never archived. Nothing is deleted: Kiln has no delete for a RAG config, a
+part or an index.

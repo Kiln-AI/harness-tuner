@@ -1,7 +1,7 @@
 ---
 title: The attached tools
 description: Which existing tools a run config attaches - code, MCP, built-in, Kiln task and RAG tools - attached or dropped on a new run config, with no new code.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 gateway_ops:
   - get_run_config
   - list_available_tools
@@ -55,8 +55,12 @@ Rules of the object:
 
 ## Limits
 
-- The tuner attaches only what exists. It cannot connect an MCP server,
-  and it cannot create a RAG config or a Kiln task tool.
+- The tuner attaches only what exists. It cannot connect an MCP server
+  or create a Kiln task tool. A new RAG config is the lever
+  [rag](rag.md); this lever attaches or drops one that exists.
+- A RAG config that a run config attaches must not be archived. Its
+  documents are checked for the inputs of eval items: a document that
+  holds one ends the arm, under this lever too.
 - When a dropped tool is still named in the prompt or in an attached
   skill, the text points at nothing. Code looks for such names after the
   build (the reference check). The build searches the text for the name

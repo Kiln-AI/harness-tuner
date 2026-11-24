@@ -77,17 +77,6 @@ if `skill-into-the-prompt` can save money.
 `get_task` drops `turn_mode`. The step "know the agent before you plan" needs it. The model
 capability flags are in `get_model_details` (project model-provider-info).
 
-### RAG
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 5; overview 7.1
-
-The lever. RAG or skill, and when each wins. Documents and extraction first; extract once and do
-not tune it. Test that RAG helps before the chunker and the search type. Reranking. Size in tokens,
-not in documents.
-
 ### Structured-output mode
 
 - Kind: gap
@@ -846,3 +835,14 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### The cost and latency of a RAG search
+
+- Kind: code
+- Where: tuner, kiln
+- Depends on: None
+- Source: [rag-lever](projects/rag-lever/project_overview.md), section 3
+
+Kiln reports no cost for an embedding or reranker call, and a run's latency leaves out a search.
+So a RAG arm's cost and latency are low, and an index is not in `--budget-usd`. Count them in Kiln,
+or withhold the metrics in code as for sub-agents.

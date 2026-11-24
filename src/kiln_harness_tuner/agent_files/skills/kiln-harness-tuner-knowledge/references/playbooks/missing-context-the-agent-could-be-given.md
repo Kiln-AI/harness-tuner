@@ -1,7 +1,7 @@
 ---
 title: Missing context the agent could be given
 description: The agent fails because it did not know a fact that a tool could give it - if it had known that, it would have done the right thing. A prompt line to always call that tool, or a new tool.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 kind: failure
 applies_to:
   - tools
@@ -51,6 +51,11 @@ request.
 3. [Cap and preview wrapper](../techniques/cap-and-preview-wrapper.md),
    when the context tool returns much more than the facts the failures
    show. A context loader that returns everything floods the context.
+4. [Test that RAG helps first](../techniques/test-that-rag-helps-first.md),
+   when the missing fact is not the state of a record but reference
+   knowledge in the project's document library: a policy, a manual, a
+   past case. No tool gives it, and it is too large for the prompt. A
+   RAG search tool is the tool to call.
 
 ## What not to do yet
 
@@ -66,4 +71,5 @@ request.
 ## Budget
 
 The order does not change with the budget. Step 1 has a low cost: one
-prompt line. Step 2 has a medium cost: a new code tool.
+prompt line. Step 2 has a medium cost: a new code tool. Step 4 has a
+medium cost, and its index is not in `--budget-usd`.

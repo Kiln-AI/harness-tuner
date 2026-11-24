@@ -1,7 +1,7 @@
 ---
 title: Attach the knowledge source
 description: Give the agent the knowledge its answers need - attach an existing search or RAG tool, or write the knowledge into a skill - when the answers are not grounded.
-reviewed: 2026-11-16
+reviewed: 2026-11-25
 status: active
 levers:
   - tool_config
@@ -32,8 +32,9 @@ cost: medium
   private facts either.
 - **Do not narrow the answer to a closed list of topics** in place of a
   source. A list does not add the facts.
-- The tuner cannot create a RAG config. When no tool exists and the
-  knowledge is too large for a skill, this technique is out of reach.
+- **No tool exists, and the knowledge is too large for a skill.** A new
+  RAG config over the project's documents is the step:
+  [test that RAG helps first](test-that-rag-helps-first.md).
 
 ## Alternatives
 
@@ -41,6 +42,9 @@ cost: medium
   a long document that a lookup tool already serves.
 - [Answer only from the source](answer-only-from-the-source.md), when the
   source is already in context.
+- [RAG or a skill for a knowledge source](rag-or-a-skill-for-a-knowledge-source.md),
+  when no form of the source exists yet, or the form that exists does not
+  fit its size.
 
 ## How
 

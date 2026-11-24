@@ -43,7 +43,7 @@ only when it is clearly past the noise.
 
 The `technique` field of an experiment is the id of a lever document where
 one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `params`,
-`output_mode`, `model`.
+`output_mode`, `model`, `rag`.
 
 Each table gives the task shapes a document applies to. A document applies
 only when the task has every shape in its list. `all` means that the shape
