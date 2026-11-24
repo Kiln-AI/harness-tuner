@@ -211,7 +211,20 @@ UNVERIFIED (logged, not stopped), so an ignored thinking parameter on such
 a provider is paid for. Output tokens also move for other reasons (a new
 level changes the answer's length), so a real no-op whose answers happen to
 lengthen by a quarter passes. A model switch no drive records is
-unverified the same way.
+unverified the same way. A new sub-agent is judged on one signal: a call of
+its tool in a drive's trace. A sub-agent that the agent calls on few
+requests can have no call in the first drives, and the arm then ends as
+"lever not applied".
+
+**The cost of a sub-agent's calls is counted on some drives only.** Kiln's
+usage numbers of a run do not include the calls of a sub-agent (a Kiln task
+that the agent calls as a tool). The loop adds them on the drives it makes
+through the run endpoint, and it times every experiment that adds or
+removes a sub-agent on such drives. Three numbers still leave them out:
+the latency and cost read from stored eval runs, the spend of eval jobs
+(so the budget and a spending cap do not count them), and every drive of a
+multi-turn or OpenEnv task. The report's `## Sub-agents` section says so
+when a run created a sub-agent.
 
 **The integrity checks are heuristics.** Quoting is blocked only as a run
 of 8 identical words, or an eval's full name. The gate checks the run
@@ -381,7 +394,10 @@ is the gateway's code, not the hook's.
 
 **The model policy covers the subject's run configs, not the judges.** Eval
 configs keep whatever model they have. And the baseline chain is measured
-whatever its model; only arms are refused.
+whatever its model; only arms are refused. The policy also covers the
+sub-agents that a run config attaches. Under `--models keep`, a new
+sub-agent can run only on the baseline's model, or on the model of a
+sub-agent that the baseline attaches.
 
 **Write containment has one sanctioned hole, and two roles hold it.** File
 writes are denied outside the run's scratch tree, and the skill-installer MCP
@@ -413,6 +429,13 @@ Nothing notices when the server moves past it.
 - **No credential management.** The loop uses each CLI's own sign-in. It does
   not take an API key, and it withholds secret-looking environment variables
   from every session unless `KILN_HARNESS_TUNER_CHILD_ENV_KEEP` names them.
+- **No tuning of a sub-agent on its own evals.** The loop can create a
+  sub-agent and attach it. It measures the sub-agent on the evals of your
+  task only. It creates no eval for a sub-agent, it does not change a
+  sub-agent in place, and a sub-agent that it creates cannot have a
+  sub-agent of its own. A sub-agent that is not promoted stays in your
+  project as a task: the loop deletes no task. It archives a sub-agent
+  tool only when no run config attaches it.
 - **No outer loop.** Pulling production traces in, mining them for issues and
   triggering a run is a practice, not code here.
 - **No curator pass over the issue store.** Duplicates are handled at

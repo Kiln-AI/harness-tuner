@@ -927,7 +927,7 @@ from.
 
 | Where | What |
 |---|---|
-| `reports/kiln-harness-tuner-<run_id>.md` | the round report: what was planned, what was measured, what was promoted, and code-computed appendices: the spend, why each arm stopped and how many of its items were judged, and the trade-offs of the screened candidates (quality lost against cost and latency saved) |
+| `reports/kiln-harness-tuner-<run_id>.md` | the round report: what was planned, what was measured, what was promoted, and code-computed appendices: the spend, why each arm stopped and how many of its items were judged, the trade-offs of the screened candidates (quality lost against cost and latency saved), and the sub-agents that the run created |
 | `runs/<run_id>/` | the run log (`kiln-harness-tuner.log`), the wave log (append-only), the rendered per-run settings and MCP configuration, and each agent's scratch directory |
 | `runs/.quarantine/<project>-<task>/` | the loop's own `PROBE …` run configs (`archived_run_configs/`), archived out of the project after a run, and with `--noise-check` the copies of the judge configs (`archived_eval_configs/`) |
 | `traces/<project>/<task>/<run_id>/` | every agent session's transcript, credential shapes redacted — the only record of *how* an agent reached its answer |

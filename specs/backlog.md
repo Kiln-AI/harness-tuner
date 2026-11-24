@@ -27,17 +27,6 @@ The lever, and its techniques: keep only the fields the task needs, cut long tex
 features, remove a field that misleads. The run config field passes through, and nothing teaches,
 screens or checks it.
 
-### Sub-agents
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 2; overview 7.2
-
-The lever, and its techniques: a stronger model for deep thinking; a specialist with its own tools;
-a cheap reader for a large source. A fixed form for what comes back. Limits: one turn, and no fix
-for a strong single agent. Tune a critical sub-agent on its own evals, then the main agent.
-
 ### Model and provider information
 
 - Kind: code
@@ -165,7 +154,7 @@ Clear old tool results from the context. It is separate from compaction.
 
 - Kind: technique
 - Where: knowledge
-- Depends on: Sub-agents
+- Depends on: None
 - Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 14
 
 A cheap model calls a stronger model as a tool when it needs advice.
@@ -174,7 +163,7 @@ A cheap model calls a stronger model as a tool when it needs advice.
 
 - Kind: technique
 - Where: knowledge
-- Depends on: Sub-agents
+- Depends on: None
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 A cascade: the cheap model answers, and a stronger model takes the cases where it is not sure.
@@ -846,3 +835,43 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### Sub-agent usage in eval jobs
+
+- Kind: gap
+- Where: kiln
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), section 3
+
+An eval job does not save the run of a Kiln task tool, so the cost and latency of a sub-agent's
+calls are lost. The spend of eval jobs, and the cost of stored eval runs, leave them out.
+
+### Tune a sub-agent on its own evals
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), decision 4; overview 7.2
+
+For a critical sub-agent: write its evals, tune it, then tune the main agent against it. It needs
+a train set and a gateway scope for a second task.
+
+### A new version of a sub-agent on the same task
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), decisions 3 and 5
+
+Today each variant of a sub-agent is a new task. A version is a new run config and a new tool on
+the task that exists, also for a sub-agent that the user made.
+
+### Read the trace of a sub-agent's run
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), decision 14
+
+The gateway shows the call and the returned text, not the sub-agent's own trace. A read needs a
+proof that the parent run is a train drive of this run.
