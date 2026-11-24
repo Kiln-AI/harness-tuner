@@ -152,13 +152,14 @@ def _gate_ctx(
         {"id": "rc_cand", "name": "c", "prompt": {"prompt": cand_prompt}},
     ]
     trace = [_call("kestrel_api", method="GET")]
+    # The candidate fixes three val items: enough items differ for a val
+    # verdict (`thin_evidence.MIN_DIFFERING_ITEMS`), so it reaches the agent.
     kiln.pending[("eval_1", "rc_base", "val")] = [
-        _val("v1", "ok", trace, accuracy=0.0),
+        *(_val(f"v{i}", "ok", trace, accuracy=0.0) for i in (1, 3, 4)),
         _val("v2", "ok", trace, accuracy=1.0),
     ]
     kiln.pending[("eval_1", "rc_cand", "val")] = [
-        _val("v1", cand_output, trace, accuracy=1.0),
-        _val("v2", cand_output, trace, accuracy=1.0),
+        _val(f"v{i}", cand_output, trace, accuracy=1.0) for i in (1, 2, 3, 4)
     ]
     ctx.dispatch.queue(
         "batch_plan",
@@ -224,9 +225,9 @@ async def test_the_code_gate_sends_a_flagged_winner_to_the_agent():
 
 async def test_new_write_actions_reach_the_agent_as_a_flag():
     ctx = _gate_ctx(BASE_PROMPT)
+    delete = [_call("kestrel_api", method="DELETE")]
     ctx.kiln.pending[("eval_1", "rc_cand", "val")] = [
-        _val("v1", "ok", [_call("kestrel_api", method="DELETE")], accuracy=0.0),
-        _val("v2", "ok", [_call("kestrel_api", method="DELETE")], accuracy=1.0),
+        _val(f"v{i}", "ok", delete, accuracy=1.0) for i in (1, 2, 3, 4)
     ]
     ctx.dispatch.queue("promote_best", decision("rc_cand", "Integrity: fine."))
     await orchestrate(ctx, "g", timeout_mins=180)
