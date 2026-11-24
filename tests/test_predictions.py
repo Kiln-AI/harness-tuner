@@ -198,9 +198,9 @@ def test_the_lines_of_a_stopped_arm_say_so_and_name_the_risks():
     )
     assert g.lines == [
         "predicted fixes: 0 of 1 target item now pass (still failing eval_1: f1);"
-        " not measured -: f9",
+        " not measured f9",
         "predicted risks: 1 of 1 at-risk item broke (broke eval_1: r1); not"
-        " measured -: r2",
+        " measured r2",
         "fix check: FLAG — 0 of 1 target item pass; 1 of 1 passing item broke,"
         " within noise (p=0.1, noise rate 0.10) (on the items judged before the"
         " arm stopped)",

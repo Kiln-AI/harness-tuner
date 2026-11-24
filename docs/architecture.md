@@ -439,7 +439,9 @@ The full path:
    `still_failing` for a target item, `held` or `broke` for an at-risk
    item, `wrong_side` when the parent's result is not what the role needs,
    `not_measured` when the item has no row (it is not a train item of a
-   targeted eval, or the arm stopped before it). Then **the fix check**, on
+   targeted eval, or the arm stopped before it). Every arm with a candidate
+   row is graded, a merge too: an arm that names no item gets the break
+   lines only. Then **the fix check**, on
    the same rows: every target item with a result passes, and the passing
    items that broke are not clearly above noise. That half is the test of
    the guard half of `residual` (`stop_rules.guard_breaks`: one-sided exact

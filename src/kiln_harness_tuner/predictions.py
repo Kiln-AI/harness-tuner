@@ -166,7 +166,7 @@ def grade_predictions(
 
 def _ids(by_eval: dict[str, list[str]]) -> str:
     """`eval: id, id; eval: id`, at most `LINE_MAX_IDS` ids, then the count
-    of the rest."""
+    of the rest. Ids that no eval judged come with no eval."""
     parts: list[str] = []
     left = LINE_MAX_IDS
     hidden = 0
@@ -175,7 +175,9 @@ def _ids(by_eval: dict[str, list[str]]) -> str:
         hidden += len(ids) - len(shown)
         left -= len(shown)
         if shown:
-            parts.append(f"{eval_id}: {', '.join(shown)}")
+            # `-`: an item no eval judged has no eval to name.
+            ids = ", ".join(shown)
+            parts.append(ids if eval_id == "-" else f"{eval_id}: {ids}")
     text = "; ".join(parts)
     if hidden:
         text += f" (+{hidden} more)"
