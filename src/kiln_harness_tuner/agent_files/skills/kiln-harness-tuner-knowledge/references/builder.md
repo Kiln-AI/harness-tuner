@@ -17,6 +17,10 @@ Use this file to build the technique of your work item.
 4. **Fit the technique to this agent.** Read it for the spirit of its
    guidance, as [the knowledge skill](../SKILL.md) says in "How to read
    these documents". The hard limits in the lever documents do not change.
+5. **Name the technique that you built.** Return its id, the file name
+   without `.md`, in `technique_id`. Return `null` when you followed no
+   technique document. Code reads the technique's "If it does not move the
+   evals" from this id: name only a technique whose change you made.
 
 The procedure of your role stays in the `kiln-harness-tuner-experiment-build`
 skill. This file adds what to build, not how a build is done.

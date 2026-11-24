@@ -48,15 +48,6 @@ for a strong single agent. Tune a critical sub-agent on its own evals, then the 
 Done in the project model-provider-info: the model catalogue, the gateway operations
 `list_models`, `get_model_details` and `list_providers`, and the "old model" smell and detector.
 
-### Promotion on a tie
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [tie-promotion](projects/tie-promotion/project_overview.md)
-
-Knowledge settles a tie, never a loss. The stretch goal is a difference inside the variance.
-
 ### Single-turn prompt caching in Kiln
 
 - Kind: gap
@@ -846,3 +837,13 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### A tie inside the variance
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [tie-promotion](projects/tie-promotion/functional_spec.md), section 12
+
+Promote a `Keep it.` candidate whose small val loss is inside the measured variance. Needs a val
+noise pass of the baseline (new spend at each gate) and the floor of section 8.

@@ -212,7 +212,13 @@ request against the baseline: the `latency.median_ratio` and
 stored eval runs, so information, not a verdict). "None" is a valid
 section. Then one line per entry of `gate_blocks`: "blocked: <rc> (<experiment>) — <reasons>".
 Never leave a block out: it is the one gate outcome that says a prompt
-copies an eval.>
+copies an eval.
+A promotion whose decision has `grounds: "design"` was made on a tie: the
+evidence step chose no winner, and code promoted a candidate whose
+technique (`technique_id`) says `Keep it.` because val showed no loss on
+any eval, on cost or on latency. Label it "on design grounds (a tie on
+val)", name the technique, and say that its val numbers show no gain. Do
+not count it as a quality improvement in Outcome. It closed no issue.>
 
 ## Experiments, by wave
 <per wave: one line per item — label, `change.summary` when the item carries a `change` (the build agent's structured what-changed block — cite its `changes` entries when the outcome turns on one of them), outcome numbers (from memory_overview),

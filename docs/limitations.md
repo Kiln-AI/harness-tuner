@@ -185,6 +185,20 @@ Under `speed` and `cost`, quality must be equal or better: the net items
 over all evals, weighted by eval priority, must be zero or more. So this
 drop of 7 items is refused, unless other evals gain at least as much.
 
+**A promotion on a tie is "no clear loss" too.** Under `quality`, a
+candidate whose technique says `Keep it.` can be promoted with no gain
+(`specs/projects/tie-promotion/`). Code needs net items at zero or above,
+no eval down significantly, and no eval down by more than the noise that
+`--noise-check` measured on it. Without a noise check, no eval may lose
+an item. Cost and latency must not be clearly worse on a paired val sample
+of up to 30 items, with a median ratio of at most 1.03. On about 150 items
+this cannot rule out a loss of a few points on one eval that a gain on
+another eval pays for. So a run makes at most one such promotion, and the
+report marks it "on design grounds". A task with no drivable val input
+(multi-turn) has no paired pass, so it is never promoted on a tie. Only a
+fix arm can be: a merge, an idea in no technique document, and a technique
+that says `It depends.` need a gain.
+
 **A small speed gain cannot be shown on 30 pairs.** The sign test needs 21
 or more of 30 pairs faster (exact two-sided sign test, p < 0.05). When the per-pair latency
 noise is large next to the gain, a real small speed-up often does not get
@@ -235,7 +249,9 @@ answer is judged only for having an `Integrity:` line.
 text the baseline already carries into a `baseline_audit` issue that asks
 for a scrub. The promotion gate promotes a score gain on val, and a scrub
 can hold the score or lower it: where the copied data helped, it was
-helping. A scrub arm on its own may then never be promoted. The issue tells
+helping. A scrub arm on its own may then never be promoted: a scrub is not
+a technique that says `Keep it.`, so the tie rule does not apply to it.
+The issue tells
 the planner to put the scrub into an arm that rewrites the same text for a
 real fix; failing that, the operator applies the scrub to the baseline by
 hand.

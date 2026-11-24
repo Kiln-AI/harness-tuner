@@ -172,6 +172,15 @@ Rules that go with the table:
   stop. A new technique, smell or lever needs no agreement. Reason:
   playbooks hold the opinions about order, and a small group keeps them
   consistent. The ownership is informal: there is no CODEOWNERS file.
+- **`Keep it.` is owned too.** A technique whose "If it does not move the
+  evals" starts with `Keep it.`, or a change to that phrase in either
+  direction, needs the agreement of the owners. List it in the pull request
+  under the decisions for the owners. Reason: the promotion gate reads the
+  phrase. Under the quality objective, `Keep it.` lets code promote a
+  candidate with no gain when val shows no loss
+  (`specs/projects/tie-promotion/`). Prefer `It depends.` when the
+  condition needs a measured gain on cost or latency: code does not read
+  the conditions, and `It depends.` never promotes on a tie.
 - **Do not copy.** If the material is how-to text that a lever or an
   authoring skill already has, link to it. Reason: two copies go out of
   step, and a reader cannot tell which is correct.

@@ -160,7 +160,9 @@ separate record tagged `val`, which the planner may not read.
 **Promotion candidate.** An arm that is both *intended* as a baseline (the
 planner said so when it planned the item) and *measured successful* on train
 (the analyst said so). Both are required. A knowledge-only experiment, or one
-that did not meet its own goals, never reaches the gate.
+that did not meet its own goals, never reaches the gate. An arm whose
+technique says `Keep it.` meets its goal when it is not worse on train (see
+"Promotion on a tie").
 
 **The promotion gate.** After every wave, if there are candidates: run every
 active eval on `split=val` for each candidate and for the current baseline,
@@ -174,6 +176,15 @@ Under quality, one candidate is decided by a code rule when the numbers are
 clear; otherwise, and with two or more candidates, the promotion agent
 decides. A winner with integrity flags always goes to the promotion agent.
 `--gate-agent always` dispatches the agent every time.
+
+**Promotion on a tie.** Under quality only, when the gate finds no winner on
+the evidence, code can settle a tie. A candidate whose technique document
+says `Keep it.` in `If it does not move the evals` is promoted when code
+shows that it is not worse than the baseline on every eval, on cost and on
+latency. Knowledge settles a tie, never a loss. A run makes at most one such
+promotion. The `val` record, the log and the report mark it "on design
+grounds". The functional spec is
+`specs/projects/tie-promotion/functional_spec.md`.
 
 **Coverage floor.** A candidate whose val measurement is less complete than
 `DEFAULT_COVERAGE_FLOOR` (0.95, `--coverage-floor`) cannot win that wave, no

@@ -1135,6 +1135,12 @@ class RcBuildResult(BaseModel):  # create_experiment_rc
     build_notes: str
     change: RcChange | None = None  # optional in the schema so an older
     #   agent template still parses; the skill requires it
+    # The id of the technique document of the knowledge skill that this
+    #   build followed (the file name without `.md`), or None when the change
+    #   is in no document. Code reads that document's phrase in `If it does
+    #   not move the evals` (`kiln_harness_tuner.tie`): only `Keep it.` lets a
+    #   candidate be promoted on a tie.
+    technique_id: str | None = None
 
 
 class EvalDescription(BaseModel):
@@ -1428,6 +1434,13 @@ class PromotionDecision(BaseModel):
     #   candidates `— HELD (constraint <id>)` instead of `— REJECTED AT VAL`:
     #   they were not judged on their numbers, and the planner may resubmit
     #   them unchanged once the constraint is answered.
+    # Set by code only. `evidence`: val shows that the winner is better.
+    #   `design`: val shows a tie, and the winner's technique document says
+    #   `Keep it.` (`kiln_harness_tuner.tie`); `technique_id` then names that
+    #   document. Code sets a decision that an agent returns back to
+    #   `evidence`: no agent promotes on a tie.
+    grounds: Literal["evidence", "design"] = "evidence"
+    technique_id: str | None = None
 
 
 class ItemOutcome(BaseModel):
@@ -2003,6 +2016,10 @@ class AnalysisInput(BaseModel):
     #   id is for reading its own open record + citations
     speed_rule: str | None = None  # set under `--objective
     #   speed` — the exact rule code applies to `successful` (and the gate)
+    # Set for an arm whose technique document says `Keep it.` when the
+    #   change does not move the evals (`tie.tie_rule_text`): the arm need not
+    #   improve its target, it must not be worse.
+    tie_rule: str | None = None
     # `kiln_harness_tuner.reference_check`: what the measured run config
     #   names and does not attach. A failure on the cases that use such a
     #   name can be the build's breakage, not the lever.
@@ -2018,6 +2035,22 @@ class DescribeEvalInput(BaseModel):
     eval_id: str
     eval_name: str
     spec_id: str | None = None  # None = the eval has no Spec (still active)
+
+
+class TieCheck(BaseModel):
+    """What code knows about a candidate for a promotion on a tie
+    (`kiln_harness_tuner.tie`). `technique_id` and `stance` are set before
+    the gate decides: the technique document that the build named, and its
+    phrase (`keep`, `must_move`, `depends`, or None when code accepts no
+    document for this candidate; `note` says why). `not_worse` and
+    `reasons` are set only when code ran the tie test: after the evidence
+    step chose no winner, for a `keep` candidate."""
+
+    technique_id: str | None = None
+    stance: Literal["keep", "must_move", "depends"] | None = None
+    note: str = ""
+    not_worse: bool | None = None
+    reasons: list[str] = []
 
 
 class CandidateValTable(BaseModel):
@@ -2061,6 +2094,9 @@ class CandidateValTable(BaseModel):
     # record (`orchestrator._record_gate_blocks`); every other flag is
     # computed from val traces and stays with the val readers.
     copy_findings: list[str] = []
+    # Promotion on a tie, the quality objective only. Information for the
+    # promotion agent: code runs the test and decides, after the agent.
+    tie: TieCheck | None = None
 
 
 class PromotionInput(BaseModel):

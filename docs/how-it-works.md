@@ -210,6 +210,13 @@ flowchart TD
       target, a gain on the target that is not beyond doubt, or "not promoted
       at val" when code cannot tell. A candidate blocked in step 2 keeps its
       block line instead.
+   4. Under `quality`, when step 3 chose no winner: code tests each candidate
+      whose technique document says `Keep it.` for a tie. It must be not
+      worse on every eval (no eval down significantly, no eval down by more
+      than the noise that the run measured, net items at zero or above), and
+      not worse on cost and latency (a paired drive pass on a val sample).
+      One that passes becomes the baseline "on design grounds". A run makes
+      at most one such promotion, and it closes no issue.
 6. **The next wave** starts from the baseline, which can now be new. A new
    baseline gets its own smell step.
 
@@ -301,6 +308,10 @@ The goal is higher eval scores.
   go up beyond doubt (significant, or its interval wholly above zero). A small
   rise with an interval that crosses zero does not promote alone. With two or
   more candidates, a `promote_best` agent ranks them on the code's table.
+  When nothing wins, a candidate whose technique says `Keep it.` can win on
+  a tie (step 4 of the gate above). Such an arm is not held to a gain on
+  train either: its stop rules have no `futility` and no `residual`, and
+  its train rule is "not worse".
 - **The limit to know.** When the baseline already passes almost every train
   item, there is nothing to fix, and the detectability check says so before
   the run spends money.

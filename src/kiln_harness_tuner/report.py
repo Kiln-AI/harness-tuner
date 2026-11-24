@@ -1074,8 +1074,16 @@ def render_fallback_report(status: RunStatus) -> str:
                 )
         if wave.promotion is not None:
             winner = wave.promotion.winner_rc_id
+            # A promotion on a tie is marked: no eval gain stands behind it.
+            grounds = (
+                " (on design grounds: a tie on val, technique"
+                f" `{wave.promotion.technique_id}`)"
+                if winner and wave.promotion.grounds == "design"
+                else ""
+            )
             lines.append(
-                f"- promotion: {winner or 'no winner'} — {wave.promotion.rationale}"
+                f"- promotion{grounds}: {winner or 'no winner'}"
+                f" — {wave.promotion.rationale}"
             )
         if wave.promotion_skipped:  # Hard-fail noted in the report
             lines.append(f"- promotion skipped: {wave.promotion_skipped}")

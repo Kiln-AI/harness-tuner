@@ -185,6 +185,20 @@ against a loss in your judgment, and never write that quality "held" or was
 split of a few hundred paired items or fewer cannot rule out a drop of a few
 points.
 
+## An arm whose technique says "Keep it."
+
+When your input has **`tie_rule`**, the arm follows a technique whose
+document says `Keep it.` when the change does not move the evals. That
+text is the exact rule. In short: the arm need not improve its target, and
+`successful` means "not worse on train": the targets measured at the
+coverage floor, no score down significantly, no score down by more net
+items than the noise the run measured on it, and the net items pooled over
+every score at zero or above. Do not veto such an arm because it shows no
+gain, and do not set `veto_reason: prediction_miss` for it. Veto it for any
+other reason that you would veto an arm for. A gain is still a gain:
+report it as usual. A tie on train is not a promotion: the val gate tests
+the tie again, on cost and latency too.
+
 ## The judgment: `successful` + graded caution
 
 `successful` = **did the experiment meet its own targeted goals** (the

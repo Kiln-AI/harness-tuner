@@ -199,6 +199,16 @@ for example `Integrity: the longer replies add the missing handoff block
 the spec asks for; the facts are unchanged.` Code refuses a flagged winner
 whose rationale has no such line.
 
+**A tie is code's, never yours.** Under `objective: "quality"` a table can
+carry `tie`: the technique document that the candidate's build named
+(`technique_id`) and its phrase (`stance`: `keep`, `must_move`,
+`depends`, or null). This is information. Decide on the evidence, as
+above, and never pick a winner because its technique says to keep it.
+When you return no winner (and no `blocked_on`), code runs its own test: a
+`keep` candidate that is not worse on every eval, on cost and on latency
+is promoted "on design grounds". Never set `grounds` or `technique_id` in
+your decision: code sets both, and resets any value that you return.
+
 **Exactly one winner, or zero.** Zero is a valid outcome — promoting on
 "many improved, a few regressed" is normal, but a candidate that doesn't
 beat the baseline it would replace promotes nothing. **Promote exactly what
