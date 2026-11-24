@@ -129,6 +129,10 @@ def target_evidence(
     improved = [r for r in rows if r.delta > 0]
     if any(not is_thin(r) or (full_room_counts and took_all_room(r)) for r in improved):
         return TargetEvidence.GAIN
+    if any(r.delta < 0 and not is_thin(r) for r in rows):
+        # The only gains are thin, and another score of the target fell on
+        # enough items: that is evidence against a win.
+        return TargetEvidence.NO_GAIN
     if improved:
         return TargetEvidence.UNVERIFIED
     if any(_supports_no_gain(r) for r in rows):

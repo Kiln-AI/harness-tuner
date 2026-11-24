@@ -363,8 +363,9 @@ def _fit_stateful(prefix: str, middle: str, suffix: str) -> str:
     """Compose `prefix + middle + suffix` within the overview cap by clamping
     ONLY the variable middle: the label prefix and the lifecycle state suffix
     (`— RUNNING` / `— FAILED …` / `— ABANDONED …` / `— REFUTED` /
-    `— PROMOTED …` / `— REJECTED AT VAL …`) are the vocabulary the whole loop
-    reads (`memory_schema.ExperimentState`) — they must survive truncation.
+    `— UNVERIFIED` / `— PROMOTED …` / `— REJECTED AT VAL …`) are the
+    vocabulary the whole loop reads (`memory_schema.ExperimentState`) — they
+    must survive truncation.
 
     When the prefix alone fills the room the suffix leaves, the PREFIX is cut
     and the suffix still lands whole. Otherwise the middle would get a zero

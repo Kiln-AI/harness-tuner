@@ -38,7 +38,7 @@ Layout of a record, by kind:
                            (moves: EXPERIMENT_TRANSITIONS; the technique is
                            bounded to TECHNIQUE_MAX_CHARS, and this shape
                            with no suffix reads UNKNOWN)
-                           → <analyzer verdict row>[ — REFUTED]
+                           → <analyzer verdict row>[ — REFUTED | — UNVERIFIED]
                              [ — PROMOTED <MM-DD>][ — REJECTED AT VAL <MM-DD>]
                              [ — HELD (constraint <id>) <MM-DD>]
                            → … — FAILED (infra: <class>) | — ABANDONED (<why>)

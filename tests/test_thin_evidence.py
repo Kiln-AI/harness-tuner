@@ -211,6 +211,10 @@ def test_took_all_room_reads_a_gain_equal_to_the_headroom():
         # Ratings read the same counts.
         ([rating_row(0.2, LIMIT)], TargetEvidence.GAIN),
         ([rating_row(0.2, LIMIT - 1)], TargetEvidence.UNVERIFIED),
+        # A thin gain beside a drop on enough items is no gain; beside a
+        # thin drop it stays unverified.
+        ([row(2), row(0, LIMIT, eval_id="e2")], TargetEvidence.NO_GAIN),
+        ([row(2), row(0, LIMIT - 1, eval_id="e2")], TargetEvidence.UNVERIFIED),
         # No counts: the rule does not guess.
         ([legacy_row(0.05)], TargetEvidence.GAIN),
         ([legacy_row(0.0)], TargetEvidence.NO_GAIN),
@@ -775,3 +779,61 @@ async def test_wave_the_agent_ranks_only_the_candidates_with_a_verdict():
     # items is beyond doubt, and code cannot tell why the agent passed it
     # over. rc_b, on one item, is unverified.
     assert by_rc == {"rc_a": "not promoted", "rc_b": "unverified"}
+
+
+async def test_wave_the_agent_cannot_promote_a_candidate_it_was_not_given():
+    # The agent can still name an unverified rc (from the val summary or
+    # memory). Code refuses it like a holed winner: no promotion, no stamps.
+    ctx = make_ctx()
+    _scenario(ctx, train_fixed=4, val_fixed=LIMIT, candidates=("rc_a", "rc_b"))
+    _seed(ctx.kiln, "val", "rc_b", {5, 6, 7, 0})
+    ctx.dispatch.queue(
+        "promote_best",
+        decision("rc_b", winner_experiment_memory_id="whatever"),
+    )
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    assert ctx.kiln.memories["mem_baseline"]["tags"] == ["baseline", "rc_rc_base"]
+    (blocked,) = _events(ctx, "promotion_blocked")
+    assert blocked["winner_rc_id"] == "rc_b"
+    assert blocked["reasons"][0].startswith("unverified: val")
+    assert not _events(ctx, "rejection_recorded")
+
+
+async def test_wave_an_unverified_candidate_is_not_passed_over_for_the_winner():
+    ctx = make_ctx()
+    _scenario(ctx, train_fixed=4, val_fixed=LIMIT, candidates=("rc_a", "rc_b"))
+    _seed(ctx.kiln, "val", "rc_b", {5, 6, 7, 0})
+    ctx.dispatch.queue("promote_best", decision("rc_a"))
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    assert ctx.kiln.memories["mem_baseline"]["tags"] == ["baseline", "rc_rc_a"]
+    (recorded,) = _events(ctx, "rejection_recorded")
+    assert (recorded["rc_id"], recorded["reason"]) == ("rc_b", "unverified")
+
+
+@pytest.mark.parametrize(
+    ("veto_reason", "stamp"),
+    [
+        (None, " — UNVERIFIED"),
+        ("prediction_miss", " — UNVERIFIED"),
+        ("secondary_regression", " — REFUTED"),
+        ("dominated_by_ingredient", " — REFUTED"),
+    ],
+)
+async def test_wave_an_analyzer_veto_of_its_own_stays_refuted(veto_reason, stamp):
+    ctx = make_ctx(gate_agent="auto")
+    _scenario(ctx, train_fixed=LIMIT - 1, val_fixed=5)
+    ctx.dispatch.queues["analyze_experiment_results"] = [
+        ok(make_result(successful=False, veto_reason=veto_reason))
+    ]
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    (record,) = _experiment_memories(ctx.kiln)
+    assert record["overview"].endswith(stamp)
+    assert ("\nverdict: unverified:" in record["content"]) is (stamp == " — UNVERIFIED")
+    (done,) = _events(ctx, "item_outcome")
+    assert (done["outcome"].result.unverified_reason is None) is (stamp == " — REFUTED")

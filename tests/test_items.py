@@ -1055,14 +1055,13 @@ async def test_analyzer_success_is_vetoed_by_the_code_rule_on_a_flat_delta():
     ctx = make_ctx()
     kiln = ctx.kiln
     kiln.evals["eval_1"] = make_eval("eval_1", "ec_1")
-    kiln.results[("eval_1", "rc_base", "train")] = [
-        make_run("t1", accuracy=1.0),
-        make_run("t2", accuracy=0.0),
+    # Three items have room, so a flat result is "no gain", not
+    # "unverified" (`thin_evidence.MIN_DIFFERING_ITEMS`).
+    flat = [make_run("t1", accuracy=1.0)] + [
+        make_run(f"t{i}", accuracy=0.0) for i in (2, 3, 4)
     ]
-    kiln.pending[("eval_1", "rc_cand", "train")] = [
-        make_run("t1", accuracy=1.0),
-        make_run("t2", accuracy=0.0),
-    ]
+    kiln.results[("eval_1", "rc_base", "train")] = flat
+    kiln.pending[("eval_1", "rc_cand", "train")] = list(flat)
     ctx.dispatch.queue(
         "create_experiment_rc", ok(RcBuildResult(rc_id="rc_cand", build_notes="b"))
     )

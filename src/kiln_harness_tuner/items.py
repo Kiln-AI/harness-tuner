@@ -937,8 +937,15 @@ async def _execute_plan_item(
     # Too few items differ for a win or a loss
     # (`kiln_harness_tuner.thin_evidence`). Code owns this field: whatever the
     # analyzer returned in it is replaced. The record gets `— UNVERIFIED`,
-    # not `— REFUTED`, and the reason on a `verdict:` line.
-    res.data.unverified_reason = verdict.unverified
+    # not `— REFUTED`, and the reason on a `verdict:` line. An analyzer veto
+    # for a reason of its own (a regression, holes, a dominated merge) stays
+    # a refutation: only a veto with no reason, or a prediction miss, is
+    # about the size of the gain.
+    own_veto = not res.data.successful and res.data.veto_reason not in (
+        None,
+        "prediction_miss",
+    )
+    res.data.unverified_reason = None if own_veto else verdict.unverified
     if res.data.successful and not verdict.ok:
         logger.warning(
             "item %s: analyzer said successful, code rule says no — %s",
@@ -982,7 +989,7 @@ async def _execute_plan_item(
 
     # The code-composed lines on the record the planner reads.
     lines = [f"measurement: {measurement.line}"]
-    if verdict.unverified is not None:
+    if res.data.unverified_reason is not None:
         lines.append(f"verdict: {verdict.unverified}")
         if not res.data.findings.rstrip().endswith(verdict.unverified):
             # The analyzer already said "not successful": the override

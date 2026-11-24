@@ -1631,6 +1631,22 @@ async def _run_promotion_gate(
             "; ".join(reasons) or "no rows",
         )
         return None
+    if winner_table is not None and winner_table.unverified is not None:
+        # The thin-evidence floor: the agent picked a candidate that code
+        # left out of its ranking (too few val items differ). It can still
+        # name the rc from `get_val_summary` or memory, so code refuses it
+        # here. No promotion, no rejection stamps, as for a holed winner.
+        ctx.log.event(
+            "promotion_blocked",
+            winner_rc_id=decision.winner_rc_id,
+            reasons=[winner_table.unverified],
+        )
+        logger.warning(
+            "promotion blocked: winner %s is unverified on val — %s",
+            decision.winner_rc_id,
+            winner_table.unverified,
+        )
+        return None
     if (
         winner_table is not None
         and winner_table.integrity_flags
@@ -3587,12 +3603,16 @@ def _rejection_reason(
     """The reason on a candidate's rejection line. Callers pass a decision
     with a winner only after the winner was applied, so the candidates
     left were passed over for it. With no winner, the candidate's own val
-    table gives the reason (`val_rejection_reason`)."""
+    table gives the reason (`val_rejection_reason`). An unverified
+    candidate was never ranked against the winner: its reason is
+    "unverified" either way."""
+    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
+    if table is not None and table.unverified is not None:
+        return ValRejection(ValRejectionKind.UNVERIFIED)
     if decision.winner_rc_id is not None:
         return ValRejection(
             ValRejectionKind.PASSED_OVER, promoted_rc_id=decision.winner_rc_id
         )
-    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
     return val_rejection_reason(
         table,
         _target_eval_ids(candidate),

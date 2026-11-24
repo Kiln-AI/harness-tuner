@@ -749,16 +749,22 @@ Where code applies it:
   verdict is unverified: `successful` is false, the record ends
   `— UNVERIFIED` (not `— REFUTED`), and code adds a `verdict: unverified: …`
   line with the counts. A target with no gain and fewer than 3 items with
-  room is unverified too: it could not show a gain. One exception, on train
-  only: an arm that fixes every item with room and breaks none keeps its
+  room is unverified too: it could not show a gain. A thin gain beside a
+  score of the same target that fell on 3 or more items is "no gain", not
+  unverified. When the analyzer vetoes for a reason of its own (a
+  regression, holes, a dominated merge), the record stays `— REFUTED`. An
+  arm unverified on train is not a successful verdict, so it is not a merge
+  ingredient. One exception, on train only: an arm that fixes every item with room and breaks none keeps its
   ticket to the val gate, as the analysis skill says for an eval at its
   ceiling.
 - **The val gate under quality.** A candidate whose targeted rows show no
   win and no loss is unverified (`gate_unverified`). The single-candidate
   rule returns no winner with the reason. With two or more candidates, the
   unverified ones are not handed to `promote_best`. When none is left, code
-  decides "no winner" and no agent is dispatched. The rejection line says
-  "unverified at val": not a loss. A row with fewer than 3 items that
+  decides "no winner" and no agent is dispatched. When the agent still
+  names an unverified rc as the winner, code refuses it, as it refuses a
+  holed winner. The rejection line says "unverified at val": not a loss,
+  also when another candidate won. A row with fewer than 3 items that
   differ is never a regression or a win "beyond doubt" in the gate's rules.
 - **Speed and cost.** On train and at the gate, a candidate that is
   clearly faster or cheaper, and whose quality refusal rests on fewer than

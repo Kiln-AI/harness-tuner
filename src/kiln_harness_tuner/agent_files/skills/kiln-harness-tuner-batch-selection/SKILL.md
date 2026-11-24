@@ -903,8 +903,9 @@ Per experiment item:
   Its `verdict: unverified: …` line gives the counts. It is not refuted
   and not a dead end: the idea is untested at this size. Do not plan the
   same change on the same items again. Plan it where more items can
-  change: a target eval with more failing items, a change with a larger
-  predicted effect, or a merge with other changes on the same eval.
+  change: a target eval with more failing items, or a change with a
+  larger predicted effect. An arm unverified on train is not a successful
+  verdict, so it is not a merge ingredient.
   `references/playbooks/a-few-items-carry-the-signal.md` of the
   `kiln-harness-tuner-knowledge` skill has the order.
 - **FixWork** carries `hypothesis` + `predicted_effect` (required discipline:

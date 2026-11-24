@@ -50,10 +50,13 @@ eval with no room at all is
    general change for the cause that explains the most items, not a rule
    for the few items that failed. A rule for two items does not transfer:
    [one general rule per edit](../techniques/one-general-rule-per-edit.md).
-4. Merge wins on the same eval. Two arms that each change 2 items cannot
-   get a verdict alone. Merged, they can change 4. Do this only when the
-   two changes do not conflict, under the merge timing of your planner
-   skill.
+4. Merge wins on the same eval, when a gate gave "unverified at val" or
+   "a gain at val, not clear". Each of those arms was a train win, so it
+   is a merge ingredient. Two arms that each change 2 val items cannot get
+   a verdict alone. Merged, they can change 4. Do this only when the two
+   changes do not conflict, under the merge timing of your planner skill.
+   An arm that ends `— UNVERIFIED` on train is not a win, and is not an
+   ingredient.
 5. When the eval is the limit and no other eval can measure the issue,
    say so in `open_questions`: the eval needs more items, or more items of
    that kind, to steer the tuning. The tuner does not change an existing
