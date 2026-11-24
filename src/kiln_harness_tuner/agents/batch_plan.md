@@ -98,6 +98,14 @@ same kind and add to the rest). Arms that rule stopped are in
 `residual_misses`, with the items still failing: target those with a
 different build.
 
+**Graded predictions.** A fix item can name the train items that its change
+should fix (`target_items`) and the train items that the parent passes and
+that the change could break (`at_risk_items`). After the train measurement,
+code grades both lists and applies the fix check: each target item passes,
+and the passing items that broke are not clearly above the noise rate. The
+grade is caution, not a verdict. `graded_predictions` lists this run's
+graded arms: read it before you plan.
+
 **Every measured candidate has a spending cap.** Give each
 experiment item and screening candidate `max_usd` with a one-line
 `budget_reason` (what finding is worth that much), priced from your

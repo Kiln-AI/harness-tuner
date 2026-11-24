@@ -157,6 +157,9 @@ The screening fields — `screening_results` (this round's table),
 ones. `default_stop_rules`, `residual_misses` and `measurement_prices` are
 what the measurement engine needs to price and stop a candidate, and
 `baseline_cost` is the baseline's cost per run under `cost`.
+`graded_predictions` lists this run's arms with their `target_items` and
+`at_risk_items` graded on train rows, the passing items each arm broke, and
+the fix check (`predictions.py`).
 It also gets `train_detectability` — per active (eval,
 score), the baseline's train items with room to improve and the fewest wins
 a significant result needs — and, with `--noise-check`, `train_noise`. Both
@@ -287,7 +290,9 @@ scope check, and it is there because this failure is hard to see otherwise.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
 `AnalysisBundle` (the label-free numbers table plus every named hole in it),
-and its own experiment memory id.
+its own experiment memory id, and `prediction`: the item's `target_items` and
+`at_risk_items` graded by code on the arm's train rows, with the fix check
+(`predictions.py`). The grade is caution. Code changes no verdict for it.
 
 **Must return** `ExperimentResult`:
 

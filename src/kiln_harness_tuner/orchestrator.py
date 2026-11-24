@@ -375,6 +375,9 @@ class Ctx:
     # Arms the residual-minibatch gate stopped this run, for the
     # planner (`schemas.ResidualMiss`).
     residual_misses: list[Any] = field(default_factory=list)
+    # This run's arms with their item-level predictions graded on train
+    # rows, for the planner (`schemas.PredictionGrade`).
+    graded_predictions: list[Any] = field(default_factory=list)
     # Candidates the gate blocked this run for copying eval
     # text, for the planner (`schemas.GateBlock`).
     gate_blocks: list[GateBlock] = field(default_factory=list)
@@ -1007,6 +1010,7 @@ async def _dispatch_plan(
                 ),
                 screening_notes=list(ctx.screening_notes),
                 residual_misses=list(ctx.residual_misses),
+                graded_predictions=list(ctx.graded_predictions),
                 gate_blocks=list(ctx.gate_blocks),
                 measurement_prices=await measurement_prices(
                     ctx, baseline.rc_id, remaining_run_budget(ctx)

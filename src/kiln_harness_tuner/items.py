@@ -52,6 +52,7 @@ from kiln_harness_tuner.memory import (
 )
 from kiln_harness_tuner.memory_schema import RecordKindError
 from kiln_harness_tuner.objective import decisive, is_efficiency
+from kiln_harness_tuner.predictions import grade_predictions
 from kiln_harness_tuner.probes import rc_props, run_code_probe
 from kiln_harness_tuner.provider_errors import ProviderQuotaError
 from kiln_harness_tuner.reference_check import ReferenceCheck, check_references
@@ -74,6 +75,7 @@ from kiln_harness_tuner.schemas import (
     LatencyComparison,
     MeasureIssueBaselineItem,
     MeasurementSummary,
+    PredictionGrade,
     ProbeAnswer,
     ProbeInput,
     ProbeItem,
@@ -822,7 +824,11 @@ async def _execute_plan_item(
     # that completes IS the train measurement: the analysis below reads its stored rows.
     efficiency = is_efficiency(ctx.objective)
     measurement = await _measure_arm(ctx, item, rc_id, parent_rc_id, baseline)
-    stopped = await _stopped_arm(ctx, item, rc_id, exp_mem, measurement)
+    # The plan's named items graded on the rows just judged, and the fix
+    # check (`kiln_harness_tuner.predictions`): caution on the record, for
+    # the analyzer and for the next planner. It changes no rule below.
+    grade = _grade_arm(ctx, item, rc_id, measurement)
+    stopped = await _stopped_arm(ctx, item, rc_id, exp_mem, measurement, grade)
     if stopped is not None:
         return stopped
     try:
@@ -894,6 +900,7 @@ async def _execute_plan_item(
             experiment_memory_id=exp_mem,
             speed_rule=speed_rule_text(ctx.objective) if efficiency else None,
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
+            prediction=grade,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -983,6 +990,8 @@ async def _execute_plan_item(
         ]
     else:
         lines += passive_lines(bundle)
+    if grade is not None:
+        lines += grade.lines
     res.data.memory_content = res.data.memory_content.rstrip() + "\n" + "\n".join(lines)
     await _experiment_write(
         ctx, item.id, "record_verdict", ctx.memory.record_verdict(exp_mem, res.data)
@@ -995,6 +1004,7 @@ async def _execute_plan_item(
         result=res.data,
     )
     done.measurement = measurement_summary(measurement)
+    done.prediction = grade
     return done
 
 
@@ -1609,12 +1619,45 @@ async def _measure_arm(
     return measured
 
 
+def _grade_arm(
+    ctx: Ctx, item: ExperimentItem, rc_id: str, m: Measured
+) -> PredictionGrade | None:
+    """The arm's graded prediction and fix check on the rows the engine
+    judged, logged (`prediction_grade`) and kept for the next planner
+    (`BatchPlanInput.graded_predictions`). None when the candidate has no
+    row."""
+    grade = grade_predictions(
+        m.evidence.judged,
+        item_id=item.id,
+        rc_id=rc_id,
+        target_items=getattr(item.work, "target_items", None) or (),
+        at_risk_items=getattr(item.work, "at_risk_items", None) or (),
+        complete=m.status == "completed",
+        noise_rate=noise_flip_rate(
+            getattr(ctx, "train_noise", []),
+            [t.eval_id for t in item.evaluation_target],
+        ),
+    )
+    if grade is None:
+        return None
+    ctx.log.event(
+        "prediction_grade",
+        item_id=item.id,
+        rc_id=rc_id,
+        flagged=grade.flagged,
+        grade=grade.model_dump(mode="json"),
+    )
+    ctx.graded_predictions.append(grade)
+    return grade
+
+
 async def _stopped_arm(
     ctx: Ctx,
     item: ExperimentItem,
     rc_id: str,
     exp_mem: str,
     m: Measured,
+    grade: PredictionGrade | None = None,
 ) -> ItemOutcome | None:
     """The outcome of an arm the engine did not complete, or None to go on
     to the analysis. A lever that never reached the call is a DEAD END (the
@@ -1624,6 +1667,19 @@ async def _stopped_arm(
     if m.status == "completed":
         return None
     summary = measurement_summary(m)
+    if grade is not None and m.status != "failed":
+        # No verdict will carry the grade of a stopped arm: its lines go on
+        # the record now, while it is RUNNING.
+        try:
+            await ctx.memory.record_prediction(exp_mem, grade.lines)
+        except Exception as exc:  # the grade is in the wave log either way
+            ctx.log.event(
+                "memory_write_failed",
+                write="prediction",
+                what="the graded prediction's lines",
+                exp_mem_id=exp_mem,
+                error=repr(exc),
+            )
     if m.status == "capped":
         # The spending cap (`kiln_harness_tuner.budget`): inconclusive — never a dead
         # end or a failure. The rows stay stored; a later arm on this rc
@@ -1636,6 +1692,7 @@ async def _stopped_arm(
         )
         out = _outcome(item, "capped", rc_id=rc_id, experiment_memory_id=exp_mem)
         out.measurement = summary
+        out.prediction = grade
         return out
     if m.status == "failed":
         error = m.error or ErrorInfo(
@@ -1668,6 +1725,7 @@ async def _stopped_arm(
             speed_verdict=m.stop_line,
         )
         out.measurement = summary
+        out.prediction = grade
         return out
     detail = m.overview_detail
     if m.stop_kind == "residual" and m.residual is not None:
@@ -1705,6 +1763,7 @@ async def _stopped_arm(
         speed_verdict=m.stop_line,
     )
     out.measurement = summary
+    out.prediction = grade
     if m.stop_kind == "residual":
         out.residual = m.residual
     return out

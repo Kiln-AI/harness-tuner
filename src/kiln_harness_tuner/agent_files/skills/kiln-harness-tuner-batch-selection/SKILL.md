@@ -829,6 +829,39 @@ Per experiment item:
   few drives. A `— NOT LANDED` record means the
   BUILD missed, not that the lever is disproven: plan a different build for
   the same targets (say what changes) — never resubmit the same rc.
+- **`at_risk_items`, and the grade of your prediction.** A fix arm is one
+  failure pattern on one surface: the `hypothesis` names the one cause that
+  the arm fixes, and `technique` names the one lever that it changes. An
+  arm for two causes cannot be graded: when it fails, you do not know which
+  half failed. The items make the prediction checkable. `target_items` are
+  the train items that the change should fix. `at_risk_items` are the train
+  items that the parent PASSES and that the change could break: the items
+  nearest to the new rule (the same tool, the same type of request, a
+  similar input with the opposite answer). Name them from the passing
+  traces that you read, and leave the list empty when you see no risk.
+  Train ids only, never val or test. `at_risk_items` change no queue and no
+  stop rule. An at-risk item is judged only when its eval is in the arm's
+  `evaluation_target`.
+  After the train measurement, code grades both lists on the judged rows.
+  It writes the result on the experiment record: `predicted fixes: …`,
+  `predicted risks: …`, `breaks not predicted: …` (the passing items that
+  broke and that you did not name) and `fix check: ok — …` or `fix check:
+  FLAG — …`. The fix check flags an arm when a target item still fails, or
+  when the passing items that broke are clearly above the run's noise rate.
+  It is the test of the discriminating block's guards, on every judged
+  pass. A flag is caution, not a verdict: it stops no arm, and it does not
+  change `successful`. Your input's `graded_predictions` lists this run's
+  graded arms, oldest first, with the item ids. Read it before you plan:
+  - `breaks not predicted` shows a risk that you did not see. Read those
+    traces (`get_train_results` with `item_ids` on that rc) before the next
+    arm on the same idea, and name those items in its `at_risk_items`.
+  - `fix check: FLAG` with `clearly above noise` is the failure of
+    `playbooks/fix-breaks-passing-items.md` in the knowledge skill. With
+    `within noise`, a broken item is not evidence against the lever.
+  - Targets that often end `still_failing`, `wrong_side` (the parent does
+    not fail the item) or `not_measured` (not a train item of a targeted
+    eval) show that your reading of the failures is off. Read more traces
+    before you name items again.
 - **The discriminating block — on by default.** When you name
   no `target_items`, the first chunk of a fix arm's queue is its
   discriminating block: from the parent's stored train rows on the arm's

@@ -216,6 +216,11 @@ class FixWork(BaseModel):
     #   of the split is never judged. Empty → no named block. Never test/val
     #   ids.
     target_items: list[str] = []
+    # The eval-input ids (train lane) the parent PASSES and this change
+    #   could break: the plan's risk prediction. They change no queue and no
+    #   stop rule. Code grades them, with `target_items`, after the train
+    #   measurement (`kiln_harness_tuner.predictions`). Never test/val ids.
+    at_risk_items: list[str] = []
     # The wave's out-of-the-box arm — chosen for the size of its
     #   possible win, not for confidence in it (a progressive-disclosure
     #   skill in place of a 52 KB prompt, a pipeline, a new surface). The
@@ -348,6 +353,81 @@ class MeasurementSummary(BaseModel):
     # the report's stop-reason appendix. Empty on an outcome written before.
     judged_per_eval: dict[str, int] = {}
     planned_per_eval: dict[str, int] = {}
+
+
+class GradedItem(BaseModel):
+    """One item an arm's plan named, as the train measurement left it
+    (`kiln_harness_tuner.predictions`). `role` `fix` is one of the plan's
+    `target_items`, `at_risk` one of its `at_risk_items`.
+
+    - `fixed` / `still_failing`: a `fix` item the parent fails.
+    - `held` / `broke`: an `at_risk` item the parent passes.
+    - `wrong_side`: the parent's result is not what the role needs (a `fix`
+      item the parent does not fail, an `at_risk` item it does not pass).
+    - `not_measured`: the item is not in the arm's train queue, the arm
+      stopped before it, or the candidate has no row on it."""
+
+    item_id: str
+    role: Literal["fix", "at_risk"]
+    eval_id: str | None = None  # None with `not_measured`
+    result: Literal[
+        "fixed", "still_failing", "held", "broke", "wrong_side", "not_measured"
+    ]
+
+
+class PredictionGrade(BaseModel):
+    """An arm's item-level predictions, graded by code on the rows of its
+    train measurement, and the fix check on the same rows
+    (`kiln_harness_tuner.predictions`). Train rows only. Caution for the
+    analyzer and the next planner: it never sets `successful`."""
+
+    item_id: str
+    rc_id: str
+    complete: bool  # the measurement judged its whole queue
+    items: list[GradedItem] = []
+    # Every judged item with a parent result and a candidate row.
+    failing_judged: int = 0  # the parent fails
+    fixed: int = 0
+    passing_judged: int = 0  # the parent passes
+    broke: int = 0
+    # The breaks the plan did not name in `at_risk_items`, per eval.
+    other_breaks: dict[str, list[str]] = {}
+    # The fix check's break half: `broke` of `passing_judged`, one-sided
+    #   exact binomial against `noise_rate` (the mean over those items of
+    #   max(the run's noise flip rate, the item's fragility)) at `alpha`.
+    noise_rate: float | None = None
+    alpha: float | None = None
+    break_p: float | None = None
+    breaks_clear: bool = False
+    # The lines code writes on the experiment record, composed once.
+    lines: list[str] = []
+
+    def named(self, role: str, result: str) -> dict[str, list[str]]:
+        """The named items of one role and result, per eval (`-` when the
+        item was not measured)."""
+        out: dict[str, list[str]] = {}
+        for g in self.items:
+            if g.role == role and g.result == result:
+                out.setdefault(g.eval_id or "-", []).append(g.item_id)
+        return {e: sorted(v) for e, v in sorted(out.items())}
+
+    def count(self, role: str, *results: str) -> int:
+        return sum(1 for g in self.items if g.role == role and g.result in results)
+
+    @property
+    def targets_pass(self) -> bool | None:
+        """Every `fix` item with a result now passes. None when the plan
+        named none, or none was measured."""
+        graded = self.count("fix", "fixed", "still_failing")
+        if not graded:
+            return None
+        return self.count("fix", "still_failing") == 0
+
+    @property
+    def flagged(self) -> bool:
+        """The fix check's flag: a target item still fails, or the breaks
+        are clearly above noise."""
+        return self.targets_pass is False or self.breaks_clear
 
 
 class ResidualMiss(BaseModel):
@@ -1473,6 +1553,10 @@ class ItemOutcome(BaseModel):
     #   timing — set when a timing rule of the engine stopped it
     speed_verdict: str | None = None  # the engine's stop line
     probe: ProbeResult | None = None  # a probe item's answer
+    # The arm's item-level predictions, graded on its train rows, and the
+    #   fix check (`kiln_harness_tuner.predictions`). None when nothing was
+    #   judged.
+    prediction: PredictionGrade | None = None
     # `kiln_harness_tuner.reference_check`: what the measured run config
     #   names and does not attach — a skill, or a tool the parent attached.
     #   Empty when the check found nothing or did not run.
@@ -1916,6 +2000,11 @@ class BatchPlanInput(BaseModel):
     # This run's arms the residual-minibatch gate stopped, with
     # the items still failing and the guards broken (`ResidualMiss`).
     residual_misses: list[ResidualMiss] = []
+    # This run's arms with their item-level predictions graded by code on
+    #   train rows, oldest first (`PredictionGrade`): what each arm's
+    #   `target_items` and `at_risk_items` did, the passing items it broke
+    #   that the plan did not name, and the fix check.
+    graded_predictions: list[PredictionGrade] = []
     # This run's candidates the gate BLOCKED for copying eval
     #   text, with the reasons (`GateBlock`). Earlier runs' blocks are on
     #   their experiment records (`- blocked at the val gate …`).
@@ -2007,6 +2096,10 @@ class AnalysisInput(BaseModel):
     #   names and does not attach. A failure on the cases that use such a
     #   name can be the build's breakage, not the lever.
     reference_findings: list[str] = []
+    # The item's `target_items` and `at_risk_items` graded on the arm's
+    #   train rows, and the fix check (`kiln_harness_tuner.predictions`).
+    #   Caution, never a verdict. None when nothing was judged.
+    prediction: PredictionGrade | None = None
 
 
 class DescribeEvalInput(BaseModel):

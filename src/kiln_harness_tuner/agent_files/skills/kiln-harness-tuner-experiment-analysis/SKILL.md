@@ -101,6 +101,39 @@ that name. When they fail on the missing skill or tool, say so in
 `next:` line can ask for the same lever built again with the names and the
 attachments in agreement.
 
+**The graded prediction and the fix check.** `prediction` in your input is
+set when code graded the arm on its train rows
+(`kiln_harness_tuner.predictions`). It is train data, like the bundle. It
+holds:
+
+- `items`: each item that the plan named, with its result. A `fix` item
+  (the plan's `target_items`) is `fixed` or `still_failing`. An `at_risk`
+  item (the plan's `at_risk_items`) is `held` or `broke`. `wrong_side`
+  means that the parent's result is not what the role needs: a `fix` item
+  that the parent does not fail, or an `at_risk` item that it does not
+  pass. `not_measured` means that the measurement has no row for the item.
+- `broke` of `passing_judged`: the items that the parent passes and that
+  now fail. `other_breaks`: those that the plan did not name, per eval.
+- `breaks_clear`: the breaks are clearly above the run's noise rate
+  (`noise_rate`), by a one-sided exact binomial test (`break_p`).
+- `lines`: the lines that code appends to the record after your
+  `memory_content`. Do not write them again.
+
+Read it as caution. It does not decide `successful`, and code changes no
+verdict for it. Use it in these ways:
+
+- Before you explain a loss on the passing items, read the traces of the
+  items in `other_breaks` and of the at-risk items that broke
+  (`get_train_results` with `item_ids`). They show where the change did
+  harm.
+- When `breaks_clear` is true and the target items pass, name the failure
+  pattern `playbooks/fix-breaks-passing-items.md` in `memory_content` and in
+  `findings`, with what the broken items share.
+- When the breaks are within noise, do not count a broken item as evidence
+  against the lever.
+- A flag alone is not a reason to veto. Weigh the breaks as you weigh a
+  row's `pass_to_fail` count.
+
 **Spend: `bundle cost`, and nothing else.** `bundle.spend_total_usd` is the
 ONE spend figure an EXP record reports, and it is **always labeled `bundle
 cost`** — never "spend", "cost", "eval cost" or a bare dollar figure, so
@@ -231,7 +264,9 @@ promotion pass together with the planner's `promotion_candidate` intent.
   row's **`headroom`** (the largest delta the score can still show: `1 −
   baseline pass rate` on a binary score), not against the item's prediction:
   a prediction above the headroom was impossible by construction and says
-  nothing about the arm.
+  nothing about the arm. The same holds for the item-level prediction: the
+  grade in `prediction` (a named item that did not do what the plan said,
+  a `fix check: FLAG`) is caution in `findings`, never a verdict by itself.
 - **Priority-weighted reasoning** across pairs: higher-priority evals
   dominate lower; magnitude matters, not just counts (2 targets up slightly
   while one collapses 95%→2% is probably a fail); cross-priority tradeoffs

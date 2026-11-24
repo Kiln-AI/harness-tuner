@@ -122,6 +122,13 @@ going looking.
    When the hypothesis names target items, smoke on one or two of THOSE
    (list them in `change.smoke_items`) — a generic input cannot exercise the
    mechanism. Note the smoke outcome in `build_notes`.
+   When the item carries `at_risk_items`, smoke on one of those too. The
+   parent passes these items, and the planner expects that the change could
+   break them. Compare the output with the parent's on the same item. When
+   the change alters an answer that it has no reason to alter, the rule is
+   too wide: give it its condition before you return. After the train
+   measurement, code grades the target items and the at-risk items, and
+   writes on the record which passing items broke.
    **The smoke must show the mechanism ENGAGED**. A tool arm
    whose smoke traces carry zero `tool_calls`, a skill arm whose skill was
    never read, a params arm whose output is byte-identical to the parent's,
@@ -271,7 +278,9 @@ mention.
   those exact inputs before the full split. A prompt, skill or tool that
   names their record numbers, reference codes, person names or any value only
   those inputs contain would pass the trial by memorising them and fail
-  everything else — and val would then reject it. Fix the mechanism the
+  everything else — and val would then reject it. The same rule applies to
+  the item's `at_risk_items`: never write an exception for one of them by
+  its values. Fix the mechanism the
   hypothesis names (the route, the check, the rule); read the target
   traces to understand the failure, not to copy from them. Code checks
   this before any train spend: a reviewer reads what
