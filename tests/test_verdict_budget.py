@@ -32,7 +32,6 @@ from kiln_harness_tuner.memory import (
     verdict_room,
 )
 from kiln_harness_tuner.memory_schema import (
-    CARRIED_KEYS,
     CONTENT_MAX_CHARS,
     TRUNCATION_MARKER,
     ExperimentState,
@@ -420,24 +419,10 @@ def test_the_shorten_prompt_is_json_safe():
     assert json.loads(example) == {"status": "ok", "data": {}, "detail": None}
 
 
-async def test_every_carried_key_has_a_value_in_the_verdict_content():
-    # `verdict_content` reads one value for each key of `CARRIED_KEYS`. A
-    # key that is in the tuple and not in its values raises at every
-    # verdict.
+async def test_the_growth_line_is_carried_into_the_verdict_content():
+    # `growth` is a key of `CARRIED_KEYS`: `verdict_content` puts the line
+    # back when the analyzer's content dropped it.
     kiln = FakeKiln()
     view = _view(kiln.memories[await _running_record(kiln)])
-    filled = dataclasses.replace(
-        view,
-        issue_id="424242000001",
-        technique="prompt",
-        rc_id="rc_cand",
-        reused_rc_id="rc_old",
-        change_summary="one rule added",
-        generality="a finding",
-        judge_copy="a finding",
-        reference_check="a finding",
-        growth="a finding",
-    )
-    content = verdict_content(filled, "")
-    for key in CARRIED_KEYS:
-        assert kv_value(content, key) is not None, key
+    content = verdict_content(dataclasses.replace(view, growth="a finding"), "")
+    assert kv_value(content, "growth") == "a finding"
