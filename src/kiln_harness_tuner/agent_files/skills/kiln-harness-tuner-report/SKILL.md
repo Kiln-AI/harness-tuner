@@ -100,8 +100,8 @@ going looking.
   did to planned fix arms because of them: it removed blocked items from an
   arm's targets (`targets_removed`), or dropped the arm (`dropped`; a
   dropped arm never ran and has no outcome). Code appends a "Fix
-  elsewhere: defects outside the harness" section after your markdown,
-  with each record's evidence. Name each defect in one line in Outcome, put
+  elsewhere: defects outside the harness (code-computed)" section after
+  your markdown, with each record's evidence. Name each defect in one line in Outcome, put
   "fix it" first in Suggested next steps, and point at that section. Never
   rebuild the section, and never call a defect a failure of an experiment.
 - `detectability` and `noise_check`: the pre-run check —
@@ -272,7 +272,7 @@ cheapest or fastest rows with what they lost (see `screen_results`).>
 
 ## Suggested next steps
 <first, each defect outside the harness that the owner must fix (see the
-"Fix elsewhere: defects outside the harness" section); then,
+"Fix elsewhere: defects outside the harness (code-computed)" section); then,
 from the experiments' next: lines, pooled unmerged wins (say which are
 val-rejected: ingredients for a different combination, not re-runs), starved
 issues, each promoted change whose hypothesis says "not in the knowledge" (a

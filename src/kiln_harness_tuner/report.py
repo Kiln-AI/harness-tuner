@@ -845,7 +845,9 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
-FIX_ELSEWHERE_APPENDIX_HEADING = "## Fix elsewhere: defects outside the harness"
+FIX_ELSEWHERE_APPENDIX_HEADING = (
+    "## Fix elsewhere: defects outside the harness (code-computed)"
+)
 # The roles that can record a defect (`gateway.ops.ROLE_OPS`), as the report
 # names them. Another role's name is shown as it is.
 _DEFECT_ROLES = {
@@ -935,9 +937,9 @@ def _defect_lines(
 
 
 def render_fix_elsewhere_appendix(status: RunStatus) -> str:
-    """The `## Fix elsewhere` section: each open defect outside the harness
-    (a broken tool, stale data, a quota), with its evidence, for the owner to
-    fix outside the tuner. The rows are the report-time read
+    """The `## Fix elsewhere … (code-computed)` section: each open defect
+    outside the harness (a broken tool, stale data, a quota), with its
+    evidence, for the owner to fix outside the tuner. The rows are the report-time read
     (`external_defects`). Without that read, the rows are the overviews of
     the records that agents wrote in this run (`recorded_defects`). Empty
     string when there is none."""

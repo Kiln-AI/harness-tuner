@@ -397,8 +397,8 @@ Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
 ([architecture.md](architecture.md) section 11).
 
-Code also appends the `## Fix elsewhere: defects outside the harness`
-section when the task has an open defect record: each defect that the owner
+Code also appends the
+`## Fix elsewhere: defects outside the harness (code-computed)` section when the task has an open defect record: each defect that the owner
 must fix outside the tuner, with the train items that show it and what was
 seen. The agent names each defect in one line and points at the section.
 

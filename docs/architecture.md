@@ -1024,7 +1024,7 @@ way.
   issues and the ones setup found with no eval binding. The
   section tells the owner to create each eval in the Kiln app, with a link
   to the Kiln docs on evals.
-  "## Fix elsewhere: defects outside the harness"
+  "## Fix elsewhere: defects outside the harness (code-computed)"
   (`render_fix_elsewhere_appendix`) is there when the task has an open
   defect record (section 8), from this run or from an earlier one. For
   each record it gives the tool or the source and the kind of defect, what
