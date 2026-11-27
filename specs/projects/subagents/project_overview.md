@@ -275,7 +275,7 @@ For a run that used the lever:
   of M drives", and the wave log has a `lever_applied` event. The same
   line says "latency and cost not measured", or "latency not measured,
   cost includes the sub-agent", with the usage of the sub-agent's calls.
-- The report has a `## Sub-agents` section, rendered by code: each created
+- The report has a `## Sub-agents (code-computed)` section, rendered by code: each created
   sub-agent with its tool id, task, run config, model, the run configs that
   attach it, and "in the final baseline" when the final baseline does.
 

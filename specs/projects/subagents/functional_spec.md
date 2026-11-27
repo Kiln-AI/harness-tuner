@@ -263,7 +263,7 @@ run created:
 - it never archives a tool that a run config attaches, and it deletes
   nothing.
 
-The report has a `## Sub-agents` section when the run created one: a row
+The report has a `## Sub-agents (code-computed)` section when the run created one: a row
 for each, with the tool name, the tool id, the task, the run config, the
 model, the run configs that attach it, and its state: in the final
 baseline, not in the final baseline, archived, or not complete. A

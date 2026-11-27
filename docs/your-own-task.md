@@ -394,7 +394,11 @@ Three things it is good for:
   explicitly.
 
 Guidance cannot allow a model: the Models question (section 5.2), or
-`--models` and `--model-policy`, say which models the task may use. Guidance
+`--models` and `--model-policy`, say which models the task may use. Do not
+state a hard limit, such as the providers or a tool that must not change,
+only in the guidance: code has no check for it. State it at the
+Restrictions question, or with its flag
+([objectives.md](objectives.md#restrictions-that-you-state-at-the-start)). Guidance
 can forbid a model swap that they allow ("Do not change the model"), and it
 can say how to try the models they allow ("Try DeepSeek first. Move on to
 the more expensive models only if it gets stuck").
@@ -589,6 +593,7 @@ The footer shows `esc Back` only where Esc goes back.
 |---|---|---|---|
 | What should the tuner improve? | `--objective` | Quality | Quality (higher eval scores), Speed (lower latency per request) or Cost (lower cost per request). Speed and cost only promote a change that keeps quality equal or better. |
 | Which models may the tuner use? | `--models` or `--model-policy` | Keep the task's model under Quality; Any model Kiln offers under Speed and Cost. The pre-filled row reads `(recommended)` | Keep the task's model (`--models keep`); Any model Kiln offers (`--models any`), which can move the task to a more expensive model and raise the spend; Pick models, at most 12, from the providers that have a key, saved as a policy file (`--model-policy`); the task's own model starts marked, and unmarking it (with a warning) makes every experiment move to a marked model; or Use a policy file, loaded at once, so a bad file shows the loader's message under the field. [objectives.md](objectives.md#which-models-a-run-may-use) has each choice. |
+| Do you have restrictions for this run? | `--no-restrictions`, or the restriction flags | No restrictions | No restrictions (`--no-restrictions`), or Set restrictions: mark the kinds that apply, then answer each one. Providers: mark the providers the task's data may go to, from the ones that have a key (`--providers`); the task's own provider starts marked. Model origin by weights: open-weight or closed-weight models only (`--model-weights`). Model origin by family: mark the families to exclude, from the model catalogue (`--exclude-model-families`). Zero data retention (`--zero-data-retention`): no question of its own. Tools that must not change: mark the baseline's tools (`--lock-tool`). The two origin kinds need the model catalogue, and the tools kind needs a tool: a kind that cannot be asked is not offered, with a warning. [objectives.md](objectives.md#restrictions-that-you-state-at-the-start) has what code enforces for each one, and what it cannot check. |
 | Guidance for the tuner's planner (optional) | `--guidance` | empty; the demo's own text with `--demo-project` | Any text (section 4), or nothing for none. It comes after the Models question, and its hint's model example follows that answer: how to try other models when they are allowed, else what to do with the task's own model. |
 | Which agent CLI should run the tuner's agents? | `--agent-cli` | Claude Code | Claude Code (`claude -p`), Codex (`codex exec`) or OpenCode (`opencode run`); one not on `PATH` is shown as `not installed` and can't be picked. |
 | Model for the agents | `--agent-cli` | `opus` for Claude Code; Default, Codex's own default, for Codex; blank, OpenCode's own default, for OpenCode | Claude Code and Codex: a model from a fixed list, or Other and one typed model name. Claude Code lists its aliases `opus`, `sonnet`, `haiku` and `fable`, each the latest model of its family; Other takes a full model name, such as `claude-opus-5-5`. Codex lists `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6.1-terra` and `gpt-6-luna`; [OpenAI's model page](https://developers.openai.com/codex/models) has all of them. OpenCode: one typed model name, `PROVIDER/MODEL`; `opencode models` lists them. |
@@ -658,7 +663,9 @@ The `Advanced` step line reads `defaults`, or lists what changed, such as
 `2 evals at once · minimum effect 10%`.
 
 A model policy set at the Models question, picked or typed, gets the API-key
-check again, for the providers it names.
+check again, for the providers it names. So does a restriction on providers
+or on data retention: when the baseline, a judge or the simulated user is on
+a provider that it refuses, the start shows the problem and does not run.
 
 **Never asked**, and set only by their flags ([cli.md](cli.md)):
 `--kiln-host`, `--coverage-floor`, `--agent-model`, `--agent-effort`,

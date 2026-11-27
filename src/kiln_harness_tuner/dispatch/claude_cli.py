@@ -207,6 +207,29 @@ FINISH_UP_PROMPT = (
     "the run config (or the eval) already exists, return its id now."
 )
 
+# The analyzer's `memory_content` over its room (`AnalysisInput.content_budget`):
+# the same session is asked to shorten it, at most this many times, before
+# code clamps it (`memory.record_verdict`). The session wrote the content, so
+# it knows which lines carry the verdict.
+SHORTEN_TURNS = 2
+SHORTEN_TIMEOUT_SECS = 5 * 60
+
+
+def shorten_prompt(length: int, budget: int) -> str:
+    """The resume prompt for a `memory_content` of `length` chars over
+    `budget`."""
+    return (
+        f"Your memory_content is {length} chars. Its budget is {budget} chars:"
+        " code adds its own lines to the record after yours, and the record"
+        f" has a hard cap. Shorten memory_content by at least {length - budget}"
+        " chars. Keep the rc, issue, technique and eval id lines, the numbers"
+        " table, the caution grade and the next: line. Cut interpretation prose"
+        " first. Change no other field. Reply with ONLY one fenced ```json code"
+        ' block containing {"status": "ok", "data": <the whole output object>,'
+        ' "detail": null}.'
+    )
+
+
 DEFAULT_CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
 
@@ -832,7 +855,12 @@ class ClaudeCliDispatcher:
     async def analyze_experiment_results(
         self, req: AnalysisInput
     ) -> AgentResult[ExperimentResult]:
-        return await self._run("analyze_experiment_results", req, ExperimentResult)
+        return await self._run(
+            "analyze_experiment_results",
+            req,
+            ExperimentResult,
+            content_budget=req.content_budget,
+        )
 
     async def promote_best(self, req: PromotionInput) -> AgentResult[PromotionDecision]:
         return await self._run("promote_best", req, PromotionDecision)
@@ -1122,7 +1150,11 @@ class ClaudeCliDispatcher:
         return result.usage
 
     async def _run(
-        self, agent: str, req: BaseModel, output_model: type[M]
+        self,
+        agent: str,
+        req: BaseModel,
+        output_model: type[M],
+        content_budget: int | None = None,
     ) -> AgentResult[M]:
         label = _dispatch_label(agent, req)
         # A read-only role gets no scratch: it may write nothing.
@@ -1133,7 +1165,9 @@ class ClaudeCliDispatcher:
         )
         prompt = self._render_prompt(agent, req, output_model, scratch_dir)
         started = datetime.now()
-        result = await self._dispatch(agent, label, prompt, output_model)
+        result = await self._dispatch(
+            agent, label, prompt, output_model, content_budget=content_budget
+        )
         self._persist_step(agent, label, req, result, started)
         self._session_ended(agent, label)
         return result
@@ -1197,7 +1231,12 @@ class ClaudeCliDispatcher:
             )
 
     async def _dispatch(
-        self, agent: str, label: str, prompt: str, output_model: type[M]
+        self,
+        agent: str,
+        label: str,
+        prompt: str,
+        output_model: type[M],
+        content_budget: int | None = None,
     ) -> AgentResult[M]:
         usage = Usage()
         # An entry a previous attempt of this label left behind (a repair
@@ -1266,9 +1305,74 @@ class ClaudeCliDispatcher:
                 )
 
         status, data, detail = parsed
+        if content_budget is not None and data is not None and session_id:
+            data, usage = await self._shorten(
+                agent, label, output_model, usage, session_id, data, content_budget
+            )
         return AgentResult[output_model](
             status=status, data=data, detail=detail, usage=usage
         )
+
+    async def _shorten(
+        self,
+        agent: str,
+        label: str,
+        output_model: type[M],
+        usage: Usage,
+        session_id: str,
+        data: M | None,
+        budget: int,
+    ) -> tuple[M | None, Usage]:
+        """Ask the session to bring `memory_content` within `budget`, up to
+        `SHORTEN_TURNS` times. Only the new `memory_content` is taken from a
+        reply: the verdict stays as the session first gave it. A turn that
+        fails, or a reply that does not parse, ends the turns with the last
+        content; code clamps it on the write. A quota or sign-in error in a
+        turn also ends the turns: the verdict is already paid for, and the
+        next dispatch meets the same error and stops the run."""
+        for turn in range(1, SHORTEN_TURNS + 1):
+            content = getattr(data, "memory_content", None)
+            if not isinstance(content, str) or len(content) <= budget:
+                break
+            logger.warning(
+                "dispatch %s: memory_content is %d chars, budget %d — asking the"
+                " session to shorten it (turn %d of %d)",
+                label,
+                len(content),
+                budget,
+                turn,
+                SHORTEN_TURNS,
+            )
+            try:
+                outcome, usage = await self._invoke(
+                    agent,
+                    label,
+                    shorten_prompt(len(content), budget),
+                    output_model,
+                    usage,
+                    resume=session_id,
+                    timeout_secs=SHORTEN_TIMEOUT_SECS,
+                )
+            except ProviderQuotaError as exc:
+                logger.error(
+                    "dispatch %s: shorten turn stopped by %s; keeping the verdict",
+                    label,
+                    exc.error.error_class,
+                )
+                if isinstance(exc.usage, Usage):
+                    usage = exc.usage
+                break
+            if isinstance(outcome, ErrorInfo):
+                break
+            parsed, _, _ = outcome
+            if parsed is None or parsed[0] != "ok" or parsed[1] is None:
+                break
+            shorter = getattr(parsed[1], "memory_content", None)
+            if not isinstance(shorter, str) or not shorter.strip():
+                break
+            if len(shorter) < len(content):
+                data = data.model_copy(update={"memory_content": shorter})
+        return data, usage
 
     async def _invoke(
         self,

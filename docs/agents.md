@@ -287,11 +287,13 @@ scope check, and it is there because this failure is hard to see otherwise.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
 `AnalysisBundle` (the label-free numbers table plus every named hole in it),
-and its own experiment memory id. `measurement_notes` names each metric
-that is not measured because a run config of the comparison calls or
-attaches a sub-agent: the latency always, and the cost when the runs do not
-hold the sub-agent's usage. The rows and the bundle then carry no number for
-that metric ([architecture.md](architecture.md) section 19.4).
+its own experiment memory id, and `content_budget`: the chars its
+`memory_content` can take after the lines code adds to the record.
+`measurement_notes` names each metric that is not measured because a run
+config of the comparison calls or attaches a sub-agent: the latency always,
+and the cost when the runs do not hold the sub-agent's usage. The rows and
+the bundle then carry no number for that metric
+([architecture.md](architecture.md) section 19.4).
 
 **Must return** `ExperimentResult`:
 
@@ -387,7 +389,7 @@ label their numbers val-grade.
 Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
 ([architecture.md](architecture.md) section 11). When the run created a
-sub-agent, code appends the `## Sub-agents` section: each one with its
+sub-agent, code appends the `## Sub-agents (code-computed)` section: each one with its
 tool, its task, its model and its state against the final baseline
 ([architecture.md](architecture.md) section 19.6).
 

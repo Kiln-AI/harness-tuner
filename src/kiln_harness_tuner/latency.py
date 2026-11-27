@@ -441,6 +441,22 @@ async def task_output_schema(ctx: Ctx) -> dict[str, Any] | None:
     return raw if isinstance(raw, dict) else None
 
 
+async def task_has_output_schema(ctx: Ctx) -> bool | None:
+    """Does the task have an output schema? Kiln uses a run config's
+    `structured_output_mode` only then. None when the task is unreadable."""
+    from kiln_harness_tuner.kiln import KilnError
+
+    try:
+        task = await ctx.kiln.call(
+            "GET", f"/api/projects/{ctx.target.project_id}/tasks/{ctx.target.task_id}"
+        )
+    except KilnError:
+        return None
+    if not isinstance(task, dict):
+        return None
+    return bool(task.get("output_json_schema"))
+
+
 def clearly_slower(c: LatencyComparison | None) -> bool:
     """The parent check of an arm forked from a non-baseline parent — see
     PARENT_SLOWER_MIN_RATIO. `c` is parent (baseline side) vs the arm."""

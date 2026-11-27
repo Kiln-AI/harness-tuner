@@ -162,10 +162,13 @@ def _rows(response: Any) -> list[dict[str, Any]]:
     return [r for r in response or [] if isinstance(r, dict)]
 
 
-async def read_sub_agent(call: Call, project_id: str, tool_id: str) -> SubAgent | None:
+async def read_sub_agent(
+    call: Call, project_id: str, tool_id: str, *, with_task: bool = True
+) -> SubAgent | None:
     """The sub-agent behind a `kiln_task::` tool id (or a bare tool server
     id), or None when the server is not a Kiln task tool. Reads the saved
-    tool server, the task's own record and its run configs: never the
+    tool server, the task's own record (unless `with_task` is False: a
+    reader that needs only the run config) and its run configs: never the
     task's runs or evals. Raises `KilnError` when Kiln does not answer."""
     server_id = tool_id.removeprefix(KILN_TASK_TOOL_PREFIX)
     project = f"/api/projects/{project_id}"
@@ -179,7 +182,7 @@ async def read_sub_agent(call: Call, project_id: str, tool_id: str) -> SubAgent 
         return None
     task_id = str(props["task_id"])
     base = f"{project}/tasks/{task_id}"
-    task = await call("GET", base)
+    task = await call("GET", base) if with_task else {}
     rc_id = str(props.get("run_config_id") or "")
     rows = _rows(await call("GET", f"{base}/run_configs"))
     return SubAgent(
@@ -197,7 +200,12 @@ async def read_sub_agent(call: Call, project_id: str, tool_id: str) -> SubAgent 
 
 
 async def read_sub_agent_tree(
-    call: Call, project_id: str, props: Any, depth: int = MAX_USAGE_DEPTH
+    call: Call,
+    project_id: str,
+    props: Any,
+    depth: int = MAX_USAGE_DEPTH,
+    *,
+    with_task: bool = True,
 ) -> dict[str, SubAgent | None]:
     """tool id -> the sub-agent, for each `kiln_task::` tool that run-config
     properties attach, and for each one that those sub-agents attach,
@@ -208,7 +216,7 @@ async def read_sub_agent_tree(
         if tool_id in found:
             continue
         try:
-            sub = await read_sub_agent(call, project_id, tool_id)
+            sub = await read_sub_agent(call, project_id, tool_id, with_task=with_task)
         except KilnAPIError as exc:
             if exc.status_code != 404:
                 raise
@@ -216,7 +224,7 @@ async def read_sub_agent_tree(
         found[tool_id] = sub
         if sub is not None and depth > 1:
             below = await read_sub_agent_tree(
-                call, project_id, sub.properties, depth - 1
+                call, project_id, sub.properties, depth - 1, with_task=with_task
             )
             for key, value in below.items():
                 found.setdefault(key, value)

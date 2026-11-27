@@ -187,6 +187,30 @@ async def test_a_prompt_that_quotes_the_judge_is_never_promoted():
     assert [f for k, f in ctx.log.events if k == "promotion_blocked"]
 
 
+async def test_a_quote_block_with_a_val_hole_keeps_its_block_stamp():
+    # The quote check also sets `ineligible`, but a block is a verdict, not
+    # a hole: the candidate keeps its block stamp and line, even when its
+    # val fill failed too. It is not pooled.
+    ctx = _gate_ctx(
+        BASE_PROMPT + " Every count in the answer matches the manifest exactly."
+    )
+    del ctx.kiln.pending[("eval_1", "rc_cand", "val")]
+    ctx.kiln.job_behaviors[("eval_1", "rc_cand", "val")] = ["fail"] * 4
+    ctx.dispatch.queue("promote_best", decision(None, "no winner"))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (table,) = ctx.dispatch.calls_to("promote_best")[0].candidates
+    assert any("val fill failed" in e.detail for e in table.errors)
+    (outcome,) = [f["outcome"] for k, f in ctx.log.events if k == "item_outcome"]
+    record = ctx.kiln.memories[outcome.experiment_memory_id]
+    assert record["overview"].endswith(" — REJECTED AT VAL 07-22")
+    assert "- blocked at the val gate 07-22" in record["content"]
+    assert "rejected at the val gate" not in record["content"]
+    assert not [
+        f for k, f in ctx.log.events if k == "promotion_blocked" and f.get("pooled")
+    ]
+    assert ctx.holed_gates == {}
+
+
 async def test_a_flag_the_rationale_ignores_blocks_the_promotion():
     ctx = _gate_ctx(BASE_PROMPT, cand_output="x" * 50)
     ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val"))

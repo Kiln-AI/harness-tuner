@@ -564,6 +564,41 @@ async def test_an_arm_on_a_sub_agent_baseline_has_no_cost_or_latency_number():
     assert note in record
 
 
+async def test_the_notes_survive_a_long_analysis_in_the_stored_record():
+    """The notes on what is not measured are code's lines: they count in the
+    analyzer's room, and the clamp of the verdict keeps them when the
+    analyzer's text is over the record's cap."""
+    from kiln_harness_tuner.memory_schema import CONTENT_MAX_CHARS
+
+    ctx = make_ctx()
+    ctx.kiln.add_sub_agent(SERVER, SUB_TASK, SUB_RC)
+    ctx.kiln.run_configs = [
+        _attaches("rc_base", BASE_PROMPT, TOOL),
+        _attaches("rc_new", BASE_PROMPT + " Check the manifest first.", TOOL),
+    ]
+    seed_measurement(ctx.kiln)
+    for rows in (*ctx.kiln.results.values(), *ctx.kiln.pending.values()):
+        for row in rows:
+            row["task_run_usage"] = {"cost": 0.01, "total_llm_latency_ms": 300}
+            row["task_run_trace"] = json.dumps([_tool_message(run_id=None)])
+    long_text = "\n".join(f"reading {n}: " + "x" * 90 for n in range(80))
+    assert len(long_text) > CONTENT_MAX_CHARS
+    ctx.dispatch.queue("create_experiment_rc", _built("rc_new"))
+    ctx.dispatch.queue("generality_review", _review())
+    result = make_result().model_copy(update={"memory_content": long_text})
+    ctx.dispatch.queue("analyze_experiment_results", ok(result))
+    outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    note = SUB_AGENT_NOT_MEASURED_NOTE.format(tools=TOOL)
+    (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
+    # Counted in the room the analyzer is told: less than the whole cap.
+    assert analysis.content_budget < CONTENT_MAX_CHARS
+    record = ctx.kiln.memories[outcome.experiment_memory_id]["content"]
+    assert len(record) <= CONTENT_MAX_CHARS
+    assert note in record.splitlines()
+    assert "[… truncated …]" in record
+
+
 async def test_stored_runs_with_no_sub_agent_call_keep_their_passive_numbers():
     ctx = make_ctx()
     ctx.kiln.run_configs = [
@@ -1088,7 +1123,7 @@ def test_the_report_names_each_sub_agent_and_its_state():
     text = render_sub_agents_appendix(_status(sub_agents=records))
     rows = [line for line in text.splitlines() if line.startswith("| ")][1:]
 
-    assert text.startswith("## Sub-agents\n")
+    assert text.startswith("## Sub-agents (code-computed)\n")
     assert f"`{TOOL}`" in rows[0] and f"`{SUB_TASK}`" in rows[0]
     assert "groq/kimi" in rows[0] and "in the final baseline `rc_arm`" in rows[0]
     assert "not in the final baseline" in rows[1] and "`rc_lost`" in rows[1]

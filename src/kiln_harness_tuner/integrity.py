@@ -54,6 +54,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from statistics import median
 from typing import Any
 
+from kiln_harness_tuner.restrictions import CODE_TOOL_PREFIX
+from kiln_harness_tuner.sub_agents import KILN_TASK_TOOL_PREFIX
+
 QUOTE_NGRAM = 8
 MIN_EVAL_NAME_CHARS = 10
 LENGTH_RATIO_LIMIT = 2.0
@@ -292,7 +295,7 @@ def tool_name_of_id(tool_id: str) -> str | None:
     nothing."""
     if tool_id.startswith((_SKILL_TOOL_PREFIX, _RAG_TOOL_PREFIX)):
         return None
-    if tool_id.startswith(("kiln_tool::code::", "kiln_task::")):
+    if tool_id.startswith((CODE_TOOL_PREFIX, KILN_TASK_TOOL_PREFIX)):
         return None
     return tool_id.rsplit("::", 1)[-1] or None
 

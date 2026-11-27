@@ -123,8 +123,11 @@ a legacy judge config and a code eval report no judge noise. The sample and
 the clone are taken on the run's first baseline and are not measured again
 after a promotion.
 
-**Custom score types have no statistics operation and no normalization
-domain.** Both sites raise in `analysis.py`. They are
+**Custom score types have no statistics operation, no normalization
+domain and no pass line.** The three sites raise in `analysis.py`
+(`_stats_row`, `normalize` and `pass_line`). The engine reads the pass line
+before it starts a trial job, so a trial on a custom score spends nothing.
+The statistics operation and the normalization domain are
 different questions — a custom score with no declared range cannot be
 normalized at all, while it might still be comparable — and neither is guessed.
 The promotion gate is the one place that degrades gracefully: an uncomparable
@@ -229,7 +232,7 @@ each run for that, and it never adds the numbers itself. On a Kiln that
 does not, the cost is not measured either: the run config cannot win under
 `--objective cost`, and the spend of the run, the budget and a spending cap
 leave the sub-agent's calls out. A sub-agent that a code tool calls is not
-seen at all. Each experiment's record, and the report's `## Sub-agents`
+seen at all. Each experiment's record, and the report's `## Sub-agents (code-computed)`
 section, say what was measured.
 
 **The integrity checks are heuristics.** Quoting is blocked only as a run

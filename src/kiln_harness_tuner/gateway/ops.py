@@ -11,7 +11,11 @@ the splits:
   field by field;
 - a WRITE is validated before Kiln sees it: run configs against the model
   policy, drives and eval jobs on train items only, memory in the two
-  scopes, new evals with splits the gateway assigns.
+  scopes and never with the `val` or `baseline` tag, new evals with splits
+  the gateway assigns;
+- no code tool allowlist and no new run config gets a tool that reads or
+  writes Kiln's own state (`STATE_TOOL_KINDS`), except a run config that
+  keeps one the baseline run config already has.
 
 `ROLE_OPS` names the operations each agent role gets; a role's session is
 served those and no others. There is no operation that changes settings or
@@ -34,15 +38,27 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from kiln_harness_tuner import memory_schema, output_modes
 from kiln_harness_tuner.gateway import model_info
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.job_drives import (
+    EvalJobDriver,
+    openenv_tool_parts,
+    run_config_tool_ids,
+)
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
+from kiln_harness_tuner.memory_schema import RecordKind
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.rc_inherit import FROZEN_KEYS, InheritError, inherit
+from kiln_harness_tuner.restrictions import (
+    CODE_TOOL_PREFIX,
+    SKILL_TOOL_PREFIX,
+    ToolLock,
+)
 from kiln_harness_tuner.sub_agents import (
     CREATED_FILE,
     KILN_TASK_TOOL_PREFIX,
@@ -61,18 +77,32 @@ from kiln_harness_tuner.sub_agents import (
 
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
-# The tools a sub-agent's run config cannot attach: another sub-agent (one
-# level only), and the tools that reach the Kiln server or the project's
-# memory. An OpenEnv tool is allowed: the route of a drive reads the tools
-# of each attached sub-agent (`EvalJobDriver.needed`), so a run config
-# whose sub-agent has one is driven as an eval job, with an episode.
-SUB_AGENT_REFUSED_TOOL_PREFIXES = (
-    KILN_TASK_TOOL_PREFIX,
-    "kiln_tool::call_kiln_api",
-    "kiln_tool::memory::",
+# The tools that read or write Kiln's own state, not the subject task's
+# world. Kiln's memory tools (`kiln_tool::memory::<operation>`) read and
+# write the memory store the loop keeps its `baseline` and `val` records in.
+# A Kiln API tool (the built-in `kiln_tool::call_kiln_api`, or an MCP tool
+# named `call_kiln_api`) reaches every endpoint. In a code tool's allowlist
+# or a candidate's tools, either one goes around the memory operations'
+# guard: it could move the baseline pointer with no val gate, or read the
+# `val` record.
+MEMORY_TOOL_PREFIX = "kiln_tool::memory::"
+KILN_API_TOOL_NAME = "call_kiln_api"
+STATE_TOOL_KINDS = (
+    f"a Kiln memory tool ({MEMORY_TOOL_PREFIX}…), a Kiln API tool"
+    f" (…{KILN_API_TOOL_NAME})"
 )
+# The tools a sub-agent's run config cannot attach besides those of
+# Kiln's own state (`_state_tools`): another sub-agent (one level only). An
+# OpenEnv tool is allowed: the route of a drive reads the tools of each
+# attached sub-agent (`EvalJobDriver.needed`), so a run config whose
+# sub-agent has one is driven as an eval job, with an episode.
+SUB_AGENT_REFUSED_TOOL_PREFIXES = (KILN_TASK_TOOL_PREFIX,)
 PROJECT_SCOPE = "project"
-VAL_MEMORY_TAG = "val"
+VAL_MEMORY_TAG = RecordKind.VAL.value
+# The `baseline` record names the run config each run starts from. Loop code
+# writes it (setup seeds it, a promotion moves it). An agent that wrote it
+# could make a candidate the baseline with no val gate.
+BASELINE_MEMORY_TAG = RecordKind.BASELINE.value
 GATEWAY_RUN_TAG = "kiln_harness_tuner_gateway"
 # One line per memory write an agent makes, for the loop to forward into
 # the wave log (`kiln_harness_tuner.memory_feed`).
@@ -147,6 +177,8 @@ class State:
     run_dir: Path | None = None
     project_path: Path | None = None
     policy: ModelPolicy | None = None
+    # The tools the owner locked (`restrictions.json`); empty = no lock.
+    tool_lock: ToolLock = field(default_factory=ToolLock)
     # The eval jobs this process runs at once (`--max-concurrent-evals`);
     # None = no cap.
     max_concurrent_evals: int | None = None
@@ -321,6 +353,27 @@ def _scope_ok(scope: str, state: State) -> None:
         )
 
 
+def _code_tags_refused(tags: list[str]) -> None:
+    """Refuse a memory write that carries a tag only loop code writes."""
+    for tag in (VAL_MEMORY_TAG, BASELINE_MEMORY_TAG):
+        if tag in tags:
+            raise GatewayError(f"the `{tag}` tag is written by the loop's code only")
+
+
+def _state_tool(tool_id: str) -> bool:
+    """True for a tool that reads or writes Kiln's own state."""
+    return (
+        tool_id.startswith(MEMORY_TOOL_PREFIX)
+        or tool_id.rsplit("::", 1)[-1] == KILN_API_TOOL_NAME
+    )
+
+
+def _rc_tool_ids(props: dict[str, Any]) -> list[str]:
+    tools_config = props.get("tools_config")
+    tools = tools_config.get("tools") if isinstance(tools_config, dict) else None
+    return [str(t) for t in tools] if isinstance(tools, list) else []
+
+
 def _memory_hidden(row: dict[str, Any], state: State) -> bool:
     return not state.val_reader and VAL_MEMORY_TAG in (row.get("tags") or [])
 
@@ -367,7 +420,9 @@ def _rc_view(row: dict[str, Any]) -> m.RunConfigView:
         m.RunConfigView,
         {**props, **row},
         tools=[str(t) for t in tools or []],
-        run_config_properties={k: props[k] for k in RC_PROP_KEYS if k in props},
+        run_config_properties={
+            k: props[k] for k in (*RC_PROP_KEYS, *FROZEN_KEYS) if k in props
+        },
         prompt=m.project(m.RunConfigPrompt, prompt)
         if isinstance(prompt, dict)
         else None,
@@ -894,8 +949,7 @@ class Gateway:
 
     async def memory_create(self, req: m.MemoryCreate) -> m.MemoryView:
         _scope_ok(req.scope, self.s)
-        if VAL_MEMORY_TAG in req.tags:
-            raise GatewayError("the `val` tag is written by the loop's code only")
+        _code_tags_refused(req.tags)
         row = await self.call(
             "POST", f"{self.s.project}/memories", body=req.model_dump(exclude_none=True)
         )
@@ -907,8 +961,12 @@ class Gateway:
         (current,) = await self.memory_get(m.MemoryIdsRequest(ids=[req.id])) or [None]
         if current is None:
             raise GatewayError(f"no memory {req.id} in this run's scopes")
-        if req.tags is not None and VAL_MEMORY_TAG in req.tags:
-            raise GatewayError("the `val` tag is written by the loop's code only")
+        if BASELINE_MEMORY_TAG in current.tags:
+            raise GatewayError(
+                f"memory {req.id} is the `baseline` record: only the loop's code "
+                "writes it"
+            )
+        _code_tags_refused(req.tags or [])
         body = req.model_dump(exclude_none=True, exclude={"id"})
         view = m.project(
             m.MemoryView,
@@ -1139,7 +1197,11 @@ class Gateway:
         not the subject task, and the run config it pins exists and is
         inside the model policy. The model policy is about where the task's
         data is sent, and a sub-agent's input is the task's data."""
-        tree = await read_sub_agent_tree(self.call, self.s.project_id, props)
+        # The checks need the tool server and the pinned run config, not the
+        # called task's own record.
+        tree = await read_sub_agent_tree(
+            self.call, self.s.project_id, props, with_task=False
+        )
         for tool_id, sub in tree.items():
             if sub is None:
                 raise GatewayError(f"{tool_id} is not a Kiln task tool of this project")
@@ -1162,13 +1224,270 @@ class Gateway:
         if refusal is not None:
             raise GatewayError(f"sub-agent tool {sub.tool_id}: {refusal}")
 
-    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
-        self._policy_check(req.run_config_properties)
-        await self._sub_agent_check(req.run_config_properties)
-        row = await self.call(
-            "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
+    async def _tool_lock_check(self, props: dict[str, Any]) -> None:
+        """Refuse a run config that drops, replaces or wraps a tool the
+        owner locked (`restrictions.ToolLock`). A code tool that cannot be
+        read is refused with Kiln's error: the lock is never skipped."""
+        lock = self.s.tool_lock
+        if not lock:
+            return
+        tools = run_config_tool_ids(props)
+        refusal = lock.dropped(tools)
+        if refusal is not None:
+            raise GatewayError(refusal)
+        for tool_id in lock.new_code_tools(tools):
+            row = await self.call("GET", f"{self.s.project}/code_tools/{tool_id}")
+            allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
+            refusal = lock.wraps(allowlist)
+            if refusal is not None:
+                raise GatewayError(f"code tool {tool_id}: {refusal}")
+
+    async def _tools_of(self, tool_id: str, cache: dict[str, list[str]]) -> list[str]:
+        """The tools that `tool_id` can call, read once per check: the stored
+        allowlist of a `kiln_tool::code::<id>` tool, or the tools of the run
+        config that a `kiln_task::<id>` tool calls its task with."""
+        if tool_id not in cache:
+            if tool_id.startswith(CODE_TOOL_PREFIX):
+                code_tool_id = tool_id[len(CODE_TOOL_PREFIX) :]
+                row = await self.call(
+                    "GET", f"{self.s.project}/code_tools/{code_tool_id}"
+                )
+                allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
+                cache[tool_id] = (
+                    [str(t) for t in allowlist] if isinstance(allowlist, list) else []
+                )
+            else:
+                cache[tool_id] = await self._kiln_task_tool_ids(
+                    tool_id[len(KILN_TASK_TOOL_PREFIX) :]
+                )
+        return cache[tool_id]
+
+    async def _kiln_task_tool_ids(self, server_id: str) -> list[str]:
+        """The tools of the run config that the Kiln task tool `server_id`
+        calls its task with. Empty when the record is not a Kiln task tool,
+        or when its run config is not found: the tool then calls nothing.
+        Only the saved record and the called task's run configs are read, as
+        in `get_kiln_task_tool` (`sub_agents.read_sub_agent`, the one reader
+        of the record)."""
+        try:
+            sub = await read_sub_agent(
+                self.call, self.s.project_id, server_id, with_task=False
+            )
+        except KilnAPIError as exc:
+            if exc.status_code != 404:
+                raise
+            sub = None  # no such tool server: it calls nothing
+        return _rc_tool_ids(sub.properties) if sub is not None else []
+
+    async def _state_reach(
+        self, tool_id: str, seen: set[str], cache: dict[str, list[str]]
+    ) -> list[str] | None:
+        """The path from `tool_id` to a tool that reads or writes Kiln's own
+        state (`_state_tool`), or None. A code tool reaches what its stored
+        allowlist reaches. A Kiln task tool reaches what the tools of its
+        run config reach: the called task's agent can call them. Both at
+        any depth. `seen` holds the tools already searched from the same
+        start, so a cycle ends."""
+        if _state_tool(tool_id):
+            return [tool_id]
+        if (
+            not tool_id.startswith((CODE_TOOL_PREFIX, KILN_TASK_TOOL_PREFIX))
+            or tool_id in seen
+        ):
+            return None
+        seen.add(tool_id)
+        for inner in await self._tools_of(tool_id, cache):
+            path = await self._state_reach(inner, seen, cache)
+            if path is not None:
+                return [tool_id, *path]
+        return None
+
+    async def _state_tools(self, tool_ids: list[str]) -> dict[str, list[str]]:
+        """Each tool of `tool_ids` that reaches Kiln's own state, with its
+        path."""
+        cache: dict[str, list[str]] = {}
+        found: dict[str, list[str]] = {}
+        for tool_id in dict.fromkeys(tool_ids):
+            path = await self._state_reach(tool_id, set(), cache)
+            if path is not None:
+                found[tool_id] = path
+        return found
+
+    async def _allowlist_check(self, allowlist: list[str]) -> None:
+        """Refuse a code tool allowlist that reaches Kiln's own state. A
+        code tool runs the agent's own code, so no baseline exception
+        applies here."""
+        found = await self._state_tools(allowlist)
+        if found:
+            paths = "; ".join(" -> ".join(p) for p in found.values())
+            raise GatewayError(
+                f"a code tool cannot allowlist {STATE_TOOL_KINDS}, or a code"
+                f" tool or a Kiln task tool that reaches one: {paths}. These"
+                " tools read and write the loop's own records. Allowlist the"
+                " subject task's tools only"
+            )
+
+    async def _baseline_tool_ids(self) -> tuple[str | None, set[str]]:
+        """The baseline run config's id and tools, read from the task's
+        `baseline` memory record (its `rc_<id>` tag). No record, or a record
+        that does not name one run config: no id and no tools."""
+        page = await self.call(
+            "GET",
+            f"{self.s.project}/memories",
+            query_params={
+                "scope": f"task::{self.s.task_id}",
+                "tags": [memory_schema.RecordKind.BASELINE.value],
+                "limit": 1,
+                "offset": 0,
+            },
         )
-        return _rc_view(row if isinstance(row, dict) else {})
+        rows = _rows(page if isinstance(page, dict) else {}, "listings")
+        rc_ids = (
+            memory_schema.rc_ids_from_tags(rows[0].get("tags") or []) if rows else []
+        )
+        if len(rc_ids) != 1:
+            return None, set()
+        rc = next(
+            (r for r in await self._run_configs() if str(r.get("id")) == rc_ids[0]),
+            None,
+        )
+        props = (rc or {}).get("run_config_properties")
+        return rc_ids[0], set(_rc_tool_ids(props if isinstance(props, dict) else {}))
+
+    async def _rc_tools_check(self, props: dict[str, Any]) -> None:
+        """Refuse a new run config that adds a tool which reaches Kiln's own
+        state. A tool the baseline run config already has may stay: the
+        subject agent can use Kiln memory by design, and a candidate must be
+        able to keep what its baseline has."""
+        found = await self._state_tools(_rc_tool_ids(props))
+        if not found:
+            return
+        baseline_id, kept = await self._baseline_tool_ids()
+        added = {t: p for t, p in found.items() if t not in kept}
+        if added:
+            paths = "; ".join(" -> ".join(p) for p in added.values())
+            baseline = (
+                f"the baseline run config {baseline_id} does not have"
+                if baseline_id
+                else "no baseline run config was found to have"
+            )
+            raise GatewayError(
+                f"a new run config cannot add {STATE_TOOL_KINDS}, or a code"
+                f" tool or a Kiln task tool that reaches one, which {baseline}:"
+                f" {paths}."
+                " These tools read and write the loop's own records. A tool"
+                " the baseline run config has may stay"
+            )
+
+    async def _read(self, path: str) -> Any:
+        """A GET whose failure must not stop a write: None then."""
+        try:
+            return await self.call("GET", path)
+        except (KilnError, GatewayError):
+            return None
+
+    async def _output_mode_check(
+        self, props: dict[str, Any], parent: dict[str, Any] | None
+    ) -> list[str]:
+        """The output-mode rules of a new run config
+        (`kiln_harness_tuner.output_modes`). Sets `structured_output_mode` on
+        `props` when it is not given, refuses a mode that cannot run, and
+        returns the notes for the answer. `parent` holds the properties of
+        the parent run config that `_inherit` found."""
+        provider, model = props.get("model_provider_name"), props.get("model_name")
+        default = output_modes.server_default(
+            await self._read("/api/available_models"), provider, model
+        )
+        swapped = parent is not None and any(
+            props.get(k) != parent.get(k) for k in output_modes.PAIR_KEYS
+        )
+        tools = bool(output_modes.attached_tools(props))
+        choice = output_modes.swap_mode(
+            output_modes.mode_of(parent), default, provider=provider, tools=tools
+        )
+        notes: list[str] = []
+        mode = output_modes.mode_of(props)
+        if mode is None:
+            if parent is not None and not swapped and output_modes.mode_of(parent):
+                choice = output_modes.ModeChoice(
+                    output_modes.mode_of(parent),
+                    "the parent's mode: the model and the provider are the parent's",
+                )
+            if choice.mode is None:
+                raise GatewayError(
+                    "run_config_properties names no structured_output_mode, and"
+                    f" Kiln's model list gives no default for {model} on"
+                    f" {provider}. Name one: " + ", ".join(output_modes.MODES) + "."
+                )
+            mode = props["structured_output_mode"] = choice.mode
+            notes.append(
+                f"structured_output_mode was not given: set to {mode} ({choice.why})."
+            )
+        task = await self._read(self.s.base)
+        refused = output_modes.refusal(
+            props,
+            structured=bool(task.get("output_json_schema"))
+            if isinstance(task, dict)
+            else None,
+            default=default,
+        )
+        if refused is not None:
+            raise GatewayError(refused)
+        kept = swapped and mode == output_modes.mode_of(parent)
+        if kept and choice.mode and choice.mode != mode:
+            notes.append(
+                "This run config changes the model or the provider of its"
+                f" parent and keeps the parent's structured_output_mode, {mode}."
+                f" The mode of the new pair is {choice.mode} ({choice.why})."
+                f" Keep {mode} only when the experiment tests the output mode."
+                " Else make the run config again, with structured_output_mode"
+                " left out."
+            )
+        return notes
+
+    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigCreated:
+        self._policy_check(req.run_config_properties)
+        # The owner's lock first: a dropped tool is refused with no Kiln
+        # read. The tools are the request's own (`tools_config` is not
+        # carried from the parent).
+        await self._tool_lock_check(req.run_config_properties)
+        body = req.model_dump(exclude_none=True)
+        carried, parent = await self._inherit(body)
+        # After the carry: these checks read the properties that are sent.
+        props = body["run_config_properties"]
+        await self._rc_tools_check(props)
+        await self._sub_agent_check(props)
+        notes = await self._output_mode_check(props, parent)
+        row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
+        view = _rc_view(row if isinstance(row, dict) else {})
+        view.notes = notes
+        return m.RunConfigCreated(**view.model_dump(), carried_properties=carried)
+
+    async def _inherit(self, body: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+        """Take from the parent run config (the first `derived_from_ids` id
+        that is a run config of the task) each property that the request
+        leaves out and the tuner does not manage (`rc_inherit`). Returns
+        the names carried, and the parent's properties. A request with no
+        such parent is refused: the
+        carry and the checks of the parent's settings need it."""
+        ids = (body.get("provenance") or {}).get("derived_from_ids") or []
+        ids = [str(i) for i in ids] if isinstance(ids, list) else []
+        rows = {str(r.get("id")): r for r in await self._run_configs()} if ids else {}
+        parent = next((rows[i] for i in ids if i in rows), None)
+        props = (parent or {}).get("run_config_properties")
+        if not isinstance(props, dict):
+            raise GatewayError(
+                "name the parent run config in provenance.derived_from_ids: the"
+                " new run config takes the parent's settings that the view does"
+                " not show"
+            )
+        try:
+            body["run_config_properties"], carried = inherit(
+                props, body["run_config_properties"], RC_PROP_KEYS
+            )
+        except InheritError as exc:
+            raise GatewayError(str(exc)) from exc
+        return carried, props
 
     async def rename_run_config(self, req: m.RunConfigRename) -> m.RunConfigView:
         body = req.model_dump(exclude_none=True, exclude={"id"})
@@ -1265,7 +1584,9 @@ class Gateway:
 
         Every check runs before the first write. The sub-agent's model is
         held to the model policy, as the subject's is. Its run config
-        cannot attach another sub-agent or a tool that reaches Kiln.
+        cannot attach another sub-agent, or a tool that reaches Kiln's own
+        state at any depth (`_state_tools`, as for the subject), and it
+        follows the output-mode rules (`_sub_agent_mode`).
 
         The three records go in the run's registry (`gateway_created.jsonl`)
         the moment each exists, so a create that fails half-way still names
@@ -1291,8 +1612,19 @@ class Gateway:
         if refused:
             raise GatewayError(
                 f"a sub-agent's run config cannot attach {', '.join(refused)}:"
-                " no sub-agent of a sub-agent, and no tool that reaches Kiln"
+                " no sub-agent of a sub-agent"
             )
+        # No baseline exception: the sub-agent is new, so it has nothing to
+        # keep.
+        state = await self._state_tools(list(tool_ids_of(props)))
+        if state:
+            paths = "; ".join(" -> ".join(p) for p in state.values())
+            raise GatewayError(
+                f"a sub-agent's run config cannot attach {STATE_TOOL_KINDS}, or"
+                f" a code tool that reaches one: {paths}. These tools read and"
+                " write the loop's own records"
+            )
+        notes = await self._sub_agent_mode(props, req.output_json_schema is not None)
         run = self.s.run_dir.name if self.s.run_dir is not None else "a run"
         note = (
             f"Sub-agent of task {self.s.task_id}, called through the tool"
@@ -1379,14 +1711,59 @@ class Gateway:
             run_config_id=rc_id,
             model_name=stored.get("model_name"),
             model_provider_name=stored.get("model_provider_name"),
-            note=(
-                "Attach tool_id in tools_config.tools of a new run config of"
-                " the subject task. The tool pins this run config: a change"
-                " to the sub-agent is a new sub-agent."
+            note=" ".join(
+                [
+                    *notes,
+                    "Attach tool_id in tools_config.tools of a new run config"
+                    " of the subject task. The tool pins this run config: a"
+                    " change to the sub-agent is a new sub-agent.",
+                ]
             ),
         )
 
+    async def _sub_agent_mode(
+        self, props: dict[str, Any], structured: bool
+    ) -> list[str]:
+        """The output-mode rules (`kiln_harness_tuner.output_modes`) for a
+        new sub-agent's run config: a mode that is not given is set to
+        Kiln's default for the pair, and a mode that cannot run is refused.
+        `structured`: the sub-agent's task has an output schema. Returns
+        the notes for the answer."""
+        provider, model = props.get("model_provider_name"), props.get("model_name")
+        default = output_modes.server_default(
+            await self._read("/api/available_models"), provider, model
+        )
+        notes: list[str] = []
+        if output_modes.mode_of(props) is None:
+            choice = output_modes.swap_mode(
+                None,
+                default,
+                provider=provider,
+                tools=bool(output_modes.attached_tools(props)),
+            )
+            if choice.mode is None:
+                raise GatewayError(
+                    "run_config_properties names no structured_output_mode, and"
+                    f" Kiln's model list gives no default for {model} on"
+                    f" {provider}. Name one: " + ", ".join(output_modes.MODES) + "."
+                )
+            props["structured_output_mode"] = choice.mode
+            notes.append(
+                "structured_output_mode was not given: set to"
+                f" {choice.mode} ({choice.why})."
+            )
+        refused = output_modes.refusal(props, structured=structured, default=default)
+        if refused is not None:
+            raise GatewayError(refused)
+        return notes
+
     async def create_code_tool(self, req: m.CodeToolCreate) -> m.CodeToolView:
+        # A wrapper of a locked tool is refused here, before it exists, and
+        # again when a run config attaches one (`_tool_lock_check`).
+        refusal = self.s.tool_lock.wraps(req.tool_allowlist)
+        if refusal is not None:
+            raise GatewayError(refusal)
+        await self._allowlist_check(req.tool_allowlist)
         row = await self.call(
             "POST",
             f"{self.s.project}/code_tools",
@@ -1395,6 +1772,10 @@ class Gateway:
         return m.project(m.CodeToolView, row)
 
     async def archive_code_tool(self, req: m.Archive) -> m.CodeToolView:
+        if req.archived and f"{CODE_TOOL_PREFIX}{req.id}" in self.s.tool_lock.locked:
+            raise GatewayError(
+                f"the owner locked code tool {req.id}: it may not be archived"
+            )
         row = await self.call(
             "POST",
             f"{self.s.project}/code_tools/{req.id}/archive",
@@ -1403,6 +1784,7 @@ class Gateway:
         return m.project(m.CodeToolView, row)
 
     async def test_code_tool(self, req: m.CodeToolTestRequest) -> m.CodeToolTest:
+        await self._allowlist_check(req.tool_allowlist)
         row = await self.call(
             "POST",
             f"{self.s.project}/test_code_tool",
@@ -1442,6 +1824,10 @@ class Gateway:
         return m.Pong(ok=True)
 
     async def archive_skill(self, req: m.Archive) -> m.SkillView:
+        if req.archived and f"{SKILL_TOOL_PREFIX}{req.id}" in self.s.tool_lock.locked:
+            raise GatewayError(
+                f"the owner locked skill {req.id}: it may not be archived"
+            )
         row = await self.call(
             "PATCH",
             f"{self.s.project}/skills/{req.id}",
@@ -1518,8 +1904,21 @@ class Gateway:
                 made.append(m.Created(id=item_id, kind=f"{req.split} item"))
         return made
 
+    def _judge_check(self, *providers: Any) -> None:
+        """Refuse a judge on a provider that a restriction on providers or
+        on data retention refuses: the judge reads the task's data."""
+        if self.s.policy is None:
+            return
+        for provider in providers:
+            refusal = self.s.policy.route_refusal(
+                provider if isinstance(provider, str) else None
+            )
+            if refusal is not None:
+                raise GatewayError(f"judge provider {provider}: {refusal}")
+
     async def create_eval_config(self, req: m.EvalConfigCreate) -> m.EvalConfigView:
         self._own_eval(req.eval_id, "a judge config can be created")
+        self._judge_check(req.provider, req.properties.get("model_provider"))
         body = req.model_dump(exclude_none=True, exclude={"eval_id"})
         row = await self.call(
             "POST", f"{self.s.base}/evals/{req.eval_id}/create_eval_config", body=body
@@ -1538,6 +1937,7 @@ class Gateway:
         return m.Pong(ok=True)
 
     async def test_judge(self, req: m.JudgeTestRequest) -> m.JudgeTest:
+        self._judge_check(req.properties.get("model_provider"))
         row = await self.call(
             "POST",
             f"{self.s.base}/evals/{req.eval_id}/test_v2_eval",
@@ -1572,6 +1972,30 @@ class Gateway:
             raise GatewayError(f"not train items of eval {req.eval_id}: {outside[:5]}")
         if not items:
             raise GatewayError(f"eval {req.eval_id} has no train item to run")
+        if (self.s.policy is not None and self.s.policy.restrictions) or (
+            self.s.tool_lock
+        ):
+            # The stated restrictions only: a policy file's own rules leave
+            # the baseline measurable, whatever its model.
+            rc = next(
+                (
+                    r
+                    for r in await self._run_configs()
+                    if str(r.get("id")) == req.run_config_id
+                ),
+                None,
+            )
+            if rc is None:
+                raise GatewayError(f"no run config {req.run_config_id}")
+            props = rc.get("run_config_properties") or {}
+            if self.s.policy is not None:
+                provider = props.get("model_provider_name")
+                refusal = self.s.policy.route_refusal(
+                    provider if isinstance(provider, str) else None
+                )
+                if refusal is not None:
+                    raise GatewayError(f"run config {req.run_config_id}: {refusal}")
+            await self._tool_lock_check(props)
         eval_def = await self.call("GET", f"{self.s.base}/evals/{req.eval_id}") or {}
         config_id = eval_def.get("current_config_id")
         if not config_id:
@@ -1738,7 +2162,7 @@ OPS = _ops(
     (
         "create_run_config",
         m.RunConfigCreate,
-        "A new run config (model policy checked).",
+        "A new run config (model policy, tool lock and output mode checked).",
     ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),

@@ -842,12 +842,12 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
 
 
 SMELLS_APPENDIX_HEADING = "## Design review"
-SUB_AGENTS_APPENDIX_HEADING = "## Sub-agents"
+SUB_AGENTS_APPENDIX_HEADING = "## Sub-agents (code-computed)"
 
 
 def render_sub_agents_appendix(status: RunStatus) -> str:
-    """The `## Sub-agents` section: each sub-agent this run created, with
-    its tool, its task, the run config that the tool pins, its model, the
+    """The `## Sub-agents (code-computed)` section: each sub-agent this run
+    created, with its tool, its task, the run config that the tool pins, its model, the
     run configs of the subject task that attach it, and its state against
     the final baseline. Empty string when the run created none."""
     if not status.sub_agents:
@@ -1144,6 +1144,22 @@ def render_fallback_report(status: RunStatus) -> str:
             )
         if wave.promotion_skipped:  # Hard-fail noted in the report
             lines.append(f"- promotion skipped: {wave.promotion_skipped}")
+        if wave.pooled:
+            lines.append(
+                "- not judged, val evidence incomplete (stays pooled): "
+                + ", ".join(wave.pooled)
+            )
+        if wave.baseline_val_holes:
+            lines.append(
+                "- baseline val evidence incomplete at repeated gates: "
+                f"{wave.baseline_val_holes} (its holes now count against "
+                "the candidates)"
+            )
+        if wave.rejected_incomplete:
+            lines.append(
+                "- rejected, val evidence incomplete at repeated gates: "
+                + ", ".join(wave.rejected_incomplete)
+            )
         if wave.tripwire:
             lines.append(f"- tripwire: {wave.tripwire}")
     return "\n".join(lines) + "\n"

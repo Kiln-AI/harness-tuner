@@ -84,7 +84,7 @@ from kiln_harness_tuner.analysis import (
     _run_cost,
     _runs_by_item,
     expand_targets,
-    normalize,
+    passes,
 )
 from kiln_harness_tuner.budget import (
     Budget,
@@ -297,7 +297,7 @@ def fragility_counts(
         values.setdefault(item_id, {}).setdefault(rc_id, []).append(float(value))
     return {
         item_id: [
-            sum(1 for v in by_rc.values() if normalize(fmean(v), spec) < 0.5),
+            sum(1 for v in by_rc.values() if not passes(fmean(v), spec)),
             len(by_rc),
         ]
         for item_id, by_rc in values.items()
@@ -383,7 +383,7 @@ async def draw_queue(
             for item_id, row in _runs_by_item(rows).items():
                 value = (row.get("scores") or {}).get(spec.key)
                 if value is not None:
-                    scored[item_id] = normalize(float(value), spec) >= 0.5
+                    scored[item_id] = passes(float(value), spec)
         except (AnalysisError, MeasurementFailed) as exc:
             # e.g. a score with no pass/fail mapping: the eval is skipped,
             # and the reason goes on the outcome.
@@ -865,7 +865,7 @@ async def measure(
 async def _measure(
     ctx: Ctx, candidates: Sequence[Candidate], spec: MeasureSpec, call: object
 ) -> list[Measured]:
-    from kiln_harness_tuner.levers import lever_not_applied, lever_verdict
+    from kiln_harness_tuner.levers import lever_verdict
     from kiln_harness_tuner.probes import rc_props
 
     # A candidate with `min_guards` takes its own, larger per-eval cap: the
@@ -1232,12 +1232,26 @@ async def _measure(
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
-                    reason = lever_not_applied(
+                    verdict = lever_verdict(
                         declared[s.cand.rc_id],
                         s.evidence_seen,
                         parent_props.get(s.cand.parent_rc_id),
                         parent_ev,
+                        structured=schema is not None,
                     )
+                    if verdict.mode is not None:
+                        # The output mode differs from the parent's: what the
+                        # drives show about it, whatever the verdict.
+                        ctx.log.event(
+                            "output_mode",
+                            item_id=spec.item_id,
+                            rc_id=s.cand.rc_id,
+                            status=verdict.mode.status,
+                            proof=verdict.mode.proof,
+                            mode=declared[s.cand.rc_id].get("structured_output_mode"),
+                            line=f"{s.cand.label}: {verdict.mode.reason}",
+                        )
+                    reason = verdict.reason if verdict.status == "not_applied" else None
                     if reason:
                         s.status = "stopped"
                         s.stop_kind = "lever_not_applied"
@@ -1249,12 +1263,6 @@ async def _measure(
                             line=f"{s.cand.label}: {reason} — stopped",
                         )
                         continue
-                    verdict = lever_verdict(
-                        declared[s.cand.rc_id],
-                        s.evidence_seen,
-                        parent_props.get(s.cand.parent_rc_id),
-                        parent_ev,
-                    )
                     if verdict.status == "applied" and verdict.reason:
                         # What the drives show of a sub-agent: the tool was
                         # called. On the record, so an audit can read it.
@@ -1331,7 +1339,6 @@ async def _measure(
                         ev.outputs += 1
                         ev.invalid += 0 if output_valid(out, schema) else 1
             for q in qs:
-                score = trial.scores.get(q.item_id) if trial is not None else None
                 ev.judged.append(
                     Judged(
                         eval_id=q.eval_id,
@@ -1339,7 +1346,7 @@ async def _measure(
                         stratum=q.stratum,
                         block=q.block,
                         parent_pass=q.parent_pass,
-                        cand_pass=None if score is None else score >= 0.5,
+                        cand_pass=None if trial is None else trial.passed(q.item_id),
                         fragility=q.fragility,
                     )
                 )
