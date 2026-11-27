@@ -518,6 +518,7 @@ CORE_ANSWERED = [
     "quality",
     "--models",
     "keep",
+    "--no-restrictions",
     "--guidance",
     "",
     "--agent-cli",

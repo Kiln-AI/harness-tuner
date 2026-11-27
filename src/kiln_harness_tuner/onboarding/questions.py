@@ -27,6 +27,7 @@ from kiln_harness_tuner.dispatch.agent_cli import (
     AgentCli,
     parse_agent_cli,
 )
+from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy, resolve_models
 from kiln_harness_tuner.onboarding.agent_models import (
     AGENT_MODELS,
@@ -49,6 +50,10 @@ from kiln_harness_tuner.onboarding.models import (
     picked_pairs,
     write_picked_policy,
 )
+from kiln_harness_tuner.onboarding.restrictions import (
+    ask_restrictions,
+    restrictions_text,
+)
 from kiln_harness_tuner.onboarding.terminal import (
     ENTER,
     Action,
@@ -60,6 +65,7 @@ from kiln_harness_tuner.onboarding.terminal import (
     resolve_problem,
 )
 from kiln_harness_tuner.paths import StatePaths, state_home
+from kiln_harness_tuner.restrictions import Restrictions
 
 T = TypeVar("T")
 
@@ -221,10 +227,29 @@ class Answers:
     max_concurrent_evals: int
     max_concurrent_agents: int
     noise_check: int
+    # The restrictions (`kiln_harness_tuner.restrictions`). Each has a
+    # default, so an `Answers` made without them states none.
+    # `no_restrictions`: the owner said there are none (`--no-restrictions`).
+    no_restrictions: bool = False
+    providers: list[str] | None = None
+    model_weights: str | None = None
+    exclude_model_families: list[str] | None = None
+    zero_data_retention: bool = False
+    lock_tool: list[str] | None = None
 
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> Answers:
-        return cls(**{field.name: getattr(args, field.name) for field in fields(cls)})
+        return cls(
+            **{
+                field.name: getattr(args, field.name)
+                for field in fields(cls)
+                if hasattr(args, field.name)
+            }
+        )
+
+    @property
+    def restrictions(self) -> Restrictions:
+        return Restrictions.from_args(self)
 
     def apply(self, args: argparse.Namespace) -> None:
         """Write every answer into `args`, where the run reads its flags."""
@@ -435,6 +460,11 @@ class QuestionContext:
     baseline_pair: Pair | None = None
     offered: Callable[[], Any] | None = None
     policy_dir: Path | None = None
+    # The Restrictions question's facts: the tool ids the baseline's run
+    # config lists, and the model catalogue (read when the user sets
+    # restrictions). The baseline's provider is `baseline_pair`'s.
+    baseline_tools: tuple[str, ...] = ()
+    catalog: Callable[[], Catalog] | None = None
     which: Callable[[str], str | None] = shutil.which
     # Esc goes back: there is a question before this one.
     back: bool = False
@@ -905,6 +935,24 @@ def _ask_models(answers: Answers, ctx: QuestionContext) -> None:
     ctx.terminal.step("ok", "Models", models_text(answers, ctx.baseline_model))
 
 
+def _ask_restrictions(answers: Answers, ctx: QuestionContext) -> None:
+    """The restrictions: none, or the kinds that apply and each one's
+    answer (`onboarding.restrictions`)."""
+    base = ctx.baseline_pair
+    stated = ask_restrictions(
+        ctx.terminal,
+        answers.restrictions,
+        offered=ctx.offered,
+        catalog=ctx.catalog,
+        baseline_provider=base[0] if base is not None else None,
+        baseline_tools=ctx.baseline_tools,
+        back=ctx.back,
+    )
+    stated.apply(answers)
+    answers.no_restrictions = not stated
+    ctx.terminal.step("ok", "Restrictions", restrictions_text(stated))
+
+
 def _ask_picked(answers: Answers, ctx: QuestionContext) -> None:
     with ctx.terminal.busy("Reading the models Kiln offers…"):
         offered = offered_models(ctx.offered() if ctx.offered is not None else [])
@@ -1019,6 +1067,23 @@ QUESTIONS: tuple[Question, ...] = (
         False,
         _ask_models,
         models_text,
+    ),
+    Question(
+        "restrictions",
+        "Restrictions",
+        frozenset(
+            {
+                "no_restrictions",
+                "providers",
+                "model_weights",
+                "exclude_model_families",
+                "zero_data_retention",
+                "lock_tool",
+            }
+        ),
+        False,
+        _ask_restrictions,
+        lambda a: restrictions_text(a.restrictions),
     ),
     Question(
         "guidance",

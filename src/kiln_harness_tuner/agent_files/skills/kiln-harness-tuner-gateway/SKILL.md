@@ -22,8 +22,20 @@ another way. Answers are the gateway's own shapes: only the fields named
 below, never Kiln's raw response.
 
 **A refusal is an answer.** "not available to the <role> role", "outside
-the model policy", "not a train item", "scope must be …": say what you
-needed in what you return, and go on with what you have.
+the model policy", "the owner locked …", "not a train item", "scope must
+be …": say what you needed in what you return, and go on with what you
+have.
+
+**The owner's restrictions.** The owner can state restrictions at the
+start of the run: the providers, the origin of the models, the data
+retention, and the tools that must not change. Code enforces each one, and
+no agent can lift one. The restrictions on models are part of the model
+policy. A locked tool is a tool id that every run config must keep
+attached: `create_run_config` refuses a config that drops or replaces it,
+or that attaches a code tool whose `tool_allowlist` names it (a wrapper).
+`create_code_tool` refuses such a wrapper, and the archive operations
+refuse a locked tool or skill. When a refusal names a restriction, do not
+look for another way to the same change: return what you could not do.
 
 ## Calling an operation
 
@@ -278,11 +290,11 @@ what to write.
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `notes` and with `carried_properties`: the parent's properties that you left out and that the tuner does not set itself, copied from the parent. Name the parent in `provenance.derived_from_ids` (for a merge, the baseline first): a request with no run config there is refused. Also refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, when it adds a Kiln state tool that the baseline run config does not have (below), when its `structured_output_mode` cannot run (below), or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value: these are not levers yet. On another model or provider you may unset one of them (`null`). On OpenRouter you may add `openrouter_routing.zero_data_retention: true`, and you may not drop it |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `notes` and with `carried_properties`: the parent's properties that you left out and that the tuner does not set itself, copied from the parent. Name the parent in `provenance.derived_from_ids` (for a merge, the baseline first): a request with no run config there is refused. Also refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, when it breaks the owner's tool lock (it drops, replaces or wraps a locked tool), when it adds a Kiln state tool that the baseline run config does not have (below), when its `structured_output_mode` cannot run (below), or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value: these are not levers yet. On another model or provider you may unset one of them (`null`). On OpenRouter you may add `openrouter_routing.zero_data_retention: true`, and you may not drop it |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |
-| `create_code_tool` | `name`, `tool_function_name`, `tool_description`, `parameters_schema`, `code`, `description?`, `timeout_seconds?`, `tool_allowlist?`, `provenance?` | the new tool — refused when `tool_allowlist` reaches a Kiln state tool (below) |
+| `create_code_tool` | `name`, `tool_function_name`, `tool_description`, `parameters_schema`, `code`, `description?`, `timeout_seconds?`, `tool_allowlist?`, `provenance?` | the new tool — refused when its `tool_allowlist` names a tool that the owner locked, or reaches a Kiln state tool (below) |
 | `test_code_tool` | `tool_function_name`, `parameters_schema`, `code`, `params?`, `tool_allowlist?`, … | refused when `tool_allowlist` reaches a Kiln state tool (below); else a dry run: `result`, `error`, `traceback`, `stdout`, `stderr`, `not_trusted`, `tool_call_log`, `duration_ms` |
 | `trust_code_tools` | — | trusts the project's code tools to run |
 | `archive_code_tool` | `id`, `archived?` | the archived tool |

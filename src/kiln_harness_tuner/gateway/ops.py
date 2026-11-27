@@ -44,17 +44,25 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
-from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
+from kiln_harness_tuner.job_drives import (
+    EvalJobDriver,
+    openenv_tool_parts,
+    run_config_tool_ids,
+)
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.memory_schema import RecordKind
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.rc_inherit import FROZEN_KEYS, InheritError, inherit
+from kiln_harness_tuner.restrictions import (
+    CODE_TOOL_PREFIX,
+    SKILL_TOOL_PREFIX,
+    ToolLock,
+)
 
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
 KILN_TASK_TOOL_PREFIX = "kiln_task::"
-CODE_TOOL_PREFIX = "kiln_tool::code::"
 # The tools that read or write Kiln's own state, not the subject task's
 # world. Kiln's memory tools (`kiln_tool::memory::<operation>`) read and
 # write the memory store the loop keeps its `baseline` and `val` records in.
@@ -150,6 +158,8 @@ class State:
     run_dir: Path | None = None
     project_path: Path | None = None
     policy: ModelPolicy | None = None
+    # The tools the owner locked (`restrictions.json`); empty = no lock.
+    tool_lock: ToolLock = field(default_factory=ToolLock)
     # The eval jobs this process runs at once (`--max-concurrent-evals`);
     # None = no cap.
     max_concurrent_evals: int | None = None
@@ -1167,6 +1177,24 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _tool_lock_check(self, props: dict[str, Any]) -> None:
+        """Refuse a run config that drops, replaces or wraps a tool the
+        owner locked (`restrictions.ToolLock`). A code tool that cannot be
+        read is refused with Kiln's error: the lock is never skipped."""
+        lock = self.s.tool_lock
+        if not lock:
+            return
+        tools = run_config_tool_ids(props)
+        refusal = lock.dropped(tools)
+        if refusal is not None:
+            raise GatewayError(refusal)
+        for tool_id in lock.new_code_tools(tools):
+            row = await self.call("GET", f"{self.s.project}/code_tools/{tool_id}")
+            allowlist = row.get("tool_allowlist") if isinstance(row, dict) else None
+            refusal = lock.wraps(allowlist)
+            if refusal is not None:
+                raise GatewayError(f"code tool {tool_id}: {refusal}")
+
     async def _tools_of(self, tool_id: str, cache: dict[str, list[str]]) -> list[str]:
         """The tools that `tool_id` can call, read once per check: the stored
         allowlist of a `kiln_tool::code::<id>` tool, or the tools of the run
@@ -1380,9 +1408,13 @@ class Gateway:
 
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigCreated:
         self._policy_check(req.run_config_properties)
+        # The owner's lock first: a dropped tool is refused with no Kiln
+        # read. The tools are the request's own (`tools_config` is not
+        # carried from the parent).
+        await self._tool_lock_check(req.run_config_properties)
         body = req.model_dump(exclude_none=True)
         carried, parent = await self._inherit(body)
-        # After the carry: both checks read the properties that are sent.
+        # After the carry: these checks read the properties that are sent.
         props = body["run_config_properties"]
         await self._rc_tools_check(props)
         notes = await self._output_mode_check(props, parent)
@@ -1490,6 +1522,11 @@ class Gateway:
         return self._run_view(run, req.item_id)
 
     async def create_code_tool(self, req: m.CodeToolCreate) -> m.CodeToolView:
+        # A wrapper of a locked tool is refused here, before it exists, and
+        # again when a run config attaches one (`_tool_lock_check`).
+        refusal = self.s.tool_lock.wraps(req.tool_allowlist)
+        if refusal is not None:
+            raise GatewayError(refusal)
         await self._allowlist_check(req.tool_allowlist)
         row = await self.call(
             "POST",
@@ -1499,6 +1536,10 @@ class Gateway:
         return m.project(m.CodeToolView, row)
 
     async def archive_code_tool(self, req: m.Archive) -> m.CodeToolView:
+        if req.archived and f"{CODE_TOOL_PREFIX}{req.id}" in self.s.tool_lock.locked:
+            raise GatewayError(
+                f"the owner locked code tool {req.id}: it may not be archived"
+            )
         row = await self.call(
             "POST",
             f"{self.s.project}/code_tools/{req.id}/archive",
@@ -1547,6 +1588,10 @@ class Gateway:
         return m.Pong(ok=True)
 
     async def archive_skill(self, req: m.Archive) -> m.SkillView:
+        if req.archived and f"{SKILL_TOOL_PREFIX}{req.id}" in self.s.tool_lock.locked:
+            raise GatewayError(
+                f"the owner locked skill {req.id}: it may not be archived"
+            )
         row = await self.call(
             "PATCH",
             f"{self.s.project}/skills/{req.id}",
@@ -1623,8 +1668,21 @@ class Gateway:
                 made.append(m.Created(id=item_id, kind=f"{req.split} item"))
         return made
 
+    def _judge_check(self, *providers: Any) -> None:
+        """Refuse a judge on a provider that a restriction on providers or
+        on data retention refuses: the judge reads the task's data."""
+        if self.s.policy is None:
+            return
+        for provider in providers:
+            refusal = self.s.policy.route_refusal(
+                provider if isinstance(provider, str) else None
+            )
+            if refusal is not None:
+                raise GatewayError(f"judge provider {provider}: {refusal}")
+
     async def create_eval_config(self, req: m.EvalConfigCreate) -> m.EvalConfigView:
         self._own_eval(req.eval_id, "a judge config can be created")
+        self._judge_check(req.provider, req.properties.get("model_provider"))
         body = req.model_dump(exclude_none=True, exclude={"eval_id"})
         row = await self.call(
             "POST", f"{self.s.base}/evals/{req.eval_id}/create_eval_config", body=body
@@ -1643,6 +1701,7 @@ class Gateway:
         return m.Pong(ok=True)
 
     async def test_judge(self, req: m.JudgeTestRequest) -> m.JudgeTest:
+        self._judge_check(req.properties.get("model_provider"))
         row = await self.call(
             "POST",
             f"{self.s.base}/evals/{req.eval_id}/test_v2_eval",
@@ -1677,6 +1736,30 @@ class Gateway:
             raise GatewayError(f"not train items of eval {req.eval_id}: {outside[:5]}")
         if not items:
             raise GatewayError(f"eval {req.eval_id} has no train item to run")
+        if (self.s.policy is not None and self.s.policy.restrictions) or (
+            self.s.tool_lock
+        ):
+            # The stated restrictions only: a policy file's own rules leave
+            # the baseline measurable, whatever its model.
+            rc = next(
+                (
+                    r
+                    for r in await self._run_configs()
+                    if str(r.get("id")) == req.run_config_id
+                ),
+                None,
+            )
+            if rc is None:
+                raise GatewayError(f"no run config {req.run_config_id}")
+            props = rc.get("run_config_properties") or {}
+            if self.s.policy is not None:
+                provider = props.get("model_provider_name")
+                refusal = self.s.policy.route_refusal(
+                    provider if isinstance(provider, str) else None
+                )
+                if refusal is not None:
+                    raise GatewayError(f"run config {req.run_config_id}: {refusal}")
+            await self._tool_lock_check(props)
         eval_def = await self.call("GET", f"{self.s.base}/evals/{req.eval_id}") or {}
         config_id = eval_def.get("current_config_id")
         if not config_id:
@@ -1843,7 +1926,7 @@ OPS = _ops(
     (
         "create_run_config",
         m.RunConfigCreate,
-        "A new run config (model policy and output mode checked).",
+        "A new run config (model policy, tool lock and output mode checked).",
     ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),

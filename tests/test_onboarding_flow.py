@@ -179,6 +179,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
             "r",
             "speed",
             "any",
+            "none",
             "Keep the output format.",
             "codex",
             "gpt-6.1-sol",
@@ -225,6 +226,8 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "step Improve: Speed",
         "pick Which models may the tuner use?",
         "step Models: any model Kiln offers",
+        "pick Do you have restrictions for this run?",
+        "step Restrictions: none",
         "text Guidance for the tuner's planner (optional)",
         'step Guidance: "Keep the output format."',
         "busy Looking for agent CLIs…",
@@ -261,6 +264,7 @@ def test_no_flags_walks_every_check_and_question_and_returns_the_answers():
         "    --project-path '/kiln-projects/Forum Moderation' \\\n"
         "    --objective speed \\\n"
         "    --models any \\\n"
+        "    --no-restrictions \\\n"
         "    --guidance 'Keep the output format.' \\\n"
         "    --agent-cli 'codex exec -m gpt-6.1-sol' \\\n"
         "    --budget-usd 20 --timeout-mins 90 \\\n"
@@ -276,6 +280,7 @@ def test_a_rerun_with_the_printed_command_asks_nothing_and_gets_the_same_flags()
             TASK_ID,
             "cost",
             "any",
+            "none",
             "",
             "claude",
             "sonnet",
@@ -364,7 +369,7 @@ def test_exit_at_the_start_prompt_stops_with_1():
 
 def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     terminal = ScriptedTerminal(
-        ["any", "", "claude", "opus", "high", "50", "12h", "enter"]
+        ["any", "none", "", "claude", "opus", "high", "50", "12h", "enter"]
         + ["e", "budget", "$5", "e", "time", "3h", "s"]
     )
     args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
@@ -374,6 +379,7 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
     change = picks.index(terminal.asked_about(CHANGE_QUESTION))
     assert picks[change].offered == (
         "models",
+        "restrictions",
         "guidance",
         "agents",
         "budget",
@@ -383,7 +389,7 @@ def test_change_an_answer_asks_it_again_and_shows_the_summary_again():
         "max_concurrent_agents",
         "noise_check",
     )
-    budget = terminal.options[change][3]
+    budget = terminal.options[change][4]
     assert (budget.label, budget.columns) == ("Budget", ("$50.00",))
     assert terminal.asked_about("Budget for this run").default == "50"
     assert terminal.asked_about("Time limit (1h, 24h, 45m)").default == "12h"
@@ -459,7 +465,20 @@ def test_esc_at_start_after_the_last_advanced_question_asks_it_again():
 
 def test_esc_at_start_walks_back_on_from_the_last_question():
     terminal = ScriptedTerminal(
-        ["any", "", "claude", "opus", "high", "50", "12h", "enter", ESC, ESC, "3h"]
+        [
+            "any",
+            "none",
+            "",
+            "claude",
+            "opus",
+            "high",
+            "50",
+            "12h",
+            "enter",
+            ESC,
+            ESC,
+            "3h",
+        ]
         + ["enter", "s"]
     )
     argv = [*EVERY_FLAG, "--objective", "speed"]
@@ -513,7 +532,7 @@ def test_esc_at_the_changed_question_leaves_the_answer_as_it_was():
 
 def test_esc_while_changing_the_agents_steps_back_then_cancels():
     terminal = ScriptedTerminal(
-        ["any", "", "claude", "opus", "high", "50", "12h", "enter"]
+        ["any", "none", "", "claude", "opus", "high", "50", "12h", "enter"]
         + ["e", "agents", "codex", "", ESC, ESC, ESC, "s"]
     )
     args = start(two_projects(), terminal, [*EVERY_FLAG, "--objective", "speed"])
@@ -1021,7 +1040,19 @@ def test_an_error_is_shown_as_a_block_only_in_a_guided_start(interactive):
 def test_the_start_report_names_the_choice_and_repeats_the_last_texts():
     reports: list[StartReport] = []
     terminal = ScriptedTerminal(
-        ["any", "", "claude", "opus", "high", "50", "12h", "enter", "e", "budget"]
+        [
+            "any",
+            "none",
+            "",
+            "claude",
+            "opus",
+            "high",
+            "50",
+            "12h",
+            "enter",
+            "e",
+            "budget",
+        ]
         + ["$5", "s"]
     )
     argv = [*EVERY_FLAG, "--objective", "speed"]
@@ -1138,7 +1169,7 @@ def test_demo_project_copies_imports_and_runs_on_the_copy(tmp_path):
 
 
 def test_the_demo_pre_fills_its_guidance(tmp_path):
-    terminal = ScriptedTerminal(["quality", "keep", DEMO_GUIDANCE])
+    terminal = ScriptedTerminal(["quality", "keep", "none", DEMO_GUIDANCE])
     with pytest.raises(OnboardingStopped):  # the answers run out at the agents
         start(demo_kiln(), terminal, ["--demo-project"], home=tmp_path)
     asked = terminal.asked_about("Guidance for the tuner's planner (optional)")
@@ -1197,7 +1228,7 @@ def test_no_projects_m_makes_the_demo_and_runs_on_it(tmp_path):
 def test_no_projects_m_pre_fills_the_demo_guidance(tmp_path):
     kiln = RouteKiln(kiln_routes())
     kiln.routes[("POST", IMPORT_PATH)] = import_project_route(kiln)
-    terminal = ScriptedTerminal(["m", "quality", "keep", DEMO_GUIDANCE])
+    terminal = ScriptedTerminal(["m", "quality", "keep", "none", DEMO_GUIDANCE])
     with pytest.raises(OnboardingStopped):
         start(kiln, terminal, [], home=tmp_path)
     asked = terminal.asked_about("Guidance for the tuner's planner (optional)")
