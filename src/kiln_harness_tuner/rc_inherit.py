@@ -11,16 +11,21 @@ that is a run config of the task):
 
 - A property that the parent has, that the candidate does not name, and
   that the tuner does not manage, is copied from the parent. The answer
-  names each one (`RunConfigView.carried_properties`).
+  names each one (`RunConfigCreated.carried_properties`).
 - A property in `FROZEN_KEYS` is not a lever yet: the candidate keeps the
-  parent's value. A candidate that changes one is refused.
+  parent's value, and a candidate that changes one is refused. A candidate
+  that changes the model or the provider may unset one (`null`): a value
+  for one model can be wrong for another.
 - `openrouter_routing` applies only on OpenRouter. It is carried, and
   frozen, while the candidate stays on OpenRouter. A candidate on OpenRouter
   may not drop `zero_data_retention` from it when the parent has it. It may
-  add `zero_data_retention: true`: that only makes the route stricter.
+  add `zero_data_retention: true`: that only makes the route stricter. A
+  candidate on another provider has no `openrouter_routing`: it is removed.
 
 A server that does not return a property gives nothing to carry, so the
-request goes to Kiln as it came.
+request goes to Kiln as it came. The gateway needs the parent: it refuses a
+new run config whose provenance names no run config of the task. The code
+forks of a screening round run the same checks (`check_fork`).
 """
 
 from __future__ import annotations
@@ -63,6 +68,9 @@ def inherit(
     purpose. Raises `InheritError` for a change that is refused."""
     props = dict(child)
     on_openrouter = props.get("model_provider_name") == OPENROUTER
+    swap = any(
+        parent.get(k) != props.get(k) for k in ("model_name", "model_provider_name")
+    )
     carried: list[str] = []
     for key, value in parent.items():
         if key in managed or key in props:
@@ -71,19 +79,28 @@ def inherit(
             continue
         props[key] = copy.deepcopy(value)
         carried.append(key)
+    if not on_openrouter:
+        props.pop(ROUTING, None)
     for key in FROZEN_KEYS:
         if key == ROUTING:
             if on_openrouter:
                 _check_routing(parent.get(ROUTING), props.get(ROUTING))
             continue
-        before, after = parent.get(key, _ABSENT), props.get(key, _ABSENT)
-        if before != after:
-            raise InheritError(
-                f"the run config property {key!r} is not a lever of the tuner"
-                f" yet: keep the parent's value ({_text(before)}), not"
-                f" {_text(after)}"
-            )
+        before, after = _value(parent, key), _value(props, key)
+        if before == after or (swap and after is _ABSENT):
+            continue
+        raise InheritError(
+            f"the run config property {key!r} is not a lever of the tuner"
+            f" yet: keep the parent's value ({_text(before)}), not"
+            f" {_text(after)}. A candidate on another model may unset it (null)"
+        )
     return props, carried
+
+
+def _value(props: Mapping[str, Any], key: str) -> Any:
+    """`props[key]`, with an absent key and `null` the same: not set."""
+    value = props.get(key)
+    return _ABSENT if value is None else value
 
 
 def _check_routing(before: Any, after: Any) -> None:
@@ -106,3 +123,16 @@ def _check_routing(before: Any, after: Any) -> None:
 
 def _text(value: Any) -> str:
     return "not set" if value is _ABSENT or value is None else repr(value)
+
+
+def check_fork(parent: Mapping[str, Any], child: dict[str, Any]) -> str | None:
+    """For a code fork, which copies the parent's whole properties and then
+    applies its overrides: None when the fork may be made, else why not.
+    It removes `openrouter_routing` from a fork that leaves OpenRouter."""
+    try:
+        props, _ = inherit(parent, child, ())
+    except InheritError as exc:
+        return str(exc)
+    if ROUTING in child and ROUTING not in props:
+        del child[ROUTING]
+    return None

@@ -1148,11 +1148,15 @@ reads a list: it takes the last `"type": "result"` event.
      levers yet (`rc_inherit.FROZEN_KEYS`: `max_output_tokens`, `seed`,
      `frequency_penalty`, `presence_penalty`, `openrouter_routing`): a
      candidate keeps the parent's value, and one that changes it is
-     refused. `openrouter_routing` applies only while the candidate stays
-     on OpenRouter. There a candidate may not drop
-     `zero_data_retention` when the parent has it, and may add it. The
-     code forks (screening, probes) copy the parent's whole properties, so
-     they keep every property already.
+     refused. A candidate on another model or provider may unset one
+     (`null`). `openrouter_routing` applies only while the candidate stays
+     on OpenRouter, and is removed from a candidate on another provider.
+     On OpenRouter a candidate may not drop `zero_data_retention` when the
+     parent has it, and may add it. A request whose provenance names no
+     run config of the task is refused: the carry needs the parent. The
+     code forks of a screening round copy the parent's whole properties
+     and run the same checks (`rc_inherit.check_fork`). A probe may not
+     override a frozen property.
    - **Traces in files, and a cap on every answer**
      ([`gateway/trace_files.py`](../src/kiln_harness_tuner/gateway/trace_files.py)).
      Claude Code does not give an agent an MCP answer over about 25,000

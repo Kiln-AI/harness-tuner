@@ -1118,29 +1118,31 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
-    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
+    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigCreated:
         self._policy_check(req.run_config_properties)
         body = req.model_dump(exclude_none=True)
         carried = await self._inherit(body)
         row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
         view = _rc_view(row if isinstance(row, dict) else {})
-        view.carried_properties = carried
-        return view
+        return m.RunConfigCreated(**view.model_dump(), carried_properties=carried)
 
     async def _inherit(self, body: dict[str, Any]) -> list[str]:
         """Take from the parent run config (the first `derived_from_ids` id
         that is a run config of the task) each property that the request
         leaves out and the tuner does not manage (`rc_inherit`). Returns
-        the names carried."""
+        the names carried. A request with no such parent is refused: the
+        carry and the checks of the parent's settings need it."""
         ids = (body.get("provenance") or {}).get("derived_from_ids") or []
         ids = [str(i) for i in ids] if isinstance(ids, list) else []
-        if not ids:
-            return []
-        rows = {str(r.get("id")): r for r in await self._run_configs()}
+        rows = {str(r.get("id")): r for r in await self._run_configs()} if ids else {}
         parent = next((rows[i] for i in ids if i in rows), None)
         props = (parent or {}).get("run_config_properties")
         if not isinstance(props, dict):
-            return []
+            raise GatewayError(
+                "name the parent run config in provenance.derived_from_ids: the"
+                " new run config takes the parent's settings that the view does"
+                " not show"
+            )
         try:
             body["run_config_properties"], carried = inherit(
                 props, body["run_config_properties"], RC_PROP_KEYS

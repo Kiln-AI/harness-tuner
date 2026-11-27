@@ -633,19 +633,27 @@ class TestWrites:
             sent.update(body)
             return {"id": "424242600020", **body}
 
-        gateway, _ = _gateway(
-            tmp_path, {("POST", f"{BASE}/run_configs"): create}, policy=policy
-        )
         props = {
             "type": "kiln_agent",
             "model_provider_name": "gemini_api",
             "model_name": "gemini_3_8_flash",
         }
+        gateway, _ = _gateway(
+            tmp_path,
+            {
+                ("POST", f"{BASE}/run_configs"): create,
+                ("GET", f"{BASE}/run_configs"): [
+                    {"id": "424242600021", "run_config_properties": props}
+                ],
+            },
+            policy=policy,
+        )
         _run(
             gateway,
             "create_run_config",
             name="gemini 3.8 flash, thinking: low",
             run_config_properties=props,
+            provenance={"derived_from_ids": ["424242600021"]},
         )
         assert sent["name"] == "gemini 3 8 flash thinking low"
 

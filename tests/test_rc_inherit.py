@@ -9,7 +9,13 @@ from test_gateway import _gateway, _run
 
 from kiln_harness_tuner.gateway import ops as gw
 from kiln_harness_tuner.gateway.ops import RC_PROP_KEYS
-from kiln_harness_tuner.rc_inherit import FROZEN_KEYS, InheritError, inherit
+from kiln_harness_tuner.rc_inherit import (
+    FROZEN_KEYS,
+    InheritError,
+    check_fork,
+    inherit,
+)
+from kiln_harness_tuner.schemas import ProbeCheck
 
 PARENT_ID = "424242000101"
 NEW_ID = "424242000102"
@@ -95,6 +101,37 @@ def test_zero_data_retention_may_be_added_and_nothing_else_changes():
 def test_the_routing_does_not_follow_a_child_off_openrouter():
     child, carried = inherit(_props("openrouter", **ZDR), _props(), RC_PROP_KEYS)
     assert "openrouter_routing" not in child and carried == []
+    # Named by a child that copied the view and changed the provider: removed.
+    child, _ = inherit(_props("openrouter", **ZDR), _props(**ZDR), RC_PROP_KEYS)
+    assert "openrouter_routing" not in child
+
+
+def test_a_frozen_property_may_be_unset_on_another_model():
+    parent = _props(max_output_tokens=32000)
+    other = {**_props(), "model_name": "small_model", "max_output_tokens": None}
+    child, carried = inherit(parent, other, RC_PROP_KEYS)
+    assert child["max_output_tokens"] is None and carried == []
+    with pytest.raises(InheritError, match="not a lever"):
+        inherit(parent, _props(max_output_tokens=None), RC_PROP_KEYS)
+    # Not set on either side: `null` and absent are the same.
+    inherit(_props(), _props(seed=None), RC_PROP_KEYS)
+
+
+def test_a_screen_fork_runs_the_same_checks():
+    parent = _props("openrouter", **ZDR, seed=3)
+    assert "not a lever" in (check_fork(parent, {**parent, "seed": 4}) or "")
+    assert "must keep it" in (
+        check_fork(parent, {**parent, "openrouter_routing": {}}) or ""
+    )
+    moved = {**parent, "model_provider_name": "fireworks_ai"}
+    assert check_fork(parent, moved) is None
+    assert "openrouter_routing" not in moved  # removed off OpenRouter
+    assert check_fork(parent, dict(parent)) is None
+
+
+def test_a_probe_may_not_override_a_frozen_property():
+    with pytest.raises(ValueError, match="not levers"):
+        ProbeCheck(count="tool_calls", overrides={"seed": 1})
 
 
 def test_a_parent_without_the_properties_changes_nothing():
@@ -152,19 +189,50 @@ def test_the_gateway_refuses_a_child_that_drops_zero_data_retention(tmp_path):
     assert not [call for call in kiln.calls if call[0] == "POST"]
 
 
-def test_no_parent_in_the_provenance_carries_nothing(tmp_path):
+@pytest.mark.parametrize("derived_from", [(), ("424242999999",)])
+def test_a_request_with_no_parent_run_config_is_refused(tmp_path, derived_from):
+    # Without the parent, a hidden setting would be dropped with no check.
     gateway, kiln = _gateway(tmp_path, {})
-    _routes(gateway, kiln, _props(future_knob="on"))
-    view = _create(gateway, _props(), derived_from=())
-    assert "future_knob" not in _posted(kiln)
-    assert view["carried_properties"] == []
-    # No run-config read either: the request goes to Kiln as it came.
-    assert [call[0] for call in kiln.calls] == ["POST"]
+    _routes(gateway, kiln, _props("openrouter", **ZDR))
+    with pytest.raises(gw.GatewayError, match="derived_from_ids"):
+        _create(gateway, _props("openrouter"), derived_from=derived_from)
+    assert not [call for call in kiln.calls if call[0] == "POST"]
 
 
-def test_a_parent_that_is_not_a_run_config_carries_nothing(tmp_path):
+def test_a_merge_takes_the_first_run_config_it_names(tmp_path):
+    # A merge names the baseline first, then each ingredient; an id that is
+    # not a run config of the task is skipped.
+    gateway, kiln = _gateway(tmp_path, {})
+    _routes(gateway, kiln, _props(future_knob="baseline"))
+    kiln.routes[("GET", f"{gateway.s.base}/run_configs")].append(
+        {"id": "424242000105", "run_config_properties": _props(future_knob="x")}
+    )
+    view = _create(
+        gateway, _props(), derived_from=("424242999999", PARENT_ID, "424242000105")
+    )
+    assert _posted(kiln)["future_knob"] == "baseline"
+    assert view["carried_properties"] == ["future_knob"]
+
+
+def test_the_gateway_refuses_a_change_of_a_frozen_property(tmp_path):
+    gateway, kiln = _gateway(tmp_path, {})
+    _routes(gateway, kiln, _props(seed=11))
+    with pytest.raises(gw.GatewayError, match="'seed' is not a lever"):
+        _create(gateway, _props(seed=12))
+    assert not [call for call in kiln.calls if call[0] == "POST"]
+
+
+def test_a_failed_parent_read_fails_the_create(tmp_path):
+    # Failing closed: a run config made without the parent's settings could
+    # drop one with no message.
+    gateway, kiln = _gateway(tmp_path, {})
+    with pytest.raises(AssertionError, match="unrouted GET"):
+        _create(gateway, _props())
+    assert not [call for call in kiln.calls if call[0] == "POST"]
+
+
+def test_reads_carry_no_carried_properties(tmp_path):
     gateway, kiln = _gateway(tmp_path, {})
     _routes(gateway, kiln, _props(future_knob="on"))
-    view = _create(gateway, _props(), derived_from=("424242999999",))
-    assert "future_knob" not in _posted(kiln)
-    assert view["carried_properties"] == []
+    (row,) = _run(gateway, "list_run_configs")
+    assert "carried_properties" not in row
