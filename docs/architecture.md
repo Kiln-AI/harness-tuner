@@ -1134,6 +1134,25 @@ reads a list: it takes the last `"type": "result"` event.
      settings or providers, and no operation for deletes, split edits or
      held-out items. The model operations read the run's model catalogue
      snapshot (section 17.1).
+   - **A candidate keeps what it does not know.** The field-by-field
+     projection means that an agent does not see a run-config property
+     that the tuner does not know, so a run config copied from the view
+     would drop it. `create_run_config` copies each such property from the
+     parent that `provenance.derived_from_ids` names (the first id that is
+     a run config of the task), when the request leaves it out, and its
+     answer names them (`carried_properties`;
+     [`rc_inherit.py`](../src/kiln_harness_tuner/rc_inherit.py)). A
+     property that the tuner sets itself (`RC_PROP_KEYS`) is not carried:
+     a request that leaves one out leaves it out on purpose. Five
+     properties that a newer Kiln adds are shown in the view and are not
+     levers yet (`rc_inherit.FROZEN_KEYS`: `max_output_tokens`, `seed`,
+     `frequency_penalty`, `presence_penalty`, `openrouter_routing`): a
+     candidate keeps the parent's value, and one that changes it is
+     refused. `openrouter_routing` applies only while the candidate stays
+     on OpenRouter. There a candidate may not drop
+     `zero_data_retention` when the parent has it, and may add it. The
+     code forks (screening, probes) copy the parent's whole properties, so
+     they keep every property already.
    - **Traces in files, and a cap on every answer**
      ([`gateway/trace_files.py`](../src/kiln_harness_tuner/gateway/trace_files.py)).
      Claude Code does not give an agent an MCP answer over about 25,000

@@ -274,7 +274,7 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, or it is not a `kiln_agent` config |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `carried_properties`: the parent's properties that you left out and that the view does not show, copied from the parent that `provenance.derived_from_ids` names. Refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value (not levers yet; the one change allowed is to add `openrouter_routing.zero_data_retention: true`) |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |

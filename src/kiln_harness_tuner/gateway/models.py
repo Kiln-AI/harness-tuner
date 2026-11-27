@@ -94,6 +94,9 @@ class RunConfigView(Out):
     tools: list[str] = []
     run_config_properties: dict[str, Any] = {}
     prompt: RunConfigPrompt | None = None  # the frozen prompt it runs with
+    # `create_run_config` only: the parent's properties that the request left
+    # out and the gateway copied (`rc_inherit`).
+    carried_properties: list[str] = []
 
 
 class PromptView(Out):
