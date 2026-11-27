@@ -76,6 +76,17 @@ going looking.
   `allowed_models` is what the server offers, filtered by the policy.
   A model the start-up model preflight flagged is left out of it, and
   `flagged_models` gives the reason.
+- **The owner's `restrictions` are hard limits.** Your input lists them in
+  words, and code enforces each one. `allowed_models` already leaves out
+  each model that a restriction refuses. `locked_tools` names the tool ids
+  that must not change: plan no arm that drops, replaces or wraps one (a
+  `tool_config` or `new_tool` item whose code tool calls it). Code refuses
+  the run config, and the build's cost is lost. A change to the text that
+  the prompt or a skill gives about a locked tool is not refused by code:
+  plan it only when the guidance does not forbid it. `restriction_limits`
+  says what code cannot check. Do not raise a restriction as an open
+  question: it is answered. Name in `rejected_summary` each idea that a
+  restriction stops.
 - Batch plans are working state, never memory. Your only writes are
   discovery writes (`lesson`/`dead_end`/new `issue` at the moment of
   learning); the orchestrator writes `OPEN:` records from `open_questions`.

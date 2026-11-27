@@ -15,13 +15,14 @@ import argparse
 import asyncio
 import shutil
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from kiln_harness_tuner import __version__
 from kiln_harness_tuner.analysis import KilnApi
 from kiln_harness_tuner.kiln import KilnClient
+from kiln_harness_tuner.model_catalog import Catalog, fetch_catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.onboarding.choose import Selection, select
 from kiln_harness_tuner.onboarding.console import PlainTerminal
@@ -58,6 +59,7 @@ from kiln_harness_tuner.onboarding.questions import (
     changeable,
 )
 from kiln_harness_tuner.onboarding.readiness import Readiness, readiness_problem
+from kiln_harness_tuner.onboarding.restrictions import route_problem
 from kiln_harness_tuner.onboarding.summary import (
     RERUN_HEADING,
     OptionInfo,
@@ -76,6 +78,7 @@ from kiln_harness_tuner.onboarding.terminal import (
     Terminal,
     resolve_problem,
 )
+from kiln_harness_tuner.restrictions import Restrictions
 
 T = TypeVar("T")
 
@@ -140,6 +143,7 @@ def prepare_start(
     which: Callable[[str], str | None] = shutil.which,
     report: Callable[[StartReport], None] | None = None,
     policy_dir: Path | None = None,
+    catalog: Callable[[], Catalog] | None = None,
 ) -> argparse.Namespace:
     """Check that Kiln answers and is new enough, make and import a copy of
     the demo when `args.demo_project` asks for one, choose the project and
@@ -165,7 +169,9 @@ def prepare_start(
     `report`, when given, gets the `StartReport` once, just before the
     start returns, and never when it stops or fails. `policy_dir` is where
     the Models question saves a pick: the state folder's `policies/` by
-    default.
+    default. `catalog` reads the model catalogue for the Restrictions
+    question, only when the user sets restrictions: by default it fetches
+    it, unless `args.no_model_catalog` is set.
 
     Raises `OnboardingError` for a problem that can't be asked about (not
     guided, or an unknown ID); a guided start also shows it as a block.
@@ -185,10 +191,18 @@ def prepare_start(
         selection = _choose_a_ready_task(
             args, terminal=terminal, run=run, host=host, prog=prog, home=home
         )
-        keys = _KeyCheck(run, terminal, host, selection, policy_loader)
-        keys.check(args.model_policy)
-        _check_openenv(run, terminal, selection, keys.baseline)
         answers = Answers.from_args(args)
+        keys = _KeyCheck(
+            run,
+            terminal,
+            host,
+            selection,
+            policy_loader,
+            restrictions=lambda: answers.restrictions,
+        )
+        keys.check(args.model_policy)
+        _check_locked_tools(answers.restrictions, keys.baseline)
+        _check_openenv(run, terminal, selection, keys.baseline)
 
         def summary() -> str:
             lines = summary_lines(selection, answers, keys.baseline, defaults)
@@ -217,6 +231,10 @@ def prepare_start(
                 baseline_pair=None if baseline is None else baseline.pair,
                 offered=lambda: run(_available_models),
                 policy_dir=policy_dir,
+                baseline_tools=() if baseline is None else baseline.tools,
+                catalog=catalog
+                if catalog is not None
+                else _catalog_reader(not getattr(args, "no_model_catalog", False)),
             )
             _ask_until_started(
                 answers, context, given=given, keys=keys, summary=summary, rerun=rerun
@@ -298,6 +316,35 @@ def _ask_until_started(
             terminal.rewind(shown)
             continue
         keys.check_if_changed(answers.model_policy)
+
+
+def _catalog_reader(enabled: bool) -> Callable[[], Catalog]:
+    """Reads the model catalogue once, in its own `asyncio.run`, for the
+    Restrictions question. The run fetches its own snapshot later."""
+    read: list[Catalog] = []
+
+    def catalog() -> Catalog:
+        if not read:
+            read.append(asyncio.run(fetch_catalog(enabled=enabled)))
+        return read[0]
+
+    return catalog
+
+
+def _check_locked_tools(restrictions: Restrictions, baseline: Baseline | None) -> None:
+    """`--lock-tool` names tools of the baseline run config. One that it
+    does not attach is an error: the lock would refuse every candidate."""
+    tools = baseline.tools if baseline is not None else ()
+    missing = [tool for tool in restrictions.locked_tools if tool not in tools]
+    if missing:
+        raise OnboardingError(
+            "A locked tool is not on the task's run config",
+            (
+                f"--lock-tool names {', '.join(missing)}.",
+                f"The run config's tools: {', '.join(tools) or 'none'}.",
+                "Give each tool id as the run config lists it, or drop the flag.",
+            ),
+        )
 
 
 async def _available_models(kiln: KilnApi) -> Any:
@@ -447,6 +494,11 @@ class _KeyCheck:
     policy_loader: Callable[[str | None], ModelPolicy | None]
     policy: str | None = None
     baseline: Baseline | None = None
+    # The restrictions as of now, and the ones the check last covered: a
+    # restriction on providers or on data retention refuses a provider the
+    # run calls whatever the policy says (`route_problem`).
+    restrictions: Callable[[], Restrictions] = Restrictions
+    covered: Restrictions = field(default_factory=Restrictions)
 
     def check(self, policy_path: str | None) -> None:
         """Each run of the check, the first and every retry, loads the policy
@@ -469,13 +521,14 @@ class _KeyCheck:
                 )
                 return await key_problem(kiln, host=self.host, needs=needs)
 
-            return self.run(problem)
+            return self.run(problem) or route_problem(needs, self.restrictions())
 
         resolve_problem(check, self.terminal, busy="Checking API keys…")
         self.terminal.step("ok", "API keys", keys_passed_text(needs))
         self.policy = policy_path
+        self.covered = self.restrictions()
 
     def check_if_changed(self, policy_path: str | None) -> None:
         """The check again, when the policy isn't the one it last covered."""
-        if policy_path != self.policy:
+        if policy_path != self.policy or self.restrictions() != self.covered:
             self.check(policy_path)

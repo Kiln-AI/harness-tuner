@@ -89,16 +89,6 @@ A world is hard to change, so the tuner does not change it: it wraps it in Kiln 
 what a world is, which worlds and fixtures a project has, and how to read them. The vendored API
 reference lacks the `/worlds` routes.
 
-### Collect restrictions at the start
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: overview 8
-
-"Ask the user the five best questions": the providers, the model origin, the data retention, the
-tools that must not change.
-
 ## Unranked
 
 ### All tools in one general API tool, with a skill
