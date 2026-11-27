@@ -1,7 +1,7 @@
 ---
 title: Model settings
 description: The model's settings on a run config - thinking level, temperature and top-p - changed on a clone of the parent, as a params arm or in a screening round.
-reviewed: 2026-11-16
+reviewed: 2026-11-27
 gateway_ops:
   - get_run_config
   - get_model_details
@@ -66,7 +66,10 @@ Rules of the object:
   from models.dev: `false` says that the model does not take a temperature.
 - The output mode is not part of this lever. It has its own lever,
   [output_mode](output_mode.md).
-- Kiln has no setting for `max_tokens`, a seed, `top_k` or penalties.
+- A newer Kiln can have `max_output_tokens`, `seed`,
+  `frequency_penalty` and `presence_penalty`. They are not levers of the
+  tuner yet: a candidate keeps the parent's value, and the gateway refuses
+  a change. Kiln has no setting for `top_k`.
 
 ## See also
 

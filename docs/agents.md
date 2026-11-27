@@ -292,10 +292,11 @@ scope check, and it is there because this failure is hard to see otherwise.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
 `AnalysisBundle` (the numbers table, with no verdict label, plus every named
-hole in it), and its own experiment memory id. On a classifier task the
-bundle's `label_spreads` holds the classes that the candidate and its parent
-gave on train beside the classes that the items expect
-([architecture.md](architecture.md) section 7.3).
+hole in it), its own experiment memory id, and `content_budget`: the chars its
+`memory_content` can take after the lines code adds to the record. On a
+classifier task the bundle's `label_spreads` holds the classes that the
+candidate and its parent gave on train beside the classes that the items
+expect ([architecture.md](architecture.md) section 7.3).
 
 **Must return** `ExperimentResult`:
 

@@ -30,6 +30,7 @@ from kiln_harness_tuner.onboarding.questions import (
     number_text,
     objective_text,
 )
+from kiln_harness_tuner.onboarding.restrictions import limits_text, restrictions_text
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,12 @@ SET_BY_START = frozenset(
         "timeout_mins",
         "model_policy",
         "models",
+        "no_restrictions",
+        "providers",
+        "model_weights",
+        "exclude_model_families",
+        "zero_data_retention",
+        "lock_tool",
         "min_effect",
         "max_concurrent_evals",
         "max_concurrent_agents",
@@ -139,7 +146,8 @@ def summary_lines(
 ) -> list[tuple[str, str]]:
     """The summary's rows, as `(label, text)`. "Starts from" is left out
     when the key check found no baseline run config, and "Advanced" names
-    only what differs from the `defaults`."""
+    only what differs from the `defaults`. "Restrictions" is there when one
+    is stated, with "Not checked": what code cannot check for them."""
     project, task = selection.project, selection.task
     lines = [
         ("Task", f"{task.name} ({task.id}) in project {project.name} ({project.id})")
@@ -148,10 +156,20 @@ def summary_lines(
         lines.append(("Starts from", _baseline_text(baseline)))
     budget = limits_budget_text(answers.budget_usd)
     limits = f"{budget} · {limits_time_text(answers.timeout_mins)}"
+    restrictions = answers.restrictions
+    stated = (
+        [
+            ("Restrictions", restrictions_text(restrictions)),
+            ("Not checked", limits_text(restrictions)),
+        ]
+        if restrictions
+        else []
+    )
     return [
         *lines,
         ("Improve", objective_text(answers.objective)),
         ("Models", models_text(answers, baseline and baseline.model_text)),
+        *stated,
         ("Guidance", guidance_text(answers.guidance)),
         ("Agents", agents_text(answers.agent_cli)),
         ("Limits", limits),
@@ -169,6 +187,27 @@ def _option(flag: str, value: str) -> list[str]:
     is joined to its flag with `=`: argparse reads `--guidance -terse` as
     two options, and refuses it."""
     return [f"{flag}={value}"] if value.startswith("-") else [flag, value]
+
+
+def _restriction_flags(answers: Answers) -> list[str]:
+    """The stated restrictions as rerun tokens, each under its own flag, or
+    `--no-restrictions` when none is stated."""
+    restrictions = answers.restrictions
+    if not restrictions:
+        return ["--no-restrictions"]
+    tokens: list[str] = []
+    if restrictions.providers:
+        tokens += _option("--providers", ",".join(restrictions.providers))
+    if restrictions.model_weights:
+        tokens += _option("--model-weights", restrictions.model_weights)
+    if restrictions.exclude_families:
+        families = ",".join(restrictions.exclude_families)
+        tokens += _option("--exclude-model-families", families)
+    if restrictions.zero_data_retention:
+        tokens.append("--zero-data-retention")
+    for tool in restrictions.locked_tools:
+        tokens += _option("--lock-tool", tool)
+    return tokens
 
 
 def rerun_command(
@@ -210,6 +249,7 @@ def rerun_command(
             if answers.model_policy
             else _option("--models", resolve_models(answers.models, answers.objective))
         ),
+        _restriction_flags(answers),
         _option("--guidance", answers.guidance),
         _option("--agent-cli", answers.agent_cli),
         [
