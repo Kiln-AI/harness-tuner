@@ -1,7 +1,7 @@
 ---
 title: The model and the provider
 description: The model and the provider that a run config names, chosen from what the run's model policy allows. Existing fine-tunes are candidates too.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 gateway_ops:
   - get_run_config
   - list_models
@@ -35,32 +35,34 @@ lever [params](params.md). The output mode is the lever
    the notes on each provider, for example data retention or routing.
 2. Change it in one of two ways:
    - **A screening round**: candidates with `overrides` of `model_name`
-     and `model_provider_name`, a thinking level when the new model needs
-     one, and the output mode of step 4. Code makes and measures each
-     candidate's run config.
+     and `model_provider_name`, and a thinking level when the new model
+     needs one. Code makes and measures each candidate's run config.
    - **An arm**: the builder makes a new run config with
      `create_run_config`. It copies every property of the parent, changes
-     the model and the provider, and sets the output mode of step 4.
+     the model and the provider, and leaves the output mode to step 4.
 3. A thinking level comes from the new model's own list. A level of the
    old model can be missing on the new one.
-4. **The output mode is the new model's default**: the
-   `default_structured_output_mode` that step 1 gives for the new model
-   and provider. The parent's mode was chosen for the parent's model, and the
-   new provider can refuse it or the new model can follow it less well.
-   The model preflight makes its test call on a new model in the same way.
-   When step 1 gives no mode, or the legacy `default` or `unknown`, keep
-   the parent's mode. On a task with no output schema, the mode has no
-   effect. **On a run config that attaches a tool or a skill**, Kiln
-   refuses the modes that send the schema as a tool: `function_calling`,
-   `function_calling_weak`, and `default` outside Ollama and Docker Model
-   Runner (the lever [output_mode](output_mode.md)). When the default is
-   one of them, use `json_schema` if you know that the new model supports
-   it, else `json_instruction_and_object`. Step 1 gives only the default
-   mode, so that knowledge comes from a probe or an earlier screen of the
-   model. The one exception is an experiment that tests the output
-   mode on the new model: it sets the mode that it tests, and its
-   hypothesis names both changes. Code does not set the mode for you: a
-   candidate or an arm that names no mode keeps the parent's.
+4. **The output mode is the new pair's, and code sets it.** A mode is
+   chosen for one model and provider: the new provider can refuse the
+   parent's mode, or the new model can follow it less well. A screening
+   candidate that changes the model or the provider and names no
+   `structured_output_mode` takes the mode of the new pair. So does an
+   arm, when its `create_run_config` call leaves `structured_output_mode`
+   out. The mode of the new pair is the
+   `default_structured_output_mode` of step 1. It is the parent's mode
+   when step 1 gives none, or the legacy `default` or `unknown`. **On a
+   run config that attaches a tool or a skill**, Kiln refuses the modes
+   that send the schema as a tool (the lever
+   [output_mode](output_mode.md)). When the mode would be one of them,
+   code sets `json_instruction_and_object`. Name `json_schema` there
+   when a probe or an earlier screen shows that the new model supports
+   it: step 1 gives only the default mode. The model preflight tests each
+   allowed model in the mode that code sets. The one exception is an
+   experiment that tests the output mode on the new model: it names the
+   mode that it tests, and its hypothesis names both changes. Code keeps
+   a named mode. When a swap names the parent's mode and the new pair has
+   another, `create_run_config` says so in `notes`. On a task with no
+   output schema, the mode has no effect.
 
 Rules of the object:
 
@@ -72,8 +74,9 @@ Rules of the object:
 - **Invalid output just after a swap points first to the output mode**,
   not to a weaker model. When a swap stops on invalid output, or every run
   fails, check its mode against step 4 before you record the model as
-  refuted: the new model's default, or the fallback on a run config with
-  tools. A swap with the wrong mode is a fault of the build.
+  refuted: the new pair's default, or the fallback on a run config with
+  tools. Code also checks that the mode reached the call (the lever
+  [output_mode](output_mode.md)).
 
 ## Limits
 

@@ -95,7 +95,10 @@ from kiln_harness_tuner.model_policy import (
     MODEL_CHOICES,
     ModelPolicy,
     ModelPolicyError,
+    Restriction,
+    open_policy,
     resolve_models,
+    with_restrictions,
 )
 from kiln_harness_tuner.model_preflight import ModelPreflightError
 from kiln_harness_tuner.onboarding import (
@@ -136,6 +139,13 @@ from kiln_harness_tuner.paths import (
 from kiln_harness_tuner.quarantine import QuarantineError
 from kiln_harness_tuner.reference_check import REFERENCE_CHECK_MODES
 from kiln_harness_tuner.report import ReportWriter
+from kiln_harness_tuner.restrictions import (
+    RESTRICTIONS_FILE,
+    WEIGHTS,
+    RestrictionError,
+    Restrictions,
+    parse_id_list,
+)
 from kiln_harness_tuner.schemas import TargetBlock
 from kiln_harness_tuner.setup import (
     EvalSplitAuditError,
@@ -519,6 +529,57 @@ def build_parser() -> _Parser:
         " See examples/model-policy.json",
     )
     parser.add_argument(
+        "--no-restrictions",
+        action="store_true",
+        help="state that the run has no restrictions, so the guided start"
+        " does not ask. Not with a restriction flag",
+    )
+    parser.add_argument(
+        "--providers",
+        type=_id_list,
+        default=None,
+        metavar="ID[,ID...]",
+        help="restriction: the task's data may go only to these Kiln provider"
+        " ids (for example openai,anthropic). Code refuses a run config on"
+        " another provider, and the start refuses a baseline, a judge or a"
+        " simulated user on one. With --models or --model-policy, which it"
+        " narrows",
+    )
+    parser.add_argument(
+        "--model-weights",
+        choices=WEIGHTS,
+        default=None,
+        help="restriction on the origin of the models: open = open-weight"
+        " models only, closed = closed-weight models only. From the model"
+        " catalogue: a model that it has no fact for is refused",
+    )
+    parser.add_argument(
+        "--exclude-model-families",
+        type=_id_list,
+        default=None,
+        metavar="FAMILY[,FAMILY...]",
+        help="restriction on the origin of the models: no model of these"
+        " families (for example qwen,deepseek), as the model catalogue names"
+        " them. The catalogue has no country of origin: state such a"
+        " restriction as its families",
+    )
+    parser.add_argument(
+        "--zero-data-retention",
+        action="store_true",
+        help="restriction: zero data retention only. Code refuses OpenRouter:"
+        " the tuner does not yet set or check its zero data retention setting"
+        " on a run config. It cannot check another provider's retention terms",
+    )
+    parser.add_argument(
+        "--lock-tool",
+        action="append",
+        default=None,
+        metavar="TOOL_ID",
+        help="restriction: a tool of the baseline run config that must not"
+        " change, by its tool id (repeat the flag for each tool). Code"
+        " refuses a run config that drops, replaces or wraps it",
+    )
+    parser.add_argument(
         "--skip-model-preflight",
         action="store_true",
         help="skip the model preflight: before the baseline measurement, one"
@@ -549,6 +610,11 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         parser.error(
             "--models and --model-policy both say which models the task may"
             " use: give one of them"
+        )
+    if args.no_restrictions and Restrictions.from_args(args):
+        parser.error(
+            "--no-restrictions says the run has none: drop it, or drop each"
+            " restriction flag"
         )
     project_flags = (args.project_id, args.task_id, args.project_path)
     if args.demo_project and any(flag is not None for flag in project_flags):
@@ -599,6 +665,14 @@ def _fraction(text: str) -> float:
     question takes the same values."""
     try:
         return parse_fraction(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
+
+
+def _id_list(text: str) -> list[str]:
+    """`--providers`, `--exclude-model-families`: ids separated by commas."""
+    try:
+        return parse_id_list(text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"{text!r}: {exc}") from None
 
@@ -701,6 +775,59 @@ def load_model_policy(path: str | None) -> ModelPolicy | None:
             "fix: correct the file (examples/model-policy.json shows the shape),"
             " or drop --model-policy to run with no policy."
         ) from exc
+
+
+def restricted_policy(
+    restrictions: Restrictions,
+    catalog: Catalog,
+    policy: ModelPolicy | None,
+    policy_path: str | None,
+    *,
+    keep: bool,
+) -> tuple[ModelPolicy | None, str | None, tuple[Restriction, ...]]:
+    """The run's model policy with the stated restrictions in it: the
+    policy, the text of its copy in the run directory (None = no copy), and
+    the restrictions as rules.
+
+    A policy file gets them added. `--models any` becomes a policy that
+    allows every pair, so that the restrictions decide. `--models keep` has
+    no policy yet: the loop adds the rules when it pins the baseline's model
+    (`orchestrator.pin_baseline_model`), and until then the copy holds the
+    restrictions alone. An origin restriction that the
+    model catalogue cannot answer is a start-up error."""
+    try:
+        rules = restrictions.model_restrictions(catalog)
+    except RestrictionError as exc:
+        raise ConfigRenderError(
+            f"restrictions: {exc}.\n"
+            "fix: correct the flag, or run with the model catalogue (drop"
+            " --no-model-catalog, and check the network)."
+        ) from exc
+    if policy is not None and policy_path is not None:
+        text = Path(policy_path).expanduser().read_text(encoding="utf-8")
+        if not rules:
+            return policy, text, rules
+        data = with_restrictions(json.loads(text), rules)
+    elif rules and keep:
+        # The loop pins the task's model later. Until then the gateway reads
+        # a copy of the restrictions alone, so no run config breaks them.
+        data = with_restrictions(
+            open_policy("The stated restrictions, until the task's model is pinned."),
+            rules,
+        )
+        return policy, json.dumps(data, indent=1) + "\n", rules
+    elif rules:
+        data = open_policy(
+            "Any model Kiln offers that passes the stated restrictions (--models any)."
+        )
+        data = with_restrictions(data, rules)
+    else:
+        return policy, None, rules
+    return (
+        ModelPolicy.from_json(data, source="the model policy"),
+        json.dumps(data, indent=1) + "\n",
+        rules,
+    )
 
 
 def target_from_args(args: argparse.Namespace) -> TargetBlock:
@@ -818,6 +945,7 @@ RUN_DIR_ENTRIES = (
     "failure_notes.jsonl",
     "val_summary.json",
     "model_policy.json",
+    RESTRICTIONS_FILE,
     CATALOG_FILE,
 )
 
@@ -1418,6 +1546,7 @@ async def _run(
     await check_agent_cli(agent_cli, target, agents_dir, models, efforts)
     _RUN_PROGRESS.cli_checked = True
     policy = load_model_policy(args.model_policy)
+    restrictions = Restrictions.from_args(args)
     lock = _acquire_run_lock(state.runs, target.task_id, target.project_id)
     try:
         # The budget's clock zero: EvalRuns created before this
@@ -1454,18 +1583,25 @@ async def _run(
             logger.warning(
                 "--max-turns has no %s equivalent and is ignored", adapter.CLI_NAME
             )
-        policy_copy: Path | None = None
-        if policy is not None:
-            # The hook reads the policy from inside the run directory, which
-            # no agent can write; the original may sit anywhere.
-            policy_copy = (run_dir / "model_policy.json").resolve()
-            policy_copy.write_text(
-                Path(args.model_policy).expanduser().read_text(encoding="utf-8")
-            )
         # Before the first session: every agent of the run reads this one
         # snapshot through its gateway.
         catalog = await fetch_catalog(enabled=not args.no_model_catalog)
         write_catalog(run_dir, catalog)
+        keep = resolve_models(args.models, args.objective) == "keep"
+        policy, policy_text, model_restrictions = restricted_policy(
+            restrictions, catalog, policy, args.model_policy, keep=keep
+        )
+        policy_copy: Path | None = None
+        if policy_text is not None:
+            # The hook reads the policy from inside the run directory, which
+            # no agent can write; the original may sit anywhere.
+            policy_copy = (run_dir / "model_policy.json").resolve()
+            policy_copy.write_text(policy_text, encoding="utf-8")
+        if restrictions:
+            # The tool lock is written once the baseline is known
+            # (`orchestrator.lock_baseline_tools`), before any role that can
+            # create a run config runs.
+            logger.info("restrictions: %s", "; ".join(restrictions.statements()))
         logger.info(
             "model catalogue: kiln %s, models.dev %s, %d models",
             _source_text(catalog.kiln),
@@ -1510,8 +1646,7 @@ async def _run(
                 reference_check=args.reference_check,
                 objective=args.objective,
                 model_policy=policy,
-                keep_model=policy is None
-                and resolve_models(args.models, args.objective) == "keep",
+                keep_model=policy is None and keep,
                 agent_cli=agent_cli,
                 min_effect=args.min_effect,
                 allow_underpowered=args.allow_underpowered,
@@ -1520,6 +1655,8 @@ async def _run(
                 eval_building=args.experimental_eval_building,
                 model_catalog=catalog,
             )
+            ctx.restrictions = restrictions
+            ctx.model_restrictions = model_restrictions
             _RUN_PROGRESS.spend = ctx.spend
             # The tracker MUST share Ctx.clock's domain — run_start's monotonic
             # `deadline` is compared against the tracker's clock.

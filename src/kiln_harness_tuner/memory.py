@@ -445,6 +445,105 @@ def _append_experiment_content(content: str | None, lines: str | list[str]) -> s
     return _fit_experiment_content(combined)
 
 
+def _fit_verdict_content(text: str, code_lines: Iterable[str] = ()) -> str:
+    """Replacement-write clamp for an experiment VERDICT.
+
+    These lines are never dropped: the head lines
+    (`is_experiment_head_line`), the `next:` line, and `code_lines` (the
+    lines code added after the analyzer's content: `measurement:`, the
+    latency and cost lines). The analyzer's other lines are kept from the
+    top: its opening and its numbers table come first, so its
+    interpretation prose drops first. A line that does not fit is dropped,
+    and a later shorter line can still be kept. One `[… truncated …]`
+    marker stands where the first line was dropped
+    (kiln-harness-tuner-experiment-analysis skill).
+
+    When the kept lines alone are over the cap, the code lines are no
+    longer protected. When the head lines and `next:` alone are over the
+    cap, `_fit_experiment_content` clamps the text."""
+    if len(text) <= CONTENT_MAX_CHARS:
+        return text
+    lines = text.splitlines()
+    added = set(code_lines)
+    head = [is_experiment_head_line(line) or line.startswith("next:") for line in lines]
+    for protected in (
+        [h or line in added for h, line in zip(head, lines, strict=True)],
+        head,
+    ):
+        fitted = _keep_from_top(lines, protected)
+        if fitted is not None:
+            return fitted
+    return _fit_experiment_content(text)
+
+
+def _keep_from_top(lines: list[str], protected: list[bool]) -> str | None:
+    """`lines` with every `protected` line and the other lines that fit,
+    from the top, within the content cap. One `[… truncated …]` marker
+    stands where the first line was dropped. None when the protected lines
+    alone do not fit."""
+    used = sum(len(line) + 1 for line, p in zip(lines, protected, strict=True) if p)
+    budget = CONTENT_MAX_CHARS - used - len(TRUNCATION_MARKER)
+    if budget < 0:
+        return None
+    keep = list(protected)
+    for index, line in enumerate(lines):
+        if not keep[index] and len(line) + 1 <= budget:
+            keep[index] = True
+            budget -= len(line) + 1
+    out: list[str] = []
+    marked = False
+    for line, kept in zip(lines, keep, strict=True):
+        if kept:
+            out.append(line)
+        elif not marked:
+            out.append(TRUNCATION_MARKER)
+            marked = True
+    return "\n".join(out)
+
+
+def verdict_content(stored: ExperimentView, content: str) -> str:
+    """The content `record_verdict` writes, before the clamp: the analyzer's
+    content, then each carried line it dropped (`CARRIED_KEYS`), then the
+    `head_to_head_group:` line last. The stored group is the source of
+    truth; an analyzer variant never wins."""
+    carried = {
+        "issue": stored.issue_id,
+        "technique": stored.technique,
+        "idea": stored.idea,
+        "rc": stored.rc_id,
+        "reused rc": stored.reused_rc_id,
+        "change": stored.change_summary,
+        "generality": stored.generality,
+        "judge copy": stored.judge_copy,
+        "reference check": stored.reference_check,
+    }
+    for key in CARRIED_KEYS:
+        value = carried[key]
+        if value is not None and kv_value(content, key) is None:
+            line = render_kv([(key, value)])
+            content = f"{content.rstrip()}\n{line}" if content else line
+    group = stored.head_to_head_group or kv_value(content, "head_to_head_group")
+    if group:
+        body = "\n".join(
+            line
+            for line in content.splitlines()
+            if (pair := kv_line(line)) is None or pair[0] != "head_to_head_group"
+        ).rstrip()
+        line = head_to_head_line(group)
+        content = f"{body}\n{line}" if body else line
+    return content
+
+
+def verdict_room(stored: ExperimentView, code_lines: list[str]) -> int:
+    """The chars the analyzer's `memory_content` can take: the content cap
+    less what code adds to it at the verdict. `code_lines` are the lines the
+    loop appends after the analyzer's content (the measurement line, the
+    latency and cost lines). Every carried line counts, as if the analyzer
+    dropped all of them, so the room is never too large."""
+    added = verdict_content(stored, "\n".join(code_lines))
+    return CONTENT_MAX_CHARS - len(added) - 1
+
+
 class MemoryWriter:
     """Format-critical memory writes + the orchestrator's baseline reads,
     against one (project, task). `now` is injectable so tests pin dates."""
@@ -1192,7 +1291,12 @@ class MemoryWriter:
             exp_mem_id, {"content": _append_experiment_content(record.content, lines)}
         )
 
-    async def record_verdict(self, exp_mem_id: str, res: ExperimentResult) -> None:
+    async def record_verdict(
+        self,
+        exp_mem_id: str,
+        res: ExperimentResult,
+        code_lines: Iterable[str] = (),
+    ) -> None:
         """PATCH the analyzer's verdict over the `— RUNNING` record. A
         refuted experiment (successful=False) gets a ` — REFUTED` overview
         suffix: the numbers tail alone reads
@@ -1200,13 +1304,13 @@ class MemoryWriter:
         lifecycle stamps — it survives the overview cap whole, AFTER the
         front-loaded label + numbers tail.
 
-        The verdict content REPLACES the opening block, so the three lines
-        later readers depend on are carried forward from the stored record:
-        `issue:` and `technique:` (appended only when the analyzer dropped
-        them) and `head_to_head_group:`, which ALWAYS lands last — inside
-        `_fit_content`'s protected tail region, so it survives the over-cap
-        clamp even when the analyzer re-cited it mid-content. The stored
-        group is the source of truth; an analyzer variant never wins."""
+        The verdict content REPLACES the opening block, so the lines later
+        readers depend on are carried forward from the stored record
+        (`verdict_content`). An over-cap result is clamped by
+        `_fit_verdict_content`: the head lines, `next:` and `code_lines` (the
+        lines code appended to the analyzer's content) stay, and the
+        analyzer's prose drops from its end. The analyzer is told its room
+        (`verdict_room`), so the clamp is the last resort."""
         # A `(technique)` after the label is the opening's shape, which reads
         # UNKNOWN with no suffix — the verdict drops it.
         overview = verdict_overview(res.memory_overview)
@@ -1214,35 +1318,17 @@ class MemoryWriter:
             refuted = experiment_suffix(ExperimentState.REFUTED)
             # removesuffix keeps an agent-authored suffix from doubling.
             overview = _fit_stateful("", overview.removesuffix(refuted), refuted)
-        content = res.memory_content
         stored = await self._get_experiment(exp_mem_id)
         self._require_move(stored, ExperimentState.VERDICT, "record a verdict")
-        carried = {
-            "issue": stored.issue_id,
-            "technique": stored.technique,
-            "idea": stored.idea,
-            "rc": stored.rc_id,
-            "reused rc": stored.reused_rc_id,
-            "change": stored.change_summary,
-            "generality": stored.generality,
-            "judge copy": stored.judge_copy,
-            "reference check": stored.reference_check,
-        }
-        for key in CARRIED_KEYS:
-            value = carried[key]
-            if value is not None and kv_value(content, key) is None:
-                line = render_kv([(key, value)])
-                content = f"{content.rstrip()}\n{line}" if content else line
-        group = stored.head_to_head_group or kv_value(content, "head_to_head_group")
-        if group:
-            body = "\n".join(
-                line
-                for line in content.splitlines()
-                if (pair := kv_line(line)) is None or pair[0] != "head_to_head_group"
-            ).rstrip()
-            line = head_to_head_line(group)
-            content = f"{body}\n{line}" if body else line
+        content = _fit_verdict_content(
+            verdict_content(stored, res.memory_content), code_lines
+        )
         await self._patch(exp_mem_id, {"overview": overview, "content": content})
+
+    async def analyzer_room(self, exp_mem_id: str, code_lines: list[str]) -> int:
+        """The chars the analyzer's `memory_content` can take on this record
+        (`verdict_room`)."""
+        return verdict_room(await self._get_experiment(exp_mem_id), code_lines)
 
     @staticmethod
     def _require_move(record: ExperimentView, to: ExperimentState, doing: str) -> None:
