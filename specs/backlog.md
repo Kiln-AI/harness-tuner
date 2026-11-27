@@ -367,15 +367,6 @@ Failure: the agent ignores a rule where it is, and follows it when it comes back
 
 Failure: a classifier gives one class to most inputs.
 
-### Playbook: a change that fixes its target and breaks passing items
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Failure: the change fixes the items it was built for, and items that passed now fail.
-
 ### Playbook: a defect outside the harness
 
 - Kind: playbook
@@ -580,25 +571,6 @@ for the kind of failure. Never a score alone.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 An idea is dropped after three failures.
-
-### Graded predictions for each experiment
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-For each experiment: one failure pattern, one surface, the items it should fix and the items at
-risk. The next wave grades the predictions.
-
-### A fix passes the items that led to it
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-A fix must pass the items that led to it, and break none that passed.
 
 ### A check of the spread of labels, for a classifier
 

@@ -969,6 +969,8 @@ class MemoryWriter:
                 head_to_head_group=work.head_to_head_group,
                 reused_rc_id=work.existing_rc_id,
                 wildcard=work.wildcard,
+                target_items=tuple(work.target_items),
+                at_risk_items=tuple(work.at_risk_items),
             )
             # The technique is bounded before the label is
             # composed, so the label never fills the overview cap.
@@ -1152,6 +1154,17 @@ class MemoryWriter:
             f"residual still failing: {_by_eval(gate.still_failing)}",
             f"residual guards broke: {_by_eval(gate.broken_guards)}",
         ]
+        await self._patch(
+            exp_mem_id, {"content": _append_experiment_content(record.content, lines)}
+        )
+
+    async def record_prediction(self, exp_mem_id: str, lines: list[str]) -> None:
+        """Append the graded prediction and the fix check
+        (`kiln_harness_tuner.predictions.grade_lines`) to the RUNNING record
+        of an arm that a stop rule ended. A completed arm's lines go on its
+        verdict (`items._execute_plan_item`)."""
+        record = await self._get_experiment(exp_mem_id)
+        self._require_move(record, ExperimentState.VERDICT, "record its grade")
         await self._patch(
             exp_mem_id, {"content": _append_experiment_content(record.content, lines)}
         )

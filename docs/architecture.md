@@ -430,14 +430,44 @@ The full path:
    check. Every check is a `reference_check` event with a line. Code only,
    no spend. A check that cannot read its inputs is logged and does not
    stop the item.
-5. `run_experiment_analysis` — code. Section 7.
-6. One `analyze_experiment_results` dispatch, given the item, the run-config
-   id, the numbers and the memory id. It has data and ids, never edit surface.
-7. Code writes the verdict to the experiment record.
+5. The measurement (section 16), then **the graded prediction**
+   ([`predictions.py`](../src/kiln_harness_tuner/predictions.py)), code, no
+   spend. A fix item can name train items: `target_items`, the items the
+   change should fix, and `at_risk_items`, the items the parent passes that
+   the change could break. The opening of the experiment record lists both
+   (`target items:`, `at-risk items:`). On the rows that the measurement
+   judged, code gives each named item one result: `fixed` or
+   `still_failing` for a target item, `held` or `broke` for an at-risk
+   item, `wrong_side` when the parent's result is not what the role needs,
+   `not_measured` when the item has no row (it is not a train item of a
+   targeted eval, or the arm stopped before it). Every arm with a candidate
+   row is graded, a merge too: an arm that names no item gets the break
+   lines only. Then **the fix check**, on
+   the same rows: every target item with a result passes, and the passing
+   items that broke are not clearly above noise. That half is the test of
+   the guard half of `residual` (`stop_rules.guard_breaks`: one-sided exact
+   binomial against the mean of max(the run's noise flip rate, the item's
+   fragility), alpha 0.05, one look), on every judged pass, not on four
+   guards. The lines go on the record (`predicted fixes:`, `predicted
+   risks:`, `breaks not predicted:`, `fix check: ok — …` or `fix check:
+   FLAG — …`), and the record clamp never drops them. An arm that a stop
+   rule ended gets them on its `— RUNNING` record before its stamp, with
+   `(on the items judged before the arm stopped)`; a completed arm gets
+   them after the analyzer's content. The grade is a `prediction_grade`
+   event, `ItemOutcome.prediction`, `AnalysisInput.prediction` and the next
+   planner's `BatchPlanInput.graded_predictions`, and the report has a
+   table of it. **A flag is caution, not a verdict.** It changes no stop
+   rule and no part of `successful`: a prediction sets the caution, never
+   the verdict, the same rule as the `prediction_miss` override below.
+6. `run_experiment_analysis` — code. Section 7.
+7. One `analyze_experiment_results` dispatch, given the item, the run-config
+   id, the numbers, the graded prediction and the memory id. It has data and
+   ids, never edit surface.
+8. Code writes the verdict to the experiment record.
 
 One-crack is step 3 ending before step 5 begins — the one rebuild in step 4
 happens before any result exists too. Eval-freeze is step 1 happening before
-step 3, and step 6 happening after. Both are **sequencing**.
+step 3, and step 7 happening after. Both are **sequencing**.
 The gateway enforces part of each: only the eval builder
 has eval-writing operations, and they accept only an eval that the same run
 created; the builder can rename a run config but not change its
@@ -1014,10 +1044,14 @@ way.
   `reports/kiln-harness-tuner-<run_id>.md`, then appends a code-computed spend appendix.
   A format-critical file is never written by an agent. Code also appends,
   when they have content, the speed table, the Detectability appendix, and
-  two tables from `report.py`. "Why each candidate stopped" has one row per
+  three tables from `report.py`. "Why each candidate stopped" has one row per
   arm and merge item: the stop rule or outcome in one plain sentence
   (`STOP_REASONS`, with the raw code for a code it does not know), and the
-  items judged of the items planned per eval. "Screened candidates:
+  items judged of the items planned per eval. "Graded predictions and the
+  fix check" has one row per arm that code graded (section 4, step 5): its
+  target items fixed, its at-risk items broken, the passing items that
+  broke against the noise rate, the breaks the plan did not predict, and
+  `ok` or `FLAG`. "Screened candidates:
   trade-offs" has one row per screening candidate of the run
   (`RunStatus.screen_results`, folded from the `screening_round` events): the
   baseline passes it lost and the failures it fixed, its cost and latency
@@ -1350,6 +1384,8 @@ src/kiln_harness_tuner/
                     janitor, the budget
   items.py          one plan item from planned to measured
   generality.py     the leak check between the build and the measurement
+  predictions.py    the graded prediction and the fix check after an arm's
+                    train measurement
   reference_check.py  the check for skill and tool names a build leaves
                     dangling
   judge_copy.py     the eval-text copy check at the same point, and the

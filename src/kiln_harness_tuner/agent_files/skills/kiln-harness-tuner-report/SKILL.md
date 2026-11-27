@@ -160,6 +160,20 @@ going looking.
   measured only partly, say which rule stopped it and point at that table.
   Never call a partly measured arm unfinished work that should have run in
   full: a stop rule ended it on purpose.
+  `outcome.prediction` is set when code graded the arm on its train rows.
+  `items` gives each item that the plan named, with its result: a `fix`
+  item is `fixed` or `still_failing`, an `at_risk` item is `held` or
+  `broke`, and `wrong_side` or `not_measured` mean that the item has no
+  such result. `broke` of `passing_judged` counts the items that the
+  parent passes and that now fail, and `other_breaks` names those that
+  the plan did not predict. `breaks_clear` says that the breaks are
+  clearly above the run's noise rate. `lines` are the lines on the
+  experiment record. Code appends a "Graded predictions and the fix check
+  (code-computed)" table: one row for each graded arm. Point at it. For an
+  arm whose fix check is `FLAG`, say in its line that it fixed its targets
+  and broke passing items, or that a target still fails. A flag is
+  caution: it is not the reason an arm won or lost. These are train
+  counts, never a val result.
 - `screen_results`: the first 12 rows of the trade-off table
   below, in its order, without per-eval counts; the table itself has every
   candidate this run screened (`ScreenResult`): label, `overrides`, `items`,

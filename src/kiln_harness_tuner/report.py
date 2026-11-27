@@ -24,6 +24,7 @@ from kiln_harness_tuner.memory_schema import (
     ISSUE_TERMINAL_STATES,
     SMELL_TAG,
 )
+from kiln_harness_tuner.predictions import break_text
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
@@ -32,6 +33,7 @@ from kiln_harness_tuner.schemas import (
     ItemOutcome,
     ItemStatus,
     LatencyComparison,
+    PredictionGrade,
     ReportInput,
     ReportPaths,
     RunStatus,
@@ -603,6 +605,70 @@ def render_stop_reasons_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+PREDICTIONS_APPENDIX_HEADING = "## Graded predictions and the fix check (code-computed)"
+
+
+def _named_cell(grade: PredictionGrade, role: str) -> str:
+    """ "2 of 3 fixed, 1 not measured" for the plan's named items of one
+    role, or a dash when it named none."""
+    good, bad = ("fixed", "still_failing") if role == "fix" else ("held", "broke")
+    n_good, n_bad = grade.count(role, good), grade.count(role, bad)
+    other = grade.count(role, "wrong_side", "not_measured")
+    if not (n_good or n_bad or other):
+        return "—"
+    parts = []
+    if n_good or n_bad:
+        shown = n_good if role == "fix" else n_bad
+        word = "fixed" if role == "fix" else "broke"
+        parts.append(f"{shown} of {n_good + n_bad} {word}")
+    if other:
+        parts.append(f"{other} with no result")
+    return ", ".join(parts)
+
+
+def render_predictions_appendix(status: RunStatus) -> str:
+    """One row per arm that code graded: what the items the plan named did
+    on train, the passing items that broke, and the fix check. Empty string
+    when no arm was graded."""
+    rows = [
+        (wave.wave, item, item.outcome.prediction)
+        for wave in status.waves
+        for item in wave.items
+        if item.outcome is not None and item.outcome.prediction is not None
+    ]
+    if not rows:
+        return ""
+    lines = [
+        PREDICTIONS_APPENDIX_HEADING,
+        "",
+        "A plan can name the train items a change should fix (target items)"
+        " and the train items it could break (at-risk items). After the train"
+        " measurement, code grades them on the judged rows. The fix check"
+        " reads the same rows: each target item passes, and the passing items"
+        " that broke are not clearly above the noise rate. A flag is caution"
+        " for the analysis and for the next plan. It is not a verdict. All"
+        " counts are train counts.",
+        "",
+        "| wave | item | rc | target items | at-risk items | passing items"
+        " broke | not predicted | fix check |",
+        "|---:|---|---|---|---|---|---:|---|",
+    ]
+    for wave, item, grade in rows:
+        check = "FLAG" if grade.flagged else "ok"
+        if not grade.complete:
+            check += " (arm stopped early)"
+        lines.append(
+            f"| {wave} | `{_md(item.item_id)}` {item.kind}"
+            f" | `{_md(grade.rc_id)}`"
+            f" | {_named_cell(grade, 'fix')}"
+            f" | {_named_cell(grade, 'at_risk')}"
+            f" | {_md(break_text(grade))}"
+            f" | {sum(len(v) for v in grade.other_breaks.values())}"
+            f" | {check} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 TRADEOFF_APPENDIX_HEADING = "## Screened candidates: trade-offs (code-computed)"
 
 
@@ -1072,6 +1138,10 @@ def render_fallback_report(status: RunStatus) -> str:
                 lines.append(
                     "  - reference check: " + "; ".join(item.outcome.reference_findings)
                 )
+            if item.outcome is not None and item.outcome.prediction is not None:
+                # The plan's named items graded on train, and the fix check
+                # (`kiln_harness_tuner.predictions`).
+                lines += [f"  - {line}" for line in item.outcome.prediction.lines]
         if wave.promotion is not None:
             winner = wave.promotion.winner_rc_id
             lines.append(
@@ -1127,6 +1197,9 @@ class ReportWriter:
         stops = render_stop_reasons_appendix(status)
         if stops:
             markdown = markdown.rstrip("\n") + "\n\n" + stops
+        predictions = render_predictions_appendix(status)
+        if predictions:
+            markdown = markdown.rstrip("\n") + "\n\n" + predictions
         tradeoffs = render_tradeoff_appendix(status)
         if tradeoffs:
             markdown = markdown.rstrip("\n") + "\n\n" + tradeoffs

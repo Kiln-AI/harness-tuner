@@ -1070,6 +1070,7 @@ TECHNIQUE_MAX_CHARS = 60  # the lever name: `prompt`, `skill`, `tool_config`
 HYPOTHESIS_MAX_CHARS = 900
 PREDICTED_EFFECT_MAX_CHARS = 300
 HEAD_ID_MAX_CHARS = 120  # a run config, eval or memory id; a group name
+PREDICTED_ITEMS_MAX_CHARS = 300  # the `target items:` and `at-risk items:` ids
 CONFLICT_FLAGS_MAX_CHARS = 600
 CHANGE_MAX_CHARS = 300  # the build's `change:` summary
 FINDING_MAX_CHARS = 400  # a `generality:`, `judge copy:` or `reference check:`
@@ -1107,6 +1108,12 @@ class FixOpening:
     head_to_head_group: str | None = None
     reused_rc_id: str | None = None  # measures a prior run's built rc
     wildcard: bool = False  # the wave's out-of-the-box arm
+    # The plan's item-level prediction (train ids): the items the change
+    #   should fix, and the items the parent passes that it could break.
+    #   Code grades them after the train measurement
+    #   (`kiln_harness_tuner.predictions`).
+    target_items: tuple[str, ...] = ()
+    at_risk_items: tuple[str, ...] = ()
 
     def render(self) -> str:
         pairs = [
@@ -1120,6 +1127,14 @@ class FixOpening:
             ("issue", head_value(self.issue_id, HEAD_ID_MAX_CHARS)),
             ("technique", technique_label(self.technique)),
         ]
+        for key, ids in (
+            ("target items", self.target_items),
+            ("at-risk items", self.at_risk_items),
+        ):
+            if ids:
+                pairs.append(
+                    (key, head_value(", ".join(ids), PREDICTED_ITEMS_MAX_CHARS))
+                )
         if self.head_to_head_group:
             pairs.append(
                 (
@@ -1201,6 +1216,14 @@ EXPERIMENT_HEAD_KEYS = frozenset(
         "wildcard",
         "merge of",
         "conflict flags",
+        # The plan's named items, and the grade code writes after the train
+        # measurement (`kiln_harness_tuner.predictions.PREDICTION_LINE_KEYS`).
+        "target items",
+        "at-risk items",
+        "predicted fixes",
+        "predicted risks",
+        "breaks not predicted",
+        "fix check",
         *CARRIED_KEYS,
     }
 )

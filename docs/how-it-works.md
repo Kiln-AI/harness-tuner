@@ -301,6 +301,13 @@ The goal is higher eval scores.
     out of 4 does not stop a candidate;
   - `targets`: an item that the planner named still fails after the first
     chunk.
+- **Graded predictions.** A plan can name the train items that a change
+  should fix and the train items that it could break. After the train
+  measurement, code grades them and applies the fix check: every target
+  item passes, and the items that passed and now fail are not clearly more
+  than noise explains. The result goes on the experiment record, to the
+  analysis, to the next plan and into the report. It is a flag, not a stop
+  rule: it never decides a verdict.
 - **Promotion.** With one candidate, a code rule decides. No eval may go down
   beyond doubt (its interval wholly below zero). At least one target eval must
   go up beyond doubt (significant, or its interval wholly above zero). A small
