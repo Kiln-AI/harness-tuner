@@ -94,6 +94,11 @@ class RunConfigView(Out):
     tools: list[str] = []
     run_config_properties: dict[str, Any] = {}
     prompt: RunConfigPrompt | None = None  # the frozen prompt it runs with
+    notes: list[str] = Field(
+        default=[],
+        description="From create_run_config only: what code set or found on"
+        " the new run config, for example its structured_output_mode.",
+    )
 
 
 class RunConfigCreated(RunConfigView):
@@ -216,7 +221,9 @@ class ProviderEntryDetails(Out):
     thinking_levels: list[str] = []
     default_thinking_level: str | None = None
     default_structured_output_mode: str | None = Field(
-        default=None, description="Kiln's suggested default output mode for the pair."
+        default=None,
+        description="Kiln's suggested default output mode for the pair. Kiln"
+        " lists no other mode that the pair supports.",
     )
     kiln_suggested_for: list[str] = Field(
         default=[],

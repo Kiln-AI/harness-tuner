@@ -195,7 +195,8 @@ The fields of a model and of its provider entries:
 `get_model_details` lists every entry of the model, of every status, and
 deprecated entries too. For a pair that the server offers, the thinking
 levels, the default level and `default_structured_output_mode` are the
-server's.
+server's. Kiln gives one default output mode for a pair. It does not list
+the other modes that the pair supports.
 
 Some providers have no models.dev data, so their entries have no price
 and no limits. Then:
@@ -277,7 +278,7 @@ what to write.
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `carried_properties`: the parent's properties that you left out and that the tuner does not set itself, copied from the parent. Name the parent in `provenance.derived_from_ids` (for a merge, the baseline first): a request with no run config there is refused. Also refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, when it adds a Kiln state tool that the baseline run config does not have (below), or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value: these are not levers yet. On another model or provider you may unset one of them (`null`). On OpenRouter you may add `openrouter_routing.zero_data_retention: true`, and you may not drop it |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `notes` and with `carried_properties`: the parent's properties that you left out and that the tuner does not set itself, copied from the parent. Name the parent in `provenance.derived_from_ids` (for a merge, the baseline first): a request with no run config there is refused. Also refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, when it adds a Kiln state tool that the baseline run config does not have (below), when its `structured_output_mode` cannot run (below), or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value: these are not levers yet. On another model or provider you may unset one of them (`null`). On OpenRouter you may add `openrouter_routing.zero_data_retention: true`, and you may not drop it |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |
@@ -312,6 +313,26 @@ task tool that reaches one, when the baseline run config does not have
 that tool. A tool that the baseline run config has may stay in the
 candidate. The refusal names each refused tool and its path. Remove the
 tool, and use the subject task's own tools.
+
+`create_run_config` checks `structured_output_mode` (the knowledge levers
+`levers/output_mode.md` and `levers/model.md` give the rules):
+
+- **Left out**: the gateway sets it. With the parent's model and provider
+  (the parent is the run config that `provenance.derived_from_ids` names),
+  it is the parent's mode. With a new model or provider, it is Kiln's
+  default for the new pair, or `json_instruction_and_object` when that
+  default sends the schema as a tool and the run config attaches a tool or
+  a skill. With no parent's mode and no default, the create is refused:
+  name a mode.
+- **Refused**: a value that is not a mode. On a task with an output
+  schema, also a mode that sends the schema as a tool
+  (`function_calling`, `function_calling_weak`, and `default` outside
+  Ollama and Docker Model Runner) on a run config that attaches a tool or
+  a skill: Kiln fails every run of such a config.
+- **`notes`** in the answer: the mode that the gateway set, and a
+  warning when a run config with a new model or provider names the
+  parent's mode and the new pair has another one. A named mode is kept:
+  the note is information.
 
 ### Building an eval (eval_build)
 

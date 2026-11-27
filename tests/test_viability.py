@@ -24,6 +24,7 @@ from kiln_harness_tuner.schemas import (
 )
 from kiln_harness_tuner.viability import (
     SCREEN_ROUND1_PER_EVAL,
+    _make_candidate_rc,
     initial_screen_request,
     run_screening_round,
 )
@@ -580,3 +581,125 @@ def test_a_screening_plan_carries_no_items():
                 "screen": {"candidates": [{"id": "s1-1"}]},
             }
         )
+
+
+# ---- the output mode of a candidate (`kiln_harness_tuner.output_modes`)
+
+SCHEMA_TASK = {"id": "t1", "output_json_schema": '{"type": "object"}'}
+TOOL = {"tools": ["kiln_tool::code::t1"]}
+
+
+def _mode_ctx(tmp_path, *, parent_mode="json_schema", default=None, tools=False):
+    """The baseline on `parent_mode`; Kiln's default for the Gemini pair is
+    `default`; the task has an output schema."""
+    ctx = _ctx(tmp_path, objective="quality")
+    ctx.kiln.task = dict(SCHEMA_TASK)
+    props = ctx.kiln.run_configs[0]["run_config_properties"]
+    props["structured_output_mode"] = parent_mode
+    if tools:
+        props["tools_config"] = dict(TOOL)
+    if default:
+        ctx.kiln.available_models[1]["models"][0]["structured_output_mode"] = default
+    return ctx
+
+
+def _made_mode(ctx) -> str:
+    (made,) = ctx.kiln.created_run_configs
+    return made["run_config_properties"]["structured_output_mode"]
+
+
+async def test_a_swap_that_names_no_mode_takes_the_new_pairs_default(tmp_path):
+    ctx = _mode_ctx(tmp_path, default="json_instructions")
+    rc_id, reason, dead = await _make_candidate_rc(ctx, GEMINI, "rc_base")
+    assert rc_id and not reason and not dead
+    assert _made_mode(ctx) == "json_instructions"
+    (event,) = [f for k, f in ctx.log.events if k == "output_mode"]
+    assert (event["status"], event["mode"], event["parent_mode"]) == (
+        "set_on_swap",
+        "json_instructions",
+        "json_schema",
+    )
+
+
+@pytest.mark.parametrize("default", [None, "default", "unknown", "json_schema"])
+async def test_a_swap_keeps_the_parents_mode_when_there_is_nothing_to_change(
+    tmp_path, default
+):
+    ctx = _mode_ctx(tmp_path, default=default)
+    rc_id, _reason, _dead = await _make_candidate_rc(ctx, GEMINI, "rc_base")
+    assert rc_id and _made_mode(ctx) == "json_schema"
+    assert not [f for k, f in ctx.log.events if k == "output_mode"]
+
+
+async def test_a_swap_on_a_run_config_with_tools_avoids_a_tool_mode(tmp_path):
+    """Kiln's default for the new pair sends the schema as a tool, and Kiln
+    refuses that with tools: the candidate takes the fallback mode."""
+    ctx = _mode_ctx(tmp_path, default="function_calling", tools=True)
+    rc_id, _reason, _dead = await _make_candidate_rc(ctx, GEMINI, "rc_base")
+    assert rc_id and _made_mode(ctx) == "json_instruction_and_object"
+    (event,) = [f for k, f in ctx.log.events if k == "output_mode"]
+    assert "sends the schema as a tool" in event["line"]
+
+
+async def test_a_candidate_that_names_a_mode_keeps_it(tmp_path):
+    """The candidate tests the output mode on the new model."""
+    ctx = _mode_ctx(tmp_path, default="json_instructions")
+    cand = ScreenCandidate(
+        id="s1-2", overrides={**GEMINI.overrides, "structured_output_mode": "json_mode"}
+    )
+    rc_id, _reason, _dead = await _make_candidate_rc(ctx, cand, "rc_base")
+    assert rc_id and _made_mode(ctx) == "json_mode"
+    assert not [f for k, f in ctx.log.events if k == "output_mode"]
+
+
+async def test_a_change_that_is_not_a_swap_leaves_the_mode_alone(tmp_path):
+    ctx = _mode_ctx(tmp_path, parent_mode="json_instructions")
+    ctx.kiln.available_models[0]["models"][0]["structured_output_mode"] = "json_schema"
+    cand = ScreenCandidate(id="s1-3", overrides={"thinking_level": "low"})
+    rc_id, _reason, _dead = await _make_candidate_rc(ctx, cand, "rc_base")
+    assert rc_id and _made_mode(ctx) == "json_instructions"
+
+
+@pytest.mark.parametrize(
+    "mode, tools, schema, why",
+    [
+        ("json", False, True, "not a mode of Kiln"),
+        ("function_calling", True, True, "sends the output schema as a tool"),
+        ("default", True, True, "sends the output schema as a tool"),
+        ("json_mode", False, False, "the task has no output schema"),
+    ],
+)
+async def test_a_named_mode_that_cannot_work_is_a_dead_end(
+    tmp_path, mode, tools, schema, why
+):
+    ctx = _mode_ctx(tmp_path, tools=tools)
+    if not schema:
+        ctx.kiln.task = {"id": "t1"}
+    cand = ScreenCandidate(id="s1-4", overrides={"structured_output_mode": mode})
+    rc_id, reason, dead = await _make_candidate_rc(ctx, cand, "rc_base")
+    assert rc_id is None and dead is True
+    assert why in reason
+    assert ctx.kiln.created_run_configs == []
+
+
+async def test_a_mode_beside_another_change_on_a_task_with_no_schema_is_made(
+    tmp_path,
+):
+    """Only a change of the mode alone measures nothing there."""
+    ctx = _mode_ctx(tmp_path)
+    ctx.kiln.task = {"id": "t1"}
+    cand = ScreenCandidate(
+        id="s1-6",
+        overrides={"structured_output_mode": "json_mode", "thinking_level": "low"},
+    )
+    rc_id, reason, dead = await _make_candidate_rc(ctx, cand, "rc_base")
+    assert rc_id and not reason and not dead
+
+
+async def test_a_tool_mode_without_tools_is_made(tmp_path):
+    ctx = _mode_ctx(tmp_path)
+    cand = ScreenCandidate(
+        id="s1-5", overrides={"structured_output_mode": "function_calling"}
+    )
+    rc_id, _reason, _dead = await _make_candidate_rc(ctx, cand, "rc_base")
+    assert rc_id and _made_mode(ctx) == "function_calling"

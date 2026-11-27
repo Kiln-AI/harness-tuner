@@ -852,7 +852,7 @@ async def measure(
 async def _measure(
     ctx: Ctx, candidates: Sequence[Candidate], spec: MeasureSpec, call: object
 ) -> list[Measured]:
-    from kiln_harness_tuner.levers import lever_not_applied, lever_verdict
+    from kiln_harness_tuner.levers import lever_verdict
     from kiln_harness_tuner.probes import rc_props
 
     # A candidate with `min_guards` takes its own, larger per-eval cap: the
@@ -1185,12 +1185,26 @@ async def _measure(
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
-                    reason = lever_not_applied(
+                    verdict = lever_verdict(
                         declared[s.cand.rc_id],
                         s.evidence_seen,
                         parent_props.get(s.cand.parent_rc_id),
                         parent_ev,
+                        structured=schema is not None,
                     )
+                    if verdict.mode is not None:
+                        # The output mode differs from the parent's: what the
+                        # drives show about it, whatever the verdict.
+                        ctx.log.event(
+                            "output_mode",
+                            item_id=spec.item_id,
+                            rc_id=s.cand.rc_id,
+                            status=verdict.mode.status,
+                            proof=verdict.mode.proof,
+                            mode=declared[s.cand.rc_id].get("structured_output_mode"),
+                            line=f"{s.cand.label}: {verdict.mode.reason}",
+                        )
+                    reason = verdict.reason if verdict.status == "not_applied" else None
                     if reason:
                         s.status = "stopped"
                         s.stop_kind = "lever_not_applied"
@@ -1202,12 +1216,6 @@ async def _measure(
                             line=f"{s.cand.label}: {reason} — stopped",
                         )
                         continue
-                    verdict = lever_verdict(
-                        declared[s.cand.rc_id],
-                        s.evidence_seen,
-                        parent_props.get(s.cand.parent_rc_id),
-                        parent_ev,
-                    )
                     if verdict.status == "unverified":
                         # Neither signal shows on these drives: logged, and
                         # the candidate goes on (the drives cannot tell).
