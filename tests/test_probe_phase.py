@@ -21,6 +21,7 @@ from test_orchestrator import seed_active_eval, seed_baseline
 from kiln_harness_tuner.items import execute_plan_item
 from kiln_harness_tuner.memory_schema import PROBE_TAG
 from kiln_harness_tuner.orchestrator import orchestrate
+from kiln_harness_tuner.output_modes import MODES
 from kiln_harness_tuner.probes import (
     DriveSet,
     count_metric,
@@ -456,6 +457,8 @@ async def test_probe_phase_runs_its_probes_then_replans_with_the_answers():
 async def test_recon_battery_runs_at_setup_as_wave_zero(tmp_path):
     ctx = probe_ctx(tmp_path)
     ctx.recon = True
+    # The task has an output schema: the JSON probe runs.
+    ctx.kiln.task = {"id": "t1", "output_json_schema": '{"type": "object"}'}
     # A baseline with a tool and a skill attached: the tool and skill probes run.
     ctx.kiln.run_configs[0]["run_config_properties"]["tools_config"] = {
         "tools": ["kiln_tool::code::t1", "kiln_tool::skill::s1"]
@@ -495,6 +498,31 @@ def test_recon_items_follow_the_baseline_shape():
     plain = recon_items({"thinking_level": "high"})
     assert [i.id for i in plain] == ["r0-7"]
     assert all(i.check is not None for i in items)
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_json_probe_runs_in_every_mode_of_a_task_with_an_output_schema(mode):
+    """Kiln checks every output against the schema in every mode, so the
+    probe does not depend on which mode the baseline has."""
+    items = recon_items({"structured_output_mode": mode}, True)
+    (probe,) = [i for i in items if i.check and i.check.count == "json_valid"]
+    assert probe.id == "r0-6" and f"({mode})" in probe.question
+    assert probe.check is not None and probe.check.rule == "all"
+    assert not probe.check.overrides  # the baseline's own mode
+
+
+def test_the_json_probe_does_not_run_on_a_task_with_no_output_schema():
+    """Kiln does not use the mode there, and a text answer is not JSON."""
+    items = recon_items({"structured_output_mode": "json_schema"}, False)
+    assert [i.id for i in items] == ["r0-7"]
+
+
+def test_the_json_probe_on_a_task_that_could_not_be_read():
+    """It runs when the baseline names a mode: a wasted probe costs less
+    than no probe on a task with a schema."""
+    named = recon_items({"structured_output_mode": "json_custom_instructions"}, None)
+    assert "r0-6" in [i.id for i in named]
+    assert [i.id for i in recon_items({}, None)] == ["r0-7"]
 
 
 def test_recon_skips_tool_and_skill_probes_on_a_bare_baseline():
