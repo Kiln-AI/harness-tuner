@@ -25,6 +25,8 @@ from kiln_harness_tuner.analysis import (
     flatten_result_row,
     normalize,
     pairable_item_count,
+    pass_line,
+    passes,
     reproduction_verdict,
     runs_cost,
     score_json_key,
@@ -37,6 +39,7 @@ from kiln_harness_tuner.schemas import (
     ExperimentItem,
     FixWork,
     MergeWork,
+    TrialResult,
     WinRef,
 )
 
@@ -2523,6 +2526,47 @@ async def test_trial_not_landed_when_a_target_still_fails_or_stores_no_row():
     assert trial.fixed == ["i1"] and trial.summary == "1/3 targets fixed"
 
 
+async def test_trial_a_plain_fail_under_pass_fail_critical_does_not_land():
+    # pass_fail_critical is -1 critical, 0 fail, 1 pass. A plain fail (0)
+    # normalizes to 0.5. It is a fail, the same as the statistics read it.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval(scores=[make_score(type="pass_fail_critical")])
+    kiln.pending[("eval_1", "rc_cand", "train")] = [
+        make_run("i1", accuracy=1.0),
+        make_run("i2", accuracy=0.0),
+        make_run("i3", accuracy=-1.0),
+    ]
+    analyzer, _ = make_analyzer(kiln)
+
+    trial = await analyzer.trial(
+        EvalTarget(eval_id="eval_1"), "rc_cand", ["i1", "i2", "i3"]
+    )
+
+    assert trial.scores == {"i1": 1.0, "i2": 0.5, "i3": 0.0}
+    assert trial.pass_line == 0.75
+    assert trial.landed is False
+    # The log records the line beside the normalized scores: 0.5 is a fail.
+    (event,) = [f for k, f in analyzer.log.events if k == "trial"]
+    assert event["pass_line"] == 0.75 and event["landed"] is False
+    # `passed` is the candidate's pass (`cand_pass`) the engine records.
+    assert [trial.passed(i) for i in ("i1", "i2", "i3")] == [True, False, False]
+    assert trial.fixed == ["i1"] and trial.summary == "1/3 targets fixed"
+
+
+async def test_trial_all_pass_under_pass_fail_critical_lands():
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval(scores=[make_score(type="pass_fail_critical")])
+    kiln.pending[("eval_1", "rc_cand", "train")] = [
+        make_run("i1", accuracy=1.0),
+        make_run("i2", accuracy=1.0),
+    ]
+    analyzer, _ = make_analyzer(kiln)
+
+    trial = await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1", "i2"])
+
+    assert trial.landed is True and trial.fixed == ["i1", "i2"]
+
+
 async def test_trial_with_no_stored_row_at_all_is_infra_not_a_verdict():
     kiln = FakeKiln()
     kiln.evals["eval_1"] = make_eval()
@@ -2743,3 +2787,131 @@ async def test_judge_items_exhaustion_returns_the_stored_rows():
 
     assert [r["dataset_id"] for r in rows] == ["i1"]
     assert kiln.job_cancels == ["job_1", "job_2"]
+
+
+async def test_trial_on_a_score_with_no_pass_line_fails_before_the_job():
+    # A custom score type has no pass line. The trial fails before it
+    # starts a job, so it spends nothing.
+    kiln = FakeKiln()
+    kiln.evals["eval_1"] = make_eval(scores=[make_score(type="custom")])
+    kiln.pending[("eval_1", "rc_cand", "train")] = [make_run("i1", accuracy=1.0)]
+    analyzer, _ = make_analyzer(kiln)
+    with pytest.raises(UnsupportedScoreTypeError):
+        await analyzer.trial(EvalTarget(eval_id="eval_1"), "rc_cand", ["i1"])
+    assert not [c for c in kiln.calls if c[1] == "/api/jobs/evals/run"]
+
+
+def test_a_trial_result_of_an_older_wave_log_keeps_its_decision():
+    # An older wave log has no `pass_line`. It reads as 0.5, the old line
+    # (`normalize(v) >= 0.5`), so `fixed` and `passed` are the same as
+    # before.
+    old = TrialResult.model_validate(
+        {
+            "eval_id": "eval_1",
+            "score_key": "accuracy",
+            "target_items": ["i1", "i2", "i3", "i4"],
+            "scores": {"i1": 1.0, "i2": 0.5, "i3": 0.0, "i4": None},
+            "landed": False,
+        }
+    )
+    assert old.pass_line == 0.5
+    assert old.fixed == ["i1", "i2"]
+    assert [old.passed(i) for i in ("i1", "i2", "i3", "i4")] == [
+        True,
+        True,
+        False,
+        None,
+    ]
+
+
+# ---- the pass line (`passes`)
+
+
+# Every score type and direction whose pass decision must not change: the
+# old decision was `normalize(value, spec) >= 0.5`.
+_UNCHANGED_PASS_LINES = [
+    ("pass_fail", "higher_is_better"),
+    ("pass_fail", "lower_is_better"),
+    ("five_star", "higher_is_better"),
+    ("five_star", "lower_is_better"),
+    ("pass_fail_critical", "lower_is_better"),
+]
+
+
+@pytest.mark.parametrize(("score_type", "direction"), _UNCHANGED_PASS_LINES)
+def test_the_pass_line_keeps_the_old_decision(score_type, direction):
+    s = spec(type=score_type, direction=direction)
+    # Every stored value, and the means of replicates between them.
+    values = [x / 12 for x in range(-24, 73)]
+    for value in values:
+        old = normalize(value, s) >= 0.5
+        if score_type == "pass_fail_critical" and 0.0 < value <= 0.5:
+            # lower_is_better pass_fail_critical: the line moves from 0 to
+            # 0.5. No stored value (-1, 0, 1) is in this band. Only a
+            # continuous judge score or a mean of replicates can be.
+            assert passes(value, s) is True and old is False
+            continue
+        assert passes(value, s) is old, value
+
+
+@pytest.mark.parametrize(
+    ("score_type", "direction", "expected"),
+    [
+        ("pass_fail", "higher_is_better", {0.0: False, 1.0: True}),
+        ("pass_fail", "lower_is_better", {0.0: True, 1.0: False}),
+        (
+            "pass_fail_critical",
+            "higher_is_better",
+            {-1.0: False, 0.0: False, 1.0: True},
+        ),
+        (
+            "pass_fail_critical",
+            "lower_is_better",
+            {-1.0: True, 0.0: True, 1.0: False},
+        ),
+        (
+            "five_star",
+            "higher_is_better",
+            {1.0: False, 2.0: False, 2.9: False, 3.0: True, 4.0: True, 5.0: True},
+        ),
+        (
+            "five_star",
+            "lower_is_better",
+            {1.0: True, 2.0: True, 3.0: True, 3.1: False, 4.0: False, 5.0: False},
+        ),
+    ],
+)
+def test_the_pass_line_of_each_score_type(score_type, direction, expected):
+    s = spec(type=score_type, direction=direction)
+    assert {v: passes(v, s) for v in expected} == expected
+
+
+def test_a_plain_fail_under_pass_fail_critical_is_a_fail():
+    # The statistics read `>= 0.5` on the raw value (`_stats_row`): 0 is a
+    # fail. The engine reads the same line.
+    s = spec(type="pass_fail_critical")
+    assert normalize(0.0, s) == 0.5
+    assert passes(0.0, s) is False
+    assert passes(0.49, s) is False and passes(0.5, s) is True
+    assert pass_line(s) == 0.75
+
+
+def test_the_normalized_pass_line_of_each_score_type():
+    assert pass_line(spec(type="pass_fail")) == 0.5
+    assert pass_line(spec(type="pass_fail", direction="lower_is_better")) == 0.5
+    assert pass_line(spec(type="five_star")) == 0.5
+    assert pass_line(spec(type="five_star", direction="lower_is_better")) == 0.5
+    assert pass_line(spec(type="pass_fail_critical")) == 0.75
+    critical_low = spec(type="pass_fail_critical", direction="lower_is_better")
+    assert pass_line(critical_low) == 0.25
+
+
+def test_every_score_type_with_a_domain_has_a_pass_line():
+    from kiln_harness_tuner import analysis
+
+    assert set(analysis._PASS_LINES) == set(analysis._SCORE_DOMAINS)
+
+
+def test_an_unmapped_score_type_has_no_pass_line():
+    with pytest.raises(UnsupportedScoreTypeError):
+        passes(1.0, spec(type="custom"))

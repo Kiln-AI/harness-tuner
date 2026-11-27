@@ -1511,7 +1511,12 @@ stored rows and re-drives nothing.
   item, its stratum and its block). First the items the planner named
   (`target_items`). Then the DISCRIMINATING block: up to `DISC_FAILS` (8)
   items the parent fails on the targeted evals and up to `DISC_GUARDS` (4)
-  it passes, round-robin across the evals. Then the REMAINDER: per eval the
+  it passes, round-robin across the evals. An item fails when its value is
+  on the bad side of the pass line of its score type (`analysis.pass_line`):
+  0.5 for pass_fail and pass_fail_critical, 3 for five_star. A value on the
+  line passes. So a plain fail (0) under pass_fail_critical is a fail. The
+  engine uses the same line for the parent's pass, the candidate's pass,
+  fragility and `trial` landed. Then the REMAINDER: per eval the
   rest of the train split, the parent's failures, passes and unscored items
   interleaved in proportion (`_interleave`), round-robin across the evals.
   The universe is the eval's train split on disk plus any train row the
