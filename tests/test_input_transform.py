@@ -244,6 +244,10 @@ class TestThePlan:
 
 
 def _routes(*rows: dict, valid: bool = True, turn_mode: str = "single_turn") -> dict:
+    """The gateway's Kiln. The task always has the parent `rc_base` (a new
+    run config names its parent, and takes its unknown settings)."""
+    if not any(r["id"] == "rc_base" for r in rows):
+        rows = (_rc("rc_base"), *rows)
     return {
         ("GET", f"{GATEWAY_BASE}/run_configs"): list(rows),
         ("GET", GATEWAY_BASE): {"id": "t", "turn_mode": turn_mode},
@@ -276,7 +280,11 @@ def _json_inputs(tmp_path, *, drop_question_on_tr2: bool = False) -> None:
 
 def _create(gateway, properties: dict):
     return _run(
-        gateway, "create_run_config", name="n", run_config_properties=properties
+        gateway,
+        "create_run_config",
+        name="n",
+        run_config_properties=properties,
+        provenance={"derived_from_ids": ["rc_base"]},
     )
 
 
@@ -465,19 +473,25 @@ class TestTheGateway:
     @pytest.mark.parametrize(
         "value", ["{{ input }}", {"type": "python", "template": "x"}, {"type": "jinja"}]
     )
-    def test_a_value_of_the_wrong_shape_is_refused_before_any_call(
+    def test_a_value_of_the_wrong_shape_is_refused_before_any_write(
         self, tmp_path, value
     ):
         gateway, kiln = _gateway(tmp_path, _routes())
         with pytest.raises(gw.GatewayError, match="input_transform"):
             _create(gateway, {**props(), "input_transform": value})
-        assert kiln.calls == []
+        # Only the parent was read: no compile check, no create.
+        assert [c[:2] for c in kiln.calls] == [("GET", f"{GATEWAY_BASE}/run_configs")]
 
     def test_no_transform_needs_no_check(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, _routes())
         _create(gateway, {**props(), "input_transform": None})
         _create(gateway, props())
-        assert {c[:2] for c in kiln.calls} == {("POST", f"{GATEWAY_BASE}/run_configs")}
+        # The parent is read and the config created: no compile check, no
+        # read of the task's turn mode.
+        assert {c[:2] for c in kiln.calls} == {
+            ("GET", f"{GATEWAY_BASE}/run_configs"),
+            ("POST", f"{GATEWAY_BASE}/run_configs"),
+        }
 
     def test_a_new_template_is_refused_on_a_multi_turn_task(self, tmp_path):
         gateway, kiln = _gateway(
@@ -493,11 +507,12 @@ class TestTheGateway:
         )
         out = _create(gateway, props(KEEP_TWO, thinking_level="high"))
         assert out["id"] == "rc_new"
-        # Not compiled again, and the task's turn mode is not read.
-        assert [c[:2] for c in kiln.calls] == [
+        # Not compiled again, and the task's turn mode is not read: only the
+        # run configs (the parent, then the copy check) and the create.
+        assert {c[:2] for c in kiln.calls} == {
             ("GET", f"{GATEWAY_BASE}/run_configs"),
             ("POST", f"{GATEWAY_BASE}/run_configs"),
-        ]
+        }
 
     def test_a_server_with_no_compile_route_leaves_the_check_to_the_create(
         self, tmp_path

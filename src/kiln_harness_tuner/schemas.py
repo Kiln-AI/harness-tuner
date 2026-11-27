@@ -13,6 +13,8 @@ from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from kiln_harness_tuner.rc_inherit import FROZEN_KEYS
+
 T = TypeVar("T")
 
 # ---- shared support types ----
@@ -639,6 +641,12 @@ class ProbeCheck(BaseModel):
 
     @model_validator(mode="after")
     def _variants_are_screened(self) -> ProbeCheck:
+        frozen = [k for k in FROZEN_KEYS if k in self.overrides]
+        if frozen:
+            raise ValueError(
+                f"a probe may not override {frozen}: these run config"
+                " properties are not levers of the tuner yet"
+            )
         hit = [k for k in SCREEN_ONLY_OVERRIDES if k in self.overrides]
         if hit:
             raise ValueError(
