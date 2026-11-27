@@ -289,7 +289,8 @@ scope check, and it is there because this failure is hard to see otherwise.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
 `AnalysisBundle` (the label-free numbers table plus every named hole in it),
-and its own experiment memory id.
+its own experiment memory id, and `content_budget`: the chars its
+`memory_content` can take after the lines code adds to the record.
 
 **Must return** `ExperimentResult`:
 
