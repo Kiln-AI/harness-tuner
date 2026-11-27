@@ -78,6 +78,17 @@ going looking.
   `allowed_models` is what the server offers, filtered by the policy.
   A model the start-up model preflight flagged is left out of it, and
   `flagged_models` gives the reason.
+- **The owner's `restrictions` are hard limits.** Your input lists them in
+  words, and code enforces each one. `allowed_models` already leaves out
+  each model that a restriction refuses. `locked_tools` names the tool ids
+  that must not change: plan no arm that drops, replaces or wraps one (a
+  `tool_config` or `new_tool` item whose code tool calls it). Code refuses
+  the run config, and the build's cost is lost. A change to the text that
+  the prompt or a skill gives about a locked tool is not refused by code:
+  plan it only when the guidance does not forbid it. `restriction_limits`
+  says what code cannot check. Do not raise a restriction as an open
+  question: it is answered. Name in `rejected_summary` each idea that a
+  restriction stops.
 - Batch plans are working state, never memory. Your only writes are
   discovery writes (`lesson`/`dead_end`/new `issue` at the moment of
   learning); the orchestrator writes `OPEN:` records from `open_questions`.
@@ -179,16 +190,20 @@ with `phase: "rescreen"` and every result so far in `screening_results`. At
 most 4 rounds per wave (`screen_rounds_left`); after that the plan must
 carry items.
 
-A candidate that changes the model keeps the parent's
-`structured_output_mode` unless its `overrides` name one. Name the new
-model's default (`get_model_details` gives it; `allowed_models` does
-not), unless the candidate tests the output mode. Leave it out when the
-default is absent, `default` or `unknown`. On a parent that attaches a
-tool or a skill, Kiln refuses `function_calling`, `function_calling_weak`,
-and `default` outside Ollama and Docker Model Runner: every call fails.
-When the new model's default is one of them, name `json_schema` if you
-know the model supports it (a probe, an earlier screen), else
-`json_instruction_and_object`.
+A candidate that changes the model or the provider and names no
+`structured_output_mode` gets the mode of the new pair, set by code: Kiln's
+default for the pair (`get_model_details` gives it; `allowed_models` does
+not), or the parent's mode when the default is absent, `default` or
+`unknown`. So leave the mode out of a swap, unless the candidate tests the
+output mode: a mode that `overrides` name is kept. On a parent that
+attaches a tool or a skill, Kiln refuses `function_calling`,
+`function_calling_weak`, and `default` outside Ollama and Docker Model
+Runner: every call fails. When the new pair's default is one of them, code
+sets `json_instruction_and_object`. Name `json_schema` there if you know
+the model supports it (a probe, an earlier screen). A candidate that
+names one of the refused modes on such a parent, or a value that is not a
+mode, is a dead end before any drive. So is a candidate that changes only
+the mode on a task with no output schema.
 
 ```
 {"items": [], "rejected_summary": "...", "open_questions": [],
@@ -197,8 +212,7 @@ know the model supports it (a probe, an earlier screen), else
      {"id": "s1-1", "label": "flash low",
       "overrides": {"model_name": "gemini_3_8_flash",
                     "model_provider_name": "gemini_api",
-                    "thinking_level": "low",
-                    "structured_output_mode": "json_schema"}},
+                    "thinking_level": "low"}},
      {"id": "s1-2", "overrides": {"thinking_level": "none"}}],
    "round": 1, "target_evals": null, "mode": "stratified",
    "reason": "every allowed model at its lowest two levels"}}
@@ -1087,8 +1101,22 @@ The reason is one of:
   carry to new items. Treat it as a weak ingredient.
 - `a gain at val, not clear: a targeted eval improved, but not beyond
   doubt.` — the val split can be too small to confirm a real gain.
+- `val incomplete again: its val measurement had holes at repeated gates
+  of one run, so it was never judged on its numbers.` — the val runs of
+  this rc had errors or too few results at each gate. The gate has no
+  verdict on its numbers. The cause can be outside the change (a provider
+  error), or in it (a tool that fails on some inputs, a model with a
+  smaller context window or output limit). Look for a cause in the change
+  with train data only: read the rc's train results
+  (`get_train_results`) for runs with errors or a `skipped_reason`, and
+  compare the `context_window` and `max_output_tokens` of its model with
+  the baseline's (`get_model_details`). When you find a cause, fix it in a
+  new arm. When you find none, the win stays an eligible ingredient.
 - `not promoted at val; details in the run report.` — code could not tell
   the reason.
+
+A candidate whose val evidence had holes at one gate gets no stamp and no
+line: the gate did not judge it, and it stays pooled.
 
 A record written before these reasons ends `— did not beat it; details in
 the run report.` Its reason is not known. A `— PROMOTED` record with the

@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from kiln_harness_tuner.memory_schema import ValRejectionKind
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
@@ -391,8 +392,18 @@ class RunStatusTracker:
         self._status.val_fill_failures += 1
 
     def _on_promotion_blocked(
-        self, winner_rc_id: object = None, reasons: Sequence[object] = (), **_: object
+        self,
+        winner_rc_id: object = None,
+        reasons: Sequence[object] = (),
+        pooled: object = False,
+        **_: object,
     ) -> None:
+        if pooled:
+            # A candidate with holes in its val evidence: not a winner and
+            # not rejected. It stays pooled for a later wave.
+            if self._status.waves:
+                self._status.waves[-1].pooled.append(str(winner_rc_id))
+            return
         # The gate refused an ineligible winner — surfaces where
         # promotion_skipped does (the wave block + the report).
         if self._status.waves:
@@ -402,6 +413,26 @@ class RunStatusTracker:
             ].promotion_skipped = (
                 f"blocked: winner {winner_rc_id} ineligible — {summary}"
             )
+
+    def _on_rejection_recorded(
+        self, rc_id: object = None, reason: object = None, **_: object
+    ) -> None:
+        # Only the bound's rejection: the other reasons follow from the
+        # wave's `promotion` decision. The bound stamps whatever path the
+        # gate takes, also when the gate makes no decision.
+        if reason != str(ValRejectionKind.VAL_INCOMPLETE) or not self._status.waves:
+            return
+        rejected = self._status.waves[-1].rejected_incomplete
+        if str(rc_id) not in rejected:
+            rejected.append(str(rc_id))
+
+    def _on_baseline_val_holes(
+        self, baseline_rc_id: object = None, **_: object
+    ) -> None:
+        # The baseline's val evidence had holes at repeated gates: from
+        # here on, those holes count against the candidates.
+        if self._status.waves and baseline_rc_id:
+            self._status.waves[-1].baseline_val_holes = str(baseline_rc_id)
 
     def _on_gate_block(
         self,

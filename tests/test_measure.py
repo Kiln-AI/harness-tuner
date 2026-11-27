@@ -18,11 +18,12 @@ from pathlib import Path
 import pytest
 from conftest import make_plan, make_result
 from fake_dispatcher import ok
-from fake_kiln import make_run
+from fake_kiln import make_eval, make_run, make_score
 from test_orchestrator import rc_ok
 from test_speed_objective import _seed_rows, _speed_ctx
 from test_viability import EVALS, _ctx
 
+from kiln_harness_tuner.analysis import ScoreSpec
 from kiln_harness_tuner.estimate import FAIL, PASS, Judged, estimate
 from kiln_harness_tuner.latency import compare_latencies
 from kiln_harness_tuner.measure import (
@@ -37,6 +38,7 @@ from kiln_harness_tuner.measure import (
     _interleave,
     cap_items,
     draw_queue,
+    fragility_counts,
     guard_cap,
     progress_line,
 )
@@ -148,6 +150,96 @@ def _seeded_passes(seed: str, eval_id: str, passes: list[str], fails: list[str])
     rng.shuffle(f)
     rng.shuffle(p)
     return p
+
+
+class TestThePassLineOfPassFailCritical:
+    """pass_fail_critical is -1 critical, 0 fail, 1 pass. A plain fail (0)
+    is a fail in the engine, as it is in the statistics."""
+
+    CRITICAL = ScoreSpec("accuracy", "pass_fail_critical", "higher_is_better")
+
+    async def test_the_parent_fails_an_item_it_scores_0(self, tmp_path):
+        ctx = _ctx(tmp_path, objective="quality")
+        ctx.kiln.evals["e1"] = make_eval(
+            "e1", "ec_e1", scores=[make_score(type="pass_fail_critical")]
+        )
+        values = {"e1_0": 1.0, "e1_1": 0.0, "e1_2": -1.0, "e1_3": 0.0}
+        ctx.kiln.results[("e1", "rc_base", "train")] = [
+            make_run(f"e1_{n}", accuracy=values.get(f"e1_{n}", 1.0)) for n in range(10)
+        ]
+        q = await draw_queue(ctx, "rc_base", [EvalTarget(eval_id="e1")], "s")
+        parent_pass = {x.item_id: x.parent_pass for x in q.items}
+        assert parent_pass["e1_0"] is True
+        assert parent_pass["e1_1"] is False and parent_pass["e1_3"] is False
+        assert parent_pass["e1_2"] is False
+        # Both plain fails and the critical fail enter the discriminating
+        # block as failures.
+        fails = {x.item_id for x in q.items if x.block == BLOCK_DISC}
+        assert {"e1_1", "e1_2", "e1_3"} <= fails
+        assert q.population["e1"][FAIL] == 3 and q.population["e1"][PASS] == 7
+
+    def test_fragility_counts_a_plain_fail_as_a_fail(self):
+        rows = [
+            ("rc_a", "i1", {"accuracy": 0.0}),
+            ("rc_b", "i1", {"accuracy": 1.0}),
+            ("rc_a", "i2", {"accuracy": -1.0}),
+            ("rc_b", "i2", {"accuracy": 0.0}),
+            # Replicates count once, at their mean: (1 + 0) / 2 = 0.5 passes.
+            ("rc_a", "i3", {"accuracy": 1.0}),
+            ("rc_a", "i3", {"accuracy": 0.0}),
+        ]
+        counts = fragility_counts(rows, self.CRITICAL, {"i1", "i2", "i3"}, set())
+        assert counts == {"i1": [1, 2], "i2": [2, 2], "i3": [0, 1]}
+
+    @pytest.mark.parametrize(
+        ("cand_value", "cand_pass"), [(1.0, True), (0.0, False), (-1.0, False)]
+    )
+    async def test_the_engine_judges_the_candidate_on_the_pass_line(
+        self, tmp_path, cand_value, cand_pass
+    ):
+        """The parent scores train0 0 (a plain fail). The candidate scores it
+        `cand_value`. The judged row's cand_pass comes from the pass line:
+        a 0 stays a fail, and the engine does not count it as a fix."""
+        from conftest import fix_item
+
+        ctx = _speed_ctx(tmp_path, cand_ms=1000.0, objective="quality", train_n=30)
+        ctx.kiln.evals["eval_1"] = make_eval(
+            "eval_1", "ec_1", scores=[make_score(type="pass_fail_critical")]
+        )
+        _seed_rows(ctx.kiln, "rc_cand", [cand_value] + [1.0] * 29)
+        ctx.dispatch.queues["create_experiment_rc"].clear()
+        ctx.dispatch.queue("create_experiment_rc", rc_ok("rc_cand"))
+        ctx.dispatch.queues["batch_plan"].clear()
+        ctx.dispatch.queue(
+            "batch_plan",
+            ok(make_plan(fix_item("w1-1", residual_gate=False))),
+            ok(make_plan(loop_exit="done")),
+        )
+        await orchestrate(ctx, "better", timeout_mins=180)
+        cells = [
+            cell
+            for k, f in ctx.log.events
+            if k == "measure_chunk" and f["rc_id"] == "rc_cand"
+            for cell in f["cells"]
+        ]
+        assert ["eval_1", "train0", False, cand_pass] in cells
+        (m,) = [f for k, f in ctx.log.events if k == "measurement"]
+        if cand_pass:
+            assert m["stop_kind"] != "futility"
+        else:
+            # No fix is in reach: the arm stops for futility.
+            assert m["stop_kind"] == "futility"
+
+    def test_fragility_of_pass_fail_is_unchanged(self):
+        spec = ScoreSpec("accuracy", "pass_fail", "higher_is_better")
+        rows = [
+            ("rc_a", "i1", {"accuracy": 0.0}),
+            ("rc_b", "i1", {"accuracy": 1.0}),
+            ("rc_a", "i2", {"accuracy": 1.0}),
+            ("rc_a", "i2", {"accuracy": 0.0}),
+        ]
+        counts = fragility_counts(rows, spec, {"i1", "i2"}, set())
+        assert counts == {"i1": [1, 2], "i2": [0, 1]}
 
 
 class TestTheGuardFirstQueue:

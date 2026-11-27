@@ -172,6 +172,17 @@ flagged this run, with the reason (its test call failed, or its context
 window is too small). It is not in `allowed_models`, and code does not
 screen it.
 
+`restrictions` lists what the owner stated at the start of the run, in
+words: the providers, the origin of the models, the data retention, the
+tools that must not change. Each one is a hard limit that code enforces.
+`allowed_models` holds only the models that pass them. `locked_tools`
+names the tool ids that must not change: code refuses a run config that
+drops or replaces one, and one that attaches a code tool that calls one (a
+wrapper). Plan no item that needs such a change. `restriction_limits` says
+what code cannot check for them: there, your plan is the guard. The
+knowledge skill's playbook "Working inside restrictions" says what to plan
+when the best lever is not allowed.
+
 Every wave with three or more slots gives one slot to a wildcard arm
 (`"wildcard": true`): the largest plausible win, picked for upside, not
 confidence. An idea may be deferred once; the next wave probes it or builds
