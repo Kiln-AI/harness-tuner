@@ -718,3 +718,14 @@ field. The owner's notes, the moves, the risks and the research to do are in the
 On a long multi-turn trace that can use it, check that the prompt cache is used. If not, find why:
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
+
+### A holed win that comes back through a merge
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [PR 46](https://github.com/Kiln-AI/harness-tuner/pull/46), review finding M3
+
+The limit on holed val gates counts by rc id, and a merge has a new id. A win with its own val hole
+can come back in merge after merge, each one a full val pass. Fix: count a merge's holed gate
+against each of its wins too, and stamp a win at the limit. The risk is a count on a good win.

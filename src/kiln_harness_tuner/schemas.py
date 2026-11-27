@@ -2149,6 +2149,20 @@ class WaveStatus(BaseModel):
     tripwire: str | None
     promotion_skipped: str | None = None  # a promote_best hard-fail must
     #   be noted in RunStatus/the report
+    # The gate's candidates whose val evidence had holes (a failed fill,
+    # coverage under the floor, an incomplete speed or cost pass): neither
+    # promoted nor rejected, they stay pooled. Never a rejection.
+    pooled: list[str] = []
+    # The rc ids that code rejected at this gate because their val evidence
+    # had holes at `HOLED_GATE_LIMIT` gates of the run (the `val incomplete`
+    # reason). Code stamps them `— REJECTED AT VAL` before the decision, so
+    # also in a wave with `promotion_skipped` or with no decision.
+    rejected_incomplete: list[str] = []
+    # The baseline rc whose val evidence had holes at `HOLED_GATE_LIMIT`
+    # gates of the run, set at the gate that reached the limit
+    # (`baseline_val_holes`). From that gate on, the baseline-side holes
+    # count against the candidates' bound. None in every other wave.
+    baseline_val_holes: str | None = None
 
 
 class RunStatus(BaseModel):
