@@ -38,16 +38,6 @@ The lever, and its techniques: a stronger model for deep thinking; a specialist 
 a cheap reader for a large source. A fixed form for what comes back. Limits: one turn, and no fix
 for a strong single agent. Tune a critical sub-agent on its own evals, then the main agent.
 
-### Model and provider information
-
-- Kind: code
-- Where: tuner, kiln
-- Depends on: None
-- Source: [model-provider-info](projects/model-provider-info/project_overview.md)
-
-Done in the project model-provider-info: the model catalogue, the gateway operations
-`list_models`, `get_model_details` and `list_providers`, and the "old model" smell and detector.
-
 ### Promotion on a tie
 
 - Kind: code
@@ -532,16 +522,6 @@ Eval: the score goes up, and the outputs get worse in a way that the eval does n
 - Source: overview 9
 
 The agent has so many skills that their descriptions crowd its context.
-
-### Smell: an old model
-
-- Kind: smell
-- Where: knowledge
-- Depends on: Model and provider information
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md); functional spec 12.3; [model-provider-info](projects/model-provider-info/functional_spec.md), section 8
-
-Done in the project model-provider-info: the smell document `old-model` and the code detector
-`old_model`, which reads the release date from the model catalogue.
 
 ### Smell: a long list of "must" and "never" lines
 
