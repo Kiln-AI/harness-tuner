@@ -1218,6 +1218,13 @@ class RunModel:
                     values.setdefault(key, value)
             self.start_val = values
 
+    def _on_baseline_val_holes(self, s: Stamped, f: Mapping[str, Any]) -> None:
+        # The baseline's val evidence had holes at repeated gates. A
+        # warning: from here on, its holes count against the candidates.
+        text = _text(f.get("line"))
+        if text:
+            self._say(s, "warn", text)
+
     def _on_gate_block(self, s: Stamped, f: Mapping[str, Any]) -> None:
         gate = self._open_gate()
         if gate is not None and f.get("rc_id"):
@@ -1259,6 +1266,9 @@ class RunModel:
     def _on_rejection_recorded(self, s: Stamped, f: Mapping[str, Any]) -> None:
         if f.get("rc_id"):
             self.rejected.add(str(f["rc_id"]))
+            gate = self._open_gate()
+            if gate is not None and f.get("reason") == "val incomplete":
+                gate.incomplete_again.add(str(f["rc_id"]))
 
     def _gate_ended(self, s: Stamped) -> None:
         """The gate's results, settled once it has closed: a `promotion`
@@ -1320,6 +1330,14 @@ class RunModel:
             item.gate = "blocked"
             self.refused.add(rc)
             self._say(s, "stop", log.blocked(who, gate.blocked[rc], before_gate=False))
+        elif rc in gate.incomplete_again:
+            # Holes in its val evidence again, at repeated gates of the
+            # run: code rejected it whatever the gate decided.
+            item.gate = "rejected"
+            concern, val = self._val_change(gate, item)
+            self._say(
+                s, "stop", log.rejected(who, concern, self._train_change(item), val)
+            )
         elif rc in gate.blocked:
             # Its val evidence has holes: the loop writes no verdict.
             item.gate = "pooled"

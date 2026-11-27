@@ -981,6 +981,10 @@ class ValRejectionKind(StrEnum):
     EVAL_DROPPED = "eval dropped"  # a row went down beyond doubt
     NO_GAIN = "no gain"  # no targeted row improved at all
     GAIN_NOT_CLEAR = "gain not clear"  # a target improved, not beyond doubt
+    # The val evidence had holes at repeated gates of one run (a failed
+    # fill, coverage under the floor, an incomplete speed or cost pass).
+    # One holed gate stamps nothing: the candidate stays pooled.
+    VAL_INCOMPLETE = "val incomplete"
     NOT_PROMOTED = "not promoted"  # code cannot tell the reason
 
 
@@ -1017,6 +1021,11 @@ def _rejection_reason_text(reason: ValRejection) -> str:
     if kind is ValRejectionKind.GAIN_NOT_CLEAR:
         return (
             "a gain at val, not clear: a targeted eval improved, but not beyond doubt."
+        )
+    if kind is ValRejectionKind.VAL_INCOMPLETE:
+        return (
+            "val incomplete again: its val measurement had holes at repeated"
+            " gates of one run, so it was never judged on its numbers."
         )
     return "not promoted at val; details in the run report."
 

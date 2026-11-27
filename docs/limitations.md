@@ -135,8 +135,11 @@ a legacy judge config and a code eval report no judge noise. The sample and
 the clone are taken on the run's first baseline and are not measured again
 after a promotion.
 
-**Custom score types have no statistics operation and no normalization
-domain.** Both sites raise in `analysis.py`. They are
+**Custom score types have no statistics operation, no normalization
+domain and no pass line.** The three sites raise in `analysis.py`
+(`_stats_row`, `normalize` and `pass_line`). The engine reads the pass line
+before it starts a trial job, so a trial on a custom score spends nothing.
+The statistics operation and the normalization domain are
 different questions — a custom score with no declared range cannot be
 normalized at all, while it might still be comparable — and neither is guessed.
 The promotion gate is the one place that degrades gracefully: an uncomparable

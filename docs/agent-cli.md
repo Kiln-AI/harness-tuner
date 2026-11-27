@@ -205,8 +205,14 @@ session, which has to redo the work as well as the formatting. Then
 `failed_infra(parse_failure)`, which is terminal: the ladder does not re-run a
 session that produced a bad shape twice.
 
-**A resumable session.** See the timeout case. Nothing else in the loop resumes:
-a crashed *wave* is not resumed, and [limitations.md](limitations.md) says what
+**A long verdict.** The analyzer's `memory_content` over its room
+(`AnalysisInput.content_budget`) gets up to two turns **in the same
+session** that ask for a shorter content. Only the new `memory_content` is
+taken from a reply. A turn that fails ends the turns, and code clamps the
+content on the write.
+
+**A resumable session.** See the timeout case. Nothing else in the loop
+resumes: a crashed *wave* is not resumed, and [limitations.md](limitations.md) says what
 that costs.
 
 ## 6. Capabilities an agent CLI may or may not have
@@ -424,7 +430,7 @@ Against section 6:
 | Read fence | Yes: the OS sandbox, an allow list. |
 | Per-run MCP configuration | Yes: `-c mcp_servers.<name>=…` from the same rendered files as Claude. |
 | Pre-tool hook | Not used. The session's only MCP servers are the ones passed, each limited to the role's tools. |
-| Session resume | For the repair retry: `codex exec resume <thread id>`. **Not** after a timeout: the id cannot be chosen before the spawn, and a killed session never prints it. The ladder re-runs the session. |
+| Session resume | For the repair retry and the shorten turns: `codex exec resume <thread id>`. **Not** after a timeout: the id cannot be chosen before the spawn, and a killed session never prints it. The ladder re-runs the session. |
 | Structured result return | Yes: the final `agent_message` event holds the envelope. |
 
 What else differs:
@@ -502,7 +508,7 @@ Against section 6:
 | Read fence | Yes, at the tool level: an allow list in its permission rules. Not an OS sandbox — as strong as OpenCode's own checks. |
 | Per-run MCP configuration | Yes: `mcp` in the session's config, from the same rendered files as Claude. Each server's request timeout is 30 minutes (OpenCode's default is 5 seconds). |
 | Pre-tool hook | Not used. The session's only MCP servers are the ones passed, and the installer's tools are allowed by name. |
-| Session resume | For the repair retry: `--session <id>`. **Not** after a timeout: the id is not known before the spawn. The ladder re-runs the session. |
+| Session resume | For the repair retry and the shorten turns: `--session <id>`. **Not** after a timeout: the id is not known before the spawn. The ladder re-runs the session. |
 | Structured result return | Yes: the text of the last step holds the envelope. |
 
 What else differs:
