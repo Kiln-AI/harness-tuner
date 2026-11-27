@@ -461,6 +461,22 @@ def _props(*tools: str) -> dict:
     }
 
 
+PARENT_RC = "424242000010"
+
+
+def _create_routes(gateway, kiln, *parent_tools: str) -> dict:
+    """What a create reads after the lock check: the parent run config,
+    Kiln's model list and the task. Returns the provenance that names the
+    parent."""
+    parent = {**_props(*parent_tools), "structured_output_mode": "json_schema"}
+    kiln.routes[("GET", f"{gateway.s.base}/run_configs")] = [
+        {"id": PARENT_RC, "run_config_properties": parent}
+    ]
+    kiln.routes[("GET", "/api/available_models")] = []
+    kiln.routes[("GET", gateway.s.base)] = {"id": gateway.s.task_id}
+    return {"derived_from_ids": [PARENT_RC]}
+
+
 def _locked_gateway(tmp_path, routes=None, lock: ToolLock | None = None):
     gateway, kiln = _gateway(tmp_path, routes or {})
     gateway.s.tool_lock = lock or ToolLock((LOCKED,), frozenset({OLD_WRAPPER}))
@@ -505,15 +521,23 @@ class TestTheGatewayEnforcesTheToolLock:
         post = next(iter({f"{gateway.s.base}/run_configs"}))
         assert post.startswith(base)
         kiln.routes[("POST", post)] = {"id": "424242000009", "name": "n"}
-        # The baseline's own wrapper stays attached: it is not read again.
+        old = f"/api/projects/{project}/code_tools/424242000003"
+        kiln.routes[("GET", old)] = {"id": "424242000003", "tool_allowlist": [LOCKED]}
+        provenance = _create_routes(gateway, kiln, LOCKED, OLD_WRAPPER)
         view = _run(
             gateway,
             "create_run_config",
             name="n",
             run_config_properties=_props(LOCKED, WRAPPER, OLD_WRAPPER),
+            provenance=provenance,
         )
         assert view["id"] == "424242000009"
-        assert [(c[0], c[1]) for c in kiln.calls] == [("GET", tool), ("POST", post)]
+        calls = [(c[0], c[1]) for c in kiln.calls]
+        # The lock check reads the new code tool only. The baseline's own
+        # wrapper stays attached, and the lock does not read it again: the
+        # next read is the parent's.
+        assert calls[:2] == [("GET", tool), ("GET", f"{gateway.s.base}/run_configs")]
+        assert calls[-1] == ("POST", post)
 
     def test_a_code_tool_that_calls_a_locked_tool_is_refused(self, tmp_path):
         gateway, kiln = _locked_gateway(tmp_path)
@@ -588,8 +612,16 @@ class TestTheGatewayEnforcesTheToolLock:
     def test_no_lock_checks_nothing(self, tmp_path):
         gateway, kiln = _gateway(tmp_path, {})
         kiln.routes[("POST", f"{gateway.s.base}/run_configs")] = {"id": "424242000009"}
-        _run(gateway, "create_run_config", name="n", run_config_properties=_props())
-        assert [call[0] for call in kiln.calls] == ["POST"]
+        provenance = _create_routes(gateway, kiln)
+        _run(
+            gateway,
+            "create_run_config",
+            name="n",
+            run_config_properties=_props(),
+            provenance=provenance,
+        )
+        assert kiln.calls[-1][0] == "POST"
+        assert not [call for call in kiln.calls if "/code_tools/" in call[1]]
 
 
 def gateway_project() -> str:

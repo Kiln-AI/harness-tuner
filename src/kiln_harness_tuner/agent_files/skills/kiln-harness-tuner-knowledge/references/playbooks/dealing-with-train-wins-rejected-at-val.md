@@ -1,7 +1,7 @@
 ---
 title: Dealing with train wins rejected at validation
-description: A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, or a gain not clear. Only "no gain" shows that the win did not carry.
-reviewed: 2026-11-13
+description: A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, a gain not clear, or val incomplete. Only "no gain" shows that the win did not carry.
+reviewed: 2026-11-20
 kind: eval
 applies_to: all
 ---
@@ -25,6 +25,10 @@ one line with no numbers:
   - **D2, no gain:** `no gain at val: no targeted eval improved.`
   - **D3, a gain not clear:** `a gain at val, not clear: a targeted eval
     improved, but not beyond doubt.`
+  - **E, val incomplete:** `val incomplete again: its val measurement had
+    holes at repeated gates of one run, so it was never judged on its
+    numbers.` The val runs of this rc had errors or too few results at
+    each gate. The gate has no verdict on its numbers.
   - `not promoted at val; details in the run report.` Code could not
     tell the reason.
 
@@ -86,11 +90,20 @@ The causes of D2, in the order in which they are cheapest to check:
    eval, so that the combined effect is larger, or plan the next arm on
    the idea with a larger predicted effect:
    [dealing with a noisy eval](dealing-with-a-noisy-eval.md).
+7. **E:** the cause can be outside the arm (a provider error) or in it
+   (a tool that fails on some inputs, a model with a smaller context
+   window or output limit). You cannot see the val runs. Look for a cause
+   in the arm with train data only: read the rc's train results
+   (`get_train_results`) for runs with errors or a `skipped_reason`, and
+   compare the `context_window` and `max_output_tokens` of its model with
+   the baseline's (`get_model_details`). When you find a cause, fix it in
+   a new arm. When you find none, the win stays an eligible ingredient.
 
 ## What not to do yet
 
 - Do not read every `— REJECTED AT VAL` as overfit. B, D1 and D3 do not
-  show that an arm fails on new items.
+  show that an arm fails on new items. E can show it only when the cause
+  is in the arm, for example a tool that fails on some inputs.
 - After D2 on an issue, do not plan another text arm of the same kind for
   that issue.
 - Do not read a train win as a result until validation confirms it. A
