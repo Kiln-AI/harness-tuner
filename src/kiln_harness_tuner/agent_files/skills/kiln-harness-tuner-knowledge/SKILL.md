@@ -41,6 +41,15 @@ not refute a technique: see
 [dealing with a noisy eval](references/playbooks/dealing-with-a-noisy-eval.md).
 When two options tie, the knowledge can settle the choice.
 
+**A technique's "If it does not move the evals" changes a promotion.**
+Under the quality objective, when the val gate finds no winner, code reads
+that section of the technique that the build named. When it starts with
+`Keep it.`, code promotes the candidate if val shows that it is not worse
+than the baseline on every eval, on cost and on latency. `It must move an
+eval.` and `It depends.` never promote a candidate with no gain. A merge,
+or an idea that is in no document, needs a gain too. Knowledge settles a
+tie, never a loss.
+
 ## The parts
 
 | Part | What it is | Where |

@@ -323,6 +323,9 @@ SETUP_LINE_EVENTS = frozenset(
         "eval_item_dropped",
         # Each design review of a baseline.
         "baseline_review",
+        # Promotion on a tie: the test of each candidate, and the promotion.
+        "tie_check",
+        "tie_promotion",
     }
 )
 

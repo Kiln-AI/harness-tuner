@@ -23,9 +23,11 @@ import logging
 from collections.abc import Awaitable, Callable, Collection
 from typing import TYPE_CHECKING, TypeVar
 
+from kiln_harness_tuner import tie
 from kiln_harness_tuner.analysis import (
     AnalysisError,
     MeasurementFailed,
+    SuccessVerdict,
     expand_targets,
     pairable_item_count,
     partial_measurement_error,
@@ -820,6 +822,10 @@ async def _execute_plan_item(
     if isinstance(reviewed, ItemOutcome):
         return reviewed
     rc_id = reviewed.rc_id
+    # Promotion on a tie (`kiln_harness_tuner.tie`): the technique document
+    # that the build named, read by code. An arm whose technique says "Keep
+    # it." need not show a gain to reach the val gate.
+    keep = _keep_arm(ctx, item, reviewed, reused=bool(reused))
 
     _set_state(ctx, item.id, "measuring")
     # One measurement path (`kiln_harness_tuner.measure`): the arm is
@@ -828,7 +834,9 @@ async def _execute_plan_item(
     # rest — with the objective's stop rules after every chunk. A measurement
     # that completes IS the train measurement: the analysis below reads its stored rows.
     efficiency = is_efficiency(ctx.objective)
-    measurement = await _measure_arm(ctx, item, rc_id, parent_rc_id, baseline)
+    measurement = await _measure_arm(
+        ctx, item, rc_id, parent_rc_id, baseline, keep=keep is not None
+    )
     stopped = await _stopped_arm(ctx, item, rc_id, exp_mem, measurement)
     if stopped is not None:
         return stopped
@@ -921,6 +929,9 @@ async def _execute_plan_item(
             bundle=bundle,
             experiment_memory_id=exp_mem,
             speed_rule=speed_rule_text(ctx.objective) if efficiency else None,
+            tie_rule=(
+                tie.tie_rule_text(keep.technique_id or "") if keep is not None else None
+            ),
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
             content_budget=content_budget,
         ),
@@ -955,12 +966,42 @@ async def _execute_plan_item(
         if efficiency
         else success_by_rule(item, bundle, ctx.coverage_floor)
     )
+    on_tie = False
+    if keep is not None and not verdict.ok:
+        # No gain on train is not a failure for this arm. It must not be
+        # worse: the same test the val gate applies, on the train rows.
+        tie_verdict = tie.train_verdict(
+            item,
+            bundle.per_eval,
+            ctx.coverage_floor,
+            await eval_weights(ctx),
+            getattr(ctx, "train_noise", []),
+        )
+        ctx.log.event(
+            "tie_train_rule",
+            item_id=item.id,
+            technique_id=keep.technique_id,
+            gain_rule_reasons=verdict.reasons,
+            rule_ok=tie_verdict.ok,
+            reasons=tie_verdict.reasons,
+        )
+        if tie_verdict.ok:
+            verdict, on_tie = tie_verdict, True
+        else:
+            # The arm was held to "not worse", not to a gain: its record
+            # gives the reasons of that rule first.
+            verdict = SuccessVerdict(
+                False,
+                [f"not worse on train: no — {r}" for r in tie_verdict.reasons]
+                + [f"no gain either: {r}" for r in verdict.reasons],
+            )
     ctx.log.event(
         "success_rule",
         item_id=item.id,
         analyzer_successful=res.data.successful,
         rule_ok=verdict.ok,
         reasons=verdict.reasons,
+        on_tie=on_tie,
     )
     if res.data.successful and not verdict.ok:
         logger.warning(
@@ -994,10 +1035,13 @@ async def _execute_plan_item(
             item.id,
         )
         res.data.successful = True
-        res.data.findings = (
-            res.data.findings.rstrip()
-            + "\n\n[code rule] successful: the primary target improved and the"
-            " code floor passed; the analyzer's veto was a prediction miss,"
+        res.data.findings = res.data.findings.rstrip() + (
+            "\n\n[code rule] successful: the arm's technique says 'Keep it.',"
+            " and it is not worse on train; a missed prediction is caution,"
+            " not a verdict."
+            if on_tie
+            else "\n\n[code rule] successful: the primary target improved and"
+            " the code floor passed; the analyzer's veto was a prediction miss,"
             " which is caution, not a verdict. Read the magnitude against"
             " the row's headroom, not the item's prediction."
         )
@@ -1551,12 +1595,56 @@ def measurement_summary(m: Measured) -> MeasurementSummary:
     )
 
 
+def _keep_arm(
+    ctx: Ctx, item: ExperimentItem, built: RcBuildResult, *, reused: bool
+) -> tie.TechniqueStance | None:
+    """The stance of the technique that the plan and the build both named,
+    when it makes the arm a candidate for a promotion on a tie: the quality
+    objective, a fix item that is a promotion candidate, a technique whose
+    document says "Keep it.", and a run that has not used its tie
+    promotions. Else None, and the arm is held to a gain as before.
+
+    Code keeps the stance by run config id (`ctx.tie_stances`), for the gate.
+    A reused run config has no build session: it keeps the stance that its
+    build in this run gave it, and has none when a prior run built it."""
+    stances = getattr(ctx, "tie_stances", None)
+    if stances is None or is_efficiency(ctx.objective):
+        return None
+    if not isinstance(item.work, FixWork):
+        return None  # a merge names no technique
+    if reused:
+        stance = stances.get(built.rc_id)
+    else:
+        stance = tie.agreed_stance(
+            tie.knowledge_of(ctx),
+            item.work.technique_id,
+            built.technique_id,
+            item.work.technique,
+        )
+        stances[built.rc_id] = stance
+        ctx.log.event(
+            "technique_named",
+            item_id=item.id,
+            rc_id=built.rc_id,
+            technique_id=stance.technique_id,
+            stance=stance.stance,
+            note=stance.note,
+        )
+    if stance is None or not stance.keep or not item.promotion_candidate:
+        return None
+    if getattr(ctx, "tie_promotions", 0) >= tie.MAX_TIE_PROMOTIONS:
+        return None
+    return stance
+
+
 async def _measure_arm(
     ctx: Ctx,
     item: ExperimentItem,
     rc_id: str,
     parent_rc_id: str,
     baseline: BaselineRef,
+    *,
+    keep: bool = False,
 ) -> Measured:
     """The arm through the engine: every item of its targeted evals' train
     split, the objective's rules merged with the planner's for this arm.
@@ -1575,19 +1663,21 @@ async def _measure_arm(
         and not swap
         and not named
     )
-    rules = merge_rules(
-        default_stop_rules(
-            ctx.objective,
-            full=True,
-            residual=residual,
-            targets=bool(named),
-            noise_rate=noise_flip_rate(
-                getattr(ctx, "train_noise", []),
-                [t.eval_id for t in item.evaluation_target],
-            ),
+    defaults = default_stop_rules(
+        ctx.objective,
+        full=True,
+        residual=residual,
+        targets=bool(named),
+        noise_rate=noise_flip_rate(
+            getattr(ctx, "train_noise", []),
+            [t.eval_id for t in item.evaluation_target],
         ),
-        getattr(item.work, "stop_rules", None) or [],
     )
+    if keep:
+        # Its technique says "Keep it.": the rules that demand a gain
+        # (`futility`, `residual`) would end the arm before the gate.
+        defaults = tie.keep_arm_rules(defaults)
+    rules = merge_rules(defaults, getattr(item.work, "stop_rules", None) or [])
     spec = MeasureSpec(
         targets=list(item.evaluation_target),
         rules=rules,

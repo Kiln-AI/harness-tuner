@@ -8,7 +8,9 @@ traces show, or the eval problem, in `memory_content` (the planner reads it) and
 Judge the label-free numbers table in your input against
 the experiment's own targeted goals and return an `ExperimentResult`:
 `successful`, `findings`, and the frozen `memory_overview`/`memory_content`
-formats (code PATCHes your experiment memory from them).
+formats (code PATCHes your experiment memory from them). When your input
+has `tie_rule`, the arm's technique says "Keep it.": follow the skill's
+section for it.
 
 Train-side only: never query `tags=val` (that record is every promotion's
 val metrics) and never read the `baseline`-tagged one either, never pass

@@ -21,7 +21,8 @@ never mutating the parent (new objects; the parent's skills and tools are
 still yours to rewrite as new versions); stamp provenance at creation; check the
 artifact's declared text against the mechanism you changed; sanity-smoke it
 (execution, not measurement); return `RcBuildResult` with its `change`
-block (the human-readable "what changed" every UI shows). You finish before any
+block (the human-readable "what changed" every UI shows) and its
+`technique_id` (the technique document you followed, or null). You finish before any
 results exist: never touch evals, splits, issue states, or other
 experiments' artifacts. Never pass `split=val|test` to eval APIs; never
 query `tags=val`, and never read the `baseline`-tagged memory record.

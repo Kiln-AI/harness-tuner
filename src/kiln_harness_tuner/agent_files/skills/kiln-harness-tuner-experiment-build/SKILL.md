@@ -161,6 +161,16 @@ going looking.
    - `smoke_items` — the named target items you smoked on, if any.
    `build_notes` stays for the analyzer: compromises, a surface shared with
    other likely fixes, anything the numbers alone will not explain.
+7. Return **`technique_id`**: the id of the technique document of the
+   `kiln-harness-tuner-knowledge` skill that this build follows (its file
+   name without `.md`, for example "remove-or-scope-tools"). When the item
+   names one (`work.technique_id`) and you built that technique, return the
+   same id. When you built something else, return the id of what you built,
+   or `null` when the change follows no technique document, and for a
+   merge. Never return the item's id for a change that does not follow it:
+   code reads that document's "If it does not move the evals" only when
+   the item and the build name the same id, and its `Keep it.` lets a
+   candidate with no gain be promoted when val shows no loss.
 
 ## Train labels, and what you may not copy from them
 

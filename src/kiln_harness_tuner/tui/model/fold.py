@@ -1313,8 +1313,13 @@ class RunModel:
         who = item.item_id
         if rc and rc == gate.promoted:
             item.gate = "promoted"
-            concern, change = self._val_change(gate, item)
-            self._say(s, "promo", log.promoted(who, concern, change), bold=True)
+            decision = gate.decision
+            if decision is not None and decision.grounds == "design":
+                line = log.promoted_on_tie(who, decision.technique_id)
+            else:
+                concern, change = self._val_change(gate, item)
+                line = log.promoted(who, concern, change)
+            self._say(s, "promo", line, bold=True)
         elif rc in gate.copied:
             item.gate = "copied"
             self.refused.add(rc)

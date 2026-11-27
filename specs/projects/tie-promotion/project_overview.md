@@ -1,5 +1,5 @@
 ---
-status: draft
+status: complete
 ---
 
 # Promotion on a tie
@@ -8,7 +8,11 @@ status: draft
 so that the project is easy to start later. It was split out of the
 [biological_bootloader](../biological_bootloader/project_overview.md)
 project on 2026-11-12, because the architecture step found it too large for
-that project. It is not started.
+that project. The first goal, promotion on a tie, is built: see
+[functional_spec.md](functional_spec.md) and
+[architecture.md](architecture.md). The stretch goal is designed in the
+functional spec, section 12, and is in `specs/backlog.md` as "A tie inside
+the variance".
 
 ## 1. The problem
 

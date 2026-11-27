@@ -828,6 +828,16 @@ Per experiment item:
   val pass. `MergeWork` requires `true` (schema-enforced). A **single big
   win** needs no merge construction — its own fix item with
   `promotion_candidate: true` goes through the same promotion measurement.
+  **A design change with no gain** (under `quality`): when the technique of
+  a fix item says `Keep it.` in "If it does not move the evals" (a smaller
+  tool list, a pruned group), set `promotion_candidate: true`, set
+  **`technique_id`** in `work` to the technique's id (its file name without
+  `.md`), and predict "no eval moves" if that is what you expect. When the
+  build names the same technique, code holds the arm to "not worse" on
+  train instead of a gain, and the val gate can promote it on a tie. A run makes at most one
+  such promotion; after it, the arm needs a gain again. `It must move an
+  eval.`, `It depends.`, a merge and an idea in no document always need a
+  gain.
 - **`target_items` — the named block.** When the baseline has
   failing train items and your hypothesis explains WHY specific ones fail,
   name them: the eval-input ids (train lane only — never val or test) from

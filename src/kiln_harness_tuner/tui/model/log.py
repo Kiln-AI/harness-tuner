@@ -140,6 +140,13 @@ def promoted(who: str, concern: str | None, change: str | None) -> str:
     return f"{who} promoted"
 
 
+def promoted_on_tie(who: str, technique: str | None) -> str:
+    """A promotion on design grounds: val showed a tie, and the technique
+    document says to keep the change."""
+    why = f"its technique ({technique}) says to keep it" if technique else "a tie"
+    return f"{who} promoted on a tie · no gain and no loss on val · {why}"
+
+
 def _changes(concern: str | None, train: str | None, val: str | None) -> str:
     return f" · {concern} train {train}, val {val}" if concern and train and val else ""
 

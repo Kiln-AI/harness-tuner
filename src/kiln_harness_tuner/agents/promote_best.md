@@ -22,6 +22,11 @@ a `BLOCKED:` flag made it ineligible; for any other flag on the winner you
 pick, add a line to `rationale` that starts `Integrity:` and answers it —
 code refuses a flagged winner without one.
 
+A table's `tie` (quality only) names the technique of the candidate's
+build and its phrase. It is information: decide on the evidence. A
+promotion on a tie is code's own step after a no-winner decision; never set
+`grounds` or `technique_id`.
+
 Each candidate table carries `errors` (every hole in its val assembly —
 failed fills, evals absent from the comparison, coverage below the floor)
 and `ineligible`. You may not claim "no regressions" for an eval listed in

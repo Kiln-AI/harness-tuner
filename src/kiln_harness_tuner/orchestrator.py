@@ -33,6 +33,7 @@ from pathlib import Path
 from statistics import fmean
 from typing import Any, NamedTuple, Protocol
 
+from kiln_harness_tuner import tie
 from kiln_harness_tuner.analysis import (
     BINARY_SCORE_TYPES,
     RATING_SCORE_TYPES,
@@ -175,6 +176,7 @@ from kiln_harness_tuner.schemas import (
     RegressedIssue,
     ScreenResult,
     TargetBlock,
+    TieCheck,
     TrainDetectability,
     lane_for_source,
 )
@@ -487,6 +489,15 @@ class Ctx:
     baseline_review: bool = False
     reviewed_rc_id: str | None = None
     baseline_reviews: list[BaselineReview] = field(default_factory=list)
+    # Promotion on a tie (`kiln_harness_tuner.tie`). `tie_stances`: run
+    #   config id -> the technique document that its build named, and that
+    #   document's phrase, read by code. `tie_promotions`: the promotions
+    #   on a tie that this run applied (limit `tie.MAX_TIE_PROMOTIONS`).
+    #   `knowledge_base`: the knowledge skill, loaded on first use (False
+    #   when it could not be read).
+    tie_stances: dict[str, tie.TechniqueStance] = field(default_factory=dict)
+    tie_promotions: int = 0
+    knowledge_base: Any = None
 
 
 async def orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int = 180) -> str:
@@ -1472,6 +1483,7 @@ async def _run_promotion_gate(
     baseline = BaselineRef(rc_id=ctx.memory.baseline_rc_id(record))
     assembly = await _assemble_val_tables(ctx, candidates, baseline.rc_id)
     tables = assembly.tables
+    _mark_tie_candidates(ctx, candidates, tables)
     # The fill and coverage holes. Read here, before the integrity checks,
     # because a quote block also sets `ineligible`, and a block is a
     # verdict, not a hole.
@@ -1581,6 +1593,11 @@ async def _run_promotion_gate(
                 tables[0].rc_id,
             )
         elif decision is not None:
+            # The gate's last step: with no winner on the evidence, code may
+            # promote a candidate on a tie.
+            decision = await _settle_tie(
+                ctx, candidates, tables, baseline.rc_id, decision
+            )
             ctx.log.event(
                 "promotion",
                 winner_rc_id=decision.winner_rc_id,
@@ -1635,6 +1652,11 @@ async def _run_promotion_gate(
         )
         return None
     decision = decision_result.data
+    # No agent promotes on a tie: whatever the agent returned in these two
+    # fields, its decision rests on the evidence. Then the gate's last step:
+    # with no winner on the evidence, code may promote a candidate on a tie.
+    decision.grounds, decision.technique_id = "evidence", None
+    decision = await _settle_tie(ctx, candidates, tables, baseline.rc_id, decision)
     ctx.log.event(
         "promotion",
         winner_rc_id=decision.winner_rc_id,
@@ -1699,6 +1721,144 @@ async def _run_promotion_gate(
     # PRE-apply rc — what the candidates were actually measured against.
     await _record_rejections(ctx, candidates, decision, baseline.rc_id, tables, holed)
     return decision
+
+
+# ---- Promotion on a tie ----
+
+
+def _mark_tie_candidates(
+    ctx: Ctx, candidates: list[GateCandidate], tables: list[CandidateValTable]
+) -> None:
+    """Put on each candidate's table the technique document that its build
+    named and that document's phrase (`ctx.tie_stances`, set at the build).
+    The quality objective only, and never a merge: a merge names no
+    technique. Nothing here is read from val."""
+    if is_efficiency(ctx.objective):
+        return
+    by_rc = {c.rc_id: c for c in candidates}
+    for table in tables:
+        candidate = by_rc.get(table.rc_id)
+        stance = ctx.tie_stances.get(table.rc_id)
+        if candidate is None or stance is None:
+            continue
+        if not isinstance(getattr(candidate.outcome.item, "work", None), FixWork):
+            continue
+        table.tie = TieCheck(
+            technique_id=stance.technique_id, stance=stance.stance, note=stance.note
+        )
+
+
+async def _settle_tie(
+    ctx: Ctx,
+    candidates: list[GateCandidate],
+    tables: list[CandidateValTable],
+    baseline_rc_id: str,
+    decision: PromotionDecision,
+) -> PromotionDecision:
+    """The gate's last step under the quality objective: knowledge settles a
+    tie, never a loss (`kiln_harness_tuner.tie`).
+
+    It runs only when the evidence step — the code rule or the promotion
+    agent — chose NO winner and did not hold the gate on a constraint. Then
+    a candidate whose technique document says "Keep it." is promoted when
+    code shows that it is not worse than the baseline:
+
+    1. on quality, from its val table (`tie.quality_reasons`): a whole and
+       clean table, no row down significantly, no row over its noise
+       allowance, pooled net items at least zero;
+    2. on cost and on latency, from one paired drive pass on a fixed val
+       sample (`_speed_val_pass`, the pass of the speed objective), paid
+       only for the candidates that passed 1 (`tie.metric_reasons`).
+
+    Code decides all of it. The run applies at most
+    `tie.MAX_TIE_PROMOTIONS` such promotions. Returns the decision to apply:
+    the tie decision (`grounds="design"`), or the one it was given."""
+    if (
+        decision.winner_rc_id is not None
+        or decision.blocked_on is not None
+        or is_efficiency(ctx.objective)
+    ):
+        return decision
+    keep = [t for t in tables if t.tie is not None and t.tie.stance == "keep"]
+    if not keep:
+        return decision
+    used_up = ctx.tie_promotions >= tie.MAX_TIE_PROMOTIONS
+    weights = await eval_weights(ctx)
+    passing: list[CandidateValTable] = []
+    for table in keep:
+        assert table.tie is not None
+        if used_up:
+            table.tie.reasons = [
+                f"the run already made {ctx.tie_promotions} promotion(s) on a"
+                f" tie (the limit is {tie.MAX_TIE_PROMOTIONS})"
+            ]
+            continue
+        table.tie.reasons = tie.quality_reasons(table, weights, ctx.train_noise)
+        if not table.tie.reasons:
+            passing.append(table)
+    if passing:
+        await _speed_val_pass(ctx, passing, baseline_rc_id)
+        for table in passing:
+            assert table.tie is not None
+            table.tie.reasons = tie.metric_reasons(
+                "cost", table.cost
+            ) + tie.metric_reasons("latency", table.latency)
+        passing = [t for t in passing if t.tie is not None and not t.tie.reasons]
+    for table in keep:
+        assert table.tie is not None
+        table.tie.not_worse = not table.tie.reasons
+        verdict = "not worse" if table.tie.not_worse else "no tie"
+        ctx.log.event(
+            "tie_check",
+            rc_id=table.rc_id,
+            technique_id=table.tie.technique_id,
+            not_worse=table.tie.not_worse,
+            reasons=list(table.tie.reasons),
+            line=f"tie check {table.rc_id} ({table.tie.technique_id}): {verdict}"
+            + (f" — {'; '.join(table.tie.reasons)}" if table.tie.reasons else ""),
+        )
+    # The tables changed (the test's result, the paired pass): the val
+    # readers and the wave log get the final ones.
+    write_val_summary(ctx, tables)
+    _emit_val_tables(ctx, baseline_rc_id, tables)
+    if not passing:
+        return decision
+    winner = tie.pick_winner(passing, weights)
+    assert winner.tie is not None and winner.tie.technique_id is not None
+    issues = await ctx.memory.issues_by_eval()
+    tie_decision = PromotionDecision(
+        winner_rc_id=winner.rc_id,
+        winner_experiment_memory_id=winner.experiment_memory_id,
+        rationale=tie.rationale(
+            winner,
+            winner.tie.technique_id,
+            weights,
+            evidence_rationale=decision.rationale,
+            passed=[t.rc_id for t in passing],
+        ),
+        # A row that slipped inside its allowance still flags its issue, as
+        # the single-candidate rule does (metric-free).
+        regressed_issues=[
+            RegressedIssue(
+                issue_memory_id=issue_id,
+                note=f"nominal val slip on {r.eval_id}/{r.score_key}: {r.delta:+.3f}",
+            )
+            for r in winner.per_eval
+            if r.delta < 0
+            for issue_id in issues.get(r.eval_id, [])
+        ],
+        grounds="design",
+        technique_id=winner.tie.technique_id,
+    )
+    ctx.log.event(
+        "tie_promotion",
+        rc_id=winner.rc_id,
+        technique_id=winner.tie.technique_id,
+        evidence_rationale=decision.rationale,
+        line=f"promotion on a tie: {winner.rc_id} — technique"
+        f" {winner.tie.technique_id} says 'Keep it.', and val shows no loss",
+    )
+    return tie_decision
 
 
 # ---- Reward-hacking checks at the gate ----
@@ -3575,6 +3735,8 @@ async def _apply_promotion(
     await _promotion_write(
         ctx, lambda: ctx.memory.promote(decision, winner_label, record)
     )
+    if decision.grounds == "design":
+        ctx.tie_promotions += 1  # the pointer moved: the run's limit counts it
     # (a2) the `val` stats record — the ONLY val-metrics memory write.
     # Same 3-call/20s ladder as every other apply write, but exhaustion LOGS
     # AND CONTINUES rather than propagating: this is reporting, and a
@@ -3602,7 +3764,9 @@ async def _apply_promotion(
     # line instead ("FIXED:" and "still repros" cannot
     # coexist); then the metric-free regression flags for the rest.
     citation = f"{decision.winner_rc_id}, {winner_label}"
-    landed = _landed_issue_ids(winner)
+    # On design grounds (a tie) val confirmed no fix, so no issue is closed:
+    # a false `FIXED:` hides an open issue from every later planner.
+    landed = [] if decision.grounds == "design" else _landed_issue_ids(winner)
     regressed_ids = {r.issue_memory_id for r in decision.regressed_issues}
     for issue_id in landed:
         if issue_id in regressed_ids:
@@ -3696,12 +3860,20 @@ def _rejection_reason(
     """The reason on a candidate's rejection line. Callers pass a decision
     with a winner only after the winner was applied, so the candidates
     left were passed over for it. With no winner, the candidate's own val
-    table gives the reason (`val_rejection_reason`)."""
-    if decision.winner_rc_id is not None:
+    table gives the reason (`val_rejection_reason`).
+
+    A winner on a tie (`grounds == "design"`) won only after the evidence
+    step had chosen no winner. So a candidate that was not also "not worse"
+    lost on its own numbers: its table gives the reason, as with no
+    winner. Only a candidate that also passed the tie test was passed over."""
+    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
+    passed_tie = table is not None and table.tie is not None and table.tie.not_worse
+    if decision.winner_rc_id is not None and (
+        decision.grounds != "design" or passed_tie
+    ):
         return ValRejection(
             ValRejectionKind.PASSED_OVER, promoted_rc_id=decision.winner_rc_id
         )
-    table = next((t for t in tables if t.rc_id == candidate.rc_id), None)
     return val_rejection_reason(
         table,
         _target_eval_ids(candidate),

@@ -871,13 +871,35 @@ successful on train.
    cost, `decide_speed_gate` decides in code whatever the number of
    candidates (section 16), and a winner with integrity flags goes to
    `promote_best`. `--gate-agent always` dispatches the agent every time.
+   **Then the tie step — code** (`_settle_tie`,
+   [`tie.py`](../src/kiln_harness_tuner/tie.py)). Under quality only, when
+   the decision has no winner and no `blocked_on`: a candidate whose plan
+   and build named the same technique document (`FixWork.technique_id`,
+   `RcBuildResult.technique_id`) that says
+   `Keep it.` in `If it does not move the evals` is tested for a tie. Code
+   reads the document from the knowledge skill of the package; the
+   document must be `active` and name the experiment's lever. The test:
+   a whole, clean val table with no integrity flag; no row down
+   significantly; no row down by more net items than the noise that
+   `--noise-check` measured on its score (zero without a noise check);
+   pooled net items, weighted by priority, at zero or above; then, for the
+   candidates that pass, one paired drive pass on a val sample
+   (`_speed_val_pass`), where cost and latency must not be clearly worse
+   and have a median ratio of at most 1.03. The winner (the highest pooled
+   net, then the cheapest, then the fastest) gets a decision with
+   `grounds: "design"`. No agent can set `grounds`. A run makes at most
+   `tie.MAX_TIE_PROMOTIONS` (1) such promotions. On the train side, such an
+   arm runs without the `futility` and `residual` stop rules, and its
+   train rule is "not worse" (`tie.train_verdict`). A merge never has a
+   stance. The spec is `specs/projects/tie-promotion/`.
 4. **The apply — code, strict order.** The `baseline` record first, then the
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
    winner's `— PROMOTED` stamp, then one `— REJECTED AT VAL` stamp per
    candidate passed over on complete val evidence, with its reason line.
    With no winner, the rejection stamps and their reason lines are the only
-   writes: no issue record changes, because the baseline did not change.
+   writes: no issue record changes, because the baseline did not change. A
+   promotion on a tie writes no `FIXED:`: val confirmed no fix.
 
 Every candidate's table carries `errors` — every hole in its val assembly — and
 `ineligible`. A candidate whose fill failed on either side, or whose coverage
@@ -1360,6 +1382,8 @@ src/kiln_harness_tuner/
   job_drives.py     drives through one-item eval jobs, for multi-turn and
                     OpenEnv tasks
   stop_rules.py     the engine's stop rules and their tests
+  tie.py            promotion on a tie: the technique's phrase, the
+                    "not worse" test, the train rule of a keep arm
   estimate.py       the stratified estimate of a candidate's net change
   viability.py      screening rounds (N candidates through the engine)
   analysis.py       eval jobs, the cache, paired statistics, the bundle
