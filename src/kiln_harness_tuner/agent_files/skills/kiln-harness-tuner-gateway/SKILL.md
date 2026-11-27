@@ -277,12 +277,12 @@ what to write.
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, or it is not a `kiln_agent` config |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, or when it adds a Kiln state tool that the baseline run config does not have (below) |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |
-| `create_code_tool` | `name`, `tool_function_name`, `tool_description`, `parameters_schema`, `code`, `description?`, `timeout_seconds?`, `tool_allowlist?`, `provenance?` | the new tool |
-| `test_code_tool` | `tool_function_name`, `parameters_schema`, `code`, `params?`, … | a dry run: `result`, `error`, `traceback`, `stdout`, `stderr`, `not_trusted`, `tool_call_log`, `duration_ms` |
+| `create_code_tool` | `name`, `tool_function_name`, `tool_description`, `parameters_schema`, `code`, `description?`, `timeout_seconds?`, `tool_allowlist?`, `provenance?` | the new tool — refused when `tool_allowlist` reaches a Kiln state tool (below) |
+| `test_code_tool` | `tool_function_name`, `parameters_schema`, `code`, `params?`, `tool_allowlist?`, … | refused when `tool_allowlist` reaches a Kiln state tool (below); else a dry run: `result`, `error`, `traceback`, `stdout`, `stderr`, `not_trusted`, `tool_call_log`, `duration_ms` |
 | `trust_code_tools` | — | trusts the project's code tools to run |
 | `archive_code_tool` | `id`, `archived?` | the archived tool |
 | `list_skills` / `get_skill` / `get_skill_content` | — / `id` / `id` | skills and their SKILL.md |
@@ -294,6 +294,24 @@ what to write.
 | `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
+
+**Kiln state tools.** A Kiln state tool reads or writes Kiln's own state,
+not the subject task's world. There are two kinds:
+
+- Kiln's memory tools, `kiln_tool::memory::<operation>`. They reach the
+  memory store that holds the loop's `baseline` and `val` records.
+- A Kiln API tool: `kiln_tool::call_kiln_api`, or an MCP tool named
+  `call_kiln_api`. It reaches every Kiln endpoint.
+
+`create_code_tool` and `test_code_tool` refuse an allowlist with a Kiln
+state tool in it. They also refuse a tool that reaches one, at any depth:
+a code tool whose stored allowlist reaches one, and a Kiln task tool
+(`kiln_task::<id>`) whose run config has a tool that reaches one.
+`create_run_config` refuses a Kiln state tool, or a code tool or a Kiln
+task tool that reaches one, when the baseline run config does not have
+that tool. A tool that the baseline run config has may stay in the
+candidate. The refusal names each refused tool and its path. Remove the
+tool, and use the subject task's own tools.
 
 ### Building an eval (eval_build)
 

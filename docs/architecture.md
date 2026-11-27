@@ -800,8 +800,9 @@ through the gateway's `memory_create` / `memory_update`, in the two scopes
 only. Lifecycle writes are code's alone by contract: the memory operations
 enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
 any update of the `baseline` record. They do not check the record kind.
-The gateway does not refuse Kiln's own memory tools in a code tool or a
-run config, so this guard covers the memory operations only.
+An agent cannot go around this guard with Kiln's own memory tools: the
+gateway refuses them in a code tool allowlist and in a new run config
+(section 12, "No tool that reaches Kiln's own state").
 
 ## 9. The promotion gate
 
@@ -1149,6 +1150,25 @@ reads a list: it takes the last `"type": "result"` event.
      settings or providers, and no operation for deletes, split edits or
      held-out items. The model operations read the run's model catalogue
      snapshot (section 17.1).
+   - **No tool that reaches Kiln's own state.** Kiln's memory tools
+     (`kiln_tool::memory::<operation>`) read and write the memory store
+     that holds the `baseline` and `val` records. A Kiln API tool
+     (`kiln_tool::call_kiln_api`, or an MCP tool named `call_kiln_api`)
+     reaches every endpoint. With one of them, an agent could go around
+     the memory operations: move the baseline pointer with no val gate, or
+     read the `val` record. So `create_code_tool` and `test_code_tool`
+     refuse an allowlist that has one of these tools, or a tool that
+     reaches one at any depth. A code tool reaches what its stored
+     allowlist reaches. A Kiln task tool (`kiln_task::<id>`) reaches what
+     the tools of its run config reach, because the called task's agent
+     can call them. `create_run_config` refuses
+     the same tools, with one exception: a tool that the baseline run
+     config already has may stay. The subject agent can use Kiln memory by
+     design, and a candidate must be able to keep what its baseline has.
+     The gateway reads the baseline run config from the `rc_<id>` tag of
+     the `baseline` record. With no such record, it refuses all of these
+     tools. A code tool runs the agent's own code, so the baseline
+     exception does not apply to an allowlist.
    - **Traces in files, and a cap on every answer**
      ([`gateway/trace_files.py`](../src/kiln_harness_tuner/gateway/trace_files.py)).
      Claude Code does not give an agent an MCP answer over about 25,000

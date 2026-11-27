@@ -962,6 +962,366 @@ class TestWrites:
             )
 
 
+class TestKilnStateTools:
+    """No code tool allowlist and no new run config gets a tool that reads
+    or writes Kiln's own state. Kiln's memory tools reach the `baseline` and
+    `val` records; a Kiln API tool reaches every endpoint."""
+
+    STATE_TOOLS = [
+        "kiln_tool::memory::save",
+        "kiln_tool::memory::list",
+        "kiln_tool::memory::get",
+        "kiln_tool::memory::update",
+        "kiln_tool::memory::delete",
+        "kiln_tool::memory::summary",
+        "kiln_tool::call_kiln_api",
+        "mcp::local::424242500001::call_kiln_api",
+    ]
+    CODE = "def run(q):\n    return q\n"
+    SCHEMA = {"type": "object", "properties": {"q": {"type": "string"}}}
+    BASELINE_RC = "424242100003"
+
+    def _code_tools(self) -> dict:
+        # ct1 -> ct2 -> a memory tool; ct3 <-> ct4 is a cycle with no state
+        # tool in it.
+        allowlists = {
+            "ct1": ["mcp::remote::424242500002::search", "kiln_tool::code::ct2"],
+            "ct2": ["kiln_tool::memory::update"],
+            "ct3": ["kiln_tool::code::ct4"],
+            "ct4": ["kiln_tool::code::ct3", "mcp::remote::424242500002::search"],
+        }
+        return {
+            ("GET", f"/api/projects/{PROJECT}/code_tools/{i}"): {
+                "id": i,
+                "tool_allowlist": allowed,
+            }
+            for i, allowed in allowlists.items()
+        }
+
+    def _routes(self, baseline_tools=None, baseline_record=True) -> dict:
+        rcs = [
+            {
+                "id": self.BASELINE_RC,
+                "run_config_properties": {
+                    "type": "kiln_agent",
+                    "tools_config": {"tools": baseline_tools or []},
+                },
+            },
+            {
+                "id": "424242100004",
+                "run_config_properties": {
+                    "type": "kiln_agent",
+                    "tools_config": {"tools": ["kiln_tool::memory::update"]},
+                },
+            },
+        ]
+        record = {
+            "id": "m5",
+            "overview": "Baseline",
+            "tags": ["baseline", f"rc_{self.BASELINE_RC}"],
+            "scope": f"task::{TASK}",
+        }
+
+        def memories(query, _body):
+            assert query["tags"] == ["baseline"]
+            assert query["scope"] == f"task::{TASK}"
+            listings = [record] if baseline_record else []
+            return {"listings": listings, "matched": len(listings), "remaining": 0}
+
+        return {
+            **self._code_tools(),
+            ("GET", f"/api/projects/{PROJECT}/memories"): memories,
+            ("GET", f"{BASE}/run_configs"): rcs,
+            ("POST", f"{BASE}/run_configs"): lambda _q, body: {"id": "424242600030"},
+            ("POST", f"/api/projects/{PROJECT}/code_tools"): {"id": "ct9"},
+            ("POST", f"/api/projects/{PROJECT}/test_code_tool"): {"result": "ok"},
+        }
+
+    def _writes(self, kiln) -> list[tuple[str, str]]:
+        return [(c[0], c[1]) for c in kiln.calls if c[0] != "GET"]
+
+    def _test_args(self, allowlist):
+        return {
+            "tool_function_name": "f",
+            "parameters_schema": self.SCHEMA,
+            "code": self.CODE,
+            "tool_allowlist": allowlist,
+            "params": {"q": "x"},
+        }
+
+    def _create_args(self, allowlist):
+        return {
+            "name": "wrapper",
+            "tool_function_name": "f",
+            "tool_description": "a wrapper",
+            "parameters_schema": self.SCHEMA,
+            "code": self.CODE,
+            "tool_allowlist": allowlist,
+        }
+
+    def _rc_args(self, tools):
+        props = {"type": "kiln_agent", "tools_config": {"tools": tools}}
+        return {"name": "candidate", "run_config_properties": props}
+
+    @pytest.mark.parametrize("tool", STATE_TOOLS)
+    @pytest.mark.parametrize("op", ["test_code_tool", "create_code_tool"])
+    def test_a_code_tool_never_allowlists_a_state_tool(self, tmp_path, op, tool):
+        # Even when the baseline run config has the tool: a code tool runs
+        # the agent's own code.
+        gateway, kiln = _gateway(tmp_path, self._routes(baseline_tools=[tool]))
+        args = self._create_args if op == "create_code_tool" else self._test_args
+        with pytest.raises(gw.GatewayError, match="cannot allowlist") as refused:
+            _run(gateway, op, **args(["mcp::remote::424242500002::search", tool]))
+        assert tool in str(refused.value)
+        assert self._writes(kiln) == []
+
+    @pytest.mark.parametrize("op", ["test_code_tool", "create_code_tool"])
+    def test_a_nested_code_tool_is_followed(self, tmp_path, op):
+        gateway, kiln = _gateway(tmp_path, self._routes())
+        args = self._create_args if op == "create_code_tool" else self._test_args
+        with pytest.raises(gw.GatewayError, match="cannot allowlist") as refused:
+            _run(gateway, op, **args(["kiln_tool::code::ct1"]))
+        assert (
+            "kiln_tool::code::ct1 -> kiln_tool::code::ct2 -> kiln_tool::memory::update"
+            in str(refused.value)
+        )
+        assert self._writes(kiln) == []
+
+    @pytest.mark.parametrize("op", ["test_code_tool", "create_code_tool"])
+    def test_subject_tools_still_pass(self, tmp_path, op):
+        gateway, kiln = _gateway(tmp_path, self._routes())
+        args = self._create_args if op == "create_code_tool" else self._test_args
+        allowlist = [
+            "mcp::remote::424242500002::search",
+            "kiln_tool::code::ct3",  # a cycle, with no state tool in it
+            "kiln_tool::rag::424242500003",
+        ]
+        _run(gateway, op, **args(allowlist))
+        assert len(self._writes(kiln)) == 1
+        # For a code tool the baseline is not read: only the nested code
+        # tools are, each one once.
+        reads = {c[1] for c in kiln.calls if c[0] == "GET"}
+        assert reads == {
+            f"/api/projects/{PROJECT}/code_tools/ct3",
+            f"/api/projects/{PROJECT}/code_tools/ct4",
+        }
+
+    @pytest.mark.parametrize("tool", STATE_TOOLS)
+    def test_a_run_config_never_adds_a_state_tool(self, tmp_path, tool):
+        gateway, kiln = _gateway(tmp_path, self._routes())
+        with pytest.raises(gw.GatewayError, match="cannot add") as refused:
+            _run(gateway, "create_run_config", **self._rc_args([tool]))
+        assert tool in str(refused.value)
+        assert f"baseline run config {self.BASELINE_RC} does not have" in str(
+            refused.value
+        )
+        assert self._writes(kiln) == []
+
+    def test_a_run_config_never_adds_a_code_tool_that_reaches_one(self, tmp_path):
+        gateway, kiln = _gateway(tmp_path, self._routes())
+        with pytest.raises(gw.GatewayError, match="cannot add") as refused:
+            _run(
+                gateway, "create_run_config", **self._rc_args(["kiln_tool::code::ct1"])
+            )
+        assert "kiln_tool::code::ct2 -> kiln_tool::memory::update" in str(refused.value)
+        assert self._writes(kiln) == []
+
+    def test_a_run_config_keeps_the_state_tools_of_its_baseline(self, tmp_path):
+        # The subject agent may use Kiln memory by design. A candidate keeps
+        # what its baseline has, and adds nothing more of the kind.
+        kept = ["kiln_tool::memory::list", "kiln_tool::memory::save"]
+        baseline = [*kept, "kiln_tool::code::ct1"]
+        gateway, kiln = _gateway(tmp_path, self._routes(baseline_tools=baseline))
+        _run(
+            gateway,
+            "create_run_config",
+            **self._rc_args([*kept, "kiln_tool::code::ct1", "kiln_tool::code::ct3"]),
+        )
+        assert self._writes(kiln) == [("POST", f"{BASE}/run_configs")]
+        with pytest.raises(gw.GatewayError, match="cannot add") as refused:
+            _run(
+                gateway,
+                "create_run_config",
+                **self._rc_args([*kept, "kiln_tool::memory::update"]),
+            )
+        assert "kiln_tool::memory::list" not in str(refused.value)
+        assert "kiln_tool::memory::update" in str(refused.value)
+        assert len(self._writes(kiln)) == 1
+
+    def test_another_run_config_does_not_count_as_the_baseline(self, tmp_path):
+        # 424242100004 has the tool, but the `baseline` record names
+        # 424242100003.
+        gateway, kiln = _gateway(tmp_path, self._routes())
+        with pytest.raises(gw.GatewayError, match="cannot add"):
+            _run(
+                gateway,
+                "create_run_config",
+                **self._rc_args(["kiln_tool::memory::update"]),
+            )
+        assert self._writes(kiln) == []
+
+    def test_with_no_baseline_record_every_state_tool_is_refused(self, tmp_path):
+        gateway, kiln = _gateway(
+            tmp_path,
+            self._routes(
+                baseline_tools=["kiln_tool::memory::list"], baseline_record=False
+            ),
+        )
+        with pytest.raises(gw.GatewayError, match="no baseline run config"):
+            _run(
+                gateway,
+                "create_run_config",
+                **self._rc_args(["kiln_tool::memory::list"]),
+            )
+        assert self._writes(kiln) == []
+
+    def test_a_cycle_does_not_hide_a_path(self, tmp_path):
+        # ca -> cb -> ca, and ca -> a memory tool. cb reaches the memory
+        # tool through ca, whichever of them is checked first.
+        routes = {
+            ("GET", f"/api/projects/{PROJECT}/code_tools/ca"): {
+                "tool_allowlist": ["kiln_tool::code::cb", "kiln_tool::memory::get"]
+            },
+            ("GET", f"/api/projects/{PROJECT}/code_tools/cb"): {
+                "tool_allowlist": ["kiln_tool::code::ca"]
+            },
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        found = asyncio.run(
+            gateway._state_tools(["kiln_tool::code::ca", "kiln_tool::code::cb"])
+        )
+        assert found == {
+            "kiln_tool::code::ca": ["kiln_tool::code::ca", "kiln_tool::memory::get"],
+            "kiln_tool::code::cb": [
+                "kiln_tool::code::cb",
+                "kiln_tool::code::ca",
+                "kiln_tool::memory::get",
+            ],
+        }
+        # Each code tool is read once.
+        assert len(kiln.calls) == 2
+
+    SUB_TASK = "424242783099"
+
+    def _task_tool_routes(self, tools_by_server: dict[str, list[str]]) -> dict:
+        """One Kiln task tool per server id. Each calls `SUB_TASK` with its
+        own run config, `rc_<server id>`, which holds the given tools."""
+        routes: dict = {
+            ("GET", f"/api/projects/{PROJECT}/tasks/{self.SUB_TASK}/run_configs"): [
+                {
+                    "id": f"rc_{server}",
+                    "run_config_properties": {
+                        "type": "kiln_agent",
+                        "tools_config": {"tools": tools},
+                    },
+                }
+                for server, tools in tools_by_server.items()
+            ]
+        }
+        for server in tools_by_server:
+            routes[("GET", f"/api/projects/{PROJECT}/tool_servers/{server}/config")] = {
+                "id": server,
+                "type": "kiln_task",
+                "properties": {
+                    "task_id": self.SUB_TASK,
+                    "run_config_id": f"rc_{server}",
+                },
+            }
+        return routes
+
+    @pytest.mark.parametrize(
+        "op", ["test_code_tool", "create_code_tool", "create_run_config"]
+    )
+    def test_a_kiln_task_tool_is_followed(self, tmp_path, op):
+        # s1's run config has a memory tool. s2's run config has a code tool
+        # that reaches one (ct1 -> ct2). The called task's agent can call
+        # them, so both task tools are refused.
+        routes = {
+            **self._routes(),
+            **self._task_tool_routes(
+                {
+                    "s1": [
+                        "mcp::remote::424242500002::search",
+                        "kiln_tool::memory::save",
+                    ],
+                    "s2": ["kiln_tool::code::ct1"],
+                }
+            ),
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        tools = ["kiln_task::s1", "kiln_task::s2"]
+        args = {
+            "test_code_tool": self._test_args,
+            "create_code_tool": self._create_args,
+            "create_run_config": self._rc_args,
+        }[op]
+        with pytest.raises(gw.GatewayError, match="Kiln task tool") as refused:
+            _run(gateway, op, **args(tools))
+        assert "kiln_task::s1 -> kiln_tool::memory::save" in str(refused.value)
+        assert (
+            "kiln_task::s2 -> kiln_tool::code::ct1 -> kiln_tool::code::ct2"
+            " -> kiln_tool::memory::update" in str(refused.value)
+        )
+        assert self._writes(kiln) == []
+
+    def test_a_kiln_task_tool_with_no_state_tool_passes(self, tmp_path):
+        # s3 and s4 call each other (a cycle), and neither reaches a state
+        # tool. s5 has no run config: it reaches nothing. s6 is not a Kiln
+        # task tool.
+        routes = {
+            **self._routes(),
+            **self._task_tool_routes(
+                {
+                    "s3": ["kiln_task::s4", "kiln_tool::code::ct3"],
+                    "s4": ["kiln_task::s3"],
+                }
+            ),
+            ("GET", f"/api/projects/{PROJECT}/tool_servers/s5/config"): {
+                "type": "kiln_task",
+                "properties": {"task_id": self.SUB_TASK, "run_config_id": "gone"},
+            },
+            ("GET", f"/api/projects/{PROJECT}/tool_servers/s6/config"): {
+                "type": "remote_mcp",
+                "properties": {},
+            },
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        tools = ["kiln_task::s3", "kiln_task::s5", "kiln_task::s6"]
+        _run(gateway, "create_code_tool", **self._create_args(tools))
+        _run(gateway, "create_run_config", **self._rc_args(tools))
+        assert self._writes(kiln) == [
+            ("POST", f"/api/projects/{PROJECT}/code_tools"),
+            ("POST", f"{BASE}/run_configs"),
+        ]
+
+    def test_a_run_config_keeps_the_kiln_task_tool_of_its_baseline(self, tmp_path):
+        # The baseline has s1, which reaches a memory tool: a candidate may
+        # keep it. A code tool may not allowlist it.
+        routes = {
+            **self._routes(baseline_tools=["kiln_task::s1"]),
+            **self._task_tool_routes({"s1": ["kiln_tool::memory::save"]}),
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        _run(gateway, "create_run_config", **self._rc_args(["kiln_task::s1"]))
+        assert self._writes(kiln) == [("POST", f"{BASE}/run_configs")]
+        with pytest.raises(gw.GatewayError, match="cannot allowlist"):
+            _run(gateway, "create_code_tool", **self._create_args(["kiln_task::s1"]))
+        assert len(self._writes(kiln)) == 1
+
+    def test_a_run_config_with_no_state_tool_reads_no_baseline(self, tmp_path):
+        gateway, kiln = _gateway(tmp_path, self._routes())
+        _run(
+            gateway,
+            "create_run_config",
+            **self._rc_args(
+                ["mcp::remote::424242500002::search", "kiln_tool::code::ct3"]
+            ),
+        )
+        assert self._writes(kiln) == [("POST", f"{BASE}/run_configs")]
+        paths = {c[1] for c in kiln.calls}
+        assert f"/api/projects/{PROJECT}/memories" not in paths
+
+
 class TestDocumentedShapes:
     """Each answer keeps the documented fields its role needs (the vendored
     API docs), and each request sends only documented fields."""
