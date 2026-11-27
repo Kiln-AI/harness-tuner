@@ -636,10 +636,11 @@ the same dollars. The spend is booked as `spend` source `repeat`, in the
 provider lane.
 
 **The result.** One `RepeatRow` per (eval, score): `items`, `changed`
-(outcome at the pass line for pass/fail, value for a rating), `improved`
-and `worsened` in the score's good direction, `mean_abs_change` for a
-rating, and the raw mean of each measurement on the compared items
-(`stored_score`, `repeat_score`). `repeat_index` counts the repeats of the
+(the outcome for pass/fail, read on the raw value at 0.5 as the statistics
+read it; the value for a rating), `improved` and `worsened` in the score's
+good direction, `mean_abs_change` for a rating, and each measurement's
+score on the compared items (`stored_score`, `repeat_score`: the pass rate
+for pass/fail, the raw mean for a rating). `repeat_index` counts the repeats of the
 same (run config, eval) in the run. Each repeat is compared with the stored
 rows, never with an earlier repeat.
 

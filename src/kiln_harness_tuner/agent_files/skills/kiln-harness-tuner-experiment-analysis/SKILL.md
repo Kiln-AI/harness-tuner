@@ -105,8 +105,9 @@ attachments in agreement.
 this run measure the arm's run config, its parent or the baseline again on
 the same evals (a `repeat` item). Each row is one run config measured a
 second time on items it already had stored rows for: `changed` of `items`
-changed, `worsened` and `improved` of those, and the two means
-(`stored_score`, `repeat_score`). It is evidence about noise, beside the
+changed, `worsened` and `improved` of those, and each measurement's score
+(`stored_score`, `repeat_score`: the pass rate, or the mean for a rating).
+It is evidence about noise, beside the
 table, never a row of it: `delta`, `p_value` and the CI still compare the
 first measurement of each side. Use it to grade caution. When the parent
 or the baseline changed on about as many items as the arm's net wins, the

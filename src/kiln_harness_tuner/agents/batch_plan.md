@@ -121,9 +121,9 @@ says how.
 again on train items it has stored rows for (code uses a clone, so each item
 is driven and judged again). Plan one on the arm and one on the baseline,
 same evals and same `max_items`, when a decision rests on a small train
-difference. The rows reach your next call in `train_repeats`. A repeat is
-evidence about noise, never an arm. A `remeasure` is not a repeat: it fills
-only items with no stored row.
+difference of 3 or more paired items. The rows reach your next call in
+`train_repeats`. A repeat is evidence about noise, never an arm. A
+`remeasure` is not a repeat: it fills only items with no stored row.
 
 **Screening: screen many, commit few.** A plan with `screen`
 set and no items is a code screening round: code forks each candidate

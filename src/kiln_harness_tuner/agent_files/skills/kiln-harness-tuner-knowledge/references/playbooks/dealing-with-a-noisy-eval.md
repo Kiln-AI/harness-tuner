@@ -43,8 +43,10 @@ difference smaller than the noise is not a result, in either direction.
    runs of one config is not a result. Do this when the decision is costly
    to get wrong (a dead end that retires a lever, or the parent of the
    next waves), and when the val gate cannot settle it (a small val split,
-   or a decision that never goes to the gate). A repeat measures noise. It
-   never makes an arm win or lose.
+   or a decision that never goes to the gate), and when the difference
+   rests on 3 or more paired items that differ. When fewer than 3 differ,
+   a repeat cannot help: it measures noise, and it never makes an arm win
+   or lose. Plan a larger measurement, or a larger effect, instead.
 4. Use the val gate as the repeat on new items. The gate measures a
    candidate again, on val items that the arm was not built on. A train win is a candidate
    until the gate confirms it. When the gate rejects a win with "a gain

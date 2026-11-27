@@ -197,6 +197,15 @@ def items_key(items: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(items)).encode()).hexdigest()[:8]
 
 
+def _passes(value: float) -> bool:
+    """A pass/fail outcome at the statistics' pass line: the RAW stored value
+    at or above 0.5, as `noise.changes` and `detectability.score_room` read
+    it. Not the normalized value: a `pass_fail_critical` plain fail is 0,
+    which normalizes to 0.5. Once `analysis.passes(value, spec)` is on main
+    (Kiln-AI/harness-tuner#45), call it here instead."""
+    return value >= 0.5
+
+
 def compare(
     spec: ScoreSpec,
     stored: dict[str, dict[str, Any]],
@@ -205,8 +214,9 @@ def compare(
 ) -> dict[str, Any]:
     """The stored rows against the repeat's rows, item by item, on one
     score: the `RepeatRow` fields that code counts. A pass/fail outcome is
-    read at the statistics' pass line, a rating by its value. Better and
-    worse are in the score's good direction."""
+    read at the statistics' pass line, on the RAW value (`_passes`), and
+    its two scores are pass rates; a rating is read by its value. Better
+    and worse are in the score's good direction."""
     compared: list[str] = []
     improved = worsened = 0
     diffs: list[float] = []
@@ -219,12 +229,16 @@ def compare(
         if a is None or b is None:
             continue
         compared.append(item)
-        before.append(a)
-        after.append(b)
-        good_a, good_b = normalize(a, spec), normalize(b, spec)
         if binary:
-            good_a, good_b = float(good_a >= 0.5), float(good_b >= 0.5)
+            pass_a, pass_b = float(_passes(a)), float(_passes(b))
+            before.append(pass_a)
+            after.append(pass_b)
+            lower = spec.direction == "lower_is_better"
+            good_a, good_b = (1 - pass_a, 1 - pass_b) if lower else (pass_a, pass_b)
         else:
+            before.append(a)
+            after.append(b)
+            good_a, good_b = normalize(a, spec), normalize(b, spec)
             diffs.append(abs(b - a))
         improved += int(good_b - good_a > 1e-9)
         worsened += int(good_a - good_b > 1e-9)

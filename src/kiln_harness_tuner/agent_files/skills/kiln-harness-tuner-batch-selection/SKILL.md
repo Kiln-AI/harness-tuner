@@ -978,11 +978,12 @@ target`, no promotion:
   sample (rows with the same `items_key` compared the same items); without
   it, every stored item. The result reaches your next planning call in
   `train_repeats`: per score, `changed` of `items`, `worsened` and
-  `improved`, and the mean of each measurement (`stored_score`,
-  `repeat_score`). It is evidence about noise, never an arm: no experiment
+  `improved`, and each measurement's score (`stored_score`, `repeat_score`:
+  the pass rate, or the mean for a rating). It is evidence about noise, never an arm: no experiment
   record, no promotion, and the comparisons still use the first
   measurement. Plan it when a decision rests on a small train difference
-  and a wrong call is costly (step 3 of the knowledge skill's
+  (3 or more paired items differ: on fewer, a repeat cannot help) and a
+  wrong call is costly (step 3 of the knowledge skill's
   `references/playbooks/dealing-with-a-noisy-eval.md`): the arm and the
   baseline, same evals, same `max_items`. Its
   cost is about one measurement of its items (drives plus judgments) and

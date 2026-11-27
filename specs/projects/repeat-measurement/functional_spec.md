@@ -66,8 +66,10 @@ rows with the same key compared the same items.
 
 One `RepeatRow` per (eval, score), compared item by item with the stored
 rows: `items`, `changed`, `improved` and `worsened` (in the score's good
-direction), `mean_abs_change` (rating scales), and the raw mean of each
-measurement on the compared items (`stored_score`, `repeat_score`).
+direction), `mean_abs_change` (rating scales), and each measurement's score
+on the compared items (`stored_score`, `repeat_score`: the pass rate for
+pass/fail, the raw mean for a rating). A pass/fail outcome is read on the
+raw value at 0.5, as the statistics read it.
 `repeat_index` counts the repeats of the same (run config, eval) in the
 run. Each repeat is compared with the stored rows, never with an earlier
 repeat.

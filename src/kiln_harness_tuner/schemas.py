@@ -612,8 +612,8 @@ class RepeatRow(BaseModel):
     improved: int = 0  # of `changed`: better in the repeat (good direction)
     worsened: int = 0  # of `changed`: worse in the repeat
     mean_abs_change: float | None = None  # rating scales, raw units
-    # The mean of the raw stored scores on the compared items, and of the
-    #   repeat's (binary: the pass rate). Raw, never sign-normalized.
+    # On the compared items: binary, the pass rate of the stored rows and of
+    #   the repeat; rating, the mean of the raw values. Never sign-normalized.
     stored_score: float | None = None
     repeat_score: float | None = None
 

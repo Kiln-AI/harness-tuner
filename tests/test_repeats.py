@@ -672,3 +672,33 @@ async def test_a_probe_and_a_screening_candidate_never_fork_a_clone():
         assert rc_id is None and not dead
         assert "is a clone or a fork that code made" in reason
     assert len(ctx.kiln.created_run_configs) == 1  # the repeat's clone only
+
+
+# ---- cross-PR review: the pass line is read on the raw value ----
+
+
+async def test_a_critical_scores_plain_fail_is_a_fail():
+    # pass_fail_critical: -1 critical fail, 0 fail, 1 pass. The statistics
+    # read a pass at the RAW value >= 0.5, so 0 is a fail: 0 -> 1 is a
+    # change, and -1 -> 0 is a fail both times.
+    ctx = _ctx([0.0, -1.0, 1.0, 0.0])
+    ctx.kiln.evals["eval_1"] = make_eval(
+        "eval_1", "ec_1", scores=[make_score("Accuracy", type="pass_fail_critical")]
+    )
+    _clone_rows(ctx, [1.0, 0.0, 1.0, -1.0])
+    (row,) = (await _run(ctx, _item())).repeat.rows
+    assert (row.items, row.changed, row.improved, row.worsened) == (4, 1, 1, 0)
+    # The scores of a pass/fail score are pass rates, not means of -1/0/1.
+    assert (row.stored_score, row.repeat_score) == (0.25, 0.5)
+    assert row.mean_abs_change is None
+
+
+async def test_a_critical_pass_that_falls_to_a_plain_fail_is_worse():
+    ctx = _ctx([1.0, 1.0])
+    ctx.kiln.evals["eval_1"] = make_eval(
+        "eval_1", "ec_1", scores=[make_score("Accuracy", type="pass_fail_critical")]
+    )
+    _clone_rows(ctx, [0.0, 1.0])
+    (row,) = (await _run(ctx, _item())).repeat.rows
+    assert (row.changed, row.improved, row.worsened) == (1, 0, 1)
+    assert (row.stored_score, row.repeat_score) == (1.0, 0.5)
