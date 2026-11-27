@@ -124,11 +124,17 @@ in the vendored API reference.
      Fewer pairs leave the lever unverified, and the item goes on.
    `levers.lever_verdict` does not check the transform: it does not know
    the arm's technique.
-8. **`get_task` gives `turn_mode`.** The planner and the builder need it
+8. **The transform is carried from the parent.** `create_run_config`
+   copies the parent's properties that a request leaves out and the tuner
+   does not manage. The input transform is carried too
+   (`gateway.ops.MANAGED_RC_PROPS` leaves it out): an arm of another lever
+   that forgets to copy it keeps the parent's, and the answer names it in
+   `carried_properties`. An explicit `null` removes it.
+9. **`get_task` gives `turn_mode`.** The planner and the builder need it
    to know if the lever applies. This closes the rest of gap 4 and the
    backlog entry `The task shape for loop agents`: the model capability
    flags of that gap are already in `get_model_details`.
-9. **Knowledge.** One lever document, the four techniques of the backlog
+10. **Knowledge.** One lever document, the four techniques of the backlog
    entry, two smells (an input with fields the task does not need, a very
    long input field) and one failure playbook (the task input misleads
    the model). Two existing playbooks got one link each: `cheaper-or-faster`

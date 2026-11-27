@@ -500,6 +500,23 @@ class TestTheGateway:
             _create(gateway, props(KEEP_TWO))
         assert all(c[0] == "GET" for c in kiln.calls)
 
+    def test_a_request_that_leaves_the_transform_out_keeps_the_parents(self, tmp_path):
+        """An arm of another lever that forgets the transform does not drop
+        it: the gateway carries the parent's, and says so."""
+        sent: list[dict] = []
+        routes = _routes(_rc("rc_base", KEEP_TWO), turn_mode="multiturn")
+        routes[("POST", f"{GATEWAY_BASE}/run_configs")] = lambda _q, body: (
+            sent.append(body) or {"id": "rc_new", **body}
+        )
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _create(gateway, props(thinking_level="high"))
+        assert "input_transform" in out["carried_properties"]
+        assert sent[-1]["run_config_properties"]["input_transform"] == jinja(KEEP_TWO)
+        # An explicit null removes it, and nothing is carried.
+        out = _create(gateway, {**props(), "input_transform": None})
+        assert "input_transform" not in out["carried_properties"]
+        assert sent[-1]["run_config_properties"].get("input_transform") is None
+
     def test_a_transform_the_task_already_has_is_copied_on_any_task(self, tmp_path):
         gateway, kiln = _gateway(
             tmp_path, _routes(_rc("rc_base", KEEP_TWO), turn_mode="multiturn")

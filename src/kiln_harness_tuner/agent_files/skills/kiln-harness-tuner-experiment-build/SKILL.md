@@ -105,7 +105,8 @@ going looking.
    `validate_input_transform` answers `applies: false`, or
    `create_run_config` refuses the template for a multi-turn task, return
    `failed_expected` with that sentence, and do not try another lever. On
-   every other arm, copy the parent's `input_transform` as it is: code
+   every other arm, keep the parent's `input_transform`: copy it, or leave
+   it out and the gateway carries it (`null` removes it): code
    ends an `input_transform` arm whose transform is the parent's, and an
    arm that changes the transform on a multi-turn task.
 

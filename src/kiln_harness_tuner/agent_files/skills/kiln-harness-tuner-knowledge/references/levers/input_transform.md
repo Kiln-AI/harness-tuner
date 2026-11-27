@@ -75,7 +75,9 @@ Rules of the object:
 - **`truncate` has a tolerance.** It leaves a text that is up to 5
   characters over the limit whole. A slice (`input.text[:500]`) cuts at
   the exact length.
-- On every other lever, copy the parent's `input_transform` as it is.
+- On every other lever, keep the parent's `input_transform`. A request
+  that leaves it out keeps the parent's: the gateway carries it. `null`
+  removes it.
 
 ## Limits
 

@@ -122,6 +122,12 @@ RC_PROP_KEYS = (
     "skills_config",
     "input_transform",
 )
+# The properties a new run config does NOT take from its parent when the
+# request leaves them out (`rc_inherit.inherit`): the tuner sets each one.
+# The input transform is carried: on every lever but its own, an arm keeps
+# the parent's template, and an agent that forgets to copy it must not drop
+# it with no message. An explicit null removes it.
+MANAGED_RC_PROPS = tuple(k for k in RC_PROP_KEYS if k != TRANSFORM_KEY)
 
 
 NOT_TRAIN = (
@@ -1570,7 +1576,7 @@ class Gateway:
             )
         try:
             body["run_config_properties"], carried = inherit(
-                props, body["run_config_properties"], RC_PROP_KEYS
+                props, body["run_config_properties"], MANAGED_RC_PROPS
             )
         except InheritError as exc:
             raise GatewayError(str(exc)) from exc
