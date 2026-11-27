@@ -434,6 +434,24 @@ def test_a_config_whose_val_evidence_has_holes_stays_pooled_and_counts():
     assert run.concern("Hold placement").unconfirmed.value == "72.0%"
 
 
+def test_a_config_with_holes_again_is_rejected_whatever_the_gate_decided():
+    # At its second holed gate of the run, code rejects the rc before the
+    # decision. A gate with no decision still shows it rejected, not pooled.
+    run = Run().standard_start()
+    run.wave_start(1, fix("w1-1", "e1"))
+    run.success("w1-1", "rc_a", row("e1", 0.6, 0.7))
+    run.gate(1, table("rc_a", val_row("e1", 0.62, 0.70)), winner=None, end=False)
+    run.emit(
+        "rejection_recorded", rc_id="rc_a", exp_mem_id="exp", reason="val incomplete"
+    )
+    run.emit(
+        "promotion_blocked", winner_rc_id="rc_a", reasons=["candidate val fill failed"]
+    )
+    run.gate_end(1)
+    assert run.line5("w1-1") == "✗ Rejected at val"
+    assert run.concern("Hold placement").unconfirmed is None
+
+
 def test_a_config_that_copies_eval_text_drops_out():
     run = Run().standard_start()
     run.wave_start(1, fix("w1-1", "e1"))

@@ -690,10 +690,40 @@ class TestCreateRagConfig:
         assert made["index"]["errors"] == ["429"]
         props = {"tools_config": {"tools": [made["tool_id"]]}}
         with pytest.raises(gw.GatewayError, match="not complete"):
-            _run(gateway, "create_run_config", name="rc", run_config_properties=props)
+            _run(
+                gateway,
+                "create_run_config",
+                name="rc",
+                run_config_properties=props,
+                provenance=_parent(gateway),
+            )
         lib.progress = dict(DONE)
         assert _run(gateway, "index_rag_config", id=made["tool_id"])["complete"]
         assert lib.index_runs == [NEW_RAG, NEW_RAG]
+
+
+PARENT_RC = "424242600001"
+
+
+def _parent(gateway) -> dict:
+    """What a create reads besides the RAG rules: the parent run config,
+    Kiln's model list and the task. Returns the provenance that names the
+    parent."""
+    routes = gateway.call.routes
+    routes[("GET", f"{gateway.s.base}/run_configs")] = [
+        {
+            "id": PARENT_RC,
+            "run_config_properties": {
+                "type": "kiln_agent",
+                "model_name": "m",
+                "model_provider_name": "p",
+                "structured_output_mode": "json_schema",
+            },
+        }
+    ]
+    routes[("GET", "/api/available_models")] = []
+    routes[("GET", gateway.s.base)] = {"id": gateway.s.task_id}
+    return {"derived_from_ids": [PARENT_RC]}
 
 
 class TestTheRunConfigRules:
@@ -702,10 +732,15 @@ class TestTheRunConfigRules:
             "type": "kiln_agent",
             "model_name": "m",
             "model_provider_name": "p",
+            "structured_output_mode": "json_schema",
             "tools_config": {"tools": [tool]},
         }
         return _run(
-            gateway, "create_run_config", name="rc", run_config_properties=props
+            gateway,
+            "create_run_config",
+            name="rc",
+            run_config_properties=props,
+            provenance=_parent(gateway),
         )
 
     def test_an_unknown_rag_tool_is_refused_and_an_archived_one_is_not(self, tmp_path):

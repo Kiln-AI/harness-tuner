@@ -379,6 +379,28 @@ async def test_another_model_gets_the_output_mode_kiln_suggests_for_it(tmp_path)
     }
 
 
+async def test_another_model_is_tested_in_the_mode_a_swap_to_it_takes(tmp_path):
+    """The baseline attaches a tool, and Kiln refuses a mode that sends the
+    schema as a tool on such a run config. So a swap to a model whose
+    suggested mode is one of them runs in the fallback mode, and the test
+    call checks that mode, not the suggested one."""
+    ctx = _ctx(tmp_path, small={"structured_output_mode": "function_calling"})
+    ctx.kiln.run_handler = _handler({})
+    await run_model_preflight(ctx, "rc_base")
+    (small,) = _posts_for(ctx, "small_model")
+    assert small["run_config_properties"]["structured_output_mode"] == (
+        "json_instruction_and_object"
+    )
+    # With no tool on the baseline, the suggested mode is the swap's mode.
+    del ctx.kiln.run_configs[0]["run_config_properties"]["tools_config"]
+    ctx.kiln.run_posts.clear()
+    await run_model_preflight(ctx, "rc_base")
+    (small,) = _posts_for(ctx, "small_model")
+    assert small["run_config_properties"]["structured_output_mode"] == (
+        "function_calling"
+    )
+
+
 async def test_a_plaintext_task_gets_plaintext_even_for_json_text(tmp_path):
     ctx = _ctx(tmp_path)
     item = tmp_path / "proj" / "tasks" / "t1 - T" / "eval_inputs" / "train0"

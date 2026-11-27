@@ -54,7 +54,8 @@ going looking.
    wrapper of any tool. When the arm attaches a tool or a skill to a
    parent whose `structured_output_mode` sends the schema as a tool
    (`function_calling`, `function_calling_weak`, or `default` outside
-   Ollama and Docker Model Runner), Kiln refuses every call: set the mode
+   Ollama and Docker Model Runner), Kiln refuses every call, and
+   `create_run_config` refuses the config: set the mode
    on the same config by the fallback of the knowledge lever
    `levers/model.md` (step 4), and list it in `change`. The lever
    `levers/output_mode.md` gives the modes. `run_config_properties` are
@@ -76,16 +77,23 @@ going looking.
    and its old and new values, and everything else under `unchanged`. An
    **`output_mode` arm** is built the same way, with only
    `structured_output_mode` changed. The model and provider stay as the
-   parent has them unless the item names a new model. A new model takes
-   its own default `structured_output_mode` (`get_model_details` gives
-   it as `default_structured_output_mode`; keep the parent's when it is
-   absent, `default` or `unknown`), unless the item tests the output
-   mode. In both cases, list the mode change in
-   `change`. On a run config that attaches a tool or a skill, Kiln refuses
-   `function_calling`, `function_calling_weak`, and `default` outside
-   Ollama and Docker Model Runner: every call fails. When the new model's
-   default is one of them, use `json_schema` if you know the model supports
-   it (a probe, an earlier screen), else `json_instruction_and_object`.
+   parent has them unless the item names a new model. A new model or
+   provider takes the mode of the new pair, unless the item tests the
+   output mode: leave `structured_output_mode` out of
+   `run_config_properties`, name the parent in
+   `provenance.derived_from_ids`, and `create_run_config` sets it. That
+   mode is Kiln's default for the pair (`get_model_details` gives it as
+   `default_structured_output_mode`), or the parent's when the default is
+   absent, `default` or `unknown`. On a run config that attaches a tool
+   or a skill, Kiln refuses `function_calling`, `function_calling_weak`,
+   and `default` outside Ollama and Docker Model Runner: every call
+   fails, and `create_run_config` refuses the config. When the new pair's
+   default is one of them, the gateway sets
+   `json_instruction_and_object`. Name `json_schema` there if you know
+   the model supports it (a probe, an earlier screen). Read `notes` in
+   the answer of `create_run_config`: it gives the mode that the gateway
+   set, and it says when a swap keeps the parent's mode although the new
+   pair has another. In both cases, list the mode change in `change`.
    Invalid output or failed runs just after a swap point first to a wrong
    mode, not to a weaker model. The gateway refuses a model the run does not allow
    (`create_run_config` answers "… is outside the model policy"): then

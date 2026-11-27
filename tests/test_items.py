@@ -9,8 +9,14 @@ from conftest import eval_only_item, fix_item, make_ctx, make_result, measure_it
 from fake_dispatcher import expected, infra, ok
 from fake_kiln import make_eval, make_job_error, make_run, make_score
 
-from kiln_harness_tuner.items import call_with_retries, execute_plan_item
+from kiln_harness_tuner.items import (
+    FALLBACK_ANALYZER_ROOM,
+    MIN_ANALYZER_ROOM,
+    call_with_retries,
+    execute_plan_item,
+)
 from kiln_harness_tuner.kiln import KilnAPIError
+from kiln_harness_tuner.memory_schema import CONTENT_MAX_CHARS
 from kiln_harness_tuner.schemas import (
     AgentResult,
     BaselineRef,
@@ -1289,3 +1295,51 @@ async def test_fix_without_target_items_runs_no_trial():
     outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
     assert outcome.status == "completed" and outcome.trial is None
     assert "item_trial" not in [k for k, _ in ctx.log.events]
+
+
+async def _analyzer_request(ctx):
+    """Run one fix item to its analysis and return the AnalysisInput."""
+    kiln = ctx.kiln
+    kiln.evals["eval_1"] = make_eval("eval_1", "ec_1")
+    kiln.results[("eval_1", "rc_base", "train")] = [
+        make_run("t1", accuracy=1.0),
+        make_run("t2", accuracy=0.0),
+    ]
+    kiln.pending[("eval_1", "rc_cand", "train")] = [
+        make_run("t1", accuracy=1.0),
+        make_run("t2", accuracy=1.0),
+    ]
+    ctx.dispatch.queue(
+        "create_experiment_rc", ok(RcBuildResult(rc_id="rc_cand", build_notes="b"))
+    )
+    ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
+    outcome = await execute_plan_item(
+        ctx, fix_item(residual_gate=False), BASELINE, ["rc_base"], 1
+    )
+    assert outcome.status == "completed"
+    (req,) = [r for k, r in ctx.dispatch.calls if k == "analyze_experiment_results"]
+    return req
+
+
+async def test_the_analyzer_is_told_the_room_the_code_lines_leave():
+    """B9: code adds the measurement line and the carried lines after the
+    analyzer's content, so the analyzer's budget is less than the cap."""
+    ctx = make_ctx()
+    req = await _analyzer_request(ctx)
+    assert MIN_ANALYZER_ROOM <= req.content_budget < CONTENT_MAX_CHARS - 100
+    # The stored record has the measurement line the room was sized for.
+    (record,) = [
+        m for m in ctx.kiln.memories.values() if "experiment" in m.get("tags", [])
+    ]
+    assert "measurement: " in record["content"]
+
+
+async def test_an_unreadable_record_falls_back_to_a_fixed_room():
+    ctx = make_ctx()
+
+    async def refuse(*_args, **_kwargs):
+        raise RuntimeError("memory read failed")
+
+    ctx.memory.analyzer_room = refuse
+    req = await _analyzer_request(ctx)
+    assert req.content_budget == FALLBACK_ANALYZER_ROOM

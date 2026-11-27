@@ -15,8 +15,8 @@ The reconnaissance battery (`recon_items`) is the standing set of
 code probes the loop runs on the baseline at setup, before wave 1, so
 the first planner reads facts about this model on this task instead of
 assuming them: does it call a tool under its output mode, read a skill,
-call a tool under the alternate mode, emit valid JSON, produce output on
-the longest inputs.
+call a tool under the alternate mode, emit valid JSON (on a task with an
+output schema, in every output mode), produce output on the longest inputs.
 
 Train items are read from the project ON DISK (the studio server has no
 eval-input listing route): `<project>/tasks/<task_id> - */eval_inputs/*/
@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.kiln_names import agent_provenance, kiln_name
 from kiln_harness_tuner.latency import latency_of_task_run, run_output
+from kiln_harness_tuner.output_modes import MODES, server_default
 from kiln_harness_tuner.provider_errors import (
     ProviderQuotaError,
     classify_provider_message,
@@ -254,6 +255,17 @@ async def thinking_levels(ctx: Ctx, provider: Any, model: Any) -> list[str] | No
                     return [str(v) for v in levels.values()]
                 return None
     return None
+
+
+async def default_output_mode(ctx: Ctx, provider: Any, model: Any) -> str | None:
+    """The default structured-output mode the server gives for (provider,
+    model), from `GET /api/available_models`. None when the model is not
+    listed, the list gives no mode, or the list cannot be read."""
+    try:
+        available = await ctx.kiln.call("GET", "/api/available_models")
+    except KilnError:
+        return None
+    return server_default(available, provider, model)
 
 
 class ProbeSetupError(RuntimeError):
@@ -752,7 +764,9 @@ def _as_run(row: dict[str, Any]) -> dict[str, Any]:
 # ----------------------------------------------------------------- recon
 
 
-def recon_items(baseline_props: dict[str, Any]) -> list[ProbeItem]:
+def recon_items(
+    baseline_props: dict[str, Any], structured_output: bool | None = None
+) -> list[ProbeItem]:
     """The standing reconnaissance battery on the baseline (wave 0, item ids
     `r0-n`): the MECHANISM facts the first planner would otherwise assume.
 
@@ -762,7 +776,14 @@ def recon_items(baseline_props: dict[str, Any]) -> list[ProbeItem]:
     task does not use. Thinking levels are not probed here: a thinking level
     is a candidate variant, screened in code on the screening subset
     (`kiln_harness_tuner.viability.initial_screen_request` opens every speed or cost
-    run with one such round)."""
+    run with one such round).
+
+    `structured_output`: the task has an output schema. Then every output
+    must parse as JSON, in every mode, so the JSON probe runs whatever the
+    baseline's mode is. None (the task could not be read): the probe runs
+    when the baseline names one of Kiln's modes, because a run config of a
+    free-text task can name one too, and a probe that answers "no" there is
+    cheaper than no probe on a task with a schema."""
     mode = baseline_props.get("structured_output_mode") or "default"
     tools_config = baseline_props.get("tools_config")
     tools = [
@@ -772,11 +793,9 @@ def recon_items(baseline_props: dict[str, Any]) -> list[ProbeItem]:
     ]
     has_skill = any(t.startswith("kiln_tool::skill::") for t in tools)
     has_tool = any(not t.startswith("kiln_tool::skill::") for t in tools)
-    json_mode = mode in (
-        "json_schema",
-        "json_instructions",
-        "json_mode",
-        "function_calling",
+    json_mode = structured_output is True or (
+        structured_output is None
+        and baseline_props.get("structured_output_mode") in MODES
     )
     items: list[ProbeItem] = []
 
@@ -821,7 +840,7 @@ def recon_items(baseline_props: dict[str, Any]) -> list[ProbeItem]:
     if json_mode:
         add(
             6,
-            "Does every baseline output parse as JSON?",
+            f"Does every baseline output parse as JSON under its output mode ({mode})?",
             ProbeCheck(count="json_valid", rule="all"),
         )
     add(

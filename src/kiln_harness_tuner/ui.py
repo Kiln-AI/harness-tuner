@@ -312,6 +312,8 @@ SETUP_LINE_EVENTS = frozenset(
         # only when it found a copy).
         "gate_block",
         "baseline_judge_copy_audit",
+        # The baseline's val evidence had holes at repeated gates.
+        "baseline_val_holes",
         # The model preflight's summary and each flagged model.
         "model_preflight",
         "model_preflight_flag",

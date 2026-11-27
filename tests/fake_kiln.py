@@ -248,7 +248,9 @@ class FakeKiln:
       eval job for that combo succeeds (simulates measurement).
     - `job_behaviors[(eval_id, rc_id, split)]` — per-invocation queue:
       "ok" (default) | "fail" | "errored_items" | "hang" | "http504" |
-      "http422" (raised at job creation). "errored_items" publishes
+      "http502" | "http404" | "transport" (all raised by the wait) |
+      "stored_then_http502" (the wait stores `partial_results[key]`, then
+      raises a 502) | "http422" (raised at job creation). "errored_items" publishes
       `partial_results[key]` (if scripted) into the results cache — the
       errored job stored SOME EvalRuns — and reports progress totals
       (`{success, error, total}`).
@@ -938,6 +940,24 @@ class FakeKiln:
             await asyncio.Event().wait()  # forever — only wait_for cancels it
         if behavior == "http504":
             raise KilnAPIError("POST", "/api/jobs/wait", 504, {"detail": "timeout"})
+        if behavior == "http502":
+            raise KilnAPIError("POST", "/api/jobs/wait", 502, {"detail": "bad gateway"})
+        if behavior == "http404":
+            raise KilnAPIError("POST", "/api/jobs/wait", 404, {"detail": "no such job"})
+        if behavior == "transport":
+            raise KilnTransportError("connection reset during the wait")
+        if behavior == "stored_then_http502":
+            # The job stored some rows before the gateway failed: the rows
+            # stay stored, as on the live server.
+            key = job["key"]
+            stored = {r.get("dataset_id") for r in self.results.get(key, [])}
+            fresh = [
+                r
+                for r in self.partial_results.get(key, [])
+                if r.get("dataset_id") not in stored
+            ]
+            self.results[key] = [*self.results.get(key, []), *fresh]
+            raise KilnAPIError("POST", "/api/jobs/wait", 502, {"detail": "bad gateway"})
         if behavior == "drive":
             return [{"id": body["ids"][0], **self._drive_job(job)}]
         key = job["key"]

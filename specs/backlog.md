@@ -38,16 +38,6 @@ The lever, and its techniques: a stronger model for deep thinking; a specialist 
 a cheap reader for a large source. A fixed form for what comes back. Limits: one turn, and no fix
 for a strong single agent. Tune a critical sub-agent on its own evals, then the main agent.
 
-### Model and provider information
-
-- Kind: code
-- Where: tuner, kiln
-- Depends on: None
-- Source: [model-provider-info](projects/model-provider-info/project_overview.md)
-
-Done in the project model-provider-info: the model catalogue, the gateway operations
-`list_models`, `get_model_details` and `list_providers`, and the "old model" smell and detector.
-
 ### Promotion on a tie
 
 - Kind: code
@@ -76,17 +66,6 @@ if `skill-into-the-prompt` can save money.
 
 `get_task` drops `turn_mode`. The step "know the agent before you plan" needs it. The model
 capability flags are in `get_model_details` (project model-provider-info).
-
-### Structured-output mode
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
-
-The lever document and the screen exist. Missing: code keeps the parent's mode on a model swap
-(no switch to Kiln's default); no signal shows that a mode reached the call; the model list does
-not say which modes a model supports; the setup probe of valid JSON skips some modes.
 
 ### Detectors from the trace counts
 
@@ -120,16 +99,6 @@ A world is hard to change, so the tuner does not change it: it wraps it in Kiln 
 what a world is, which worlds and fixtures a project has, and how to read them. The vendored API
 reference lacks the `/worlds` routes.
 
-### Collect restrictions at the start
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: overview 8
-
-"Ask the user the five best questions": the providers, the model origin, the data retention, the
-tools that must not change.
-
 ## Unranked
 
 ### All tools in one general API tool, with a skill
@@ -140,15 +109,6 @@ tools that must not change.
 - Source: [design notes](projects/biological_bootloader/knowledge_system_design.md)
 
 Replace many narrow tools with one general API tool, and add the skill that describes the API.
-
-### Tool-result clearing
-
-- Kind: technique
-- Where: knowledge, kiln
-- Depends on: Compaction and tool-result clearing in Kiln
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Clear old tool results from the context. It is separate from compaction.
 
 ### A stronger model as an adviser to a cheap one
 
@@ -168,33 +128,6 @@ A cheap model calls a stronger model as a tool when it needs advice.
 
 A cascade: the cheap model answers, and a stronger model takes the cases where it is not sure.
 
-### Examples chosen for each input
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Few-shot examples selected for the input at hand, not one fixed set.
-
-### Examples from the agent's own successes
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Few-shot examples taken from train items that the agent got right.
-
-### A check of each example against its input
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Check that each example agrees with its input before it is added to the prompt.
-
 ### A short index of the reference material, always in context
 
 - Kind: technique
@@ -212,15 +145,6 @@ A compact index of the reference material in the prompt, so that the agent knows
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Send each type of input to its own prompt.
-
-### One call for each field
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Fill each field of a structured output with its own call.
 
 ### A step outside the model that replaces a model step
 
@@ -266,15 +190,6 @@ Stop when the goal is met. Do not repeat a call that returned nothing.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Route each type of request to its own instruction set, with a review of the tool calls.
-
-### A thinking level set by the type of input
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-More thinking for the hard types of input, less for the easy ones.
 
 ### A short hand-written version of a promoted change
 
@@ -329,15 +244,6 @@ A tool result gives names that the agent can read, not only ids.
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 Tool names with a common prefix for each service or group.
-
-### A probe for room to improve
-
-- Kind: technique
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Before an arm on the wording, probe whether the failing items can pass at all.
 
 ### Fine-tuning as a late step
 
@@ -522,16 +428,6 @@ Eval: the score goes up, and the outputs get worse in a way that the eval does n
 
 The agent has so many skills that their descriptions crowd its context.
 
-### Smell: an old model
-
-- Kind: smell
-- Where: knowledge
-- Depends on: Model and provider information
-- Source: [design notes](projects/biological_bootloader/knowledge_system_design.md); functional spec 12.3; [model-provider-info](projects/model-provider-info/functional_spec.md), section 8
-
-Done in the project model-provider-info: the smell document `old-model` and the code detector
-`old_model`, which reads the release date from the model catalogue.
-
 ### Smell: a long list of "must" and "never" lines
 
 - Kind: smell
@@ -588,24 +484,6 @@ Too many skills; too many tools.
 
 Not in Kiln. Compaction is planned. Tool-result clearing is not planned yet.
 
-### A switch of model or thinking level in mid-conversation
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 14; overview 7.9
-
-Not in Kiln. A sub-agent can approximate the advisor pattern today.
-
-### Inline guardrails
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: overview 7.9
-
-Not in Kiln.
-
 ### Run config fields
 
 - Kind: gap
@@ -654,33 +532,6 @@ leak risk before anything teaches it.
 
 The v2 eval-input routes, multi-turn synthetic items and world resets are not reachable. Decide
 what the tuner must read.
-
-### Code files in skills
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 17
-
-Kiln skills read text only and cannot run code. Code goes in code tools. The knowledge states it.
-
-### Other decision-model providers
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 16
-
-Only one decision-model provider exists. This matters when a restriction excludes it.
-
-### Decision models for uses other than a classifier
-
-- Kind: gap
-- Where: kiln
-- Depends on: None
-- Source: overview 7.4; [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 7
-
-Kiln supports decision models for tasks with a classifier shape only.
 
 ### A decision that turns on one or two items
 
@@ -846,3 +697,33 @@ edit saves a few tokens, but it breaks the cache and can cost 10x more.
 Kiln records no cost for an embedding or reranker call and no time for a search in a run's usage,
 and reports no cost for an index. Until it does, a RAG arm is not measured under speed or cost,
 and an index is not in `--budget-usd`.
+### Output modes that a model supports
+
+- Kind: gap
+- Where: kiln
+- Depends on: None
+- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
+
+Kiln's model file gives one default output mode for each model and provider, and no list of the
+modes that the pair supports. With a list, code can refuse a mode before a run config is made.
+
+### Request parameters in a Kiln trace
+
+- Kind: gap
+- Where: kiln
+- Depends on: None
+- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 6
+
+A Kiln trace holds the messages, not the request. So `json_schema` and `json_mode` leave no mark
+in it, and code proves them only by Kiln's own record of the mode on the saved run.
+
+### A holed win that comes back through a merge
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [PR 46](https://github.com/Kiln-AI/harness-tuner/pull/46), review finding M3
+
+The limit on holed val gates counts by rc id, and a merge has a new id. A win with its own val hole
+can come back in merge after merge, each one a full val pass. Fix: count a merge's holed gate
+against each of its wins too, and stamp a win at the limit. The risk is a count on a good win.
