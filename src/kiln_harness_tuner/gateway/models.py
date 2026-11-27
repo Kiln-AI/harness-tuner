@@ -96,6 +96,14 @@ class RunConfigView(Out):
     prompt: RunConfigPrompt | None = None  # the frozen prompt it runs with
 
 
+class RunConfigCreated(RunConfigView):
+    """`create_run_config`'s answer: the new run config, and the parent's
+    properties that the request left out and the gateway copied
+    (`rc_inherit`)."""
+
+    carried_properties: list[str] = []
+
+
 class PromptView(Out):
     id: str | None = None
     name: str | None = None

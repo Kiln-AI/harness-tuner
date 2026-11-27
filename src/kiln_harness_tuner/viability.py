@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any
 from kiln_harness_tuner.kiln_names import agent_provenance, kiln_name
 from kiln_harness_tuner.measure import Candidate, Measured, MeasureSpec, measure
 from kiln_harness_tuner.objective import decisive, is_efficiency
+from kiln_harness_tuner.rc_inherit import check_fork
 from kiln_harness_tuner.schemas import (
     EvalTarget,
     ScreenCandidate,
@@ -269,7 +270,13 @@ async def _make_candidate_rc(
         props = json.loads(json.dumps(await rc_props(ctx, parent_rc_id)))
     except (ProbeSetupError, KilnError) as exc:
         return None, f"parent {parent_rc_id} unreadable: {exc}", False
+    parent = json.loads(json.dumps(props))
     props.update(candidate.overrides)
+    # The settings that are not levers yet, and OpenRouter's zero data
+    # retention, as for an agent's run config (`rc_inherit`).
+    refusal = check_fork(parent, props)
+    if refusal is not None:
+        return None, refusal, False
     if ctx.model_policy is not None:
         refusal = ctx.model_policy.refusal(
             props.get("model_provider_name"), props.get("model_name")

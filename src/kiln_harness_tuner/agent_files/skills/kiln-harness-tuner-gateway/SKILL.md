@@ -277,7 +277,7 @@ what to write.
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config — refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, or when it adds a Kiln state tool that the baseline run config does not have (below) |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `carried_properties`: the parent's properties that you left out and that the tuner does not set itself, copied from the parent. Name the parent in `provenance.derived_from_ids` (for a merge, the baseline first): a request with no run config there is refused. Also refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, when it adds a Kiln state tool that the baseline run config does not have (below), or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value: these are not levers yet. On another model or provider you may unset one of them (`null`). On OpenRouter you may add `openrouter_routing.zero_data_retention: true`, and you may not drop it |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |

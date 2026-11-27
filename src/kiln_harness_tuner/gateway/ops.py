@@ -49,6 +49,7 @@ from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnErro
 from kiln_harness_tuner.memory_schema import RecordKind
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.rc_inherit import FROZEN_KEYS, InheritError, inherit
 
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
@@ -390,7 +391,9 @@ def _rc_view(row: dict[str, Any]) -> m.RunConfigView:
         m.RunConfigView,
         {**props, **row},
         tools=[str(t) for t in tools or []],
-        run_config_properties={k: props[k] for k in RC_PROP_KEYS if k in props},
+        run_config_properties={
+            k: props[k] for k in (*RC_PROP_KEYS, *FROZEN_KEYS) if k in props
+        },
         prompt=m.project(m.RunConfigPrompt, prompt)
         if isinstance(prompt, dict)
         else None,
@@ -1309,13 +1312,40 @@ class Gateway:
                 " the baseline run config has may stay"
             )
 
-    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigView:
+    async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigCreated:
         self._policy_check(req.run_config_properties)
-        await self._rc_tools_check(req.run_config_properties)
-        row = await self.call(
-            "POST", f"{self.s.base}/run_configs", body=req.model_dump(exclude_none=True)
-        )
-        return _rc_view(row if isinstance(row, dict) else {})
+        body = req.model_dump(exclude_none=True)
+        carried = await self._inherit(body)
+        # After the carry: the check reads the properties that are sent.
+        await self._rc_tools_check(body["run_config_properties"])
+        row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
+        view = _rc_view(row if isinstance(row, dict) else {})
+        return m.RunConfigCreated(**view.model_dump(), carried_properties=carried)
+
+    async def _inherit(self, body: dict[str, Any]) -> list[str]:
+        """Take from the parent run config (the first `derived_from_ids` id
+        that is a run config of the task) each property that the request
+        leaves out and the tuner does not manage (`rc_inherit`). Returns
+        the names carried. A request with no such parent is refused: the
+        carry and the checks of the parent's settings need it."""
+        ids = (body.get("provenance") or {}).get("derived_from_ids") or []
+        ids = [str(i) for i in ids] if isinstance(ids, list) else []
+        rows = {str(r.get("id")): r for r in await self._run_configs()} if ids else {}
+        parent = next((rows[i] for i in ids if i in rows), None)
+        props = (parent or {}).get("run_config_properties")
+        if not isinstance(props, dict):
+            raise GatewayError(
+                "name the parent run config in provenance.derived_from_ids: the"
+                " new run config takes the parent's settings that the view does"
+                " not show"
+            )
+        try:
+            body["run_config_properties"], carried = inherit(
+                props, body["run_config_properties"], RC_PROP_KEYS
+            )
+        except InheritError as exc:
+            raise GatewayError(str(exc)) from exc
+        return carried
 
     async def rename_run_config(self, req: m.RunConfigRename) -> m.RunConfigView:
         body = req.model_dump(exclude_none=True, exclude={"id"})
