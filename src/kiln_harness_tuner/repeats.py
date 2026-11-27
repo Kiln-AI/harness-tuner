@@ -68,6 +68,7 @@ from kiln_harness_tuner.analysis import (
     ScoreSpec,
     _runs_by_item,
     normalize,
+    passes,
 )
 from kiln_harness_tuner.budget import hard_max_usd, remaining_run_budget
 from kiln_harness_tuner.detectability import comparable_specs
@@ -197,15 +198,6 @@ def items_key(items: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(items)).encode()).hexdigest()[:8]
 
 
-def _passes(value: float) -> bool:
-    """A pass/fail outcome at the statistics' pass line: the RAW stored value
-    at or above 0.5, as `noise.changes` and `detectability.score_room` read
-    it. Not the normalized value: a `pass_fail_critical` plain fail is 0,
-    which normalizes to 0.5. Once `analysis.passes(value, spec)` is on main
-    (Kiln-AI/harness-tuner#45), call it here instead."""
-    return value >= 0.5
-
-
 def compare(
     spec: ScoreSpec,
     stored: dict[str, dict[str, Any]],
@@ -214,9 +206,11 @@ def compare(
 ) -> dict[str, Any]:
     """The stored rows against the repeat's rows, item by item, on one
     score: the `RepeatRow` fields that code counts. A pass/fail outcome is
-    read at the statistics' pass line, on the RAW value (`_passes`), and
-    its two scores are pass rates; a rating is read by its value. Better
-    and worse are in the score's good direction."""
+    read at the engine's pass line (`analysis.passes`), not at 0.5 of the
+    normalized value: a `pass_fail_critical` plain fail is 0, which
+    normalizes to 0.5, and it is a fail. Its two scores are the rates of
+    the raw outcome, as the statistics give them; a rating is read by its
+    value. Better and worse are in the score's good direction."""
     compared: list[str] = []
     improved = worsened = 0
     diffs: list[float] = []
@@ -230,11 +224,11 @@ def compare(
             continue
         compared.append(item)
         if binary:
-            pass_a, pass_b = float(_passes(a)), float(_passes(b))
-            before.append(pass_a)
-            after.append(pass_b)
+            good_a, good_b = float(passes(a, spec)), float(passes(b, spec))
+            # The raw outcome: under lower_is_better, a good row is a 0.
             lower = spec.direction == "lower_is_better"
-            good_a, good_b = (1 - pass_a, 1 - pass_b) if lower else (pass_a, pass_b)
+            before.append(1 - good_a if lower else good_a)
+            after.append(1 - good_b if lower else good_b)
         else:
             before.append(a)
             after.append(b)

@@ -338,14 +338,19 @@ promotion pass together with the planner's `promotion_candidate` intent.
   interpretation + caution grade / `next:` line written for
   a cold start. (Your content *replaces* the open record's — re-cite
   everything downstream readers need; nothing carries over.)
-  **Hard budget: 4000 chars** — the API caps memory content there
-  (writes past it get 422 `string_too_long`). Code safety-clamps an overrun by dropping the MIDDLE
-  (head id lines + `next:` tail survive), so going over silently costs
-  you your numbers table and interpretation. The MUST-cites (rc ids,
-  issue id, eval ids, the table, `next:`) fit comfortably in ~1200 chars
-  — only ~30% of budget, so there's real headroom for interpretation; when
-  tight, still shrink the interpretation prose, never the ids, the table,
-  or `next:`.
+  **Hard budget: your input's `content_budget`.** The API caps memory
+  content at 4000 chars (a write past it gets 422 `string_too_long`).
+  After your content, code adds its own lines to the record: the
+  `measurement:` line, the latency and cost lines, and each carried line
+  you did not re-cite. `content_budget` is the room those lines leave you.
+  It is never less than 1500 chars. If your `memory_content` is over it,
+  you are asked in the same session to shorten it. If it is still over,
+  code clamps it: the id lines and `next:` stay, and your other lines are
+  kept from the top until the room is full. So write your opening and the
+  numbers table first: the interpretation prose at the end drops first.
+  The MUST-cites (rc ids, issue id, eval ids, the table, `next:`) fit in
+  ~1200 chars. When the room is tight, shrink the interpretation prose,
+  never the ids, the table, or `next:`.
 - **`findings`**: what was learned, suspected culprits on failure, the
   caution/power reading — prose for the orchestrator log and report.
   **The planner never reads `findings`** — it reads `memory_content`. So

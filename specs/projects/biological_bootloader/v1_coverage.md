@@ -243,7 +243,7 @@ One row for each idea of the project overview and the design notes.
 | No evals: send the user to the eval builder | 7.8 | The tuner does this today. V1 `know-the-agent-before-you-plan` |
 | Synthetic users drive multi-turn evals | 7.8 | V1 `know-the-agent-before-you-plan` |
 | Compaction; a switch in mid-conversation; guardrails | 7.9 | Backlog: Not in Kiln yet |
-| Restrictions | 8 | V1 `working-inside-restrictions`. Backlog: Collect restrictions |
+| Restrictions | 8 | V1 `working-inside-restrictions`. The restrictions question at the start, enforced in code (`restrictions.py`) |
 | Anything that can be code must be code | 9 | The smell detectors |
 | A very large tool result | 9 | V1 smell `tool-results-flood-the-context`. Backlog: its detector |
 | A very long tool description; a very long prompt | 9 | V1 smells with detectors |
@@ -323,7 +323,7 @@ first proposal. The owners rank.
 | Detectors from the trace counts | detector | tuner | A very large tool result; repeated calls and loops; a run that ends at a limit; unused tools and skills; a skill of a few words |
 | Budget-aware planning | code | tuner | Software that plans with the budget: each experiment sized so that it can pass its own test; a small budget not split over too many experiments; a probe for room to improve before a change to the wording; the baseline measured again in each wave; a gate that uses support across repeats. The knowledge side is the V1 playbook `spending-the-budget`. |
 | OpenEnv worlds | gap | tuner, kiln | Read and change a world. An environment for a stateful agent. |
-| Collect restrictions at the start | code | tuner | "Ask the user the five best questions" |
+| Collect restrictions at the start | code | tuner | Done: the Restrictions question and `restrictions.py` |
 
 ### Unranked
 

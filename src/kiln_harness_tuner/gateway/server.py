@@ -30,6 +30,7 @@ from kiln_harness_tuner.gateway import ops as gw
 from kiln_harness_tuner.gateway.trainset import FILE_NAME, TrainSet
 from kiln_harness_tuner.model_catalog import load_catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
+from kiln_harness_tuner.restrictions import load_tool_lock
 
 POLICY_FILE = "model_policy.json"
 
@@ -58,6 +59,7 @@ def load_state(args: argparse.Namespace) -> gw.State:
         run_dir=run_dir,
         project_path=Path(args.project_path) if args.project_path else None,
         policy=load_policy(run_dir),
+        tool_lock=load_tool_lock(run_dir),
         max_concurrent_evals=getattr(args, "max_concurrent_evals", None) or None,
         traces_dir=Path(args.traces_dir) if getattr(args, "traces_dir", None) else None,
         catalog=load_catalog(run_dir),

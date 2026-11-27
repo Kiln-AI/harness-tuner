@@ -205,6 +205,9 @@ class GateModel:
     decision: PromotionDecision | None = None
     blocked: dict[str, list[str]] = field(default_factory=dict)
     copied: set[str] = field(default_factory=set)
+    # Rejected at this gate because their val evidence had holes again
+    # (`rejection_recorded` with the `val incomplete` reason).
+    incomplete_again: set[str] = field(default_factory=set)
     skipped: str | None = None
     promoted: str | None = None  # the confirmed winner, at the gate's end
 

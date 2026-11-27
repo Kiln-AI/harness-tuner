@@ -130,8 +130,11 @@ repeat: a planner or an analyst reads it, and the comparisons and the val
 gate still use the first measurement. A repeat does not re-judge stored
 outputs alone, so it does not separate the judge's noise from the agent's.
 
-**Custom score types have no statistics operation and no normalization
-domain.** Both sites raise in `analysis.py`. They are
+**Custom score types have no statistics operation, no normalization
+domain and no pass line.** The three sites raise in `analysis.py`
+(`_stats_row`, `normalize` and `pass_line`). The engine reads the pass line
+before it starts a trial job, so a trial on a custom score spends nothing.
+The statistics operation and the normalization domain are
 different questions — a custom score with no declared range cannot be
 normalized at all, while it might still be comparable — and neither is guessed.
 The promotion gate is the one place that degrades gracefully: an uncomparable
