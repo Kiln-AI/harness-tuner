@@ -564,6 +564,7 @@ async def test_the_planner_gets_the_baseline_spread_and_no_val_number(tmp_path):
     for kind, fields in ctx.log.events:
         tracker.event(kind, **fields)
     appendix = render_label_spread_appendix(tracker.snapshot())
+    assert appendix.startswith("## Label spread (code-computed)\n")
     assert (
         "Baseline `rc_base`, field `queue`, 24 train item(s): **collapsed**" in appendix
     )

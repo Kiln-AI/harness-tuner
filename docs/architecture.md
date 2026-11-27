@@ -792,7 +792,7 @@ few items from the flag: a full collapse needs six items of other classes.
   `collapsed`, `spreads`, `note`), and the `label_spreads` of each
   `arm_results` event. A collapsed row prints one terminal line, one time
   for each run config.
-- The report: the `## Label spread` section (section 11).
+- The report: the `## Label spread (code-computed)` section (section 11).
 
 The check is advisory. A project that cannot be read, or an error in the
 check, gives no row and a note or a `label_spread_failed` event, never a
@@ -1063,8 +1063,8 @@ way.
   id of the `smell` issue code wrote). It is folded from the
   `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
   `RunStatus.baseline_reviews`), and the fallback report has it too.
-  "## Label spread" (`render_label_spread_appendix`) is there on a classifier
-  task (section 7.3). For each baseline of the run, and for each candidate
+  "## Label spread (code-computed)" (`render_label_spread_appendix`) is there
+  on a classifier task (section 7.3). For each baseline of the run, and for each candidate
   with a collapsed row, it gives one line (collapsed or not, onto which
   class, the collapse fraction, the limit and the p-value) and a table of
   each class with its expected count and its given count. Train only. It

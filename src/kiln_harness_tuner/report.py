@@ -1084,14 +1084,15 @@ def render_fallback_report(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
-LABEL_SPREAD_APPENDIX_HEADING = "## Label spread"
+LABEL_SPREAD_APPENDIX_HEADING = "## Label spread (code-computed)"
 
 
 def render_label_spread_appendix(status: RunStatus) -> str:
-    """The `## Label spread` section, for a classifier task: for each
-    baseline of the run, and for each candidate with a collapsed row, the
-    count of each class that the run config gave on the train items beside
-    the count that the items expect (`kiln_harness_tuner.label_spread`).
+    """The `## Label spread (code-computed)` section, for a classifier
+    task: for each baseline of the run, and for each candidate with a
+    collapsed row, the count of each class that the run config gave on the
+    train items beside the count that the items expect
+    (`kiln_harness_tuner.label_spread`).
     Train only. Empty string when the check read no run config."""
     shown = {
         rc_id: rows

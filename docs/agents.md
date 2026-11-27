@@ -391,9 +391,9 @@ label their numbers val-grade.
 Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
 ([architecture.md](architecture.md) section 11). On a classifier task, code
-appends the `## Label spread` section too: the classes given beside the
-classes expected, on train, for each baseline and for each candidate with a
-collapsed row.
+appends the `## Label spread (code-computed)` section too: the classes given
+beside the classes expected, on train, for each baseline and for each
+candidate with a collapsed row.
 
 **Skill:** `kiln-harness-tuner-report`. Where the knowledge helps it explain
 the run, the template names `references/report.md` of the knowledge skill.
