@@ -290,9 +290,11 @@ scope check, and it is there because this failure is hard to see otherwise.
 
 **Given** `AnalysisInput` — the item, the candidate run config id, the
 `AnalysisBundle` (the label-free numbers table plus every named hole in it),
-its own experiment memory id, and `prediction`: the item's `target_items` and
-`at_risk_items` graded by code on the arm's train rows, with the fix check
-(`predictions.py`). The grade is caution. Code changes no verdict for it.
+its own experiment memory id, `content_budget`: the chars its
+`memory_content` can take after the lines code adds to the record, and
+`prediction`: the item's `target_items` and `at_risk_items` graded by code on
+the arm's train rows, with the fix check (`predictions.py`). The grade is
+caution. Code changes no verdict for it.
 
 **Must return** `ExperimentResult`:
 

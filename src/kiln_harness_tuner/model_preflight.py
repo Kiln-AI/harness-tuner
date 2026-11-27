@@ -21,8 +21,12 @@ Kiln has: Kiln has no connectivity check for a model. The call is a fork of
 the baseline's properties on the model under check, with
 `simple_prompt_builder` in place of the baseline's prompt, no tools, the
 lowest thinking level the server offers for the model, and — for a model
-other than the baseline's — the structured output mode Kiln's model list
-suggests for it. The input is the shortest train item, sent as plaintext
+other than the baseline's — the structured output mode that a swap to it
+takes (`output_modes.swap_mode`): the mode Kiln's model list suggests for
+it, or, when that mode sends the schema as a tool and the baseline attaches
+a tool or a skill, the fallback mode. So the call tests the mode that a run
+config on this model runs with, although the call itself attaches no tools.
+The input is the shortest train item, sent as plaintext
 when the task has no input schema. So one call costs one short prompt and
 one short answer, and the preflight makes at most two calls per model. The
 runs carry `MODEL_PREFLIGHT_RUN_TAG`, and their cost is booked as `spend`,
@@ -77,6 +81,7 @@ from kiln_harness_tuner.model_policy import (
     ModelPolicy,
     allowed_models,
 )
+from kiln_harness_tuner.output_modes import attached_tools, mode_of, swap_mode
 from kiln_harness_tuner.probes import ProbeSetupError, TrainInput, rc_props
 from kiln_harness_tuner.prompt_text import CODE_TOOL_DESCRIPTION, rc_texts
 from kiln_harness_tuner.provider_errors import (
@@ -152,8 +157,6 @@ _MODE_RE = re.compile(
     r"|tool_choice",
     re.IGNORECASE,
 )
-# A structured output mode that names no real mode.
-_NO_MODE = ("default", "unknown")
 # Why a failure that is not hard leaves the model untested, by class.
 _UNTESTED_WHY = {
     "transient": "still failing after one retry",
@@ -299,11 +302,20 @@ def test_call_body(
         test["thinking_level"] = levels[0]
     else:
         test.pop("thinking_level", None)
-    # The baseline's mode may be one another provider does not support; the
-    # mode Kiln suggests for the model is one it does.
-    mode = (row or {}).get("structured_output_mode")
-    if not baseline and isinstance(mode, str) and mode not in _NO_MODE:
-        test["structured_output_mode"] = mode
+    # The baseline's mode may be one another provider does not support. The
+    # test call uses the mode that a swap to this pair takes: the mode Kiln
+    # suggests for the model, or the fallback when the baseline's tools
+    # rule that mode out.
+    if not baseline:
+        default = (row or {}).get("structured_output_mode")
+        choice = swap_mode(
+            mode_of(props),
+            default if isinstance(default, str) else None,
+            provider=pair[0],
+            tools=bool(attached_tools(props)),
+        )
+        if choice.mode is not None:
+            test["structured_output_mode"] = choice.mode
     return {"run_config_properties": test, "tags": [MODEL_PREFLIGHT_RUN_TAG], **inp}
 
 

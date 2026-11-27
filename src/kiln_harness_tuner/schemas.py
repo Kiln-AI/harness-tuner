@@ -13,6 +13,8 @@ from typing import Annotated, Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from kiln_harness_tuner.rc_inherit import FROZEN_KEYS
+
 T = TypeVar("T")
 
 # ---- shared support types ----
@@ -471,6 +473,9 @@ class TrialResult(BaseModel):
     target_items: list[str]
     scores: dict[str, float | None]
     landed: bool  # every target stored a row at or above the pass line
+    # The score's pass line, normalized (`analysis.pass_line`). The default
+    # 0.5 is the line of an older wave log.
+    pass_line: float = 0.5
     spend_usd: float = 0.0
     job_id: str | None = None
     # The task call's latency (ms) and provider cost (USD) per
@@ -485,9 +490,14 @@ class TrialResult(BaseModel):
     # run paid for it — the price the spending cap reads (`budget`).
     item_costs: dict[str, float] = {}
 
+    def passed(self, item_id: str) -> bool | None:
+        """Did this target pass? None when it stored no row."""
+        score = self.scores.get(item_id)
+        return None if score is None else score >= self.pass_line
+
     @property
     def fixed(self) -> list[str]:
-        return [i for i in self.target_items if (self.scores.get(i) or 0.0) >= 0.5]
+        return [i for i in self.target_items if self.passed(i)]
 
     @property
     def summary(self) -> str:
@@ -706,6 +716,12 @@ class ProbeCheck(BaseModel):
 
     @model_validator(mode="after")
     def _variants_are_screened(self) -> ProbeCheck:
+        frozen = [k for k in FROZEN_KEYS if k in self.overrides]
+        if frozen:
+            raise ValueError(
+                f"a probe may not override {frozen}: these run config"
+                " properties are not levers of the tuner yet"
+            )
         hit = [k for k in SCREEN_ONLY_OVERRIDES if k in self.overrides]
         if hit:
             raise ValueError(
@@ -1983,6 +1999,15 @@ class BatchPlanInput(BaseModel):
     #   "provider/model: reason". They are not in `allowed_models`, and code
     #   does not screen them.
     flagged_models: list[str] = []
+    # What the owner stated at the start (`restrictions.py`), in words: the
+    #   providers, the model origin, the data retention, the tools that must
+    #   not change. Code enforces each one. `restriction_limits`: what code
+    #   cannot check for them. `locked_tools`: the ids of the tools that must
+    #   not change: the gateway refuses a run config that drops, replaces or
+    #   wraps one.
+    restrictions: list[str] = []
+    restriction_limits: list[str] = []
+    locked_tools: list[str] = []
     # Every screening round's results this run, newest last, and
     # how many more rounds this wave may run (`screen` is refused at 0).
     screening_results: list[ScreenResult] = []
@@ -2100,6 +2125,11 @@ class AnalysisInput(BaseModel):
     #   train rows, and the fix check (`kiln_harness_tuner.predictions`).
     #   Caution, never a verdict. None when nothing was judged.
     prediction: PredictionGrade | None = None
+    # The chars `memory_content` can take: the content cap less the lines
+    # code adds at the verdict (`memory.verdict_room`). Over it, the
+    # dispatcher asks the session to shorten, then code clamps. The default
+    # is the whole cap (`memory_schema.CONTENT_MAX_CHARS`).
+    content_budget: int = 4000
 
 
 class DescribeEvalInput(BaseModel):
@@ -2229,6 +2259,20 @@ class WaveStatus(BaseModel):
     tripwire: str | None
     promotion_skipped: str | None = None  # a promote_best hard-fail must
     #   be noted in RunStatus/the report
+    # The gate's candidates whose val evidence had holes (a failed fill,
+    # coverage under the floor, an incomplete speed or cost pass): neither
+    # promoted nor rejected, they stay pooled. Never a rejection.
+    pooled: list[str] = []
+    # The rc ids that code rejected at this gate because their val evidence
+    # had holes at `HOLED_GATE_LIMIT` gates of the run (the `val incomplete`
+    # reason). Code stamps them `— REJECTED AT VAL` before the decision, so
+    # also in a wave with `promotion_skipped` or with no decision.
+    rejected_incomplete: list[str] = []
+    # The baseline rc whose val evidence had holes at `HOLED_GATE_LIMIT`
+    # gates of the run, set at the gate that reached the limit
+    # (`baseline_val_holes`). From that gate on, the baseline-side holes
+    # count against the candidates' bound. None in every other wave.
+    baseline_val_holes: str | None = None
 
 
 class RunStatus(BaseModel):

@@ -523,7 +523,7 @@ async def test_refused_verdict_and_stamp_writes_are_logged_and_the_run_goes_on()
     _promotion_scenario(ctx)
     ctx.dispatch.queue("promote_best", decision("rc_cand"))
 
-    async def refuse(exp_mem_id, res):
+    async def refuse(exp_mem_id, res, code_lines=()):
         raise ExperimentStateError(
             f"experiment {exp_mem_id} is verdict — refusing to record a verdict"
             " (allowed moves: none)"
@@ -2577,9 +2577,17 @@ async def test_ineligible_winner_is_blocked_at_the_gate():
     assert any("below the 95% floor" in e.detail for e in table.errors)
     # Blocked: baseline untouched, block event logged, nothing stamped.
     assert kiln.memories["mem_baseline"]["overview"] == BASELINE_OVERVIEW
-    (blocked,) = [f for k, f in ctx.log.events if k == "promotion_blocked"]
-    assert blocked["winner_rc_id"] == "rc_cand"
+    # Two events: the candidate stays pooled (its val evidence has holes),
+    # and the gate refuses the agent's pick.
+    blocks = [f for k, f in ctx.log.events if k == "promotion_blocked"]
+    assert [(f["winner_rc_id"], bool(f.get("pooled"))) for f in blocks] == [
+        ("rc_cand", True),
+        ("rc_cand", False),
+    ]
     assert not any("REJECTED" in m["overview"] for m in kiln.memories.values())
+    # Every hole is on the baseline side: the gate does not count against
+    # the candidate's bound.
+    assert ctx.holed_gates == {}
 
 
 async def test_budget_exhausted_exits_before_a_wave():

@@ -1,7 +1,7 @@
 ---
 title: Model swap inside a class
 description: Lock one model of the class the task needs, tune the harness on it, then scan the class again for a model that is better, cheaper or faster with that harness.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 status: active
 levers:
   - model
@@ -78,8 +78,9 @@ round of candidates in code, and an arm.
    in code, on the same items, then commit the best survivor as an arm,
    measured on every eval. This is an exception to the planner's
    lean-target default: a model swap changes every item, so every eval is
-   its target. Set a thinking level from the new model's own list, and the
-   output mode to the new model's default (the lever gives the step).
+   its target. Set a thinking level from the new model's own list. Code
+   sets the output mode of the new model and provider (the lever gives
+   the step).
 5. **After a swap, measure again what the harness gained.** Each promoted
    change was measured with the old model. With the new model, a change
    can help less, help more, or hurt. Check the evals that each change
@@ -99,8 +100,10 @@ three train items shows that the new model calls the tools and returns the
 output form that the task needs. The capability flags of
 `get_model_details` are Kiln's data, and one drive shows what the model
 does on the task. Invalid output just after the swap points first to a
-wrong output mode, not to a weaker model: check that the mode is the new
-model's default before you record the model as refuted.
+wrong output mode, not to a weaker model: check the mode against the
+lever's step before you record the model as refuted. Code sets the mode
+of the new model and provider when the swap names none, and checks that
+it reached the call.
 
 ## Budget
 

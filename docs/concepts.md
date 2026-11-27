@@ -147,7 +147,7 @@ model on this task instead of assuming them. Their item ids begin `r0-`. Skip
 it with `--no-recon`. It is shaped by the baseline: tool and
 skill probes run only when the baseline has a tool or a skill attached, the
 alternate-output-mode probe only with a tool under `json_schema`, and the
-JSON probe only under a structured output mode. Thinking levels are not
+JSON probe only on a task with an output schema. Thinking levels are not
 probed: under speed and cost the opening screen tries the lower levels.
 
 ## Baselines and promotion
