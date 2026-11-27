@@ -617,8 +617,9 @@ zero numbers:
 2. `— REJECTED AT VAL <date>` on a candidate the gate passed over, with one
    `- rejected at the val gate …` line. Code chooses its reason
    (`ValRejection`): passed over for the winner, the eval ids that dropped
-   beyond doubt, no targeted gain, a targeted gain not beyond doubt, or "not
-   promoted at val" when code cannot tell. Never a number, an item id, a
+   beyond doubt, no targeted gain, a targeted gain not beyond doubt, val
+   evidence with holes at repeated gates of one run, or "not promoted at
+   val" when code cannot tell. Never a number, an item id, a
    trace or the promotion agent's prose.
 3. `— PROMOTED <date>` on the winner's experiment record.
 
@@ -773,6 +774,18 @@ it would be refused. Four rules keep the state readable:
 - An experiment append keeps every line code reads back
   (`EXPERIMENT_HEAD_KEYS`, the gate notes) and drops other lines, oldest
   first.
+- The verdict clamp (`_fit_verdict_content`) also keeps every head line,
+  the `next:` line, and the exact lines code added (`measurement:`, the
+  latency and cost lines). It keeps the analyzer's other lines from the top
+  (its opening and its numbers table), so its interpretation prose drops
+  first. When the protected lines alone are over the cap, the code lines
+  lose their protection. Code adds lines after the analyzer's content: the `measurement:` line,
+  the latency and cost lines, and each carried line the analyzer did not
+  re-cite. So the analyzer gets the room that is left, as
+  `AnalysisInput.content_budget` (`memory.verdict_room`). A content over
+  that room gets up to `SHORTEN_TURNS` (2) turns in the same session, which
+  ask for a shorter content and take only the new `memory_content` from the
+  reply. The clamp is the last step.
 - No suffix is a verdict only in the verdict's shape (`EXP <id>: …`). An
   overview still in the opening's shape (`EXP <id> (…`) with no suffix reads
   `UNKNOWN`. `UNKNOWN` takes the forward moves of `RUNNING` and is not
@@ -786,8 +799,12 @@ it would be refused. Four rules keep the state readable:
 
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
-only. Lifecycle writes are code's alone by contract: the gateway enforces
-the two scopes and refuses the `val` tag, and does not check the record kind.
+only. Lifecycle writes are code's alone by contract: the memory operations
+enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
+any update of the `baseline` record. They do not check the record kind.
+An agent cannot go around this guard with Kiln's own memory tools: the
+gateway refuses them in a code tool allowlist and in a new run config
+(section 12, "No tool that reaches Kiln's own state").
 
 ## 9. The promotion gate
 
@@ -858,15 +875,59 @@ successful on train.
    `val` stats record, then the issue writes (fixed, from the winner's
    *train-side* result; regressed, from the decision's flags), then the
    winner's `— PROMOTED` stamp, then one `— REJECTED AT VAL` stamp per
-   candidate passed over, with its reason line. With no winner, the
-   rejection stamps and their reason lines are the only writes: no issue
-   record changes, because the baseline did not change.
+   candidate passed over on complete val evidence, with its reason line.
+   With no winner, the rejection stamps and their reason lines are the only
+   writes: no issue record changes, because the baseline did not change.
 
 Every candidate's table carries `errors` — every hole in its val assembly — and
 `ineligible`. A candidate whose fill failed on either side, or whose coverage
 fell below `--coverage-floor`, cannot win, and the orchestrator blocks it
 regardless of what the agent decided. Without that field, a failed fill would
 drop an eval in silence, and the rationale could still say "no regressions".
+
+A candidate with holes is not judged, so it is not rejected either. The
+holes are the fill and coverage holes of the val assembly, and under speed
+and cost a paired pass that is missing or `incomplete` (`_val_holes`). A
+quote block is a verdict, not a hole. Such a candidate gets no stamp and no
+reason line: a `promotion_blocked` event ("val evidence incomplete — stays
+pooled") and the wave's `pooled` list in RunStatus say so, and it stays
+pooled for a later wave. Every path of the gate emits this event, the
+single-candidate rule included. When `promote_best` picks a holed
+candidate, the gate also refuses it as a winner (`promotion_blocked`
+without `pooled`).
+
+Code does not refuse a resubmission of a pooled rc (`existing_rc_id`), so
+an rc whose val pass fails each time could come back in every wave. At its
+second holed gate of one run (`HOLED_GATE_LIMIT`), code stamps each of its
+records from those gates `— REJECTED AT VAL` with the reason "val
+incomplete again". The gates need not be consecutive. At each later
+counted gate, code stamps each record that is not stamped yet, so a write
+that failed is written again. An rc with a failed write stays in the
+wave's `pooled` list. The bound stamps before the decision, so also in a
+wave with no decision. The wave's `rejected_incomplete` list in RunStatus
+names these rcs.
+
+Which gates count against a candidate:
+
+- A speed or cost hole (a paired pass that is missing or `incomplete`) is
+  never put on a side. It always counts against the candidate.
+- A hole in the eval fills is put on a side, per eval. A failed candidate
+  fill, a failed comparison or a candidate-side coverage under the floor is
+  the candidate's. A cached candidate fill has no job total of its own, so
+  its coverage is read against the baseline's job total when the baseline
+  has one. A failed baseline fill or a baseline-side coverage under the
+  floor is the baseline's. A pair hole (no paired items, a paired coverage
+  under the floor) is the baseline's only when the baseline side of that
+  eval is under the floor and the candidate side is not. Else it counts as
+  the candidate's.
+- A gate where every hole of the candidate is the baseline's does not
+  count, while the baseline is under its own limit. Code counts the gates
+  where the baseline side had a hole, per baseline rc
+  (`Ctx.baseline_holed_gates`). At the `HOLED_GATE_LIMIT`-th such gate, code emits `baseline_val_holes`
+  once, and the wave's `baseline_val_holes` in RunStatus names the
+  baseline rc. From that gate on, the baseline-side holes count against
+  the candidates too. Without this limit, a baseline whose val fill fails
+  each time would pool every candidate at every gate until the run ends.
 
 **There is no rollback, deliberately.** The ordering is the recovery design:
 the baseline record is the authoritative pointer and is written first, so any
@@ -1129,12 +1190,54 @@ reads a list: it takes the last `"type": "result"` event.
      item and takes the input from the item, never from the agent — on a
      multi-turn or OpenEnv task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
-     the two scopes, and the `val` tag is code's. A new eval
+     the two scopes, and the `val` and `baseline` tags are code's. A new eval
      (`create_eval`) gets splits the gateway assigns; its val and test
      items are never readable back. There is no operation that changes
      settings or providers, and no operation for deletes, split edits or
      held-out items. The model operations read the run's model catalogue
      snapshot (section 17.1).
+   - **No tool that reaches Kiln's own state.** Kiln's memory tools
+     (`kiln_tool::memory::<operation>`) read and write the memory store
+     that holds the `baseline` and `val` records. A Kiln API tool
+     (`kiln_tool::call_kiln_api`, or an MCP tool named `call_kiln_api`)
+     reaches every endpoint. With one of them, an agent could go around
+     the memory operations: move the baseline pointer with no val gate, or
+     read the `val` record. So `create_code_tool` and `test_code_tool`
+     refuse an allowlist that has one of these tools, or a tool that
+     reaches one at any depth. A code tool reaches what its stored
+     allowlist reaches. A Kiln task tool (`kiln_task::<id>`) reaches what
+     the tools of its run config reach, because the called task's agent
+     can call them. `create_run_config` refuses
+     the same tools, with one exception: a tool that the baseline run
+     config already has may stay. The subject agent can use Kiln memory by
+     design, and a candidate must be able to keep what its baseline has.
+     The gateway reads the baseline run config from the `rc_<id>` tag of
+     the `baseline` record. With no such record, it refuses all of these
+     tools. A code tool runs the agent's own code, so the baseline
+     exception does not apply to an allowlist.
+   - **A candidate keeps what it does not know.** The field-by-field
+     projection means that an agent does not see a run-config property
+     that the tuner does not know, so a run config copied from the view
+     would drop it. `create_run_config` copies each such property from the
+     parent that `provenance.derived_from_ids` names (the first id that is
+     a run config of the task), when the request leaves it out, and its
+     answer names them (`carried_properties`;
+     [`rc_inherit.py`](../src/kiln_harness_tuner/rc_inherit.py)). A
+     property that the tuner sets itself (`RC_PROP_KEYS`) is not carried:
+     a request that leaves one out leaves it out on purpose. Five
+     properties that a newer Kiln adds are shown in the view and are not
+     levers yet (`rc_inherit.FROZEN_KEYS`: `max_output_tokens`, `seed`,
+     `frequency_penalty`, `presence_penalty`, `openrouter_routing`): a
+     candidate keeps the parent's value, and one that changes it is
+     refused. A candidate on another model or provider may unset one
+     (`null`). `openrouter_routing` applies only while the candidate stays
+     on OpenRouter, and is removed from a candidate on another provider.
+     On OpenRouter a candidate may not drop `zero_data_retention` when the
+     parent has it, and may add it. A request whose provenance names no
+     run config of the task is refused: the carry needs the parent. The
+     code forks of a screening round copy the parent's whole properties
+     and run the same checks (`rc_inherit.check_fork`). A probe may not
+     override a frozen property.
    - **Traces in files, and a cap on every answer**
      ([`gateway/trace_files.py`](../src/kiln_harness_tuner/gateway/trace_files.py)).
      Claude Code does not give an agent an MCP answer over about 25,000
@@ -1499,7 +1602,12 @@ stored rows and re-drives nothing.
   item, its stratum and its block). First the items the planner named
   (`target_items`). Then the DISCRIMINATING block: up to `DISC_FAILS` (8)
   items the parent fails on the targeted evals and up to `DISC_GUARDS` (4)
-  it passes, round-robin across the evals. Then the REMAINDER: per eval the
+  it passes, round-robin across the evals. An item fails when its value is
+  on the bad side of the pass line of its score type (`analysis.pass_line`):
+  0.5 for pass_fail and pass_fail_critical, 3 for five_star. A value on the
+  line passes. So a plain fail (0) under pass_fail_critical is a fail. The
+  engine uses the same line for the parent's pass, the candidate's pass,
+  fragility and `trial` landed. Then the REMAINDER: per eval the
   rest of the train split, the parent's failures, passes and unscored items
   interleaved in proportion (`_interleave`), round-robin across the evals.
   The universe is the eval's train split on disk plus any train row the

@@ -84,7 +84,7 @@ from kiln_harness_tuner.analysis import (
     _run_cost,
     _runs_by_item,
     expand_targets,
-    normalize,
+    passes,
 )
 from kiln_harness_tuner.budget import (
     Budget,
@@ -292,7 +292,7 @@ def fragility_counts(
         values.setdefault(item_id, {}).setdefault(rc_id, []).append(float(value))
     return {
         item_id: [
-            sum(1 for v in by_rc.values() if normalize(fmean(v), spec) < 0.5),
+            sum(1 for v in by_rc.values() if not passes(fmean(v), spec)),
             len(by_rc),
         ]
         for item_id, by_rc in values.items()
@@ -378,7 +378,7 @@ async def draw_queue(
             for item_id, row in _runs_by_item(rows).items():
                 value = (row.get("scores") or {}).get(spec.key)
                 if value is not None:
-                    scored[item_id] = normalize(float(value), spec) >= 0.5
+                    scored[item_id] = passes(float(value), spec)
         except (AnalysisError, MeasurementFailed) as exc:
             # e.g. a score with no pass/fail mapping: the eval is skipped,
             # and the reason goes on the outcome.
@@ -1282,7 +1282,6 @@ async def _measure(
                         ev.outputs += 1
                         ev.invalid += 0 if output_valid(out, schema) else 1
             for q in qs:
-                score = trial.scores.get(q.item_id) if trial is not None else None
                 ev.judged.append(
                     Judged(
                         eval_id=q.eval_id,
@@ -1290,7 +1289,7 @@ async def _measure(
                         stratum=q.stratum,
                         block=q.block,
                         parent_pass=q.parent_pass,
-                        cand_pass=None if score is None else score >= 0.5,
+                        cand_pass=None if trial is None else trial.passed(q.item_id),
                         fragility=q.fragility,
                     )
                 )

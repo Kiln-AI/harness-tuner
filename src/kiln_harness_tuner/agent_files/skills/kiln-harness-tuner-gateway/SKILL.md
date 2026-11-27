@@ -269,18 +269,21 @@ names a held-out split (`val`, `test`, `val_…`, `test_…`, `holdout…`, `hel
 
 `scope` is `project` or `task::<this task id>` — nothing else. The loop's
 `val` record is not listed or fetched, except by the promotion agent and
-the report writer. No agent can write a record with the `val` tag. The `memory` skill says what to write.
+the report writer. The memory operations refuse a record with the `val`
+tag or the `baseline` tag. They also refuse any change to the `baseline`
+record. Only the loop's code writes these records. The `memory` skill says
+what to write.
 
 ### Building a candidate
 
 | Operation | Fields | Answer |
 |---|---|---|
-| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `notes` — refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, or when its `structured_output_mode` cannot run (below) |
+| `create_run_config` | `name`, `description?`, `run_config_properties`, `provenance?` | the new run config, with `notes` and with `carried_properties`: the parent's properties that you left out and that the tuner does not set itself, copied from the parent. Name the parent in `provenance.derived_from_ids` (for a merge, the baseline first): a request with no run config there is refused. Also refused when its model or provider is outside the run's model policy, when it is not a `kiln_agent` config, when it adds a Kiln state tool that the baseline run config does not have (below), when its `structured_output_mode` cannot run (below), or when it changes `max_output_tokens`, `seed`, `frequency_penalty`, `presence_penalty` or `openrouter_routing` from the parent's value: these are not levers yet. On another model or provider you may unset one of them (`null`). On OpenRouter you may add `openrouter_routing.zero_data_retention: true`, and you may not drop it |
 | `rename_run_config` | `id`, `name` | the renamed config |
 | `create_prompt` | `name`, `prompt`, `chain_of_thought_instructions?`, `description?`, `provenance?` | the new prompt |
 | `list_code_tools` / `get_code_tool` | — / `id` | code tools, with their code |
-| `create_code_tool` | `name`, `tool_function_name`, `tool_description`, `parameters_schema`, `code`, `description?`, `timeout_seconds?`, `tool_allowlist?`, `provenance?` | the new tool |
-| `test_code_tool` | `tool_function_name`, `parameters_schema`, `code`, `params?`, … | a dry run: `result`, `error`, `traceback`, `stdout`, `stderr`, `not_trusted`, `tool_call_log`, `duration_ms` |
+| `create_code_tool` | `name`, `tool_function_name`, `tool_description`, `parameters_schema`, `code`, `description?`, `timeout_seconds?`, `tool_allowlist?`, `provenance?` | the new tool — refused when `tool_allowlist` reaches a Kiln state tool (below) |
+| `test_code_tool` | `tool_function_name`, `parameters_schema`, `code`, `params?`, `tool_allowlist?`, … | refused when `tool_allowlist` reaches a Kiln state tool (below); else a dry run: `result`, `error`, `traceback`, `stdout`, `stderr`, `not_trusted`, `tool_call_log`, `duration_ms` |
 | `trust_code_tools` | — | trusts the project's code tools to run |
 | `archive_code_tool` | `id`, `archived?` | the archived tool |
 | `list_skills` / `get_skill` / `get_skill_content` | — / `id` / `id` | skills and their SKILL.md |
@@ -292,6 +295,24 @@ the report writer. No agent can write a record with the `val` tag. The `memory` 
 | `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
+
+**Kiln state tools.** A Kiln state tool reads or writes Kiln's own state,
+not the subject task's world. There are two kinds:
+
+- Kiln's memory tools, `kiln_tool::memory::<operation>`. They reach the
+  memory store that holds the loop's `baseline` and `val` records.
+- A Kiln API tool: `kiln_tool::call_kiln_api`, or an MCP tool named
+  `call_kiln_api`. It reaches every Kiln endpoint.
+
+`create_code_tool` and `test_code_tool` refuse an allowlist with a Kiln
+state tool in it. They also refuse a tool that reaches one, at any depth:
+a code tool whose stored allowlist reaches one, and a Kiln task tool
+(`kiln_task::<id>`) whose run config has a tool that reaches one.
+`create_run_config` refuses a Kiln state tool, or a code tool or a Kiln
+task tool that reaches one, when the baseline run config does not have
+that tool. A tool that the baseline run config has may stay in the
+candidate. The refusal names each refused tool and its path. Remove the
+tool, and use the subject task's own tools.
 
 `create_run_config` checks `structured_output_mode` (the knowledge levers
 `levers/output_mode.md` and `levers/model.md` give the rules):
