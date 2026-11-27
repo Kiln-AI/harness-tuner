@@ -148,6 +148,10 @@ def _routes(gateway, kiln, parent_props: dict) -> None:
     kiln.routes[("GET", f"{gateway.s.base}/run_configs")] = [
         {"id": PARENT_ID, "name": "parent", "run_config_properties": parent_props}
     ]
+    # The reads of the output-mode check: no default mode, a task with no
+    # output schema.
+    kiln.routes[("GET", "/api/available_models")] = []
+    kiln.routes[("GET", gateway.s.base)] = {"id": gateway.s.task_id}
     kiln.routes[("POST", f"{gateway.s.base}/run_configs")] = lambda _q, body: {
         "id": NEW_ID,
         "name": body["name"],

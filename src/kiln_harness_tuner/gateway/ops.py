@@ -38,7 +38,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from kiln_harness_tuner import memory_schema
+from kiln_harness_tuner import memory_schema, output_modes
 from kiln_harness_tuner.gateway import model_info
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
@@ -1441,22 +1441,92 @@ class Gateway:
                 " the baseline run config has may stay"
             )
 
+    async def _read(self, path: str) -> Any:
+        """A GET whose failure must not stop a write: None then."""
+        try:
+            return await self.call("GET", path)
+        except (KilnError, GatewayError):
+            return None
+
+    async def _output_mode_check(
+        self, props: dict[str, Any], parent: dict[str, Any] | None
+    ) -> list[str]:
+        """The output-mode rules of a new run config
+        (`kiln_harness_tuner.output_modes`). Sets `structured_output_mode` on
+        `props` when it is not given, refuses a mode that cannot run, and
+        returns the notes for the answer. `parent` holds the properties of
+        the parent run config that `_inherit` found."""
+        provider, model = props.get("model_provider_name"), props.get("model_name")
+        default = output_modes.server_default(
+            await self._read("/api/available_models"), provider, model
+        )
+        swapped = parent is not None and any(
+            props.get(k) != parent.get(k) for k in output_modes.PAIR_KEYS
+        )
+        tools = bool(output_modes.attached_tools(props))
+        choice = output_modes.swap_mode(
+            output_modes.mode_of(parent), default, provider=provider, tools=tools
+        )
+        notes: list[str] = []
+        mode = output_modes.mode_of(props)
+        if mode is None:
+            if parent is not None and not swapped and output_modes.mode_of(parent):
+                choice = output_modes.ModeChoice(
+                    output_modes.mode_of(parent),
+                    "the parent's mode: the model and the provider are the parent's",
+                )
+            if choice.mode is None:
+                raise GatewayError(
+                    "run_config_properties names no structured_output_mode, and"
+                    f" Kiln's model list gives no default for {model} on"
+                    f" {provider}. Name one: " + ", ".join(output_modes.MODES) + "."
+                )
+            mode = props["structured_output_mode"] = choice.mode
+            notes.append(
+                f"structured_output_mode was not given: set to {mode} ({choice.why})."
+            )
+        task = await self._read(self.s.base)
+        refused = output_modes.refusal(
+            props,
+            structured=bool(task.get("output_json_schema"))
+            if isinstance(task, dict)
+            else None,
+            default=default,
+        )
+        if refused is not None:
+            raise GatewayError(refused)
+        kept = swapped and mode == output_modes.mode_of(parent)
+        if kept and choice.mode and choice.mode != mode:
+            notes.append(
+                "This run config changes the model or the provider of its"
+                f" parent and keeps the parent's structured_output_mode, {mode}."
+                f" The mode of the new pair is {choice.mode} ({choice.why})."
+                f" Keep {mode} only when the experiment tests the output mode."
+                " Else make the run config again, with structured_output_mode"
+                " left out."
+            )
+        return notes
+
     async def create_run_config(self, req: m.RunConfigCreate) -> m.RunConfigCreated:
         self._policy_check(req.run_config_properties)
         body = req.model_dump(exclude_none=True)
-        carried = await self._inherit(body)
-        # After the carry: the check reads the properties that are sent.
-        await self._rc_tools_check(body["run_config_properties"])
-        await self._input_transform_check(body["run_config_properties"])
+        carried, parent = await self._inherit(body)
+        # After the carry: the checks read the properties that are sent.
+        props = body["run_config_properties"]
+        await self._rc_tools_check(props)
+        await self._input_transform_check(props)
+        notes = await self._output_mode_check(props, parent)
         row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
         view = _rc_view(row if isinstance(row, dict) else {})
+        view.notes = notes
         return m.RunConfigCreated(**view.model_dump(), carried_properties=carried)
 
-    async def _inherit(self, body: dict[str, Any]) -> list[str]:
+    async def _inherit(self, body: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
         """Take from the parent run config (the first `derived_from_ids` id
         that is a run config of the task) each property that the request
         leaves out and the tuner does not manage (`rc_inherit`). Returns
-        the names carried. A request with no such parent is refused: the
+        the names carried, and the parent's properties. A request with no
+        such parent is refused: the
         carry and the checks of the parent's settings need it."""
         ids = (body.get("provenance") or {}).get("derived_from_ids") or []
         ids = [str(i) for i in ids] if isinstance(ids, list) else []
@@ -1475,7 +1545,7 @@ class Gateway:
             )
         except InheritError as exc:
             raise GatewayError(str(exc)) from exc
-        return carried
+        return carried, props
 
     async def rename_run_config(self, req: m.RunConfigRename) -> m.RunConfigView:
         body = req.model_dump(exclude_none=True, exclude={"id"})
@@ -1903,7 +1973,7 @@ OPS = _ops(
     (
         "create_run_config",
         m.RunConfigCreate,
-        "A new run config (model policy checked).",
+        "A new run config (model policy and output mode checked).",
     ),
     (
         "validate_input_transform",

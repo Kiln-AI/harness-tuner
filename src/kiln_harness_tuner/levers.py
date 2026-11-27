@@ -22,7 +22,14 @@ nothing (`lever_verdict`):
 - **model or provider**: the model and provider each drive records — in
   `output.source`, in its `usage`, or on a trace message. A drive served by
   another model or provider than the run config names is not applied (a
-  direct contradiction); a switch no drive records is UNVERIFIED.
+  direct contradiction); a switch no drive records is UNVERIFIED;
+- **output mode**, different from the parent's: what each drive records
+  about the mode (`output_modes.mode_evidence`). A drive that records
+  another mode, or that calls the `task_response` tool in a mode that
+  offers none, is not applied (a direct contradiction). The mark of the
+  mode in the trace, or Kiln's record of it for a mode that leaves no mark,
+  is applied. No mark and no record is UNVERIFIED, and so is every mode on
+  a task with no output schema, where Kiln does not use the mode.
 
 The input transform is not checked here: this check does not know the
 arm's technique, and only an arm of that lever may end on it. The item
@@ -38,6 +45,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import median
 from typing import Any
+
+from kiln_harness_tuner.output_modes import (
+    ModeSignal,
+    mode_evidence,
+    mode_of,
+    mode_signal,
+)
 
 NO_THINKING = frozenset({None, "", "none", "off", "disabled"})
 _REASONING_TOKEN_KEYS = ("reasoning_tokens", "thinking_tokens")
@@ -62,8 +76,9 @@ def _first(mapping: Any, keys: Sequence[str]) -> Any:
 
 def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
     """What one task run shows about the levers: `reasoning` (any reasoning
-    content or reasoning tokens), and the `model` / `provider` that served
-    it (None when the run does not record them)."""
+    content or reasoning tokens), the `model` / `provider` that served
+    it (None when the run does not record them), and what it records about
+    the output mode (`output_modes.mode_evidence`)."""
     trace = [m for m in (run.get("trace") or []) if isinstance(m, Mapping)]
     reasoning = any(
         m.get("role") == "assistant" and (m.get("reasoning_content") or "")
@@ -105,6 +120,7 @@ def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
         "model": model,
         "provider": provider,
         "output_tokens": float(tokens) if isinstance(tokens, (int, float)) else None,
+        **mode_evidence(run),
     }
 
 
@@ -112,6 +128,9 @@ def lever_evidence(run: Mapping[str, Any]) -> dict[str, Any]:
 class LeverVerdict:
     status: str  # "applied" | "not_applied" | "unverified"
     reason: str = ""
+    # The output-mode signal, when the candidate's mode differs from its
+    # parent's (None otherwise): its own status, and what it stands on.
+    mode: ModeSignal | None = None
 
 
 def _token_ratio(
@@ -139,14 +158,22 @@ def lever_verdict(
     evidence: Mapping[str, Mapping[str, Any]],
     parent: Mapping[str, Any] | None = None,
     parent_evidence: Mapping[str, Mapping[str, Any]] | None = None,
+    *,
+    structured: bool | None = None,
 ) -> LeverVerdict:
     """The candidate's declared levers against every signal its drives and
     its parent's drives on the same items carry. `evidence` and
-    `parent_evidence` = item id -> `lever_evidence` of that drive."""
+    `parent_evidence` = item id -> `lever_evidence` of that drive.
+    `structured`: the task has an output schema (None: not known)."""
     if not evidence:
         return LeverVerdict("applied")
     n = len(evidence)
     unverified: list[str] = []
+    mode = _mode_signal(props, evidence, parent, structured)
+    if mode is not None and mode.status == "not_applied":
+        return LeverVerdict("not_applied", mode.reason, mode)
+    if mode is not None and mode.status == "unverified":
+        unverified.append(mode.reason)
     level = props.get("thinking_level")
     declared = parent is None or level != parent.get("thinking_level")
     if declared and level not in NO_THINKING:
@@ -164,6 +191,7 @@ def lever_verdict(
                     f"lever not applied: thinking_level={level} is set, but 0 of"
                     f" {n} drives show reasoning and output tokens are"
                     f" {ratio:.2f}x the parent's on the same {pairs} items",
+                    mode,
                 )
     want_model = props.get("model_name")
     want_provider = props.get("model_provider_name")
@@ -184,6 +212,7 @@ def lever_verdict(
             "not_applied",
             f"lever not applied: the run config names {want_model}@{want_provider},"
             f" but {len(wrong)} of {n} drives were served by {m}@{p}",
+            mode,
         )
     switched = parent is not None and (
         want_model != parent.get("model_name")
@@ -194,8 +223,31 @@ def lever_verdict(
             f"{want_model}@{want_provider}: no drive records the model that served it"
         )
     if unverified:
-        return LeverVerdict("unverified", "lever unverified: " + "; ".join(unverified))
-    return LeverVerdict("applied")
+        return LeverVerdict(
+            "unverified", "lever unverified: " + "; ".join(unverified), mode
+        )
+    return LeverVerdict("applied", mode=mode)
+
+
+def _mode_signal(
+    props: Mapping[str, Any],
+    evidence: Mapping[str, Mapping[str, Any]],
+    parent: Mapping[str, Any] | None,
+    structured: bool | None,
+) -> ModeSignal | None:
+    """The output-mode signal of a candidate whose mode differs from its
+    parent's, or None (no parent, or the same mode)."""
+    mode = mode_of(props)
+    if parent is None or mode == mode_of(parent):
+        return None
+    if structured is False:
+        return ModeSignal(
+            "unverified",
+            "none",
+            f"structured_output_mode={mode}: no output schema was read for the"
+            " task, and Kiln uses the mode only with one",
+        )
+    return mode_signal(mode, evidence)
 
 
 def lever_not_applied(
@@ -203,7 +255,11 @@ def lever_not_applied(
     evidence: Mapping[str, Mapping[str, Any]],
     parent: Mapping[str, Any] | None = None,
     parent_evidence: Mapping[str, Mapping[str, Any]] | None = None,
+    *,
+    structured: bool | None = None,
 ) -> str | None:
     """The "not applied" reason, or None (applied or unverified)."""
-    verdict = lever_verdict(props, evidence, parent, parent_evidence)
+    verdict = lever_verdict(
+        props, evidence, parent, parent_evidence, structured=structured
+    )
     return verdict.reason if verdict.status == "not_applied" else None

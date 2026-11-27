@@ -249,10 +249,25 @@ async def _make_candidate_rc(
     (policy, a thinking level the provider does not offer). A failure to make
     the run config — the parent unreadable, Kiln refusing the create — says
     nothing about the candidate: it is an error, and the candidate stays
-    eligible (a refused name must not mark an untested model as a dead end)."""
+    eligible (a refused name must not mark an untested model as a dead end).
+
+    The output mode (`kiln_harness_tuner.output_modes`). A candidate that
+    changes the model or the provider and names no mode takes the mode of
+    the new pair (`swap_mode`), not the parent's: event `output_mode`,
+    status `set_on_swap`. A candidate that names a mode keeps it. It is a
+    dead end when the mode is not one of Kiln's, when Kiln refuses it on
+    this run config, or when the mode is its only change on a task with no
+    output schema."""
+    from kiln_harness_tuner import output_modes
     from kiln_harness_tuner.kiln import KilnError
+    from kiln_harness_tuner.latency import task_has_output_schema
     from kiln_harness_tuner.model_preflight import flagged_reason
-    from kiln_harness_tuner.probes import ProbeSetupError, rc_props, thinking_levels
+    from kiln_harness_tuner.probes import (
+        ProbeSetupError,
+        default_output_mode,
+        rc_props,
+        thinking_levels,
+    )
 
     if candidate.rc_id:
         if getattr(ctx, "flagged_models", None):
@@ -270,11 +285,11 @@ async def _make_candidate_rc(
         props = json.loads(json.dumps(await rc_props(ctx, parent_rc_id)))
     except (ProbeSetupError, KilnError) as exc:
         return None, f"parent {parent_rc_id} unreadable: {exc}", False
-    parent = json.loads(json.dumps(props))
+    parent_props = json.loads(json.dumps(props))
     props.update(candidate.overrides)
     # The settings that are not levers yet, and OpenRouter's zero data
     # retention, as for an agent's run config (`rc_inherit`).
-    refusal = check_fork(parent, props)
+    refusal = check_fork(parent_props, props)
     if refusal is not None:
         return None, refusal, False
     if ctx.model_policy is not None:
@@ -290,6 +305,52 @@ async def _make_candidate_rc(
     )
     if flagged is not None:
         return None, f"the model preflight flagged its model: {flagged}", False
+    # The output mode.
+    names_mode = "structured_output_mode" in candidate.overrides
+    swapped = any(props.get(k) != parent_props.get(k) for k in output_modes.PAIR_KEYS)
+    if names_mode:
+        structured = await task_has_output_schema(ctx)
+        refused = output_modes.refusal(
+            props,
+            structured=structured,
+            default=await default_output_mode(
+                ctx, props.get("model_provider_name"), props.get("model_name")
+            ),
+        )
+        # On a task with no output schema, a candidate whose only change is
+        # the mode measures nothing: Kiln does not use the mode there.
+        mode_only = all(
+            props.get(k) == parent_props.get(k)
+            for k in candidate.overrides
+            if k != "structured_output_mode"
+        )
+        if refused is None and structured is False and mode_only:
+            refused = output_modes.NO_SCHEMA
+        if refused is not None:
+            return None, refused, True
+    elif swapped:
+        choice = output_modes.swap_mode(
+            output_modes.mode_of(parent_props),
+            await default_output_mode(
+                ctx, props.get("model_provider_name"), props.get("model_name")
+            ),
+            provider=props.get("model_provider_name"),
+            tools=bool(output_modes.attached_tools(props)),
+        )
+        if choice.mode is not None and choice.mode != output_modes.mode_of(props):
+            props["structured_output_mode"] = choice.mode
+            ctx.log.event(
+                "output_mode",
+                candidate_id=candidate.id,
+                status="set_on_swap",
+                mode=choice.mode,
+                parent_mode=output_modes.mode_of(parent_props),
+                line=(
+                    f"{candidate.label or candidate.id}: structured_output_mode"
+                    f" set to {choice.mode} ({choice.why}); the parent has"
+                    f" {output_modes.mode_of(parent_props)}"
+                ),
+            )
     # Thinking level. A model that offers no thinking levels must not be
     # recorded as a dead end when the planner sends `thinking_level: null`
     # for "leave it unset": that is not a level the provider fails to offer.

@@ -146,7 +146,8 @@ Then:
    exactly). The call is `POST …/run` on the shortest train item (as
    plaintext when the task has no input schema), with the task's simple
    prompt, no tools, the lowest thinking level the server offers and, for
-   another model, the structured output mode Kiln suggests for it. So it
+   another model, the structured output mode that a swap to it takes
+   (`output_modes.swap_mode`, section 16, "The output mode"). So it
    costs one short prompt and one short answer. Its cost is booked as
    `spend`, source `model_preflight`. A model whose context window (when
    Kiln's model list gives one) is smaller than the baseline's prompt and
@@ -200,8 +201,8 @@ Then:
 13. **The noise check**, only with `--noise-check N`
     (`run_noise_check`). Paid, estimated before it spends. Section 5.2.
 14. **The reconnaissance battery.** Wave 0. Skipped with `--no-recon`.
-    Shaped by the baseline's tools, skills and output mode
-    (`probes.recon_items`). Its
+    Shaped by the baseline's tools, skills and output mode, and by the
+    task's output schema (`probes.recon_items`). Its
     drives take the same route as the timing drives: one-item train eval
     jobs on a task that needs them.
 15. **The opening screen**, under `speed` and `cost` only
@@ -1379,6 +1380,8 @@ src/kiln_harness_tuner/
   levers.py         the check that a declared lever took effect
   input_transform.py  the input transform lever: its shape, its template
                     text, and the check that it was applied
+  output_modes.py   the structured-output mode: the mode of a model swap,
+                    the mode Kiln refuses, the signal that it reached the call
   integrity.py      the reward-hacking code checks at the promotion gate
   orchestrator.py   the wave loop, the promotion gate, the tripwire, the
                     janitor, the budget
@@ -1893,7 +1896,8 @@ a parent — are screened by code, not by agents. A plan with `screen` set
 `looks`) runs `run_screening_round`
 ([`viability.py`](../src/kiln_harness_tuner/viability.py)): code forks each
 candidate's run config (policy-checked; a thinking level must be one the
-provider lists), then puts every candidate through the engine on ONE queue
+provider lists; the output mode by the rules below, "The output mode"),
+then puts every candidate through the engine on ONE queue
 drawn from the baseline's own results, cut at `SCREEN_ROUND1_PER_EVAL` (3)
 items per eval in round 1, doubling each round (`mode: "hard_cases"`: the
 discriminating block only). Items outside `target_evals` are never driven
@@ -1916,9 +1920,11 @@ not applied when neither moved; unverified when no drive shows reasoning
 and fewer than 2 paired items carry token counts. A model or provider
 switch is not applied when a drive records another model or provider than
 the run config names (in `output.source`, the usage or a trace message),
-and unverified when no drive records one. The input transform is not
-checked here, because this check does not know the arm's technique: the
-item path checks it (section 4). Not applied stops the candidate
+and unverified when no drive records one. An output mode that differs from
+the parent's has its own signal (below, "The output mode"). The input
+transform is not checked here, because this check does not know the
+arm's technique: the item path checks it (section 4). Not applied
+stops the candidate
 as `lever not applied: …` (event `lever_not_applied`) before anything more
 is paid for it; unverified is logged (`lever_unverified`) and shown on the
 candidate's line, and the candidate goes on. The same check runs on an
@@ -1948,6 +1954,63 @@ screen candidate nor a probe check may override `input_transform`
 text, so only a build session changes it. A DATA question
 is a `check` with `source: "stored"`: code counts over the parent's stored
 train rows, with no fork and no drive.
+
+**The output mode.** `structured_output_mode` tells Kiln how to ask the
+model for output that matches the task's output schema. Kiln uses it only
+on a task with an output schema. One module holds what code does with it
+([`output_modes.py`](../src/kiln_harness_tuner/output_modes.py)), and the
+screens, the gateway, the model preflight and the lever check call it.
+
+- **The mode of a model swap** (`swap_mode`). A mode is chosen for one
+  model and provider. A run config that moves to another pair and names no
+  mode takes Kiln's default for the new pair, from `GET
+  /api/available_models`. It keeps the parent's mode when the list gives
+  no default, or the legacy `default` or `unknown`. When the mode would
+  send the schema as a tool and the run config attaches a tool or a skill,
+  it takes `json_instruction_and_object` (`TOOLS_FALLBACK`). A screening
+  candidate gets this mode in `_make_candidate_rc` (event `output_mode`,
+  status `set_on_swap`). A builder's run config gets it when
+  `create_run_config` receives no `structured_output_mode`; the parent is
+  the run config that `provenance.derived_from_ids` names, and with the
+  parent's own model and provider the mode is the parent's. The model
+  preflight makes its test call on another model in the same mode. A mode
+  that a candidate or a builder names is kept: an experiment can test the
+  mode on the new model. `create_run_config` then answers with a note
+  (`RunConfigView.notes`) when a swap names the parent's mode and the new
+  pair has another one.
+- **The mode that cannot run** (`refusal`). A value that is not one of
+  Kiln's nine modes. On a task with an output schema, a mode that sends
+  the schema as a tool (`function_calling`, `function_calling_weak`, and
+  `default` outside Ollama and Docker Model Runner) on a run config that
+  attaches a tool or a skill: Kiln's adapter raises at the final call of
+  every run. `create_run_config` refuses both. A screening candidate that
+  names such a mode is a dead end before any drive, and so is a candidate
+  that changes only the mode on a task with no output schema.
+- **The signal that the mode reached the call** (`mode_evidence`,
+  `mode_signal`), read by `lever_verdict` on the timing drives when the
+  mode differs from the parent's. A Kiln trace holds messages, not request
+  parameters, so the proof depends on the mode. For the two
+  `function_calling` modes it is a call of the tool `task_response` in the
+  trace. For `json_instructions` and `json_instruction_and_object` it is
+  Kiln's format block in the system message. `json_schema`, `json_mode`
+  and `json_custom_instructions` leave no mark in the trace: the nearest
+  proof is the mode that Kiln's adapter copies to
+  `output.source.properties.structured_output_mode` of the saved run, with
+  no mark of another mode. That record shows that Kiln read the mode. It
+  does not show that the provider obeyed it. Only a contradiction is not
+  applied: a drive that records another mode, or a `task_response` call in
+  a mode that offers no such tool. A missing mark is unverified, and so is
+  every mode on a task with no output schema. Each check writes one
+  `output_mode` event: `status` (`applied`, `not_applied`, `unverified`),
+  `proof` (`trace`, `record`, `none`) and a line.
+- **The setup probe of valid JSON** (`recon_items`, `r0-6`) runs on every
+  task with an output schema, whatever the baseline's mode is: Kiln checks
+  each output against the schema in every mode. It does not run on a task
+  with no output schema.
+
+Kiln's model list gives one default mode for a pair, and no list of the
+modes that the pair supports. So code does not refuse a mode because a
+pair does not support it. One failed call shows that.
 
 **Litter.** At every wave end `archive_probe_run_configs` moves every
 `PROBE …` run config out of the project to
@@ -2214,7 +2277,8 @@ config can set a thinking level) are two different facts. A field that is
 Kiln's own advice has a `kiln_` prefix (`kiln_featured_rank`,
 `kiln_suggested_for`). An entry's `provider_model_id` is the provider's
 own id, and `default_structured_output_mode` is Kiln's suggested default
-mode for the pair. Kiln's `reasoning_capable` (its flag for `<think>`
+mode for the pair (Kiln's file lists no other mode that the pair
+supports). Kiln's `reasoning_capable` (its flag for `<think>`
 tags) and `supports_doc_extraction` are not carried: a run uses neither.
 
 ## 18. The knowledge system and smell detection

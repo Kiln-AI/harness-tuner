@@ -178,16 +178,20 @@ with `phase: "rescreen"` and every result so far in `screening_results`. At
 most 4 rounds per wave (`screen_rounds_left`); after that the plan must
 carry items.
 
-A candidate that changes the model keeps the parent's
-`structured_output_mode` unless its `overrides` name one. Name the new
-model's default (`get_model_details` gives it; `allowed_models` does
-not), unless the candidate tests the output mode. Leave it out when the
-default is absent, `default` or `unknown`. On a parent that attaches a
-tool or a skill, Kiln refuses `function_calling`, `function_calling_weak`,
-and `default` outside Ollama and Docker Model Runner: every call fails.
-When the new model's default is one of them, name `json_schema` if you
-know the model supports it (a probe, an earlier screen), else
-`json_instruction_and_object`.
+A candidate that changes the model or the provider and names no
+`structured_output_mode` gets the mode of the new pair, set by code: Kiln's
+default for the pair (`get_model_details` gives it; `allowed_models` does
+not), or the parent's mode when the default is absent, `default` or
+`unknown`. So leave the mode out of a swap, unless the candidate tests the
+output mode: a mode that `overrides` name is kept. On a parent that
+attaches a tool or a skill, Kiln refuses `function_calling`,
+`function_calling_weak`, and `default` outside Ollama and Docker Model
+Runner: every call fails. When the new pair's default is one of them, code
+sets `json_instruction_and_object`. Name `json_schema` there if you know
+the model supports it (a probe, an earlier screen). A candidate that
+names one of the refused modes on such a parent, or a value that is not a
+mode, is a dead end before any drive. So is a candidate that changes only
+the mode on a task with no output schema.
 
 ```
 {"items": [], "rejected_summary": "...", "open_questions": [],
@@ -196,8 +200,7 @@ know the model supports it (a probe, an earlier screen), else
      {"id": "s1-1", "label": "flash low",
       "overrides": {"model_name": "gemini_3_8_flash",
                     "model_provider_name": "gemini_api",
-                    "thinking_level": "low",
-                    "structured_output_mode": "json_schema"}},
+                    "thinking_level": "low"}},
      {"id": "s1-2", "overrides": {"thinking_level": "none"}}],
    "round": 1, "target_evals": null, "mode": "stratified",
    "reason": "every allowed model at its lowest two levels"}}

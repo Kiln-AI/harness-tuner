@@ -57,6 +57,7 @@ def props(template: str | None = None, **extra) -> dict:
         "model_name": "m",
         "model_provider_name": "p",
         "prompt_id": "id::1",
+        "structured_output_mode": "default",
         **extra,
     }
     if template is not None:
@@ -251,6 +252,8 @@ def _routes(*rows: dict, valid: bool = True, turn_mode: str = "single_turn") -> 
     return {
         ("GET", f"{GATEWAY_BASE}/run_configs"): list(rows),
         ("GET", GATEWAY_BASE): {"id": "t", "turn_mode": turn_mode},
+        # The output-mode check of create_run_config reads the model list.
+        ("GET", "/api/available_models"): [],
         ("POST", VALIDATE): {
             "valid": valid,
             "error": None if valid else "unexpected '}' (line 1)",
@@ -486,12 +489,8 @@ class TestTheGateway:
         gateway, kiln = _gateway(tmp_path, _routes())
         _create(gateway, {**props(), "input_transform": None})
         _create(gateway, props())
-        # The parent is read and the config created: no compile check, no
-        # read of the task's turn mode.
-        assert {c[:2] for c in kiln.calls} == {
-            ("GET", f"{GATEWAY_BASE}/run_configs"),
-            ("POST", f"{GATEWAY_BASE}/run_configs"),
-        }
+        # No compile check. (The task is read by the output-mode check.)
+        assert ("POST", VALIDATE) not in {c[:2] for c in kiln.calls}
 
     def test_a_new_template_is_refused_on_a_multi_turn_task(self, tmp_path):
         gateway, kiln = _gateway(
@@ -507,12 +506,8 @@ class TestTheGateway:
         )
         out = _create(gateway, props(KEEP_TWO, thinking_level="high"))
         assert out["id"] == "rc_new"
-        # Not compiled again, and the task's turn mode is not read: only the
-        # run configs (the parent, then the copy check) and the create.
-        assert {c[:2] for c in kiln.calls} == {
-            ("GET", f"{GATEWAY_BASE}/run_configs"),
-            ("POST", f"{GATEWAY_BASE}/run_configs"),
-        }
+        # Accepted on a multi-turn task, and not compiled again.
+        assert ("POST", VALIDATE) not in {c[:2] for c in kiln.calls}
 
     def test_a_server_with_no_compile_route_leaves_the_check_to_the_create(
         self, tmp_path

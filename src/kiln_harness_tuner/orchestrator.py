@@ -93,6 +93,7 @@ from kiln_harness_tuner.latency import (
     sample_inputs,
     single_arm,
     split_inputs,
+    task_has_output_schema,
     timed_drives,
 )
 from kiln_harness_tuner.memory import (
@@ -1241,7 +1242,7 @@ async def run_recon(ctx: Ctx, baseline: BaselineRef) -> None:
     except (ProbeSetupError, KilnError) as exc:
         ctx.log.event("recon_skipped", reason=str(exc)[:300])
         return
-    items = recon_items(props)
+    items = recon_items(props, await task_has_output_schema(ctx))
     if not items:
         return
     ctx.log.event(
