@@ -226,7 +226,7 @@ def test_a_judge_is_covered_by_the_route_restrictions_only():
     )
     assert policy.route_refusal("openai") is None
     assert "only these providers" in (policy.route_refusal("groq") or "")
-    assert "never sends `zdr`" in (policy.route_refusal("openrouter") or "")
+    assert "does not yet set or check" in (policy.route_refusal("openrouter") or "")
     assert policy.route_refusal(None) is None
     # No restriction: a policy file's own rules never refuse a judge.
     assert ModelPolicy(allow=(Rule("x", "y"),)).route_refusal("groq") is None
@@ -237,7 +237,7 @@ def test_zero_retention_refuses_the_routes_that_cannot_give_it():
     policy = policy_of(Restrictions(zero_data_retention=True))
     refusal = policy.refusal("openrouter", "closed_one")
     assert refusal is not None
-    assert "never sends `zdr`" in refusal
+    assert "does not yet set or check" in refusal
     assert policy.refusal("openai", "closed_one") is None
 
 

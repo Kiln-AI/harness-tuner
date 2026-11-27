@@ -566,9 +566,9 @@ def build_parser() -> _Parser:
     parser.add_argument(
         "--zero-data-retention",
         action="store_true",
-        help="restriction: zero data retention only. Code refuses the routes"
-        " that cannot give it (OpenRouter: Kiln cannot ask it for zero"
-        " retention). It cannot check another provider's retention terms",
+        help="restriction: zero data retention only. Code refuses OpenRouter:"
+        " the tuner does not yet set or check its zero data retention setting"
+        " on a run config. It cannot check another provider's retention terms",
     )
     parser.add_argument(
         "--lock-tool",

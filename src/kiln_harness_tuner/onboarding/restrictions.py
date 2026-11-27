@@ -145,8 +145,9 @@ def _kind_options(*, families: bool, weights: bool, tools: bool) -> list[Option[
             RETENTION,
             "Zero data retention",
             (f"refuses {routes}",),
-            description=f"Code refuses the routes that cannot give it ({routes}:"
-            " Kiln cannot ask it for zero retention). It cannot check the"
+            description=f"Code refuses {routes}: the tuner does not yet set or"
+            " check its zero data retention setting on a run config. It cannot"
+            " check the"
             " retention terms of another provider: mark Providers too, and"
             " mark only the providers whose terms you checked.",
         )

@@ -16,7 +16,8 @@ for is not a restriction, so each answer has a place where code refuses:
 - **Model origin, by family** (`--exclude-model-families`): the model
   policy, from the model catalogue's `family`.
 - **Data retention** (`--zero-data-retention`): the model policy refuses
-  the routes that cannot give zero retention (`NO_ZERO_RETENTION`), and so
+  the routes on which the tuner cannot make sure of zero retention
+  (`NO_ZERO_RETENTION`), and so
   does the start for a baseline, a judge or a simulated user.
 - **Tools that must not change** (`--lock-tool`): the tool lock
   (`ToolLock`), in the gateway's `create_run_config`, `create_code_tool`
@@ -49,12 +50,15 @@ RESTRICTIONS_FILE = "restrictions.json"
 CODE_TOOL_PREFIX = "kiln_tool::code::"
 SKILL_TOOL_PREFIX = "kiln_tool::skill::"
 
-# The routes that cannot give zero data retention, each with the reason.
-# `specs/projects/biological_bootloader/kiln_gaps.md`, gap 13.
+# The routes on which the tuner cannot make sure of zero data retention,
+# each with the reason. A route is on this list while the tuner does not set
+# and check the setting that asks for it. OpenRouter: Kiln may have a run
+# config property for it (`openrouter_routing.zero_data_retention`), and the
+# tuner does not yet set or check that property.
 NO_ZERO_RETENTION: dict[str, str] = {
     "openrouter": (
-        "Kiln cannot ask OpenRouter for zero data retention: it sets a fixed"
-        " provider order and never sends `zdr`"
+        "the tuner does not yet set or check OpenRouter's zero data retention"
+        " setting (`openrouter_routing.zero_data_retention`) on a run config"
     ),
 }
 
@@ -163,7 +167,8 @@ class Restrictions:
         if self.zero_data_retention:
             routes = ", ".join(NO_ZERO_RETENTION)
             lines.append(
-                f"Code refuses the routes that cannot give zero retention"
+                f"Code refuses the routes on which the tuner cannot make sure"
+                f" of zero retention"
                 f" ({routes}). It cannot check the retention terms of another"
                 " provider: those are your agreements with each provider."
             )
