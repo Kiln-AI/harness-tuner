@@ -106,6 +106,13 @@ T = TypeVar("T")
 # singular and load-bearing, no wave of siblings absorbs the loss.
 ITEM_DISPATCH_BACKOFFS: tuple[float, ...] = (30.0, 60.0, 120.0)
 LOOP_DISPATCH_BACKOFFS: tuple[float, ...] = (30.0, 60.0, 120.0, 300.0)
+# The analyzer's content room never goes below this: a record whose carried
+# lines fill the cap still gets a room for the table and `next:`, and the
+# verdict clamp keeps the carried lines.
+MIN_ANALYZER_ROOM = 1500
+# The room when the record cannot be read before the dispatch: the cap less
+# the most the code lines take on a typical record.
+FALLBACK_ANALYZER_ROOM = 2500
 
 
 def _sum_usage(a: Usage, b: Usage) -> Usage:
@@ -883,6 +890,52 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
+    # `successful` is the ticket into the val gate, and the code
+    # rule is its floor — the analyzer keeps its interpretation and may veto,
+    # never promote past the numbers (`successful` = analyzer AND rule). The
+    # rule reads only the measured rows, so code applies it now: its
+    # `verdict:` line is then in `code_lines` before the room is sized.
+    from kiln_harness_tuner.orchestrator import (
+        eval_weights,
+    )  # the orchestrator imports us
+
+    verdict = (
+        success_by_speed_rule(
+            bundle, ctx.coverage_floor, ctx.objective, await eval_weights(ctx)
+        )
+        if efficiency
+        else success_by_rule(item, bundle, ctx.coverage_floor)
+    )
+
+    # The code-composed lines on the record the planner reads. They are
+    # known now, so the analyzer is told the room they leave it.
+    code_lines = [f"measurement: {measurement.line}"]
+    # Too few items differ for a win or a loss
+    # (`kiln_harness_tuner.thin_evidence`). Dropped below when the analyzer
+    # vetoes for a reason of its own: dropping a line only frees room.
+    verdict_line = (
+        f"verdict: {verdict.unverified}" if verdict.unverified is not None else None
+    )
+    if verdict_line is not None:
+        code_lines.append(verdict_line)
+    if bundle.latency is not None or bundle.cost is not None:
+        code_lines += [
+            latency_line("latency", bundle.latency),
+            latency_line("cost", bundle.cost),
+        ]
+    else:
+        code_lines += passive_lines(bundle)
+    try:
+        room = await ctx.memory.analyzer_room(exp_mem, code_lines)
+    except Exception:  # noqa: BLE001 — the room is advice; the clamp still holds
+        logger.warning(
+            "item %s: could not read the record to size the analyzer's room",
+            item.id,
+            exc_info=True,
+        )
+        room = FALLBACK_ANALYZER_ROOM
+    content_budget = max(room, MIN_ANALYZER_ROOM)
+
     _set_state(ctx, item.id, "analyzing")
     await snapshot_memory(ctx, f"{item.id}-analysis-before")
     res = await call_with_retries(
@@ -894,6 +947,7 @@ async def _execute_plan_item(
             experiment_memory_id=exp_mem,
             speed_rule=speed_rule_text(ctx.objective) if efficiency else None,
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
+            content_budget=content_budget,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -912,20 +966,6 @@ async def _execute_plan_item(
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
 
-    # `successful` is the ticket into the val gate, and the code
-    # rule is its floor — the analyzer keeps its interpretation and may veto,
-    # never promote past the numbers (`successful` = analyzer AND rule).
-    from kiln_harness_tuner.orchestrator import (
-        eval_weights,
-    )  # the orchestrator imports us
-
-    verdict = (
-        success_by_speed_rule(
-            bundle, ctx.coverage_floor, ctx.objective, await eval_weights(ctx)
-        )
-        if efficiency
-        else success_by_rule(item, bundle, ctx.coverage_floor)
-    )
     ctx.log.event(
         "success_rule",
         item_id=item.id,
@@ -946,6 +986,8 @@ async def _execute_plan_item(
         "prediction_miss",
     )
     res.data.unverified_reason = None if own_veto else verdict.unverified
+    if own_veto and verdict_line is not None:
+        code_lines.remove(verdict_line)
     if res.data.successful and not verdict.ok:
         logger.warning(
             "item %s: analyzer said successful, code rule says no — %s",
@@ -987,26 +1029,23 @@ async def _execute_plan_item(
         )
         ctx.log.event("veto_overridden", item_id=item.id, veto_reason="prediction_miss")
 
-    # The code-composed lines on the record the planner reads.
-    lines = [f"measurement: {measurement.line}"]
-    if res.data.unverified_reason is not None:
-        lines.append(f"verdict: {verdict.unverified}")
-        if not res.data.findings.rstrip().endswith(verdict.unverified):
-            # The analyzer already said "not successful": the override
-            # above did not run, so the reason is not in the findings yet.
-            res.data.findings = (
-                res.data.findings.rstrip() + "\n\n[code rule] " + verdict.unverified
-            )
-    if bundle.latency is not None or bundle.cost is not None:
-        lines += [
-            latency_line("latency", bundle.latency),
-            latency_line("cost", bundle.cost),
-        ]
-    else:
-        lines += passive_lines(bundle)
-    res.data.memory_content = res.data.memory_content.rstrip() + "\n" + "\n".join(lines)
+    if (
+        res.data.unverified_reason is not None
+        and not res.data.findings.rstrip().endswith(res.data.unverified_reason)
+    ):
+        # The analyzer already said "not successful": the override above did
+        # not run, so the reason is not in the findings yet.
+        res.data.findings = (
+            res.data.findings.rstrip() + "\n\n[code rule] " + res.data.unverified_reason
+        )
+    res.data.memory_content = (
+        res.data.memory_content.rstrip() + "\n" + "\n".join(code_lines)
+    )
     await _experiment_write(
-        ctx, item.id, "record_verdict", ctx.memory.record_verdict(exp_mem, res.data)
+        ctx,
+        item.id,
+        "record_verdict",
+        ctx.memory.record_verdict(exp_mem, res.data, code_lines),
     )
     done = _outcome(
         item,

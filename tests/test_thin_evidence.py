@@ -5,7 +5,7 @@ the train rule and the val gate, each at and around the limit."""
 import pytest
 from conftest import fix_item, make_ctx, make_plan, make_result
 from fake_dispatcher import ok
-from fake_kiln import make_run
+from fake_kiln import make_job_error, make_run
 from test_orchestrator import (
     _experiment_memories,
     decision,
@@ -837,3 +837,69 @@ async def test_wave_an_analyzer_veto_of_its_own_stays_refuted(veto_reason, stamp
     assert ("\nverdict: unverified:" in record["content"]) is (stamp == " — UNVERIFIED")
     (done,) = _events(ctx, "item_outcome")
     assert (done["outcome"].result.unverified_reason is None) is (stamp == " — REFUTED")
+
+
+# ---- with the val-holes rule (`orchestrator._val_holes`) ----
+
+
+def test_a_holed_table_is_never_marked_unverified():
+    from kiln_harness_tuner.orchestrator import GateCandidate, _mark_unverified
+
+    ctx = make_ctx()
+    thin = _table(val(1))
+    from types import SimpleNamespace
+
+    candidate = GateCandidate(
+        rc_id="rc_c",
+        experiment_memory_id="mem_c",
+        outcome=SimpleNamespace(item=fix_item()),  # type: ignore[arg-type]
+    )
+    _mark_unverified(ctx, [candidate], [thin], {"rc_c"})
+    assert thin.unverified is None  # a hole is no evidence: it stays pooled
+    _mark_unverified(ctx, [candidate], [thin], set())
+    assert thin.unverified is not None
+
+
+async def test_wave_a_holed_and_thin_candidate_stays_pooled():
+    ctx = make_ctx()
+    _scenario(ctx, train_fixed=4, val_fixed=1)
+    # The candidate's val fill stores one item (fixed), and errors on the
+    # rest: thin, and with coverage under the floor.
+    key = ("eval_1", "rc_cand", "val")
+    ctx.kiln.pending.pop(key)
+    ctx.kiln.partial_results[key] = [make_run("v0", accuracy=1.0)]
+    ctx.kiln.job_behaviors[key] = ["errored_items", "errored_items"]
+    ctx.kiln.job_errors[key] = [make_job_error(f"v{i}", "flake") for i in range(1, 8)]
+    ctx.dispatch.queue("promote_best", decision(None, rationale="holes"))
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    (request,) = ctx.dispatch.calls_to("promote_best")
+    (table,) = request.candidates
+    assert table.ineligible and table.unverified is None
+    assert not _events(ctx, "gate_unverified")
+    assert not _events(ctx, "rejection_recorded")
+    pooled = [f for f in _events(ctx, "promotion_blocked") if f.get("pooled")]
+    assert [f["winner_rc_id"] for f in pooled] == ["rc_cand"]
+    (record,) = _experiment_memories(ctx.kiln)
+    assert "REJECTED AT VAL" not in record["overview"]
+
+
+async def test_wave_the_verdict_line_survives_an_analyzer_text_at_its_room():
+    ctx = make_ctx(gate_agent="auto")
+    _scenario(ctx, train_fixed=LIMIT - 1, val_fixed=5)
+    ctx.dispatch.queues["analyze_experiment_results"] = [
+        lambda req: ok(
+            make_result(successful=False).model_copy(
+                update={"memory_content": "x" * req.content_budget}
+            )
+        )
+    ]
+
+    assert await orchestrate(ctx, "", timeout_mins=180) == "done"
+
+    (request,) = ctx.dispatch.calls_to("analyze_experiment_results")
+    (record,) = _experiment_memories(ctx.kiln)
+    assert "\nverdict: unverified: primary target eval_1" in record["content"]
+    assert record["content"].count("x") >= request.content_budget - 1
+    assert record["overview"].endswith(" — UNVERIFIED")
