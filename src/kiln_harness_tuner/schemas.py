@@ -391,6 +391,9 @@ class TrialResult(BaseModel):
     target_items: list[str]
     scores: dict[str, float | None]
     landed: bool  # every target stored a row at or above the pass line
+    # The score's pass line, normalized (`analysis.pass_line`). The default
+    # 0.5 is the line of an older wave log.
+    pass_line: float = 0.5
     spend_usd: float = 0.0
     job_id: str | None = None
     # The task call's latency (ms) and provider cost (USD) per
@@ -405,9 +408,14 @@ class TrialResult(BaseModel):
     # run paid for it — the price the spending cap reads (`budget`).
     item_costs: dict[str, float] = {}
 
+    def passed(self, item_id: str) -> bool | None:
+        """Did this target pass? None when it stored no row."""
+        score = self.scores.get(item_id)
+        return None if score is None else score >= self.pass_line
+
     @property
     def fixed(self) -> list[str]:
-        return [i for i in self.target_items if (self.scores.get(i) or 0.0) >= 0.5]
+        return [i for i in self.target_items if self.passed(i)]
 
     @property
     def summary(self) -> str:
@@ -2045,6 +2053,11 @@ class AnalysisInput(BaseModel):
     #   names and does not attach. A failure on the cases that use such a
     #   name can be the build's breakage, not the lever.
     reference_findings: list[str] = []
+    # The chars `memory_content` can take: the content cap less the lines
+    # code adds at the verdict (`memory.verdict_room`). Over it, the
+    # dispatcher asks the session to shorten, then code clamps. The default
+    # is the whole cap (`memory_schema.CONTENT_MAX_CHARS`).
+    content_budget: int = 4000
 
 
 class DescribeEvalInput(BaseModel):

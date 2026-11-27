@@ -802,6 +802,18 @@ it would be refused. Four rules keep the state readable:
 - An experiment append keeps every line code reads back
   (`EXPERIMENT_HEAD_KEYS`, the gate notes) and drops other lines, oldest
   first.
+- The verdict clamp (`_fit_verdict_content`) also keeps every head line,
+  the `next:` line, and the exact lines code added (`measurement:`, the
+  latency and cost lines). It keeps the analyzer's other lines from the top
+  (its opening and its numbers table), so its interpretation prose drops
+  first. When the protected lines alone are over the cap, the code lines
+  lose their protection. Code adds lines after the analyzer's content: the `measurement:` line,
+  the latency and cost lines, and each carried line the analyzer did not
+  re-cite. So the analyzer gets the room that is left, as
+  `AnalysisInput.content_budget` (`memory.verdict_room`). A content over
+  that room gets up to `SHORTEN_TURNS` (2) turns in the same session, which
+  ask for a shorter content and take only the new `memory_content` from the
+  reply. The clamp is the last step.
 - No suffix is a verdict only in the verdict's shape (`EXP <id>: …`). An
   overview still in the opening's shape (`EXP <id> (…`) with no suffix reads
   `UNKNOWN`. `UNKNOWN` takes the forward moves of `RUNNING` and is not
@@ -815,8 +827,11 @@ it would be refused. Four rules keep the state readable:
 
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
-only. Lifecycle writes are code's alone by contract: the gateway enforces
-the two scopes and refuses the `val` tag, and does not check the record kind.
+only. Lifecycle writes are code's alone by contract: the memory operations
+enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
+any update of the `baseline` record. They do not check the record kind.
+The gateway does not refuse Kiln's own memory tools in a code tool or a
+run config, so this guard covers the memory operations only.
 
 ## 9. The promotion gate
 
@@ -1163,7 +1178,7 @@ reads a list: it takes the last `"type": "result"` event.
      item and takes the input from the item, never from the agent — on a
      multi-turn or OpenEnv task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
-     the two scopes, and the `val` tag is code's. A new eval
+     the two scopes, and the `val` and `baseline` tags are code's. A new eval
      (`create_eval`) gets splits the gateway assigns; its val and test
      items are never readable back. There is no operation that changes
      settings or providers, and no operation for deletes, split edits or
@@ -1533,7 +1548,12 @@ stored rows and re-drives nothing.
   item, its stratum and its block). First the items the planner named
   (`target_items`). Then the DISCRIMINATING block: up to `DISC_FAILS` (8)
   items the parent fails on the targeted evals and up to `DISC_GUARDS` (4)
-  it passes, round-robin across the evals. Then the REMAINDER: per eval the
+  it passes, round-robin across the evals. An item fails when its value is
+  on the bad side of the pass line of its score type (`analysis.pass_line`):
+  0.5 for pass_fail and pass_fail_critical, 3 for five_star. A value on the
+  line passes. So a plain fail (0) under pass_fail_critical is a fail. The
+  engine uses the same line for the parent's pass, the candidate's pass,
+  fragility and `trial` landed. Then the REMAINDER: per eval the
   rest of the train split, the parent's failures, passes and unscored items
   interleaved in proportion (`_interleave`), round-robin across the evals.
   The universe is the eval's train split on disk plus any train row the

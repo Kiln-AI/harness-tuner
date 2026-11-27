@@ -681,6 +681,36 @@ class TestTheExperimentItem:
             " message differs from the parent's on 2 of 2 paired train item(s)"
         ) in content
 
+    async def test_the_transform_line_survives_a_long_analyzer_text(self):
+        """The line is a code line: it is written with the measurement line,
+        and the clamp of an over-long verdict never drops it."""
+        from kiln_harness_tuner.memory_schema import CONTENT_MAX_CHARS
+
+        ctx = _item_ctx(_rc("rc_new", KEEP_TWO))
+        _seed(ctx.kiln, RAW, RENDERED)
+        long_text = "\n".join(
+            f"reading {k}: " + "the arm held on this kind of ticket. " * 4
+            for k in range(60)
+        )
+        assert len(long_text) > CONTENT_MAX_CHARS
+        ctx.dispatch.queue("create_experiment_rc", _built())
+        ctx.dispatch.queue("generality_review", _review())
+        ctx.dispatch.queue(
+            "analyze_experiment_results",
+            ok(make_result().model_copy(update={"memory_content": long_text})),
+        )
+        outcome = await execute_plan_item(ctx, _item(), BASELINE, ["rc_base"], 1)
+        assert outcome.status == "completed"
+        content = ctx.kiln.memories[outcome.experiment_memory_id]["content"]
+        assert len(content) <= CONTENT_MAX_CHARS
+        assert "[… truncated …]" in content  # the analyzer's prose was cut
+        (line,) = [x for x in content.splitlines() if x.startswith("input transform:")]
+        assert line.endswith("on 2 of 2 paired train item(s)")
+        # The analyzer was told the room left after the code lines, the
+        # transform line among them.
+        (analysis,) = ctx.dispatch.calls_to("analyze_experiment_results")
+        assert analysis.content_budget < CONTENT_MAX_CHARS - len(line)
+
     async def test_the_lever_on_a_multi_turn_task_ends_before_the_build(self):
         ctx = _item_ctx(turn_mode="multiturn")
         outcome = await execute_plan_item(ctx, _item(), BASELINE, ["rc_base"], 1)
