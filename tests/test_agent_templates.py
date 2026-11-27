@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 from conftest import make_tracker
 
 from kiln_harness_tuner.dispatch.claude_cli import (
@@ -118,6 +119,37 @@ def test_skill_dirs_exist_with_matching_names():
         assert _frontmatter_name(skill_dir) == skill, (
             f"{skill}/SKILL.md frontmatter name does not match its directory"
         )
+
+
+# The skills the loop installs, and the skills for coding agents that work
+# on this repository.
+REPO_SKILLS_DIR = Path(__file__).resolve().parents[1] / ".agents" / "skills"
+# The Agent Skills limits on the two frontmatter fields.
+SKILL_NAME_MAX_CHARS = 64
+SKILL_DESCRIPTION_MAX_CHARS = 1024
+
+
+@pytest.mark.parametrize(
+    "skill_md",
+    sorted([*SKILLS_DIR.glob("*/SKILL.md"), *REPO_SKILLS_DIR.glob("*/SKILL.md")]),
+    ids=lambda path: path.parent.name,
+)
+def test_skill_frontmatter_parses_as_yaml(skill_md: Path):
+    # Agent CLIs parse the frontmatter with their own YAML loaders. A plain
+    # scalar that holds ": " is not valid YAML. Claude Code, Codex and
+    # OpenCode accept it today, but a strict loader can reject the skill.
+    # Use a block scalar (`description: |`) for long text.
+    # The installer's `parse_skill_md` is not used here: it refuses keys
+    # such as `metadata:` that a loop skill can have.
+    match = re.match(r"---\n(.*?)\n---\n", skill_md.read_text(), re.DOTALL)
+    assert match, f"{skill_md.parent.name}/SKILL.md has no frontmatter block"
+    data = yaml.safe_load(match.group(1))
+    assert isinstance(data, dict)
+    assert data.get("name") == skill_md.parent.name
+    assert len(data["name"]) <= SKILL_NAME_MAX_CHARS
+    description = data.get("description")
+    assert isinstance(description, str) and description.strip()
+    assert len(description.strip()) <= SKILL_DESCRIPTION_MAX_CHARS
 
 
 def test_merging_reference_exists():
@@ -1179,10 +1211,37 @@ def test_build_skill_names_the_skill_bundle_installer_lane():
     normalized = _normalized_skill("kiln-harness-tuner-experiment-build")
     assert "`install_skill_bundle`" in normalized
     assert "wire the returned `tool_id`" in normalized
-    assert "never `POST /skills` plus per-file" in normalized
+    assert "writes into the project tree are denied" in normalized
     # kiln-task-setup is loaded by the same builders for the skill procedure;
-    # its disk-workaround sentence must keep redirecting Kiln Harness Tuner sessions.
-    assert "`install_skill_bundle`" in _normalized_skill("kiln-task-setup")
+    # its disk-workaround sentence must keep redirecting Kiln Harness Tuner
+    # sessions, flat skills included.
+    setup = _normalized_skill("kiln-task-setup")
+    assert "`install_skill_bundle`" in setup
+    assert "Every skill, a flat one too, is a bundle" in setup
+
+
+def test_build_skill_sends_a_flat_skill_through_the_installer():
+    # Finding B11: a builder has no tool that sends `POST /skills` (no gateway
+    # create-skill operation for its role, no `call_kiln_api`). So a flat skill
+    # must go through `install_skill_bundle` too, as a SKILL.md-only bundle.
+    authoring = _normalized_doc(
+        SKILLS_DIR
+        / "kiln-harness-tuner-experiment-build"
+        / "references"
+        / "skill-authoring.md"
+    )
+    build_skill = _normalized_skill("kiln-harness-tuner-experiment-build")
+    for doc in (authoring, build_skill):
+        assert "a bundle that holds only `SKILL.md`" in doc
+        assert "You have no tool that sends `POST /skills`" in doc
+        assert "may still go through `POST /skills`" not in doc
+        # Every mention of the call says the builder cannot send it.
+        assert doc.count("POST /skills") == doc.count("sends `POST /skills`")
+    assert "Done — the rest of this file is not for you" not in authoring
+    # The rest of the file now applies to a flat skill too: the progressive
+    # disclosure section and the smoke must say what a flat skill does.
+    assert "When the item asks for a flat skill" in authoring
+    assert "A flat skill has no reference file" in authoring
 
 
 def test_skill_authoring_reference_exists_and_is_routed():

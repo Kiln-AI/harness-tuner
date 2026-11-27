@@ -785,8 +785,11 @@ it would be refused. Four rules keep the state readable:
 
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
-only. Lifecycle writes are code's alone by contract: the gateway enforces
-the two scopes and refuses the `val` tag, and does not check the record kind.
+only. Lifecycle writes are code's alone by contract: the memory operations
+enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
+any update of the `baseline` record. They do not check the record kind.
+The gateway does not refuse Kiln's own memory tools in a code tool or a
+run config, so this guard covers the memory operations only.
 
 ## 9. The promotion gate
 
@@ -1128,7 +1131,7 @@ reads a list: it takes the last `"type": "result"` event.
      item and takes the input from the item, never from the agent — on a
      multi-turn or OpenEnv task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
-     the two scopes, and the `val` tag is code's. A new eval
+     the two scopes, and the `val` and `baseline` tags are code's. A new eval
      (`create_eval`) gets splits the gateway assigns; its val and test
      items are never readable back. There is no operation that changes
      settings or providers, and no operation for deletes, split edits or

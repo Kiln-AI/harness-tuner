@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from kiln_harness_tuner.kiln import KilnAPIError, KilnError
+from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ MULTI_TURN_MODE = "multiturn"
 # OpenEnv episode runs several model calls and several tool calls. The server's
 # `POST /api/jobs/wait` caps one wait at an hour.
 JOB_DRIVE_TIMEOUT_SECS = 1800.0
-JOB_DRIVE_WAIT_MARGIN_SECS = 30.0
+JOB_DRIVE_WAIT_MARGIN_SECS = JOB_WAIT_MARGIN_SECS
 # The splits a drive may name. Never test.
 DRIVE_SPLITS = ("train", "val")
 

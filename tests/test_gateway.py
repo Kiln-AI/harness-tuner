@@ -34,7 +34,7 @@ from kiln_harness_tuner.gateway.trainset import (
     TrainSetError,
     compute,
 )
-from kiln_harness_tuner.kiln import KilnAPIError, KilnError
+from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
 from kiln_harness_tuner.model_catalog import (
     Catalog,
     CatalogModel,
@@ -546,6 +546,114 @@ class TestMemory:
         # A refused write leaves no memory line.
         assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
 
+    # Every role that can write memory. An agent that wrote the `baseline`
+    # record could name its own candidate as the next run's baseline.
+    WRITER_ROLES = sorted(r for r, ops in gw.ROLE_OPS.items() if "memory_create" in ops)
+    UPDATER_ROLES = sorted(
+        r for r, ops in gw.ROLE_OPS.items() if "memory_update" in ops
+    )
+
+    BASELINE = {
+        "id": "m5",
+        "overview": "Baseline: run config 424242100003",
+        "content": "424242100003",
+        "tags": ["baseline", "rc_424242100003"],
+        "scope": f"task::{TASK}",
+    }
+
+    def test_the_writer_roles_are_known(self):
+        # A tripwire: a new role with a memory write must be added here on
+        # purpose, so that its writes are checked by the tests below.
+        assert self.WRITER_ROLES == [
+            "analyze_experiment_results",
+            "batch_plan",
+            "create_experiment_rc",
+            "eval_build",
+            "probe",
+        ]
+        assert "probe" not in self.UPDATER_ROLES
+        assert set(self.UPDATER_ROLES) < set(self.WRITER_ROLES)
+        assert gw.BASELINE_MEMORY_TAG == "baseline"
+
+    @pytest.mark.parametrize("role", WRITER_ROLES)
+    def test_no_role_creates_a_baseline_record(self, tmp_path, role):
+        gateway, kiln = _gateway(tmp_path, {}, role=role)
+        with pytest.raises(gw.GatewayError, match="`baseline` tag.*loop's code only"):
+            _run(
+                gateway,
+                "memory_create",
+                overview="Baseline: run config 424242100099",
+                scope=f"task::{TASK}",
+                tags=["baseline", "rc_424242100099"],
+            )
+        assert not kiln.calls
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
+
+    def _update_routes(self):
+        return {
+            ("GET", f"/api/projects/{PROJECT}/memories/by_ids"): lambda q, _: [
+                r for r in (self.LESSON, self.BASELINE) if r["id"] in q["ids"]
+            ],
+            ("PATCH", f"/api/projects/{PROJECT}/memories/m9"): self.LESSON,
+            ("PATCH", f"/api/projects/{PROJECT}/memories/m5"): self.BASELINE,
+        }
+
+    @pytest.mark.parametrize("role", UPDATER_ROLES)
+    def test_no_update_adds_the_baseline_tag(self, tmp_path, role):
+        gateway, kiln = _gateway(tmp_path, self._update_routes(), role=role)
+        with pytest.raises(gw.GatewayError, match="`baseline` tag.*loop's code only"):
+            _run(
+                gateway,
+                "memory_update",
+                id="m9",
+                tags=["lesson", "baseline", "rc_424242100099"],
+            )
+        assert not [c for c in kiln.calls if c[0] == "PATCH"]
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
+
+    @pytest.mark.parametrize("tag", ["val", "baseline"])
+    def test_no_update_adds_a_code_tag(self, tmp_path, tag):
+        # The update path checks the same tags as the create path.
+        gateway, kiln = _gateway(tmp_path, self._update_routes(), role="batch_plan")
+        with pytest.raises(gw.GatewayError, match=f"`{tag}` tag.*loop's code only"):
+            _run(gateway, "memory_update", id="m9", tags=["lesson", tag])
+        assert not [c for c in kiln.calls if c[0] == "PATCH"]
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"tags": ["baseline", "rc_424242100099"]},
+            {"tags": ["lesson"]},
+            {"overview": "Baseline: run config 424242100099"},
+            {"content": "424242100099\n424242100003"},
+        ],
+    )
+    def test_no_update_changes_the_baseline_record(self, tmp_path, change):
+        gateway, kiln = _gateway(tmp_path, self._update_routes(), role="batch_plan")
+        with pytest.raises(gw.GatewayError, match="m5 is the `baseline` record"):
+            _run(gateway, "memory_update", id="m5", **change)
+        assert not [c for c in kiln.calls if c[0] == "PATCH"]
+        assert not (tmp_path / "run" / gw.MEMORY_FILE).exists()
+
+    def test_other_writes_and_rc_tags_still_pass(self, tmp_path):
+        # An `rc_<id>` tag names the baseline's run config only on the
+        # `baseline` record, so other records may carry one.
+        routes = {
+            **self._update_routes(),
+            ("POST", f"/api/projects/{PROJECT}/memories"): self.LESSON,
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="analyze_experiment_results")
+        _run(
+            gateway,
+            "memory_create",
+            overview="LESSON: x",
+            scope=f"task::{TASK}",
+            tags=["lesson", "rc_424242100099", "baseline_judge_copy"],
+        )
+        _run(gateway, "memory_update", id="m9", tags=["dead_end", "rc_424242100099"])
+        assert [c[0] for c in kiln.calls if c[0] != "GET"] == ["POST", "PATCH"]
+
     LESSON = {
         "id": "m9",
         "overview": "LESSON: a skill file is read only when named",
@@ -710,6 +818,26 @@ class TestWrites:
         assert job_body["split"] == "train"
         assert job_body["item_ids"] == ["tr1", "tr2"]
         assert out["success"] == 2
+
+    def test_an_eval_job_wait_outlasts_the_default_read_timeout(self, tmp_path):
+        """Kiln holds `POST /api/jobs/wait` for up to the `timeout` in the
+        body. The read timeout of the call must be longer, or the client's
+        default 60 s ends the wait while the job still runs."""
+        routes = {
+            ("GET", f"{BASE}/evals/e1"): {"id": "e1", "current_config_id": "ec1"},
+            ("POST", "/api/jobs/evals/run"): {"job_id": "j1"},
+            ("POST", "/api/jobs/wait"): [
+                {"status": "succeeded", "progress": {"success": 2, "total": 2}}
+            ],
+        }
+        gateway, kiln = _gateway(tmp_path, routes, role="eval_build")
+        _run(gateway, "run_train_eval", eval_id="e1", run_config_id="rc1")
+        wait_body = next(b for m, p, q, b in kiln.calls if p == "/api/jobs/wait")
+        options = kiln.options["/api/jobs/wait"]
+        assert wait_body == {"ids": ["j1"], "timeout": 600.0}
+        assert options["timeout_secs"] == wait_body["timeout"] + JOB_WAIT_MARGIN_SECS
+        assert options["timeout_secs"] > 60.0
+        assert options["retries"] is False
 
     def test_a_code_tool_dry_run_keeps_its_documented_fields(self, tmp_path):
         entry = {

@@ -11,7 +11,8 @@ the splits:
   field by field;
 - a WRITE is validated before Kiln sees it: run configs against the model
   policy, drives and eval jobs on train items only, memory in the two
-  scopes, new evals with splits the gateway assigns.
+  scopes and never with the `val` or `baseline` tag, new evals with splits
+  the gateway assigns.
 
 `ROLE_OPS` names the operations each agent role gets; a role's session is
 served those and no others. There is no operation that changes settings or
@@ -40,7 +41,8 @@ from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
 from kiln_harness_tuner.job_drives import EvalJobDriver, openenv_tool_parts
-from kiln_harness_tuner.kiln import KilnAPIError, KilnError
+from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
+from kiln_harness_tuner.memory_schema import RecordKind
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 
@@ -57,7 +59,11 @@ RUN_FREE_PROMPT_GENERATORS = frozenset(
 )
 
 PROJECT_SCOPE = "project"
-VAL_MEMORY_TAG = "val"
+VAL_MEMORY_TAG = RecordKind.VAL.value
+# The `baseline` record names the run config each run starts from. Loop code
+# writes it (setup seeds it, a promotion moves it). An agent that wrote it
+# could make a candidate the baseline with no val gate.
+BASELINE_MEMORY_TAG = RecordKind.BASELINE.value
 GATEWAY_RUN_TAG = "kiln_harness_tuner_gateway"
 CREATED_FILE = "gateway_created.jsonl"
 # One line per memory write an agent makes, for the loop to forward into
@@ -107,6 +113,10 @@ OUTPUT_PREVIEW_CHARS = 300
 # accepts the connect but does not answer would keep Kiln waiting far
 # longer, so the gateway stops waiting first.
 OPENENV_LIST_TIMEOUT_SECS = 45.0
+# The longest `run_train_eval` waits for its eval job: the `timeout` it sends
+# to `POST /api/jobs/wait`. Kiln answers 504 after that long, and the job
+# keeps running.
+TRAIN_EVAL_WAIT_TIMEOUT_SECS = 600.0
 # How many over-cap answers a gateway process keeps for `get_answer_part`.
 KEPT_ANSWERS = 16
 
@@ -292,6 +302,13 @@ def _scope_ok(scope: str, state: State) -> None:
         raise GatewayError(
             f"scope must be {PROJECT_SCOPE!r} or 'task::{state.task_id}', not {scope!r}"
         )
+
+
+def _code_tags_refused(tags: list[str]) -> None:
+    """Refuse a memory write that carries a tag only loop code writes."""
+    for tag in (VAL_MEMORY_TAG, BASELINE_MEMORY_TAG):
+        if tag in tags:
+            raise GatewayError(f"the `{tag}` tag is written by the loop's code only")
 
 
 def _memory_hidden(row: dict[str, Any], state: State) -> bool:
@@ -857,8 +874,7 @@ class Gateway:
 
     async def memory_create(self, req: m.MemoryCreate) -> m.MemoryView:
         _scope_ok(req.scope, self.s)
-        if VAL_MEMORY_TAG in req.tags:
-            raise GatewayError("the `val` tag is written by the loop's code only")
+        _code_tags_refused(req.tags)
         row = await self.call(
             "POST", f"{self.s.project}/memories", body=req.model_dump(exclude_none=True)
         )
@@ -870,8 +886,12 @@ class Gateway:
         (current,) = await self.memory_get(m.MemoryIdsRequest(ids=[req.id])) or [None]
         if current is None:
             raise GatewayError(f"no memory {req.id} in this run's scopes")
-        if req.tags is not None and VAL_MEMORY_TAG in req.tags:
-            raise GatewayError("the `val` tag is written by the loop's code only")
+        if BASELINE_MEMORY_TAG in current.tags:
+            raise GatewayError(
+                f"memory {req.id} is the `baseline` record: only the loop's code "
+                "writes it"
+            )
+        _code_tags_refused(req.tags or [])
         body = req.model_dump(exclude_none=True, exclude={"id"})
         view = m.project(
             m.MemoryView,
@@ -1394,8 +1414,14 @@ class Gateway:
             },
         )
         job_id = str((job or {}).get("job_id") or (job or {}).get("id") or "")
+        # The read timeout is above the wait `timeout`, so Kiln answers first.
+        # The default 60 s read timeout would end the wait before the job does.
         records = await self.call(
-            "POST", "/api/jobs/wait", body={"ids": [job_id], "timeout": 600}
+            "POST",
+            "/api/jobs/wait",
+            body={"ids": [job_id], "timeout": TRAIN_EVAL_WAIT_TIMEOUT_SECS},
+            timeout_secs=TRAIN_EVAL_WAIT_TIMEOUT_SECS + JOB_WAIT_MARGIN_SECS,
+            retries=False,
         )
         record = records[0] if isinstance(records, list) and records else {}
         progress = record.get("progress") or {}
