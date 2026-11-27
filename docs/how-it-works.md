@@ -209,7 +209,12 @@ flowchart TD
       candidate won), an eval dropped beyond doubt (named), no gain on the
       target, a gain on the target that is not beyond doubt, or "not promoted
       at val" when code cannot tell. A candidate blocked in step 2 keeps its
-      block line instead.
+      block line instead. A candidate whose val evidence has holes (a failed
+      fill, coverage under the floor, an incomplete speed or cost pass) is
+      not judged: it gets no stamp and stays pooled. At its second holed
+      gate of one run, code rejects it. A gate where every hole is on the
+      baseline side does not count, until the baseline itself has holes at
+      two gates of the run. From then on, these holes count too.
    4. Under `quality`, when step 3 chose no winner: code tests each candidate
       whose technique document says `Keep it.` for a tie. It must be not
       worse on every eval (no eval down significantly, no eval down by more

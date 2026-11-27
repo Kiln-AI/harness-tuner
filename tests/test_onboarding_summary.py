@@ -99,6 +99,7 @@ def test_the_rerun_command_has_every_answer_one_group_per_line():
         "  --project-path '/Users/you/Kiln Projects/Forum Moderation' \\\n"
         "  --objective quality \\\n"
         "  --models keep \\\n"
+        "  --no-restrictions \\\n"
         "  --guidance 'Improve the moderation decisions. Keep the output format.' \\\n"
         "  --agent-cli 'claude -p' \\\n"
         "  --budget-usd 50 --timeout-mins 720 \\\n"
@@ -133,6 +134,7 @@ def test_the_flags_the_start_sets_are_replaced_by_the_answers():
         "speed",
         "--models",
         "any",
+        "--no-restrictions",
         "--guidance",
         "new",
         "--agent-cli",
@@ -207,6 +209,7 @@ def test_the_rerun_command_parses_back_to_the_same_answers():
         max_concurrent_evals=2,
         max_concurrent_agents=0,
         noise_check=4,
+        no_restrictions=True,  # the rerun states that there are none
     )
     argv = ["--kiln-host", "http://k:1", "--guidance", "old", "--no-recon"]
     command = rerun_command(

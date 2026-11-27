@@ -108,6 +108,13 @@ T = TypeVar("T")
 # singular and load-bearing, no wave of siblings absorbs the loss.
 ITEM_DISPATCH_BACKOFFS: tuple[float, ...] = (30.0, 60.0, 120.0)
 LOOP_DISPATCH_BACKOFFS: tuple[float, ...] = (30.0, 60.0, 120.0, 300.0)
+# The analyzer's content room never goes below this: a record whose carried
+# lines fill the cap still gets a room for the table and `next:`, and the
+# verdict clamp keeps the carried lines.
+MIN_ANALYZER_ROOM = 1500
+# The room when the record cannot be read before the dispatch: the cap less
+# the most the code lines take on a typical record.
+FALLBACK_ANALYZER_ROOM = 2500
 
 
 def _sum_usage(a: Usage, b: Usage) -> Usage:
@@ -891,6 +898,27 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
+    # The code-composed lines on the record the planner reads. They are
+    # known now, so the analyzer is told the room they leave it.
+    code_lines = [f"measurement: {measurement.line}"]
+    if bundle.latency is not None or bundle.cost is not None:
+        code_lines += [
+            latency_line("latency", bundle.latency),
+            latency_line("cost", bundle.cost),
+        ]
+    else:
+        code_lines += passive_lines(bundle)
+    try:
+        room = await ctx.memory.analyzer_room(exp_mem, code_lines)
+    except Exception:  # noqa: BLE001 — the room is advice; the clamp still holds
+        logger.warning(
+            "item %s: could not read the record to size the analyzer's room",
+            item.id,
+            exc_info=True,
+        )
+        room = FALLBACK_ANALYZER_ROOM
+    content_budget = max(room, MIN_ANALYZER_ROOM)
+
     _set_state(ctx, item.id, "analyzing")
     await snapshot_memory(ctx, f"{item.id}-analysis-before")
     res = await call_with_retries(
@@ -905,6 +933,7 @@ async def _execute_plan_item(
                 tie.tie_rule_text(keep.technique_id or "") if keep is not None else None
             ),
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
+            content_budget=content_budget,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -1018,18 +1047,14 @@ async def _execute_plan_item(
         )
         ctx.log.event("veto_overridden", item_id=item.id, veto_reason="prediction_miss")
 
-    # The code-composed lines on the record the planner reads.
-    lines = [f"measurement: {measurement.line}"]
-    if bundle.latency is not None or bundle.cost is not None:
-        lines += [
-            latency_line("latency", bundle.latency),
-            latency_line("cost", bundle.cost),
-        ]
-    else:
-        lines += passive_lines(bundle)
-    res.data.memory_content = res.data.memory_content.rstrip() + "\n" + "\n".join(lines)
+    res.data.memory_content = (
+        res.data.memory_content.rstrip() + "\n" + "\n".join(code_lines)
+    )
     await _experiment_write(
-        ctx, item.id, "record_verdict", ctx.memory.record_verdict(exp_mem, res.data)
+        ctx,
+        item.id,
+        "record_verdict",
+        ctx.memory.record_verdict(exp_mem, res.data, code_lines),
     )
     done = _outcome(
         item,
