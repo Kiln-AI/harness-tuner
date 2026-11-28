@@ -23,6 +23,12 @@ directory (the code), and the description the model is shown — the function
 name, the tool description and the parameters schema from `code_tool.kiln`.
 A build can write the train set into a code tool as easily as into a prompt,
 so the generality check reads it too.
+
+The input transform is the Jinja template of the run config's
+`input_transform` (`kiln_harness_tuner.input_transform`). It is on the run
+config row, so it is always readable. Its literal text reaches the model in
+the first user message of every call, so every reader takes it as one more
+place where the run config gives the model text: "the input transform".
 """
 
 from __future__ import annotations
@@ -32,6 +38,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from kiln_harness_tuner.input_transform import WHERE as TRANSFORM_WHERE
+from kiln_harness_tuner.input_transform import template_of
 from kiln_harness_tuner.integrity import strings_in
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.skill_installer.bundle import installed_skill_dir
@@ -299,7 +307,8 @@ class RcText:
     when one of them cannot be read (or the run config row is missing).
     `code_tools`: the same for the attached code tools.
     `tool_ids`: every tool id the run config attaches, in its tool order;
-    `found`: False when its row is missing."""
+    `input_transform`: the template of its input transform, "" when it has
+    none; `found`: False when its row is missing."""
 
     prompt: str | None
     skill_ids: tuple[str, ...]
@@ -307,6 +316,7 @@ class RcText:
     code_tool_ids: tuple[str, ...] = ()
     code_tools: dict[str, CodeToolText] | None = None
     tool_ids: tuple[str, ...] = ()
+    input_transform: str = ""
     found: bool = True
 
 
@@ -359,15 +369,19 @@ async def rc_texts(
                 else {i: v for i, v in tools.items() if v is not None}
             ),
             tool_ids=rc_tool_ids(row),
+            input_transform=template_of(row.get("run_config_properties")),
         )
     return texts
 
 
 def whole_texts(rc: RcText) -> dict[str, str]:
     """Where a run config gives the model text -> that whole text: "the
-    prompt", "skill <name>, <file>" and "code tool <name>, <file>". The
-    generality check and the judge-copy check name a place this way."""
+    prompt", "the input transform" (when it has one), "skill <name>, <file>"
+    and "code tool <name>, <file>". The generality check and the judge-copy
+    check name a place this way."""
     texts = {"the prompt": rc.prompt or ""}
+    if rc.input_transform:
+        texts[TRANSFORM_WHERE] = rc.input_transform
     for kind, bundles in (("skill", rc.skills), ("code tool", rc.code_tools)):
         for bundle in (bundles or {}).values():
             for path, text in bundle.files.items():

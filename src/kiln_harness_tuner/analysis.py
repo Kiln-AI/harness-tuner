@@ -80,6 +80,13 @@ from kiln_harness_tuner.schemas import (
     TrialResult,
     score_json_key,
 )
+from kiln_harness_tuner.thin_evidence import (
+    TargetEvidence,
+    is_thin,
+    pooled_unverified_reason,
+    target_evidence,
+    unverified_reason,
+)
 
 Direction = Literal["higher_is_better", "lower_is_better", "informational"]
 
@@ -486,10 +493,16 @@ def run_is_fresh(run: dict[str, Any], started_at: datetime | None) -> bool:
 
 @dataclass(frozen=True)
 class SuccessVerdict:
-    """`success_by_rule`'s answer: `ok` plus the reasons it is not."""
+    """`success_by_rule`'s answer: `ok` plus the reasons it is not.
+
+    `unverified`: set when the verdict is neither a win nor a loss, because
+    too few items differ between the two sides
+    (`kiln_harness_tuner.thin_evidence`). It is then the only reason, and
+    `ok` is False: an unverified arm does not go to the val gate."""
 
     ok: bool
     reasons: list[str]
+    unverified: str | None = None
 
 
 def success_by_rule(
@@ -507,14 +520,20 @@ def success_by_rule(
 
     1. the PRIMARY target (the item's first `evaluation_target`, all its
        targeted scores) was measured, and at least one of its rows improved
-       (delta > 0 in good-direction units);
+       (delta > 0 in good-direction units) on enough items: a row on which
+       fewer than `MIN_DIFFERING_ITEMS` items differ shows no win, unless
+       the arm took all the room of that row;
     2. no row, primary or guard, regressed beyond doubt — a CI entirely below
-       zero (`ci_high < 0`);
+       zero (`ci_high < 0`) on a row that is not thin;
     3. every row's paired coverage is at the gate's floor, so a hole cannot
        carry a "win" made of the easy items.
+    When the primary target shows no win and no loss (too few of its items
+    differ, or too few had room), and no other reason applies, the verdict
+    is unverified (`SuccessVerdict.unverified`), with the counts.
     Rows are already sign-normalized, so the same test reads a
     lower_is_better score correctly."""
     reasons: list[str] = []
+    thin_reason: str | None = None
     rows = bundle.per_eval
     if not rows:
         return SuccessVerdict(False, ["no measured rows — nothing to judge"])
@@ -538,14 +557,21 @@ def success_by_rule(
             reasons.append(
                 f"primary target {primary.eval_id} has no measured row (hole)"
             )
-        elif not any(r.delta > 0 for r in primary_rows):
-            reasons.append(
-                f"primary target {primary.eval_id} did not improve on any score "
-                f"(deltas {[round(r.delta, 4) for r in primary_rows]})"
-            )
+        else:
+            evidence = target_evidence(primary_rows, full_room_counts=True)
+            if evidence is TargetEvidence.NO_GAIN:
+                reasons.append(
+                    f"primary target {primary.eval_id} did not improve on any"
+                    f" score (deltas {[round(r.delta, 4) for r in primary_rows]})"
+                )
+            elif evidence is TargetEvidence.UNVERIFIED:
+                thin_reason = unverified_reason(
+                    primary_rows, f"primary target {primary.eval_id}"
+                )
+                reasons.append(thin_reason)
     for r in rows:
         label = f"{r.eval_id}/{r.score_key}"
-        if r.ci_high is not None and r.ci_high < 0:
+        if r.ci_high is not None and r.ci_high < 0 and not is_thin(r):
             reasons.append(
                 f"{label} regressed beyond doubt (delta {r.delta:+.4f}, "
                 f"CI {r.ci_low:+.4f}..{r.ci_high:+.4f})"
@@ -555,7 +581,9 @@ def success_by_rule(
                 f"{label} paired coverage {r.coverage:.0%} is below the "
                 f"{coverage_floor:.0%} floor"
             )
-    return SuccessVerdict(not reasons, reasons)
+    return SuccessVerdict(
+        not reasons, reasons, thin_reason if reasons == [thin_reason] else None
+    )
 
 
 def regressed_significantly(row: PerEvalResult) -> bool:
@@ -722,6 +750,23 @@ def speed_quality_reasons(
     return reasons
 
 
+def speed_quality_unverified(
+    rows: Sequence[PerEvalResult], quality_reasons: Sequence[str]
+) -> str | None:
+    """The reason when `speed_quality_reasons` refuses a candidate on fewer
+    than `MIN_DIFFERING_ITEMS` items that differ, pooled over every row: the
+    quality is then not shown worse, and the candidate is unverified. None
+    when the refusal stands: enough items differ, a row cannot be pooled,
+    or a row does not give its count. The candidate is not promoted in
+    either case."""
+    if not quality_reasons or any(row_net_items(r) is None for r in rows):
+        return None
+    reason = pooled_unverified_reason(rows, "quality")
+    if reason is None:
+        return None
+    return f"{reason} (the refusal: {'; '.join(quality_reasons)})"
+
+
 def success_by_speed_rule(
     bundle: AnalysisBundle,
     coverage_floor: float,
@@ -738,7 +783,10 @@ def success_by_speed_rule(
     2. quality is equal or better (`speed_quality_reasons`, the same rule the
        val gate applies) — whatever the eval's priority;
     3. every row's paired coverage is at the floor.
-    No targeted quality gain is required: the arm set out to be efficient."""
+    No targeted quality gain is required: the arm set out to be efficient.
+    When only rule 2 refuses the arm, and that refusal rests on fewer than
+    `MIN_DIFFERING_ITEMS` items over every row, the verdict is unverified
+    (`speed_quality_unverified`): not a win, and not a quality loss."""
     reasons: list[str] = []
     better = "faster" if objective == "speed" else "cheaper"
     comparison = bundle.cost if objective == "cost" else bundle.latency
@@ -746,7 +794,8 @@ def success_by_speed_rule(
         reasons.append(f"no paired pass — whether the arm is {better} is unmeasured")
     elif not comparison.clearly_faster:
         reasons.append(f"not clearly {better} on train: {comparison.note}")
-    reasons += speed_quality_reasons(bundle.per_eval, weights)
+    quality = speed_quality_reasons(bundle.per_eval, weights)
+    reasons += quality
     for r in bundle.per_eval:
         label = f"{r.eval_id}/{r.score_key}"
         if r.coverage is not None and r.coverage < coverage_floor:
@@ -754,6 +803,10 @@ def success_by_speed_rule(
                 f"{label} paired coverage {r.coverage:.0%} is below the "
                 f"{coverage_floor:.0%} floor"
             )
+    if quality and reasons == quality:
+        thin_reason = speed_quality_unverified(bundle.per_eval, quality)
+        if thin_reason is not None:
+            return SuccessVerdict(False, [thin_reason], thin_reason)
     return SuccessVerdict(not reasons, reasons)
 
 
@@ -1850,6 +1903,9 @@ class Analyzer:
             pass_to_fail = sum(
                 1 for a, b in zip(outcomes_a, outcomes_b, strict=True) if a > b
             )
+            n_differing = fail_to_pass + pass_to_fail
+            best = 0 if spec.direction == "lower_is_better" else 1
+            n_room = sum(1 for a in outcomes_a if a != best)
         elif spec.type in RATING_SCORE_TYPES:
             body = {
                 "operation": "compare_paired",
@@ -1865,6 +1921,14 @@ class Analyzer:
             # carry rating scales.
             fail_to_pass = None
             pass_to_fail = None
+            n_differing = sum(
+                1
+                for a, b in zip(values_a, values_b, strict=True)
+                if abs(b - a) > _HEADROOM_EPS
+            )
+            n_room = sum(
+                1 for a in values_a if normalize(a, spec) < 1.0 - _HEADROOM_EPS
+            )
         else:
             # Known limitation: custom score types have no
             # statistics-operation mapping.
@@ -1949,6 +2013,8 @@ class Analyzer:
             headroom=headroom,
             fail_to_pass=fail_to_pass,
             pass_to_fail=pass_to_fail,
+            n_differing=n_differing,
+            n_room=n_room,
             spend_usd=spend_usd,
             evidence_spend_usd=evidence_spend_usd,
             n_expected=n_expected,

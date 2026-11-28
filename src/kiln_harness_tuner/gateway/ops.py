@@ -10,9 +10,9 @@ the splits:
 - every answer is re-built into the gateway's own models (`models.project`),
   field by field;
 - a WRITE is validated before Kiln sees it: run configs against the model
-  policy, drives and eval jobs on train items only, memory in the two
-  scopes and never with the `val` or `baseline` tag, new evals with splits
-  the gateway assigns;
+  policy and the input transform rules, drives and eval jobs on train
+  items only, memory in the two scopes and never with the `val` or
+  `baseline` tag, new evals with splits the gateway assigns;
 - no code tool allowlist and no new run config gets a tool that reads or
   writes Kiln's own state (`STATE_TOOL_KINDS`), except a run config that
   keeps one the baseline run config already has.
@@ -44,7 +44,17 @@ from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
 from kiln_harness_tuner.gateway.trainset import TrainSet, held_out_by_name
+from kiln_harness_tuner.input_transform import (
+    MULTI_TURN_REFUSAL,
+    RENDER_FAILURES_SHOWN,
+    TRANSFORM_KEY,
+    RenderReport,
+    render_on_inputs,
+    transform_of,
+    transform_problem,
+)
 from kiln_harness_tuner.job_drives import (
+    MULTI_TURN_MODE,
     EvalJobDriver,
     openenv_tool_parts,
     run_config_tool_ids,
@@ -116,6 +126,12 @@ RC_PROP_KEYS = (
     "skills_config",
     "input_transform",
 )
+# The properties a new run config does NOT take from its parent when the
+# request leaves them out (`rc_inherit.inherit`): the tuner sets each one.
+# The input transform is carried: on every lever but its own, an arm keeps
+# the parent's template, and an agent that forgets to copy it must not drop
+# it with no message. An explicit null removes it.
+MANAGED_RC_PROPS = tuple(k for k in RC_PROP_KEYS if k != TRANSFORM_KEY)
 
 
 NOT_TRAIN = (
@@ -1332,6 +1348,122 @@ class Gateway:
             if refusal is not None:
                 raise GatewayError(refusal)
 
+    async def _template_check(self, template: str) -> tuple[bool, str | None]:
+        """Kiln's compile check of a Jinja template: (valid, the error)."""
+        row = await self.call(
+            "POST",
+            "/api/validate_input_transform_template",
+            body={"template": template},
+        )
+        row = row if isinstance(row, dict) else {}
+        return bool(row.get("valid")), _text(row.get("error"), 1000)
+
+    def _render_on_train(
+        self, template: str, sample_id: str | None = None
+    ) -> RenderReport:
+        """The template rendered on every train input on disk that one call
+        can drive (`input_transform.render_on_inputs`)."""
+        inputs = {
+            item_id: inp.structured if inp.structured is not None else inp.plaintext
+            for item_id, inp in self._inputs_on_disk().items()
+            if not inp.multi_turn
+        }
+        if sample_id is not None and sample_id not in inputs:
+            raise GatewayError(f"{sample_id} is not a train item this gateway can read")
+        return render_on_inputs(template, inputs, sample_id)
+
+    async def _multi_turn_for_transform(self) -> bool:
+        """Is the task multi-turn? Read for the input transform rules, which
+        fail closed: a task that cannot be read refuses, so a multi-turn
+        task never gets a new template on a read error."""
+        try:
+            task = await self.call("GET", self.s.base)
+        except KilnError as exc:
+            raise GatewayError(
+                f"the task could not be read to check its turn mode ({exc}); try again"
+            ) from exc
+        return isinstance(task, dict) and task.get("turn_mode") == MULTI_TURN_MODE
+
+    async def validate_input_transform(
+        self, req: m.InputTransformValidate
+    ) -> m.InputTransformValidation:
+        """Does Kiln compile the template, does the lever apply to this
+        task, and does the template render on every train input? No run
+        config is made, and no model is called."""
+        problem = transform_problem({"type": "jinja", "template": req.template})
+        if problem is not None:
+            raise GatewayError(problem)
+        try:
+            valid, error = await self._template_check(req.template)
+        except KilnError as exc:
+            raise GatewayError(
+                f"Kiln could not check the template: {exc}. The Kiln server"
+                " needs the route POST /api/validate_input_transform_template."
+            ) from exc
+        applies = not await self._multi_turn_for_transform()
+        notes = [] if applies else [f"{MULTI_TURN_REFUSAL}."]
+        report = RenderReport()
+        if valid and applies:
+            report = self._render_on_train(req.template, req.item_id)
+            if report.note:
+                notes.append(report.note)
+        return m.InputTransformValidation(
+            valid=valid,
+            error=None if valid else error,
+            applies=applies,
+            train_items_rendered=report.checked,
+            render_failure_count=len(report.failures),
+            render_failures=[
+                m.RenderFailure(item_id=item_id, error=error)
+                for item_id, error in report.failures[:RENDER_FAILURES_SHOWN]
+            ],
+            sample_item_id=report.sample[0] if report.sample else None,
+            sample=report.sample[1] if report.sample else None,
+            note=" ".join(notes) or None,
+        )
+
+    async def _input_transform_check(self, props: dict[str, Any]) -> None:
+        """The rules of the input transform lever on a new run config.
+
+        Null needs no check. A value must be a Jinja template in Kiln's
+        shape (`input_transform.transform_problem`). A transform that a run
+        config of the task already has is copied, and it passes: on every
+        lever but this one, the build copies the parent's transform. A NEW
+        transform is refused on a multi-turn task. Kiln's compile check
+        runs on its template first, so the refusal names the error. Then
+        the template is rendered on every train input: one that fails on
+        an input is refused, because that item's run would fail."""
+        transform = transform_of(props)
+        if transform is None:
+            return
+        problem = transform_problem(transform)
+        if problem is not None:
+            raise GatewayError(problem)
+        if any(
+            transform_of(row.get("run_config_properties")) == transform
+            for row in await self._run_configs()
+        ):
+            return
+        if await self._multi_turn_for_transform():
+            raise GatewayError(
+                f"{MULTI_TURN_REFUSAL}. Copy the parent's {TRANSFORM_KEY} as it is."
+            )
+        try:
+            valid, error = await self._template_check(transform["template"])
+        except KilnError:
+            valid, error = True, None  # Kiln compiles it again when it saves it
+        if not valid:
+            raise GatewayError(
+                f"{TRANSFORM_KEY}.template is not a valid Jinja2 template: {error}"
+            )
+        report = self._render_on_train(transform["template"])
+        if report.failures:
+            raise GatewayError(
+                f"{TRANSFORM_KEY}: {report.failure_line}. A field that an input"
+                " does not have is an error: guard it with `is defined` or"
+                " `| default(...)`."
+            )
+
     async def _tool_lock_check(self, props: dict[str, Any]) -> None:
         """Refuse a run config that drops, replaces or wraps a tool the
         owner locked (`restrictions.ToolLock`). A code tool that cannot be
@@ -1572,6 +1704,7 @@ class Gateway:
         # After the carry: these checks read the properties that are sent.
         props = body["run_config_properties"]
         await self._rc_tools_check(props)
+        await self._input_transform_check(props)
         notes = await self._output_mode_check(props, parent)
         row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
         view = _rc_view(row if isinstance(row, dict) else {})
@@ -1598,7 +1731,7 @@ class Gateway:
             )
         try:
             body["run_config_properties"], carried = inherit(
-                props, body["run_config_properties"], RC_PROP_KEYS
+                props, body["run_config_properties"], MANAGED_RC_PROPS
             )
         except InheritError as exc:
             raise GatewayError(str(exc)) from exc
@@ -2089,6 +2222,13 @@ OPS = _ops(
         m.RunConfigCreate,
         "A new run config (model policy, tool lock and output mode checked).",
     ),
+    (
+        "validate_input_transform",
+        m.InputTransformValidate,
+        "Check an input transform's Jinja template before create_run_config:"
+        " does Kiln compile it, does the lever apply to this task, and does it"
+        " render on every train input. Shows the rendered text of one item.",
+    ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),
     ("run_task", m.RunTaskRequest, "Drive a run config on one train item."),
@@ -2181,6 +2321,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_MEM_READ,
         *_MEM_WRITE,
         "create_run_config",
+        "validate_input_transform",
         "rename_run_config",
         "create_prompt",
         "run_task",
@@ -2198,6 +2339,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_MEM_READ,
         "memory_create",
         "create_run_config",
+        "validate_input_transform",
         "run_task",
         *_CODE_TOOLS,
     ),

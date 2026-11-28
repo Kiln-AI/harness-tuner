@@ -165,15 +165,16 @@ flowchart TD
 4. **The wave items**, in parallel. The main kind of item is the
    **experiment**:
    1. A build agent makes one new run config, for example a prompt edit, a
-      tool or skill change, a thinking level, or a model swap where one is
-      allowed. It reads the technique that the planner named, in the
+      tool or skill change, an input transform, a thinking level, or a
+      model swap where one is allowed. It reads the technique that the planner named, in the
       knowledge system. It stamps the provenance and
       smoke-tests the config. It stops before any result exists.
    2. Two text checks run before any money is spent on measurement:
       - The **generality check** looks for text that copies train items, first
         in code (an exact-text search) and then in a review session.
       - The **judge-copy check** looks for a run of 8 or more words that the
-        candidate's whole prompt, skills or code tools share with a judge
+        candidate's whole prompt, input transform, skills or code tools
+        share with a judge
         prompt, an eval spec or an eval description. It reads the whole text,
         so a phrase inherited from a parent is caught too. Text that the
         baseline or the task instructions already have is allowed.
@@ -206,8 +207,9 @@ flowchart TD
    3. The objective's rule decides (see the sections below). The winner becomes
       the new baseline. The other candidates are stamped `— REJECTED AT VAL`.
       Code adds one line with the reason and no numbers: passed over (another
-      candidate won), an eval dropped beyond doubt (named), no gain on the
-      target, a gain on the target that is not beyond doubt, or "not promoted
+      candidate won), an eval dropped beyond doubt (named), unverified (too
+      few val items differ), no gain on the target, a gain on the target
+      that is not beyond doubt, or "not promoted
       at val" when code cannot tell. A candidate blocked in step 2 keeps its
       block line instead. A candidate whose val evidence has holes (a failed
       fill, coverage under the floor, an incomplete speed or cost pass) is
@@ -310,6 +312,10 @@ The goal is higher eval scores.
   go up beyond doubt (significant, or its interval wholly above zero). A small
   rise with an interval that crosses zero does not promote alone. With two or
   more candidates, a `promote_best` agent ranks them on the code's table.
+- **Thin evidence.** On train and at the gate, a result on fewer than 3
+  items that differ between the two sides is neither a win nor a loss. The
+  arm ends `— UNVERIFIED`, or the gate gives "unverified at val". The idea
+  is untested at that size, not disproven.
 - **The limit to know.** When the baseline already passes almost every train
   item, there is nothing to fix, and the detectability check says so before
   the run spends money.
