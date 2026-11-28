@@ -182,8 +182,8 @@ Then:
 11. **The baseline audit** (`generality.audit_baseline`).
     The generality check (section 4) reads only what a build adds, so text
     the baseline already carries is never checked. Once per baseline, the
-    same two checks read its WHOLE prompt, skills and code tools as if all
-    of it were added: the free exact-match search first, then one
+    same two checks read its WHOLE prompt, input transform, skills and code
+    tools as if all of it were added: the free exact-match search first, then one
     `generality_review` session only when the search finds nothing. A leak
     becomes one `baseline_audit` issue, bound to no eval, that asks for a
     scrub; an open one for the same baseline skips the audit next run. It
@@ -346,9 +346,36 @@ The full path:
    exists before anything can fail.
 3. One `create_experiment_rc` dispatch. It builds one new run config, stamps
    provenance, smokes it for execution, and **exits before any results exist**.
+   **The input transform check**
+   ([`input_transform.py`](../src/kiln_harness_tuner/input_transform.py)).
+   The input transform is the Jinja template on the run config that renders
+   the task input into the first user message. It is a lever of its own
+   (`technique: input_transform`), for single-turn tasks only. Code reads
+   the built run config and its parent, before any review:
+   - an item that names the lever on a multi-turn task ends `dead_end`
+     before its build session;
+   - an arm that changes the transform on a multi-turn task ends
+     `dead_end`;
+   - an item that names the lever and whose transform is the parent's ends
+     `dead_end`, as `lever not applied`;
+   - an arm that changes the transform goes on, with an `input_transform`
+     event (`status: changed`) that gives the size of the parent's
+     template and of the arm's.
+   After the train measurement of an arm that changed the transform, code
+   compares the first user message of each stored train row with the
+   parent's on the same item. That message is the rendered template. A
+   message that differs on one paired item is `applied`. The same message
+   on every paired item, with at least 2 of them, is `not_applied`. An item
+   that names the lever then ends `dead_end`, with no analysis session.
+   Another arm (one that changed the transform with no effect, for example
+   a copy with one more blank line) goes on: its own lever is what it
+   measures. Fewer pairs are `unverified`, and the item goes on. The verdict is an `input_transform`
+   event, and the experiment record gets one `input transform: …` line
+   with the change and the verdict.
 4. **The generality check**
    ([`generality.py`](../src/kiln_harness_tuner/generality.py)). When the built prompt
-   text, the text of its attached skills, or its attached code tools
+   text, the template of its input transform, the text of its attached
+   skills, or its attached code tools
    (their code and the description the model is shown) differ
    from the parent's, two checks run, in order:
    - **The exact-match pre-check**, in code, free. Every train item's id,
@@ -359,7 +386,8 @@ The full path:
      task's instructions already have is not added. A match is a leak, and
      the review does not run.
    - **The review.** One `generality_review` session (no tools) reads what
-     the build added to the prompt, to the skills and to the code tools (a
+     the build added to the prompt, to the input transform, to the skills
+     and to the code tools (a
      diff against the version each new one replaces), beside the task's
      instructions, up to 12 train inputs (the target items first) and their
      expected outputs, and names text that memorises the train set or games
@@ -377,13 +405,15 @@ The full path:
    ([`judge_copy.py`](../src/kiln_harness_tuner/judge_copy.py)) runs at the same
    point, on every build, merges included. It uses the matcher of the
    gate's integrity check (a) (section 9) on the WHOLE text of the run
-   config — its prompt and every file of its skills and code tools — not
+   config — its prompt, the template of its input transform and every
+   file of its skills and code tools — not
    only on the added lines, so a phrase that a parent carries is found. It
    compares that text with the judge prompts, eval configs, specs and
    descriptions of the active evals, and with their names. The exempt text
    is the **baseline's**, not the parent's: for the prompt, the baseline's
    prompt and the task's instructions (the gate's own rule, so a prompt that
-   passes here passes check (a) while the evals stay the same); for a skill
+   passes here passes check (a) while the evals stay the same); for the
+   input transform and for a skill
    or code-tool file, the baseline's whole text and the task's
    instructions. The parent is not exempt, because an inherited phrase comes
    from the parent. A hit shares the one rebuild with the generality check:
@@ -822,14 +852,18 @@ successful on train.
    prompt shares a run of 8 words with a judge prompt, an eval config, a
    spec or an eval description — a run the baseline's prompt and the task's
    instructions do not contain — or names an eval (10 characters or more)
-   verbatim is made ineligible. (b) A median output length on val more than
+   verbatim is made ineligible. The template of the candidate's input
+   transform is read the same way, with the baseline's template exempt
+   too. (b) A median output length on val more than
    2× the baseline's either way, or changed top-level JSON keys, and (c) a
    kind of write action in the candidate's val traces the baseline's never
    show are `integrity_flags`: a flagged winner goes to the promotion agent
    even under the code rule, and is promoted only when the rationale answers
    the flags in an `Integrity:` line. (d) A candidate whose prompt text
+   or input transform
    differs from the baseline's gets one `integrity_review` session
-   (no tools, no MCP server, read-only, input = the two prompts
+   (no tools, no MCP server, read-only, input = the two prompts, the two
+   templates when they differ,
    and the evals' criteria, never item data) that looks for PARAPHRASED
    criteria and eval-specific gaming; its findings are `review: …` flags,
    never a block, and a failed review is itself a flag.
@@ -860,7 +894,8 @@ successful on train.
    and the experiment record is train-readable, so nothing derived from val
    may reach them. The block path carries the findings of check (a) alone
    (`CandidateValTable.copy_findings`): the copied phrase and the eval
-   object, read from the prompt and the eval definitions. The (b)
+   object, read from the prompt or the input transform and the eval
+   definitions. The (b)
    output-shape flags, the (c) write-action flags, the `integrity_review`
    findings and every val number are computed from val traces. They go to
    the wave log, the val summary and the promotion agent, and never to `BatchPlanInput.gate_blocks` or to the record.
@@ -1343,6 +1378,8 @@ src/kiln_harness_tuner/
   reconcile.py      the spend ledger checked against this run's records
   objective.py      the quality, speed and cost objectives
   levers.py         the check that a declared lever took effect
+  input_transform.py  the input transform lever: its shape, its template
+                    text, and the check that it was applied
   output_modes.py   the structured-output mode: the mode of a model swap,
                     the mode Kiln refuses, the signal that it reached the call
   integrity.py      the reward-hacking code checks at the promotion gate
@@ -1354,8 +1391,8 @@ src/kiln_harness_tuner/
                     dangling
   judge_copy.py     the eval-text copy check at the same point, and the
                     eval-text reader the gate shares with it
-  prompt_text.py    the prompt and skill text a run config gives the
-                    model, read by code
+  prompt_text.py    the prompt, input transform and skill text a run
+                    config gives the model, read by code
   measure.py        the one measurement engine: queue, chunks, stop rules
   job_drives.py     drives through one-item eval jobs, for multi-turn and
                     OpenEnv tasks
@@ -1886,7 +1923,9 @@ and fewer than 2 paired items carry token counts. A model or provider
 switch is not applied when a drive records another model or provider than
 the run config names (in `output.source`, the usage or a trace message),
 and unverified when no drive records one. An output mode that differs from
-the parent's has its own signal (below, "The output mode"). Not applied
+the parent's has its own signal (below, "The output mode"). The input
+transform is not checked here, because this check does not know the
+arm's technique: the item path checks it (section 4). Not applied
 stops the candidate
 as `lever not applied: …` (event `lever_not_applied`) before anything more
 is paid for it; unverified is logged (`lever_unverified`) and shown on the
@@ -1911,7 +1950,10 @@ the same engine, and its screening rows are reused. Under speed and cost
 the run opens with one round: the baseline's model at every lower thinking
 level its provider offers (`initial_screen_request`). A probe check may not
 name a variant key (`SCREEN_ONLY_OVERRIDES`, refused by the schema); probes
-answer mechanism questions only, and nothing times a probe. A DATA question
+answer mechanism questions only, and nothing times a probe. Neither a
+screen candidate nor a probe check may override `input_transform`
+(`BUILD_ONLY_OVERRIDES`, refused by the schema): its template is authored
+text, so only a build session changes it. A DATA question
 is a `check` with `source: "stored"`: code counts over the parent's stored
 train rows, with no fork and no drive.
 
@@ -2109,6 +2151,13 @@ It is enforced at every place a run config comes into being or is used:
 
 - **the gateway**, on `create_run_config` and `run_task`: the config's
   (provider, model) pair must pass; a non-`kiln_agent` config is refused.
+  `create_run_config` also holds the rules of the input transform: the
+  value is null or a Jinja template that Kiln compiles, and a new template
+  is refused on a multi-turn task. A new template is also rendered on
+  every train input, with the engine of the installed `kiln-ai` library,
+  and one that fails on an input is refused. `validate_input_transform`
+  runs Kiln's compile check and the same render with no run config made,
+  and returns the rendered text of one train item.
   The gateway reads the policy from `runs/<run_id>/model_policy.json`, a
   copy no agent can write; an unreadable copy refuses every model;
 - **the analyzer's `rc_guard`**, awaited before every eval job and every
@@ -2314,7 +2363,7 @@ matter, and its directory gives its type:
 
 | Type | Directory | What it is |
 |---|---|---|
-| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `output_mode`, `model`). |
+| Lever | `references/levers/` | One thing in a harness that the tuner can change, and how: the gateway operations, the rules of the object, the limits. Never when or why. Its id is the short name that the planner writes in an experiment's `technique` field (`prompt`, `skill`, `tool_config`, `new_tool`, `params`, `output_mode`, `input_transform`, `model`). |
 | Technique | `references/techniques/` | One optimisation: when to use it and when not, its alternatives, how, a cheap check that it took effect, its cost, what to do when it does not move an eval, priors and confidence. It names the levers it uses. |
 | Playbook | `references/playbooks/` | How to solve one problem or reach one goal, as an ordered list of techniques, each with its condition. Its kind is `goal`, `order`, `failure`, `eval` or `design`. |
 | Smell | `references/smells/` | An issue in the design of the agent, true whether an eval passes or fails: how to recognise it, how to confirm it, who can detect it, and at least one remedy. |

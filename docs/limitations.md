@@ -216,9 +216,25 @@ level changes the answer's length), so a real no-op whose answers happen to
 lengthen by a quarter passes. A model switch no drive records is
 unverified the same way.
 
+**The input transform lever is for single-turn tasks, and its check reads
+one message.** The lever changes the Jinja template that renders the task
+input into the first user message. On a multi-turn task the gateway
+refuses a new template and the loop ends an arm that changes one: the
+tuner has no evidence for a template that also renders each later user
+message. A screen and a code probe cannot change the template: only a
+build session can. The gateway renders a new template on every train
+input, with the engine of the installed `kiln-ai` library, and refuses one
+that fails. It reads train inputs only, so a field that only a val or test
+input lacks still fails that item, with no output. A library older than
+the template engine, or one that does not compile a template that the
+server compiled, renders nothing, and the answer says so. "Applied" means that the first user message differs
+from the parent's on at least one paired train item. It does not say that
+the template does what the hypothesis intends.
+
 **The integrity checks are heuristics.** Quoting is blocked only as a run
 of 8 identical words, or an eval's full name. The gate checks the run
-config's prompt; the build-time judge-copy check also reads
+config's prompt and its input transform; the build-time judge-copy check
+also reads
 the text of its skills and code tools, so a verbatim quote there ends the
 arm before measurement. A run of 7 words, or a quote with one word changed,
 passes both. Text the baseline already carries is exempt from both checks;

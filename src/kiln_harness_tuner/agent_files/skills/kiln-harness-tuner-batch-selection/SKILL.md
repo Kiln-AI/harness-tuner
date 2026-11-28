@@ -183,7 +183,8 @@ A screening round is a plan with `screen` set and no items. Code — no
 agent — makes each candidate's run config (a fork of the parent with
 `overrides`: `model_name`, `model_provider_name`, `thinking_level`,
 `temperature`, `top_p`, `structured_output_mode`), measures every candidate
-on the SAME items, gives each a verdict, logs one table and calls you again
+on the SAME items (an `input_transform` override is refused: a template
+is built and checked by an experiment item), gives each a verdict, logs one table and calls you again
 with `phase: "rescreen"` and every result so far in `screening_results`. At
 most 4 rounds per wave (`screen_rounds_left`); after that the plan must
 carry items.
@@ -389,7 +390,8 @@ config's `_stats.md` first (turns, tool calls and tokens per item; the
 largest tool results), then the traces it points to.
 
 **The generality check on every arm.** Before the train
-measurement, a reviewer reads what a build added to its parent's prompt and to
+measurement, a reviewer reads what a build added to its parent's prompt, to
+its input transform and to
 the text of its attached skills, and names text that memorises the train set or
 games the measurement — a train item's entity, id or expected answer, a
 case-by-case rule, wording aimed at a grader. Naming a tool or a skill is fine.
@@ -401,7 +403,8 @@ general rule from the start: an arm whose idea only works by naming what the
 train items contain is not an arm.
 
 **The judge-copy check on every arm.** Right after the build,
-code searches the WHOLE text of the run config — its prompt, and every file
+code searches the WHOLE text of the run config — its prompt, its input
+transform, and every file
 of its skills and code tools — for a run of eight words from a judge
 prompt, an eval config, a spec or an eval description, and for an eval's
 full name. Text the baseline's prompt or the task's instructions already
@@ -412,6 +415,18 @@ findings; a second hit ends the arm `— DEAD END (judge copy: …)` before any
 train spend, and the record's `judge copy:` line quotes the finding. The
 promotion gate runs the same check again on the prompt and blocks a
 candidate that copies an eval, after its val pass.
+
+**The input transform lever is for single-turn tasks.** An arm with
+`technique: input_transform` changes the template that renders the task
+input into the first user message (the knowledge lever
+`levers/input_transform.md`). `get_task` gives the task's `turn_mode`. On
+a multi-turn task code ends such an arm `— DEAD END (input transform: …)`
+before its build, so do not plan one there. Code also checks that the
+lever was applied: an arm that names the lever and keeps its parent's
+transform, or whose first user message is its parent's on every train
+item, ends `— DEAD END (lever not applied: …)`. That dead end is about
+one build, not about the lever. A completed arm's record has one `input
+transform:` line with the change and the verdict.
 
 **Gate blocks: never build on a blocked prompt as it is.** A
 candidate the gate blocked for copying eval text is listed in your input's
@@ -534,7 +549,7 @@ more, emit valid JSON, produce output) is a `check` probe that no agent
 runs; only "did the output change in the named way" needs the agent.
 
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
-  new_tool | params | output_mode | …`), with `needs_eval: true` when the
+  new_tool | params | output_mode | input_transform | …`), with `needs_eval: true` when the
   issue has no eval yet and `eval_building` is `true` (otherwise the issue is not a candidate —
   Hard rules; a `smell`, `baseline_audit` or `baseline_judge_copy` issue is
   planned with `needs_eval: false` and an active eval that the change
@@ -914,11 +929,12 @@ Per experiment item:
 - **FixWork** carries `hypothesis` + `predicted_effect` (required discipline:
   a result you didn't predict is exploration, not an experiment).
   **`technique` is the lever's short name** (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, `output_mode`, or a name of a few
-  words): at most
+  `tool_config`, `new_tool`, `params`, `output_mode`, `input_transform`,
+  or a name of a few words): at most
   60 characters, one line. It is the id of a lever document of the
   `kiln-harness-tuner-knowledge` skill where one exists (`prompt`, `skill`,
-  `tool_config`, `new_tool`, `params`, `output_mode`, `model`), it is the
+  `tool_config`, `new_tool`, `params`, `output_mode`, `input_transform`,
+  `model`), it is the
   key of
   `lever_attempts`, and the experiment record's label carries it. Put what
   the build does in the `hypothesis` (the record keeps its first 900
@@ -1001,7 +1017,9 @@ target`, no promotion:
     `{overrides: {structured_output_mode: json_mode}, count: reasoning_chars,
     compare_to_parent: true}`. `overrides` may not name a model, a
     provider, a thinking level, `temperature` or `top_p` — those are
-    candidate variants, screened in code (the schema refuses them here). A
+    candidate variants, screened in code (the schema refuses them here).
+    It may not name `input_transform` either: a template is authored
+    text, so it is an experiment item with `technique: input_transform`. A
     minute, and the cheapest thing in the kit.
   - **a DATA question: `check` with `source: "stored"`.** When
     the answer is already in the parent's stored train rows — "do the
