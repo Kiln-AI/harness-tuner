@@ -76,10 +76,12 @@ from kiln_harness_tuner.schemas import (
     EvalTarget,
     ExperimentItem,
     FixWork,
+    LatencyComparison,
     PerEvalResult,
     TrialResult,
     score_json_key,
 )
+from kiln_harness_tuner.sub_agents import cost_measured, latency_measured
 from kiln_harness_tuner.thin_evidence import (
     TargetEvidence,
     is_thin,
@@ -1818,11 +1820,25 @@ class Analyzer:
         # Per-item latency of the same two sides, read off the
         # same records — passive (the sides may be hours apart), so it is
         # information on every row and never a speed verdict by itself.
-        latency = compare_eval_runs(baseline_runs, candidate_runs, split)
+        latency: LatencyComparison | None = compare_eval_runs(
+            baseline_runs, candidate_runs, split
+        )
         # The per-request cost of the task call on the same
         # records. With no per-request ceiling, this and `latency` are how an
         # arm's cost and speed stay visible without timing drives.
-        cost = compare_eval_run_costs(baseline_runs, candidate_runs, split)
+        cost: LatencyComparison | None = compare_eval_run_costs(
+            baseline_runs, candidate_runs, split
+        )
+        # A stored run that calls a sub-agent carries the latency of its own
+        # model calls only, and its cost holds the sub-agent's only when
+        # Kiln wrote that usage in the run (`kiln_harness_tuner.sub_agents`).
+        # A candidate's such number would show a delegating arm as cheap and
+        # fast, so the rows carry none. A baseline's is a lower bound: a
+        # comparison with it can only understate a gain, so it stays.
+        if not all(latency_measured(run) for run in candidate_runs):
+            latency = None
+        if not all(cost_measured(run) for run in candidate_runs):
+            cost = None
         rows = []
         for spec, values_a, values_b in paired:
             rows.append(

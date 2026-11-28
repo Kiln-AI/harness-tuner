@@ -268,6 +268,19 @@ eval job an agent started (`run_train_eval`), whose rows are on a config
 the loop never started a job on, and work the server finishes after the
 process has stopped.
 
+**Sub-agents.** A run config can attach a sub-agent: another Kiln task that
+the agent calls as a tool. The loop books what Kiln reports for each run,
+and it adds nothing for a sub-agent itself. With Kiln-AI/Kiln#2077, Kiln
+writes the sub-agent's tokens and cost in the run that calls it, so the
+spend holds them. On a Kiln without that change, a run's usage leaves the
+sub-agent's calls out, an eval job keeps no record of them, and
+`--budget-usd` does not count them. Then price them yourself when your
+baseline has a sub-agent, or when you expect the loop to add one: the
+calls for each request, times the sub-agent's cost for each call, times
+the items that each eval job judges and each drive. An experiment's record
+says whether its cost includes the sub-agent, and gives the usage of the
+sub-agent's calls on its timing drives.
+
 ## What is free
 
 - Re-scoring stored traces with a **code** eval: no drives, no judge tokens.

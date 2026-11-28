@@ -258,7 +258,7 @@ structural rather than a rule.
 
 It is dispatched a second time for the same item in one case only: the
 generality review found a leak, the judge-copy check found
-eval text in the build's prompt, skills or code tools, or, with
+eval text in the build's prompt, skills, code tools or sub-agents, or, with
 `--reference-check refuse`, the reference check found a skill or a tool that
 the build names but does not attach. Then `RcBuildInput`
 also carries `rejected_rc_id` and `generality_findings`,
@@ -289,6 +289,11 @@ scope check, and it is there because this failure is hard to see otherwise.
 `AnalysisBundle` (the label-free numbers table plus every named hole in it),
 its own experiment memory id, and `content_budget`: the chars its
 `memory_content` can take after the lines code adds to the record.
+`measurement_notes` names each metric that is not measured because a run
+config of the comparison calls or attaches a sub-agent: the latency always,
+and the cost when the runs do not hold the sub-agent's usage. The rows and
+the bundle then carry no number for that metric
+([architecture.md](architecture.md) section 19.4).
 
 **Must return** `ExperimentResult`:
 
@@ -383,7 +388,10 @@ label their numbers val-grade.
 
 Code also appends the `## Design review` section: the code detections and the
 baseline reviewer's findings for each baseline of the run
-([architecture.md](architecture.md) section 11).
+([architecture.md](architecture.md) section 11). When the run created a
+sub-agent, code appends the `## Sub-agents (code-computed)` section: each one with its
+tool, its task, its model and its state against the final baseline
+([architecture.md](architecture.md) section 19.6).
 
 **Skill:** `kiln-harness-tuner-report`. Where the knowledge helps it explain
 the run, the template names `references/report.md` of the knowledge skill.
@@ -430,8 +438,8 @@ promotion agent one `Integrity:` sentence.
 
 **Dispatched** once per `experiment` item between the build and the train
 measurement, when the built run config's prompt text, the template of its
-input transform, the text of its
-attached skills, or its attached code tools differ from its parent's
+input transform, the text of its attached skills, its attached code tools
+or its attached sub-agents differ from its parent's
 and the exact-match pre-check found no copy. Once more after a rebuild. And
 once per baseline at setup, by the baseline audit: then `item_id` is `baseline-audit`, the parent
 instructions are empty and every skill and code-tool file is shown whole, so
@@ -443,6 +451,9 @@ changed or new skill file, a unified diff against the skill version it replaces
 or the whole file when it is new, at most 30,000 characters),
 `code_tool_changes` (the same for the code tools: their code and the
 description the model is shown, at most 20,000 characters),
+`sub_agent_changes` (the same for the sub-agents: the tool description,
+the sub-agent's prompt, output schema and input transform, and the files
+of its own skills and code tools, at most 20,000 characters),
 `input_transform_changes` (what the build added to the input transform's
 template: the whole template, or a unified diff against the parent's), the task's own
 instructions, the item's hypothesis, up to 12 TRAIN inputs that code read

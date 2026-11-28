@@ -400,7 +400,9 @@ The full path:
    Each finding is a `generality:` line on the experiment record, carried past
    the verdict. A review that cannot run is logged, written on the record, and
    does not stop the item; so does skill or code-tool text that cannot be
-   read (the rest is then reviewed alone).
+   read (the rest is then reviewed alone). The text of an attached
+   sub-agent is checked in the same way as a code tool's files, by this
+   check and by the judge-copy check (section 19.3).
    **The judge-copy check**
    ([`judge_copy.py`](../src/kiln_harness_tuner/judge_copy.py)) runs at the same
    point, on every build, merges included. It uses the matcher of the
@@ -916,7 +918,8 @@ successful on train.
    too. (b) A median output length on val more than
    2× the baseline's either way, or changed top-level JSON keys, and (c) a
    kind of write action in the candidate's val traces the baseline's never
-   show are `integrity_flags`: a flagged winner goes to the promotion agent
+   show, and (e) a tool with a write name behind a sub-agent that the
+   baseline does not attach (section 19.7), are `integrity_flags`: a flagged winner goes to the promotion agent
    even under the code rule, and is promoted only when the rationale answers
    the flags in an `Integrity:` line. (d) A candidate whose prompt text
    or input transform
@@ -1141,6 +1144,9 @@ way.
   id of the `smell` issue code wrote). It is folded from the
   `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
   `RunStatus.baseline_reviews`), and the fallback report has it too.
+  "## Sub-agents (code-computed)" (`render_sub_agents_appendix`) is there when the run
+  created a sub-agent. It is folded from the `sub_agents` event
+  (`RunStatus.sub_agents`; section 19.6).
 - **The transcripts.** The dispatcher copies every agent session's
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
@@ -1291,7 +1297,8 @@ reads a list: it takes the last `"type": "result"` event.
      items are never readable back. There is no operation that changes
      settings or providers, and no operation for deletes, split edits or
      held-out items. The model operations read the run's model catalogue
-     snapshot (section 17.1).
+     snapshot (section 17.1). `create_sub_agent` makes a second task in
+     the project, with its run config and its tool (section 19.1).
    - **No tool that reaches Kiln's own state.** Kiln's memory tools
      (`kiln_tool::memory::<operation>`) read and write the memory store
      that holds the `baseline` and `val` records. A Kiln API tool
@@ -1443,6 +1450,8 @@ src/kiln_harness_tuner/
                     text, and the check that it was applied
   output_modes.py   the structured-output mode: the mode of a model swap,
                     the mode Kiln refuses, the signal that it reached the call
+  sub_agents.py     sub-agents (`kiln_task::` tools): the reader, the
+                    calls in a trace, the cost guard, what a run created
   integrity.py      the reward-hacking code checks at the promotion gate
   orchestrator.py   the wave loop, the promotion gate, the tripwire, the
                     janitor, the budget
@@ -1635,7 +1644,8 @@ no verdict. The spread (p75 − p25) is reported beside both arms.
 `POST …/tasks/{t}/run`. That endpoint runs one input once: it starts no
 OpenEnv episode and no simulated user. So `EvalJobDriver.needed` sends a
 drive through an eval job when the task's `turn_mode` is `multiturn`, when
-a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`), or
+a run config of the drive lists an OpenEnv tool (`kiln_tool::openenv::…`),
+or attaches a sub-agent that lists one (section 19.1), or
 when an input has an `openenv_reset`. The route covers the three drive paths:
 `timed_drives` (the baseline timing, the timing chunks, the val gate's
 pass), the code probes (`probes.drive_set`), and the gateway's `run_task`.
@@ -1984,9 +1994,12 @@ and fewer than 2 paired items carry token counts. A model or provider
 switch is not applied when a drive records another model or provider than
 the run config names (in `output.source`, the usage or a trace message),
 and unverified when no drive records one. An output mode that differs from
-the parent's has its own signal (below, "The output mode"). The input
-transform is not checked here, because this check does not know the
-arm's technique: the item path checks it (section 4). Not applied
+the parent's has its own signal (below, "The output mode"). A new
+sub-agent is applied when a drive's trace shows a call of its tool, and not
+applied when three or more drives have a trace and none calls it (section
+19.5). The input transform is not checked here, because this check does
+not know the arm's technique: the item path checks it (section 4). Not
+applied
 stops the candidate
 as `lever not applied: …` (event `lever_not_applied`) before anything more
 is paid for it; unverified is logged (`lever_unverified`) and shown on the
@@ -2210,9 +2223,10 @@ choice.
 
 It is enforced at every place a run config comes into being or is used:
 
-- **the gateway**, on `create_run_config` and `run_task`: the config's
-  (provider, model) pair must pass; a non-`kiln_agent` config is refused.
-  `create_run_config` also holds the rules of the input transform: the
+- **the gateway**, on `create_run_config`, `create_sub_agent` and
+  `run_task`: the config's (provider, model) pair must pass, and so must
+  the pair of each sub-agent that it attaches (section 19.2); a
+  non-`kiln_agent` config is refused. `create_run_config` also holds the rules of the input transform: the
   value is null or a Jinja template that Kiln compiles, and a new template
   is refused on a multi-turn task. A new template is also rendered on
   every train input, with the engine of the installed `kiln-ai` library,
@@ -2558,3 +2572,236 @@ gives "Design review skipped: <reason>." or "Design review failed:
 A resumed run reviews a baseline again when its first review wrote no
 issue (it found no smell, or every write failed), because the check for an
 earlier review reads the smell issues in memory.
+
+## 19. Sub-agents
+
+A sub-agent is another Kiln task in the subject task's project. A tool
+server of the type `kiln_task` pins that task and one of its run configs,
+and a run config of the subject task attaches it as the tool
+`kiln_task::<tool_server_id>`. Each call is one new run of the sub-agent's
+task: one turn, with no state from an earlier call. The module
+[`sub_agents.py`](../src/kiln_harness_tuner/sub_agents.py) is the one
+reader of this structure, for the gateway and for the loop's code. The
+lever document is `levers/sub_agent.md` of the knowledge skill, and the
+decisions are in
+[specs/projects/subagents](../specs/projects/subagents/project_overview.md).
+
+### 19.1 The operation
+
+`create_sub_agent` (the build agent only) makes three records with three
+calls, in this order: a new single-turn task (`POST …/tasks`), one run
+config on it (`POST …/tasks/<id>/run_configs`), and the Kiln task tool
+(`POST …/kiln_task_tool`). Every check runs before the first call. The
+gateway stays bound to the subject task: no other operation writes to the
+new task, and no operation reads its runs or its evals.
+
+- **The registry.** Each record goes in `gateway_created.jsonl` when it
+  exists, with the kinds `sub_agent_task`, `sub_agent_run_config` and
+  `sub_agent_tool`. The key carries the kind as a prefix, so it is never
+  taken for the id of a train record. A create that fails after the task
+  exists names what it left in its error.
+- **No change in place.** The tool pins its run config. A new prompt,
+  model or schema is a new sub-agent. No operation edits or deletes one,
+  because the baseline or another experiment can attach it.
+- **One level.** The run config of a created sub-agent cannot attach a
+  `kiln_task::` tool, `kiln_tool::call_kiln_api` or a `kiln_tool::memory::`
+  tool.
+- **OpenEnv tools.** A sub-agent can attach one. In an eval job, a
+  sub-agent's world calls run in the episode of the item: it reads the
+  scenario that the item reset, and its writes are in the final state
+  that a code eval reads (a live probe on Kiln API 1.2.0: 3 items,
+  concurrency 1; not tested above that). So the route of a drive reads
+  the tools of each attached sub-agent: `EvalJobDriver.needed` answers
+  yes when a run config, or a sub-agent that it attaches, lists an OpenEnv
+  tool. Such a run config is then driven as an eval job on every item,
+  like one that lists the tool itself. The same probe saw the run
+  endpoint attempt a reset with no arguments, which the world refused.
+  The route does not read a code tool's allowlist: a code tool whose
+  allowlist names an OpenEnv tool, on the subject or on a sub-agent, does
+  not force the eval-job route.
+- **Attaching.** `create_run_config` checks each `kiln_task::` id that a
+  run config of the subject attaches: it names a Kiln task tool, the tool
+  does not call the subject task, and its pinned run config exists.
+- **No evals.** A sub-agent has no eval and no dataset of its own. The
+  loop measures it on the subject's evals only.
+
+### 19.2 The model policy
+
+A sub-agent's input is the task's data, so its model is held to the model
+policy (section 17) at each place the subject's is: in the gateway, when a
+sub-agent is created and when a run config that attaches one is created or
+driven; in `policy_refusal`, before a run config is measured and at the
+gate. The check follows a sub-agent of a sub-agent, three levels down
+(`sub_agents.read_sub_agent_tree`, `orchestrator.rc_sub_agent_pairs`). A
+sub-agent that cannot be read refuses the run config: at the gate and in
+the measurement guard it is a refusal, never an error that ends the run.
+The baseline chain stays exempt. Under `--models keep`, the pinned policy
+holds the baseline's pair as an exception, and the pair of each sub-agent
+that the baseline attaches as a `sub_agent_exception`: a pair that only a
+sub-agent may use (`ModelPolicy.refusal(…, sub_agent=True)`). So a new
+sub-agent runs on one of those pairs, and the subject cannot move to its
+sub-agent's model.
+
+### 19.3 The integrity checks
+
+`prompt_text.rc_texts` reads each attached sub-agent as a bundle of files,
+like a code tool: `description` (the tool name, the tool description and
+the parameters, which the subject model reads), `prompt` (what the
+sub-agent's model is told), `output schema`, and the files of the skills
+and code tools that its run config attaches. So the exact-match pre-check,
+the generality review (`sub_agent_changes`), the judge-copy check and the
+baseline audit cover a sub-agent's text with no code of their own. A
+sub-agent is diffed against the one sub-agent it replaces; else its text
+is new in full. A prompt that Kiln builds from the sub-agent task's stored
+runs (few-shot, repairs) is never rendered: the sub-agents' text is then
+"not read", and the record says so.
+
+### 19.4 Cost and latency
+
+The tuner reads the cost and the latency of a request from the `usage` of
+a task run: `usage.cost` and `usage.total_llm_latency_ms`. It never adds a
+sub-agent's usage to a run's usage itself.
+
+**Latency.** `total_llm_latency_ms` is the time of the run's own model
+calls, not the wall-clock time of the request. The time of a sub-agent is
+never in it, on any Kiln, and Kiln stores no wall-clock time of a run. So
+the latency of a run that calls a sub-agent is never measured
+(`sub_agents.latency_measured`).
+
+**Cost.** Before Kiln-AI/Kiln#2077, the `usage` of a run sums its own
+model calls only. The sub-agent's run is a task run of the sub-agent's
+task, with its own `usage`, and Kiln saves it only when it saves the
+parent's run: the run endpoint does, an eval job does not. With that Kiln
+change, a run's `usage` holds the tokens and the cost of each sub-agent
+call, in an eval job too, and each sub-agent tool message of the trace
+(the message with `kiln_task_tool_data`) has a `usage` key. That key is
+how a reader tells the two cases, by the Kiln change's own statement. So
+the cost of a run that calls a sub-agent is measured when EVERY such tool
+message of its trace has the key (`sub_agents.cost_measured`), and not
+measured otherwise. The test is per run, with no version check, and the
+cost half of this section depends on Kiln-AI/Kiln#2077 as written.
+
+**The guard.** A candidate must not win on a number that leaves its
+sub-agent out. A metric that is not measured is withheld, in code:
+
+- **Timing drives** (`latency.timed_drives`, which the measurement engine,
+  the gate's paired pass and the baseline timing all use). A run config
+  with a drive that calls a sub-agent has no latency in the result, on any
+  item, and each item has the reason (`sub_agents.LATENCY_NOT_MEASURED`).
+  It has no cost either when the run of one such drive does not hold the
+  sub-agent's usage. One drive is enough: the items that call no sub-agent
+  are not a fair sample of the requests. A drive with no trace, of a run
+  config that attaches a sub-agent, is withheld too: it cannot show that
+  it called none. A candidate's comparison of a withheld metric has no
+  pair, so it is `incomplete` and gives no verdict.
+- **The reference is a lower bound.** The withheld values are kept
+  (`DrivePass.lower_latencies`, `.lower_costs`) and used for the
+  REFERENCE side only (`DrivePass.reference_latencies`): a baseline that
+  calls a sub-agent is cheaper and faster on paper than it is, so a
+  candidate that beats its numbers beats it. A candidate that drops the
+  baseline's sub-agent can therefore win on speed or cost. The measured
+  line says that the baseline's numbers are a lower bound.
+- **The measurement engine.** The values of a withheld candidate are
+  cleared for every chunk, and `Evidence.unmeasured` holds the reason for
+  each metric. Under `speed` the `not_better` rule stops a candidate with
+  no latency, and under `cost` one with no cost, before a judge is paid
+  for. A parent whose values are withheld only ends the check against the
+  parent.
+- **The analysis table.** The passive latency of stored eval runs is left
+  off the rows when a run of the candidate calls a sub-agent, and the
+  passive cost when one does not hold the sub-agent's usage (`Analyzer`).
+  The baseline's runs give a lower bound, as above.
+- **The agents.** A train result row whose run calls a sub-agent has no
+  latency, no cost unless the run holds the sub-agent's usage, and a
+  `usage_note`. The analyzer's input names what was not measured
+  (`measurement_notes`), and so does the experiment's record.
+- **The report.** The `## Sub-agents (code-computed)` section states the two rules.
+
+So a run config that calls a sub-agent can never win under `--objective
+speed`. Under `--objective cost` it can win only on a Kiln that writes the
+sub-agent's usage in the run.
+
+**For information.** `read_sub_agent_usage` gives the usage of the
+sub-agent calls of one run: the tokens and the cost from the tool message
+when Kiln wrote them there, else from the sub-agent's saved run, and the
+latency from the saved run. It is shown on the measured line of an
+experiment ("N of M drives call a sub-agent: latency not measured, cost
+includes the sub-agent (the sub-agent's calls: median $X per request)")
+and in the answer of the gateway's `run_task` (`sub_agent_usage`). It is
+in no comparison and in no spend figure.
+
+**Timing drives for a sub-agent arm.** An arm that adds, drops or replaces
+a sub-agent gets timing drives under every objective
+(`items._changes_sub_agents`): the lever check reads their traces before a
+judge is paid for (section 19.5), and they give the information above.
+
+**Spend.** The ledger books what Kiln reports for each run. On a Kiln
+that does not write the sub-agent's usage in the run, the spend of a run
+with sub-agents is above what the ledger shows, and a spending cap does
+not count the difference.
+
+**Not seen.** A sub-agent that a code tool calls leaves no sub-agent tool
+message in the trace, and a failed sub-agent call adds no usage
+(Kiln-AI/Kiln#2077 covers neither). The first is invisible to the guard.
+The second has no `usage` key, so the cost of that run is not measured.
+
+### 19.5 The lever check
+
+The evidence of each drive holds the calls of each sub-agent tool in its
+trace (`levers.lever_evidence`). For a `kiln_task::` tool that the
+candidate attaches and its parent does not, `lever_verdict` gives:
+applied, with "called in N of M drives" on the measured line and a
+`lever_applied` event, when a drive calls it; not applied when
+`MIN_SUB_AGENT_DRIVES` (3) or more drives have a trace and none calls it;
+unverified below that. Not applied ends the arm `dead_end` before it is
+judged, as for a thinking level. The proof of a call is the tool message
+of the parent's trace, not a saved run of the sub-agent: a drive through
+an eval job saves none.
+
+### 19.6 The end of a run
+
+`close_sub_agents` runs before the report. It reads the registry, lists
+which run configs of the subject task attach each created tool, and
+archives the tool of each sub-agent that no run config attaches
+(`POST …/tool_servers/<id>/archive`). A tool that a run config attaches is
+kept, promoted or not, so each measured run config still runs. No task is
+deleted. One `sub_agents` event carries the records, and the report's
+`## Sub-agents (code-computed)` section, rendered by code, shows each one with its tool
+id, its task, its run config, its model, the run configs that attach it,
+and its state against the final baseline.
+
+### 19.7 The write-tool flag
+
+The gate's integrity check (c) reads the tool calls of the candidate's own
+val traces (section 9). A write that a sub-agent makes is in the
+sub-agent's trace, which an eval job does not save. So a candidate could
+move a write tool into a sub-agent, and (c) would find nothing new.
+
+Check (e) closes that for what a name can show
+(`orchestrator.sub_agent_write_flags`, `integrity.sub_agent_write_findings`).
+For each sub-agent that the candidate attaches and the baseline does not,
+code reads the tools of the run config that the sub-agent's tool pins, and
+flags each one whose function name names a write. The match is the
+write-verb match of (c), so the two cannot disagree on a name. It is a
+flag, like (c): it goes on the candidate's `integrity_flags`, to the
+`integrity` line of the log and to the promotion agent, and a flagged
+winner is promoted only when the rationale answers it.
+
+The names it reads, three levels down:
+
+| Tool of the sub-agent | Name |
+|---|---|
+| An MCP tool, an OpenEnv tool, a built-in tool | The last part of its tool id. |
+| A code tool | Its `tool_function_name`, from the record on disk, and the names of the tools on its allowlist. |
+| A sub-agent of the sub-agent | Its tool name, and the names of the tools of its run config. |
+| A skill, a RAG search tool | None. They write nothing. |
+
+A code tool or a sub-agent that cannot be read gives an `unread:` flag,
+never a silent pass. A sub-agent that the baseline attaches is not new,
+and gets no flag.
+
+The limit that stays: a name match cannot prove that a tool writes, or
+that it does not. Check (c) also reads the `method` or `action` argument
+of a call, which a tool list does not have. The code of a code tool is not
+read, only its name and its allowlist. And a tool that writes under a
+neutral name is not seen, as for (c).

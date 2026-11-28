@@ -17,7 +17,8 @@ that: *arm*, *lever* and *probe*.
 
 **Task.** A Kiln task: a prompt, an output schema, and the run configs, evals
 and eval inputs attached to it. The loop optimizes exactly one task per run and
-never touches another.
+never changes another. It can create a new task as a **sub-agent**: a second
+agent that the task calls as a tool for one part of the work.
 
 **Run config.** One complete, runnable configuration of a task — a model, a
 prompt, tools, skills and model properties such as reasoning level. It is the

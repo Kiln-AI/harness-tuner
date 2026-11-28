@@ -223,7 +223,26 @@ UNVERIFIED (logged, not stopped), so an ignored thinking parameter on such
 a provider is paid for. Output tokens also move for other reasons (a new
 level changes the answer's length), so a real no-op whose answers happen to
 lengthen by a quarter passes. A model switch no drive records is
-unverified the same way.
+unverified the same way. A new sub-agent is judged on one signal: a call of
+its tool in a drive's trace. A sub-agent that the agent calls on few
+requests can have no call in the first drives, and the arm then ends as
+"lever not applied".
+
+**The latency of a sub-agent's calls is never measured, and their cost
+only on a Kiln that records it.** A sub-agent is a Kiln task that the agent
+calls as a tool. The latency of a run is the time of its own model calls,
+so a run config that calls a sub-agent has no latency number: it cannot win
+under `--objective speed`. When your baseline calls a sub-agent, its numbers
+are a lower bound, so a candidate that drops the sub-agent and still beats
+them wins; a candidate that keeps one cannot. The cost of such a run is
+measured only when Kiln writes the sub-agent's usage in the run that calls
+it (Kiln-AI/Kiln#2077, not merged when this was written). The loop tests
+each run for that, and it never adds the numbers itself. On a Kiln that
+does not, the cost is not measured either: the run config cannot win under
+`--objective cost`, and the spend of the run, the budget and a spending cap
+leave the sub-agent's calls out. A sub-agent that a code tool calls is not
+seen at all. Each experiment's record, and the report's `## Sub-agents (code-computed)`
+section, say what was measured.
 
 **The input transform lever is for single-turn tasks, and its check reads
 one message.** The lever changes the Jinja template that renders the task
@@ -254,7 +273,10 @@ reads only the prompt: a paraphrase placed in a skill or a tool description
 is not reviewed. The shape checks read length and top-level JSON keys
 only. A "write action" is a tool call whose method is POST, PUT, PATCH or
 DELETE or whose action or name contains a write verb; a tool that writes
-under another name is not seen. The flags go to the promotion agent, whose
+under another name is not seen. A write that a sub-agent makes is in no
+trace the gate reads, so for a new sub-agent the check reads the names of
+its tools instead: a name cannot prove that a tool writes, or that it does
+not, and the code of a code tool is not read. The flags go to the promotion agent, whose
 answer is judged only for having an `Integrity:` line.
 
 ## Containment
@@ -409,7 +431,11 @@ is the gateway's code, not the hook's.
 
 **The model policy covers the subject's run configs, not the judges.** Eval
 configs keep whatever model they have. And the baseline chain is measured
-whatever its model; only arms are refused.
+whatever its model; only arms are refused. The policy also covers the
+sub-agents that a run config attaches, and their own sub-agents. Under
+`--models keep`, a new sub-agent can run only on the baseline's model, or
+on the model of a sub-agent that the baseline attaches; the task itself
+keeps the baseline's model.
 
 **Write containment has one sanctioned hole, and two roles hold it.** File
 writes are denied outside the run's scratch tree, and the skill-installer MCP
@@ -441,6 +467,13 @@ Nothing notices when the server moves past it.
 - **No credential management.** The loop uses each CLI's own sign-in. It does
   not take an API key, and it withholds secret-looking environment variables
   from every session unless `KILN_HARNESS_TUNER_CHILD_ENV_KEEP` names them.
+- **No tuning of a sub-agent on its own evals.** The loop can create a
+  sub-agent and attach it. It measures the sub-agent on the evals of your
+  task only. It creates no eval for a sub-agent, it does not change a
+  sub-agent in place, and a sub-agent that it creates cannot have a
+  sub-agent of its own. A sub-agent that is not promoted stays in your
+  project as a task: the loop deletes no task. It archives a sub-agent
+  tool only when no run config attaches it.
 - **No outer loop.** Pulling production traces in, mining them for issues and
   triggering a run is a practice, not code here.
 - **No curator pass over the issue store.** Duplicates are handled at

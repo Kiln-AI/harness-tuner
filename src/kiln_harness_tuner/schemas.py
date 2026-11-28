@@ -1589,6 +1589,10 @@ class GeneralityReviewInput(BaseModel):
     # The same for the attached code tools — their code and the
     #   description the model is shown.
     code_tool_changes: list[str] = []
+    # The same for the attached sub-agents (`kiln_task::` tools): the tool
+    #   description the subject model is shown, and the prompt, the output
+    #   schema, the skills and the code tools of the sub-agent itself.
+    sub_agent_changes: list[str] = []
     # What the build added to the input transform's template:
     #   at most one block, a header line and then the whole template (the
     #   parent has none) or its unified diff against the parent's. Empty
@@ -2089,6 +2093,10 @@ class AnalysisInput(BaseModel):
     # dispatcher asks the session to shorten, then code clamps. The default
     # is the whole cap (`memory_schema.CONTENT_MAX_CHARS`).
     content_budget: int = 4000
+    # Code's notes on what is not measured for this arm, because a run
+    #   config of the comparison calls or attaches a sub-agent
+    #   (`kiln_harness_tuner.sub_agents`). They are also lines of the record.
+    measurement_notes: list[str] = []
 
 
 class DescribeEvalInput(BaseModel):
@@ -2240,6 +2248,23 @@ class WaveStatus(BaseModel):
     baseline_val_holes: str | None = None
 
 
+class SubAgentRecord(BaseModel):
+    """One sub-agent this run created (`sub_agents` event, written by code
+    when the run ends): the task, the run config that its tool pins, and
+    the tool. `attached_by`: the run configs of the subject task that
+    attach the tool. `archived`: code archived the tool, because no run
+    config attaches it. A field that could not be read is None."""
+
+    task_id: str
+    tool_id: str | None = None
+    tool_name: str | None = None
+    run_config_id: str | None = None
+    model_name: str | None = None
+    model_provider_name: str | None = None
+    attached_by: list[str] = []
+    archived: bool = False
+
+
 class RunStatus(BaseModel):
     project_id: str
     task_id: str
@@ -2337,6 +2362,9 @@ class RunStatus(BaseModel):
     # Each review of a baseline by the baseline reviewer, in order
     #   (`baseline_review` events): done, skipped, failed or off.
     baseline_reviews: list[BaselineReview] = []
+    # The sub-agents this run created (`sub_agents` event): the report's
+    #   sub-agents appendix.
+    sub_agents: list[SubAgentRecord] = []
 
 
 class ReportInput(BaseModel):

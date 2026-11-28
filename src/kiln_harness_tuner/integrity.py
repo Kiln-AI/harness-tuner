@@ -21,8 +21,19 @@ decides:
     (a tool call whose method or action names a write) appears in the
     candidate's val traces and in none of the baseline's.
 
-(b) and (c) are FLAGS, not blocks: a real improvement can change the shape
-of the output or use a tool the baseline did not. They are handed to the
+(e) **Write tools behind a new sub-agent.** Check (c) reads the tool calls
+    of the candidate's own traces. A write that a sub-agent makes is in the
+    sub-agent's trace, which an eval job does not save. So for each
+    sub-agent (`kiln_task::` tool) that the candidate attaches and the
+    baseline does not, code reads the tools of the sub-agent's run config
+    and flags each one whose NAME names a write, by the write-verb match of
+    (c). A candidate that moves a write tool from the subject into a
+    sub-agent is flagged. A name match cannot prove that a tool writes, or
+    that it does not: it sees no method or action argument, and no code.
+    (The letter (d) is the review of a changed prompt, in the orchestrator.)
+
+(b), (c) and (e) are FLAGS, not blocks: a real improvement can change the
+shape of the output or use a tool the baseline did not. They are handed to the
 promotion agent as `CandidateValTable.integrity_flags`, and a winner that
 carries flags is promoted only when the decision's rationale addresses them
 (an `Integrity:` line). Under the code gate, a flagged winner is sent to the
@@ -43,6 +54,9 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from statistics import median
 from typing import Any
+
+from kiln_harness_tuner.restrictions import CODE_TOOL_PREFIX
+from kiln_harness_tuner.sub_agents import KILN_TASK_TOOL_PREFIX
 
 QUOTE_NGRAM = 8
 MIN_EVAL_NAME_CHARS = 10
@@ -266,6 +280,60 @@ def write_action_findings(
     if not new:
         return []
     return [f"{label}: new kind(s) of write action not in the baseline's traces: {new}"]
+
+
+# ------------------------------------------------------------------ (e)
+
+_SKILL_TOOL_PREFIX = "kiln_tool::skill::"
+_RAG_TOOL_PREFIX = "kiln_tool::rag::"
+
+
+def tool_name_of_id(tool_id: str) -> str | None:
+    """The function name that a tool id carries, or None when the id
+    carries none: an MCP or OpenEnv tool ends with its name, and a built-in
+    tool is named by its id. A code tool's name is in its record, a Kiln
+    task tool's in its server, and a skill and a RAG search tool write
+    nothing."""
+    if tool_id.startswith((_SKILL_TOOL_PREFIX, _RAG_TOOL_PREFIX)):
+        return None
+    if tool_id.startswith((CODE_TOOL_PREFIX, KILN_TASK_TOOL_PREFIX)):
+        return None
+    return tool_id.rsplit("::", 1)[-1] or None
+
+
+def write_named(names: Iterable[str]) -> list[str]:
+    """The names that name a write, by the write-verb match of check (c),
+    so the two checks cannot disagree."""
+    return sorted({n for n in names if n and _WRITE_VERB_RE.search(n)})
+
+
+def sub_agent_write_findings(
+    baseline: Iterable[str], candidate: Mapping[str, Sequence[str] | None]
+) -> list[str]:
+    """(e). `candidate`: for each sub-agent tool id that the candidate
+    attaches, the names of the tools its run config can call, or None when
+    they could not be read. `baseline`: the sub-agent tool ids of the
+    baseline. One finding for each NEW sub-agent with a write-named tool,
+    and one for each new sub-agent whose tools could not be read."""
+    findings: list[str] = []
+    known = set(baseline)
+    for tool_id, names in candidate.items():
+        if tool_id in known:
+            continue
+        if names is None:
+            findings.append(
+                f"unread: the tools of the new sub-agent {tool_id} could not be"
+                " read, so its write tools were not checked"
+            )
+            continue
+        writes = write_named(names)
+        if writes:
+            findings.append(
+                f"the new sub-agent {tool_id} can call tool(s) whose name names"
+                f" a write: {writes}. A write by a sub-agent is not in the"
+                " candidate's traces, so the write-action check does not see it"
+            )
+    return findings
 
 
 def rationale_addresses(rationale: str) -> bool:

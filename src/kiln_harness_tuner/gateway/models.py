@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypeVar
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 from kiln_harness_tuner.input_transform import TEMPLATE_MAX_CHARS
 from kiln_harness_tuner.kiln_names import kiln_name
@@ -329,6 +329,9 @@ class TrainResultRow(Out):
     created_at: str | None = None
     task_cost_usd: float | None = None
     latency_ms: float | None = None
+    # Set when the run calls a sub-agent: `latency_ms` is then null, and
+    # `task_cost_usd` too unless the run holds the sub-agent's usage.
+    usage_note: str | None = None
     skipped_reason: str | None = None  # set: the run was skipped, not scored
     skipped_detail: str | None = None
     trace_path: str | None = None
@@ -370,6 +373,15 @@ class TaskRunView(Out):
     created_at: str | None = None
     model_name: str | None = None
     model_provider: str | None = None
+    # The calls of sub-agent tools (`kiln_task::`) in the run. Null: the run
+    # has no trace. `sub_agent_usage`: the usage of the sub-agent calls,
+    # for information. The gateway never adds it to `usage`.
+    # `sub_agent_note` says whether `usage` already holds its tokens and
+    # cost (it does when Kiln wrote them in the run), and when a call has
+    # no usage record. The latency in `usage` never holds a sub-agent's.
+    sub_agent_calls: int | None = None
+    sub_agent_usage: Usage | None = None
+    sub_agent_note: str | None = None
 
 
 class TrainItem(Out):
@@ -577,6 +589,21 @@ class KilnTaskToolView(Out):
     run_config: RunConfigView | None = None
     prompt: PromptText | None = None
     note: str | None = None
+
+
+class SubAgentCreated(Out):
+    """A sub-agent this run created: its task, the run config its tool
+    pins, and the tool. `tool_id` is what a run config of the subject task
+    attaches in `tools_config.tools`."""
+
+    tool_id: str
+    tool_name: str
+    tool_description: str
+    task_id: str
+    run_config_id: str
+    model_name: str | None = None
+    model_provider_name: str | None = None
+    note: str = ""
 
 
 class Created(Out):
@@ -815,6 +842,84 @@ class PromptCreate(In):
             "prefix. Kiln refuses a run-config id here."
         ),
     )
+
+
+# Kiln's rule for the name of a Kiln task tool: snake_case, a letter first,
+# no `_` at an end, no `__`, at most 64 characters.
+SubAgentToolName = Field(
+    min_length=1,
+    max_length=64,
+    pattern=r"^[a-z][a-z0-9_]*$",
+    description=(
+        "The function name the subject model calls: snake_case, a letter"
+        " first, at most 64 characters."
+    ),
+)
+
+
+class SubAgentCreate(In):
+    """A sub-agent: a new single-turn task in the subject's project, one
+    run config on it, and the `kiln_task::` tool that calls it."""
+
+    name: KilnName120 = Field(
+        min_length=1, max_length=120, description="The name of the sub-agent's task."
+    )
+    description: str | None = Field(default=None, max_length=1500)
+    tool_name: str = SubAgentToolName
+    tool_description: str = Field(
+        min_length=1,
+        max_length=128,
+        description=(
+            "What the subject model reads to decide when to call the"
+            " sub-agent. Kiln allows at most 128 characters."
+        ),
+    )
+    instruction: str = Field(
+        min_length=1,
+        max_length=100_000,
+        description="The sub-agent's prompt: the instruction of its task.",
+    )
+    thinking_instruction: str | None = Field(default=None, max_length=20_000)
+    input_json_schema: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "An object schema: its properties are the tool's parameters."
+            " Absent: the tool has one string parameter, `input`."
+        ),
+    )
+    output_json_schema: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "An object schema: the fixed form of what the sub-agent returns."
+            " Absent: it returns plain text."
+        ),
+    )
+    run_config_properties: dict[str, Any] = Field(
+        description=(
+            "The sub-agent's run config, as for create_run_config: at least"
+            " model_name, model_provider_name and structured_output_mode."
+            " prompt_id defaults to simple_prompt_builder, which sends the"
+            " instruction."
+        )
+    )
+    provenance: dict[str, Any] | None = None
+
+    @field_validator("tool_name")
+    @classmethod
+    def _kiln_tool_name(cls, value: str) -> str:
+        if value.endswith("_") or "__" in value:
+            raise ValueError("tool_name cannot end with `_` or contain `__`")
+        return value
+
+    @field_validator("input_json_schema", "output_json_schema")
+    @classmethod
+    def _object_schema(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None and (
+            value.get("type") != "object"
+            or not isinstance(value.get("properties"), dict)
+        ):
+            raise ValueError('the schema must be an object schema with "properties"')
+        return value
 
 
 class RunTaskRequest(In):

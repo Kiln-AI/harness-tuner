@@ -43,6 +43,12 @@ baseline's pair is known (`keep_policy`): one exception, the baseline's
 (provider, model), and nothing else. So "keep the model" is enforced by the
 same checks as a policy file.
 
+A sub-agent is subject to the policy. A run config that attaches a
+`kiln_task::` tool sends the task's data to the model of the run config
+that the tool pins, so that pair is checked with the run config's own: in
+the gateway when a run config or a sub-agent is created, and in the loop
+before a run config is measured or promoted.
+
 Judges are not subject to the policy: an eval config names its model under
 `model_provider`/`model_name` (not `model_provider_name`), evals are frozen,
 and the policy is about the task under optimisation.
@@ -83,12 +89,19 @@ def resolve_models(models: str | None, objective: str) -> str:
     return "any" if is_efficiency(objective) else "keep"
 
 
-def keep_policy(provider: str, model: str) -> dict[str, Any]:
+def keep_policy(
+    provider: str, model: str, sub_agents: Iterable[tuple[str, str]] = ()
+) -> dict[str, Any]:
     """The policy `--models keep` stands for, as JSON: the baseline's one
-    pair, as an exception. Every other pair is refused."""
-    return {
+    pair, as an exception. Every other pair is refused. `sub_agents`: the
+    pairs of the sub-agents that the baseline attaches. They are
+    `sub_agent_exceptions`: a sub-agent may keep its model, and the subject
+    may not move to it."""
+    extra = [pair for pair in dict.fromkeys(sub_agents) if pair != (provider, model)]
+    kept = "".join(f", and its sub-agents' {p}/{m}" for p, m in extra)
+    data: dict[str, Any] = {
         "description": (
-            f"Keep the task's model: {provider}/{model} ({KEEP_SOURCE})."
+            f"Keep the task's model: {provider}/{model}{kept} ({KEEP_SOURCE})."
             " No other model or provider is allowed. Thinking level,"
             " temperature and top_p may change."
         ),
@@ -96,6 +109,16 @@ def keep_policy(provider: str, model: str) -> dict[str, Any]:
             {"provider": provider, "model": model, "reason": "the baseline's model"}
         ],
     }
+    if extra:
+        data["sub_agent_exceptions"] = [
+            {
+                "provider": p,
+                "model": m,
+                "reason": "the model of a sub-agent of the baseline",
+            }
+            for p, m in extra
+        ]
+    return data
 
 
 class ModelPolicyError(ValueError):
@@ -177,8 +200,12 @@ class ModelPolicy:
     exceptions: tuple[Rule, ...] = ()
     description: str = ""
     restrictions: tuple[Restriction, ...] = ()
+    # Exact pairs that a sub-agent may use and the subject may not.
+    sub_agent_exceptions: tuple[Rule, ...] = ()
 
-    def decide(self, provider: str | None, model: str | None) -> Decision:
+    def decide(
+        self, provider: str | None, model: str | None, *, sub_agent: bool = False
+    ) -> Decision:
         if not provider or not model:
             return Decision(
                 False,
@@ -189,7 +216,8 @@ class ModelPolicy:
             why = restriction.refusal(provider, model)
             if why is not None:
                 return Decision(False, f"restriction '{restriction.statement}': {why}")
-        for rule in self.exceptions:
+        extra = self.sub_agent_exceptions if sub_agent else ()
+        for rule in (*self.exceptions, *extra):
             if rule.provider == provider and rule.model == model:
                 return Decision(True, f"exception {rule.label()}")
         for rule in self.deny:
@@ -201,9 +229,13 @@ class ModelPolicy:
                 return Decision(True, f"allowed by {rule.label()}")
         return Decision(False, "no allow rule matches it")
 
-    def refusal(self, provider: str | None, model: str | None) -> str | None:
-        """None when the pair is allowed, else a one-line reason."""
-        decision = self.decide(provider, model)
+    def refusal(
+        self, provider: str | None, model: str | None, *, sub_agent: bool = False
+    ) -> str | None:
+        """None when the pair is allowed, else a one-line reason. With
+        `sub_agent`, for the run config that a sub-agent's tool pins: the
+        `sub_agent_exceptions` count too."""
+        decision = self.decide(provider, model, sub_agent=sub_agent)
         if decision.allowed:
             return None
         return f"model {provider}/{model} is outside the model policy: {decision.why}"
@@ -245,6 +277,10 @@ class ModelPolicy:
                 r.label() + (f" ({r.reason})" if r.reason else "")
                 for r in self.exceptions
             ],
+            "sub_agent_exceptions": [
+                r.label() + (f" ({r.reason})" if r.reason else "")
+                for r in self.sub_agent_exceptions
+            ],
             "order": "exceptions, then deny, then allow; anything else is refused",
         }
 
@@ -268,6 +304,7 @@ class ModelPolicy:
             "deny",
             "exceptions",
             "restrictions",
+            "sub_agent_exceptions",
         }
         if unknown:
             raise ModelPolicyError(
@@ -280,7 +317,10 @@ class ModelPolicy:
                 f"{source} allows nothing: give at least one allow rule or exception"
             )
         exceptions = _rules(data.get("exceptions"), "exceptions", source)
-        for rule in exceptions:
+        sub_agent_exceptions = _rules(
+            data.get("sub_agent_exceptions"), "sub_agent_exceptions", source
+        )
+        for rule in (*exceptions, *sub_agent_exceptions):
             if _WILDCARDS & set(rule.provider + rule.model):
                 raise ModelPolicyError(
                     f"{source}: exception {rule.label()} has a wildcard — an"
@@ -292,6 +332,7 @@ class ModelPolicy:
             exceptions=exceptions,
             description=str(data.get("description") or ""),
             restrictions=_restrictions(data.get("restrictions"), source),
+            sub_agent_exceptions=sub_agent_exceptions,
         )
 
     @staticmethod

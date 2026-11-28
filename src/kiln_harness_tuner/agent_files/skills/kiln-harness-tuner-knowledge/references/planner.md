@@ -42,8 +42,8 @@ only when it is clearly past the noise.
    knowledge" in the hypothesis.
 
 The `technique` field of an experiment is the id of a lever document where
-one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `params`,
-`output_mode`, `input_transform`, `model`.
+one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `sub_agent`,
+`params`, `output_mode`, `input_transform`, `model`.
 
 Each table gives the task shapes a document applies to. A document applies
 only when the task has every shape in its list. `all` means that the shape

@@ -460,3 +460,162 @@ async def test_a_multi_turn_cost_run_times_and_promotes_through_eval_jobs(
         ("rc_cand", "val"),
     }
     assert "rc_rc_cand" in kiln.memories["mem_baseline"]["tags"]
+
+
+# ------------------------------------------------------------ sub-agents
+
+SUB_TOOL = "kiln_task::424242500010"
+SUB_SERVER, SUB_TASK, SUB_RC = "424242500010", "424242500011", "424242500012"
+
+
+def _attaches(*tools: str) -> dict[str, Any]:
+    return {"tools_config": {"tools": list(tools)}}
+
+
+def _plain_item(project: Path, item_id: str) -> Any:
+    """A single-turn train item with no `openenv_reset`, on disk beside the
+    world items: the run endpoint can drive it."""
+    item = project / "tasks" / "t1 - T" / "eval_inputs" / item_id
+    item.mkdir(parents=True)
+    doc = {
+        "id": item_id,
+        "tags": ["train"],
+        "data": {"type": "single_turn", "user_message": {"text": f"plain {item_id}"}},
+    }
+    (item / "eval_input.kiln").write_text(json.dumps(doc))
+    (found,) = [i for i in split_inputs(str(project), "t1", "train") if i.id == item_id]
+    assert not found.needs_eval_job
+    return found
+
+
+class TestTheRouteSeesThroughSubAgents:
+    """A sub-agent's world calls run in the episode of the drive that calls
+    it. So a run config whose sub-agent lists an OpenEnv tool is driven
+    like one that lists the tool itself: through an eval job."""
+
+    async def test_a_world_tool_on_the_subject_needs_a_job(self):
+        driver = EvalJobDriver(FakeKiln().call, "p1", "t1")
+        assert await driver.needed([_attaches(OPENENV_TOOL)], [])
+
+    async def test_a_world_tool_on_a_sub_agent_needs_a_job(self):
+        kiln = FakeKiln()
+        kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC, tools=[OPENENV_TOOL])
+        driver = EvalJobDriver(kiln.call, "p1", "t1")
+        subject = _attaches("kiln_tool::code::c1", SUB_TOOL)
+
+        assert await driver.needed([{"model_name": "m"}, subject], [])
+        # Only the saved tool server, the task and its run configs are read.
+        assert not any("/runs" in p or "/evals" in p for _m, p, *_ in kiln.calls)
+        # A tool pins its run config, so the answer is kept.
+        reads = len(kiln.calls)
+        assert await driver.needed([subject], [])
+        assert len(kiln.calls) == reads
+
+    async def test_no_world_tool_anywhere_keeps_the_run_endpoint(self):
+        kiln = FakeKiln()
+        kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC, tools=["kiln_tool::code::c1"])
+        driver = EvalJobDriver(kiln.call, "p1", "t1")
+        assert not await driver.needed([_attaches(SUB_TOOL)], [])
+        # A run config with no sub-agent costs no read of a tool server.
+        kiln.calls.clear()
+        assert not await driver.needed([_attaches("kiln_tool::code::c1")], [])
+        assert not any("tool_servers" in p for _m, p, *_ in kiln.calls)
+
+    async def test_a_world_tool_on_a_sub_agent_of_the_sub_agent_needs_a_job(self):
+        kiln = FakeKiln()
+        kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC, tools=["kiln_task::inner"])
+        kiln.add_sub_agent(
+            "inner", "424242500021", "424242500022", tools=[OPENENV_TOOL]
+        )
+        driver = EvalJobDriver(kiln.call, "p1", "t1")
+        assert await driver.needed([_attaches(SUB_TOOL)], [])
+
+    async def test_a_tool_that_names_no_sub_agent_has_nothing_to_drive(self):
+        driver = EvalJobDriver(FakeKiln().call, "p1", "t1")
+        assert not await driver.needed([_attaches("kiln_task::gone")], [])
+
+    async def test_a_sub_agent_that_cannot_be_read_takes_the_safe_route(self):
+        """An eval job can drive every item. The run endpoint cannot. The
+        answer of a failed read is not kept."""
+        kiln = FakeKiln()
+        kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC)
+        real, down = kiln.call, [True]
+
+        async def call(method, path, *args, **kwargs):
+            if down[0] and "tool_servers" in path:
+                raise KilnAPIError(method, path, 500, {"detail": "down"})
+            return await real(method, path, *args, **kwargs)
+
+        driver = EvalJobDriver(call, "p1", "t1")
+        assert await driver.needed([_attaches(SUB_TOOL)], [])
+        down[0] = False
+        assert not await driver.needed([_attaches(SUB_TOOL)], [])
+
+    async def test_an_item_with_no_reset_is_driven_by_a_job_for_such_a_sub_agent(
+        self, tmp_path
+    ):
+        """The mixed case: the task has world items and plain items. A plain
+        item gives no reason for an eval job, and the subject lists no
+        OpenEnv tool. Its sub-agent does, so the drive is an eval job."""
+        ctx = _ctx(tmp_path)
+        ctx.kiln.task = {"id": "t1"}  # single-turn
+        ctx.kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC, tools=[OPENENV_TOOL])
+        with_sub = _rc("rc_cand")
+        with_sub["run_config_properties"]["tools_config"] = {"tools": [SUB_TOOL]}
+        ctx.kiln.run_configs = [_rc("rc_base"), with_sub]
+        plain = _plain_item(Path(ctx.target.project_path), "plain0")
+
+        await timed_drives(ctx, ["rc_cand"], [plain], "t")
+        assert ctx.kiln.job_drives and not ctx.kiln.run_posts
+        # The same item, on a run config with no sub-agent: the run endpoint.
+        ctx.kiln.job_drives.clear()
+        await timed_drives(ctx, ["rc_base"], [plain], "t")
+        assert ctx.kiln.run_posts and not ctx.kiln.job_drives
+
+
+def test_the_gateway_drives_a_plain_item_by_a_job_for_such_a_sub_agent(tmp_path):
+    """The builder's smoke takes the same route: `run_task` on a train item
+    with no reset, for a run config whose sub-agent lists an OpenEnv tool."""
+    project = f"/api/projects/{gw_project()}"
+    routes = _gateway_routes("tr1")
+    jobs = routes.pop("jobs")
+    routes[("GET", BASE)] = {"id": TASK, "turn_mode": "single_turn"}
+    routes[("GET", f"{BASE}/run_configs")] = [
+        {
+            "id": "rc1",
+            "run_config_properties": {
+                "model_name": "m",
+                "model_provider_name": "p",
+                "tools_config": {"tools": [SUB_TOOL]},
+            },
+        }
+    ]
+    routes[("GET", f"{project}/tool_servers/{SUB_SERVER}/config")] = {
+        "id": SUB_SERVER,
+        "type": "kiln_task",
+        "properties": {"name": "reader", "task_id": SUB_TASK, "run_config_id": SUB_RC},
+    }
+    routes[("GET", f"{project}/tasks/{SUB_TASK}")] = {"id": SUB_TASK}
+    routes[("GET", f"{project}/tasks/{SUB_TASK}/run_configs")] = [
+        {
+            "id": SUB_RC,
+            "run_config_properties": {
+                "model_name": "m",
+                "model_provider_name": "p",
+                "tools_config": {"tools": [OPENENV_TOOL]},
+            },
+        }
+    ]
+    gateway, kiln = _gateway(tmp_path, routes)
+    out = _run(gateway, "run_task", run_config_id="rc1", item_id="tr1")
+
+    (body,) = jobs
+    assert body["split"] == "train" and body["item_ids"] == ["tr1"]
+    assert out["output"] == "logged"
+    assert not [c for c in kiln.calls if c[1] == f"{BASE}/run"]
+
+
+def gw_project() -> str:
+    from test_gateway import PROJECT
+
+    return PROJECT

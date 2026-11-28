@@ -135,6 +135,11 @@ from kiln_harness_tuner.stop_rules import (
     rule_text,
     run_budget_line,
 )
+from kiln_harness_tuner.sub_agents import (
+    lower_bound_note,
+    not_measured_note,
+    usage_line,
+)
 
 if TYPE_CHECKING:
     from kiln_harness_tuner.orchestrator import Ctx
@@ -582,6 +587,10 @@ class Measured:
     vs_parent: LatencyComparison | None = None
     vs_parent_cost: LatencyComparison | None = None
     lever_note: str = ""
+    # What the timing drives show of the candidate's sub-agents
+    # (`sub_agents.usage_line`): how many drives call one, and whether its
+    # cost and latency are measured.
+    usage_note: str = ""
     spend_usd: float = 0.0
     chunks: int = 0
     planned_chunks: int = 0
@@ -642,6 +651,10 @@ class _State:
     error: ErrorInfo | None = None
     spend: float = 0.0
     lever_note: str = ""
+    sub_agent_drives: list[Any] = field(default_factory=list)
+    # The metrics ("latency", "cost") whose reference values leave the
+    # reference's sub-agent out: lower bounds.
+    lower_bound: set[str] = field(default_factory=set)
     evidence_seen: dict[str, dict[str, Any]] = field(default_factory=dict)
     lever_checked: bool = False
     budget: Budget | None = None
@@ -989,6 +1002,10 @@ async def _measure(
                 )
     parent_props: dict[str, dict[str, Any] | None] = {}
     declared: dict[str, dict[str, Any]] = {}
+    # The run configs whose latencies, and whose costs, are withheld
+    # (`timed_drives`), for the whole measurement.
+    no_latency: set[str] = set()
+    no_cost: set[str] = set()
     for s in states:
         for rc in (s.cand.rc_id, s.cand.parent_rc_id):
             if rc not in parent_props:
@@ -1136,6 +1153,8 @@ async def _measure(
                 f"{(spec.item_id or 'measure').replace('-', '_')}_t{k}",
             )
             chunk_spend += drives.cost
+            no_latency |= drives.unmeasured_latency
+            no_cost |= drives.unmeasured_cost
             costs = drives.costs or {}
             outputs = drives.outputs or {}
             # Attribution (`kiln_harness_tuner.budget`): each candidate's own drives,
@@ -1169,8 +1188,11 @@ async def _measure(
                 s.pairs_done += len(batch)
                 ev.latency.update(drives.latencies.get(s.cand.rc_id, {}))
                 ev.cost.update(costs.get(s.cand.rc_id, {}))
-                ev.ref_latency.update(drives.latencies.get(spec.reference_rc_id, {}))
-                ev.ref_cost.update(costs.get(spec.reference_rc_id, {}))
+                # A reference that calls a sub-agent gives its lower bounds:
+                # a candidate that beats them beats the reference.
+                ref = spec.reference_rc_id
+                ev.ref_latency.update(drives.reference_latencies(ref))
+                ev.ref_cost.update(drives.reference_costs(ref))
                 if ev.parent_latency is not None:
                     ev.parent_latency.update(
                         drives.latencies.get(s.cand.parent_rc_id, {})
@@ -1182,6 +1204,31 @@ async def _measure(
                     1 for out in produced.values() if not output_valid(out, schema)
                 )
                 s.evidence_seen.update((drives.evidence or {}).get(s.cand.rc_id) or {})
+                s.sub_agent_drives += (drives.sub_agents or {}).get(s.cand.rc_id, [])
+                # A candidate whose drives call a sub-agent has no latency,
+                # and no cost when its runs do not hold the sub-agent's
+                # usage. That holds for every chunk, so the earlier values
+                # go too. A withheld parent only ends the check against the
+                # parent. A withheld reference stays, as a lower bound.
+                for metric, word, withheld_rcs, own_values, parents in (
+                    (
+                        "latency_ms",
+                        "latency",
+                        no_latency,
+                        ev.latency,
+                        ev.parent_latency,
+                    ),
+                    ("cost_usd", "cost", no_cost, ev.cost, ev.parent_cost),
+                ):
+                    if s.cand.rc_id in withheld_rcs:
+                        own_values.clear()
+                        ev.unmeasured[metric] = not_measured_note(
+                            "the candidate", [word]
+                        )
+                    if s.cand.parent_rc_id in withheld_rcs and parents is not None:
+                        parents.clear()
+                    if spec.reference_rc_id in withheld_rcs:
+                        s.lower_bound.add(word)
                 if not s.lever_checked:
                     s.lever_checked = True
                     parent_ev = (drives.evidence or {}).get(s.cand.parent_rc_id) or {}
@@ -1216,6 +1263,16 @@ async def _measure(
                             line=f"{s.cand.label}: {reason} — stopped",
                         )
                         continue
+                    if verdict.status == "applied" and verdict.reason:
+                        # What the drives show of a sub-agent: the tool was
+                        # called. On the record, so an audit can read it.
+                        s.lever_note = verdict.reason
+                        ctx.log.event(
+                            "lever_applied",
+                            item_id=spec.item_id,
+                            rc_id=s.cand.rc_id,
+                            line=f"{s.cand.label}: {verdict.reason}",
+                        )
                     if verdict.status == "unverified":
                         # Neither signal shows on these drives: logged, and
                         # the candidate goes on (the drives cannot tell).
@@ -1388,6 +1445,15 @@ async def _measure(
             stop=s.stop,
             error=s.error,
             lever_note=s.lever_note,
+            usage_note="; ".join(
+                part
+                for part in (
+                    usage_line(s.sub_agent_drives, len(s.evidence_seen))
+                    or "; ".join(ev.unmeasured.values()),
+                    lower_bound_note(sorted(s.lower_bound)),
+                )
+                if part
+            ),
             spend_usd=s.spend,
             chunks=s.chunks,
             planned_chunks=len(bounds),
@@ -1404,27 +1470,34 @@ async def _measure(
             guards_required=required.get(s.cand.rc_id),
             planned_per_eval=own_per_eval(s),
         )
+        # A metric that is not measured (a side calls a sub-agent) gets no
+        # comparison: not one with zero pairs, which reads as failed drives.
+        timed_latency = "latency_ms" not in ev.unmeasured
+        timed_cost = "cost_usd" not in ev.unmeasured
         if ev.latency or ev.cost:
             planned = timing_planned or None
-            m.latency = compare_latencies(
-                ev.ref_latency,
-                ev.latency,
-                method="paired_drive",
-                split="train",
-                planned=planned,
-            )
-            m.cost = compare_latencies(
-                ev.ref_cost,
-                ev.cost,
-                method="paired_drive",
-                split="train",
-                planned=planned,
-                metric="cost_usd",
-            )
-            if ev.parent_latency is not None:
+            if timed_latency:
+                m.latency = compare_latencies(
+                    ev.ref_latency,
+                    ev.latency,
+                    method="paired_drive",
+                    split="train",
+                    planned=planned,
+                )
+            if timed_cost:
+                m.cost = compare_latencies(
+                    ev.ref_cost,
+                    ev.cost,
+                    method="paired_drive",
+                    split="train",
+                    planned=planned,
+                    metric="cost_usd",
+                )
+            if ev.parent_latency is not None and timed_latency:
                 m.vs_parent = compare_latencies(
                     ev.parent_latency, ev.latency, method="paired_drive", split="train"
                 )
+            if ev.parent_latency is not None and timed_cost:
                 m.vs_parent_cost = compare_latencies(
                     ev.parent_cost or {},
                     ev.cost,
@@ -1476,6 +1549,8 @@ def measured_body(m: Measured) -> str:
             )
     if m.lever_note:
         parts.append(m.lever_note)
+    if m.usage_note:
+        parts.append(m.usage_note)
     return " · ".join(parts)
 
 

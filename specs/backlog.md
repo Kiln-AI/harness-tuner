@@ -16,17 +16,6 @@ reference or `None`. `tests/test_backlog.py` checks the format.
 
 ## Ranked
 
-### Sub-agents
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 2; overview 7.2
-
-The lever, and its techniques: a stronger model for deep thinking; a specialist with its own tools;
-a cheap reader for a large source. A fixed form for what comes back. Limits: one turn, and no fix
-for a strong single agent. Tune a critical sub-agent on its own evals, then the main agent.
-
 ### Promotion on a tie
 
 - Kind: code
@@ -104,7 +93,7 @@ Replace many narrow tools with one general API tool, and add the skill that desc
 
 - Kind: technique
 - Where: knowledge
-- Depends on: Sub-agents
+- Depends on: None
 - Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 14
 
 A cheap model calls a stronger model as a tool when it needs advice.
@@ -113,7 +102,7 @@ A cheap model calls a stronger model as a tool when it needs advice.
 
 - Kind: technique
 - Where: knowledge
-- Depends on: Sub-agents
+- Depends on: None
 - Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
 
 A cascade: the cheap model answers, and a stronger model takes the cases where it is not sure.
@@ -650,6 +639,46 @@ On a long multi-turn trace that can use it, check that the prompt cache is used.
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
 
+### The latency of a request that calls a sub-agent
+
+- Kind: gap
+- Where: kiln, tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), section 3; Kiln-AI/Kiln#2077
+
+Kiln adds a sub-agent's cost to the calling run (Kiln#2077), not its time: a run has no wall-clock
+time. So a candidate that calls a sub-agent cannot win on speed. Also open: a sub-agent that a
+code tool calls adds no usage, and an eval job saves no run of the sub-agent.
+
+### Tune a sub-agent on its own evals
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), decision 4; overview 7.2
+
+For a critical sub-agent: write its evals, tune it, then tune the main agent against it. It needs
+a train set and a gateway scope for a second task.
+
+### A new version of a sub-agent on the same task
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), decisions 3 and 5
+
+Today each variant of a sub-agent is a new task. A version is a new run config and a new tool on
+the task that exists, also for a sub-agent that the user made.
+
+### Read the trace of a sub-agent's run
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [subagents](projects/subagents/project_overview.md), decision 14
+
+The gateway shows the call and the returned text, not the sub-agent's own trace. A read needs a
+proof that the parent run is a train drive of this run.
 ### Output modes that a model supports
 
 - Kind: gap

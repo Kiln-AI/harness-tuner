@@ -1,7 +1,7 @@
 ---
 title: Tool results flood the context
 description: A tool returns a very large result - a list with every field, a full schema, many pages - or the agent makes one call for each item of a list.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 applies_to:
   - tools
 detected_by:
@@ -58,5 +58,9 @@ a rule does not change what the tool returns.
   narrower query.
 - [Roll-up tool](../techniques/roll-up-tool.md), when the agent makes one
   call for each item: one call for the list, with an error for each item.
+- [Cheap reader for a large source](../techniques/cheap-reader-for-a-large-source.md),
+  when code cannot select the part that the agent uses, because to find
+  it takes reading and judgment: a sub-agent on a cheap model reads the
+  result and returns the lines.
 - [Fit the tool layer to the agent](../playbooks/fit-the-tool-layer-to-the-agent.md),
   when other smells of the tools are present too.

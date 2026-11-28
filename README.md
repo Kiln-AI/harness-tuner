@@ -34,7 +34,7 @@ Most optimizers tune the prompt. Harness Tuner tunes everything around the model
 - **Tools.** The biggest win we see. Your tools probably wrap APIs written for code, not for agents. It rewrites them for the agent: smaller responses, better descriptions, no repeated calls. When a script should do the job, it writes a new code tool.
 - **Prompts and skills.** It cuts contradictions, adds the requirements nobody wrote down, and moves long instructions into skills that load only when needed.
 - **Model and settings.** It tunes thinking level, temperature and the rest. It keeps your model by default. Allow other models at start-up, or optimize for speed or cost, and it also searches models and providers.
-- **RAG, fine-tunes and sub-agents.** It attaches, swaps or drops the ones in your project.
+- **RAG, fine-tunes and sub-agents.** It attaches, swaps or drops the ones in your project. It can also build a new sub-agent: a second agent that yours calls for one part of the work.
 
 It tries different methods, not just different words: one big prompt or skills, RAG or a skill, many small tools or one general one.
 

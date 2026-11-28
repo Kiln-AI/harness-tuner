@@ -101,6 +101,21 @@ that name. When they fail on the missing skill or tool, say so in
 `next:` line can ask for the same lever built again with the names and the
 attachments in agreement.
 
+**Sub-agents and the cost of a request.** `measurement_notes` in your
+input is set when a run config of the comparison calls or attaches a
+sub-agent (a `kiln_task::` tool). Each note names what is **not
+measured**, and why. The latency of a request that calls a sub-agent is
+never measured: the latency of a run is the time of its own model calls.
+Its cost is measured only when the Kiln server writes the sub-agent's
+usage in the run. Code leaves an unmeasured `latency` or `cost` empty on
+the rows and on the bundle, and a train result row of such a run has a
+`usage_note`. Do not compute the missing number from other fields, and do
+not report a saving on a number that is not measured. Say in `findings`
+what was not measured. The `measurement:` line of the record says in how
+many drives the sub-agent was called, which of latency and cost was
+measured, and the usage of the sub-agent's calls. `bundle cost` (below)
+holds a sub-agent's calls only when the server writes them in the run.
+
 **Spend: `bundle cost`, and nothing else.** `bundle.spend_total_usd` is the
 ONE spend figure an EXP record reports, and it is **always labeled `bundle
 cost`** — never "spend", "cost", "eval cost" or a bare dollar figure, so

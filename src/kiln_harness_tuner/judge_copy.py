@@ -54,6 +54,7 @@ from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.prompt_text import (
     RcText,
     rc_texts,
+    sub_agent_texts,
     task_instructions,
     whole_texts,
 )
@@ -156,6 +157,7 @@ def _unread_parts(rc: RcText) -> list[str]:
         for what, got in (
             ("the skills' text", rc.skills),
             ("the code tools' text", rc.code_tools),
+            ("the sub-agents' text", sub_agent_texts(rc)),
         )
         if got is None
     ]

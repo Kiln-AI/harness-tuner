@@ -41,6 +41,12 @@ The check has three further parts:
   instructions too, and a lookup table of train answers fits in one. A new
   or changed code tool is diffed against the one it replaces, exactly like a
   skill (`code_tool_changes`).
+- **Sub-agents.** A sub-agent (a `kiln_task::` tool) has a prompt of its
+  own, and a build writes it. Its tool description, its prompt, its output
+  schema and the text of its own skills and code tools are checked like a
+  code tool's files (`sub_agent_changes`). A sub-agent is never changed in
+  place: a new one is diffed against the one sub-agent it replaces, else it
+  is new text in full.
 - **The exact-match pre-check** (`exact_matches`), in code, before the
   review: the distinctive strings of EVERY train item — its id, the ids and
   long numbers in its input and expected output, eight-word runs of its
@@ -91,8 +97,10 @@ from kiln_harness_tuner.prompt_text import (
     CodeToolText,
     RcText,
     SkillText,
+    SubAgentText,
     normalized,
     rc_texts,
+    sub_agent_texts,
     task_instructions,
     whole_texts,
 )
@@ -115,6 +123,8 @@ FINDING_CHARS = 200
 SKILL_CHANGE_CHARS = 30_000
 # How much added code-tool text the reviewer sees, over every changed file.
 CODE_TOOL_CHANGE_CHARS = 20_000
+# How much added sub-agent text the reviewer sees, over every changed file.
+SUB_AGENT_CHANGE_CHARS = 20_000
 # How much of each train item's expected output the reviewer sees.
 TRAIN_EXPECTED_CHARS = 600
 # The exact-match pre-check: an id-like token has at least this many
@@ -182,7 +192,7 @@ def train_input_lines(ctx: Ctx, first_ids: list[str]) -> list[str]:
     return lines
 
 
-Bundle = SkillText | CodeToolText
+Bundle = SkillText | CodeToolText | SubAgentText
 
 
 def _ident(bundle: Bundle) -> str:
@@ -317,6 +327,20 @@ def code_tool_changes(parent: RcText, candidate: RcText) -> list[str] | None:
         candidate.code_tools,
         "code tool",
         CODE_TOOL_CHANGE_CHARS,
+    )
+
+
+def sub_agent_changes(parent: RcText, candidate: RcText) -> list[str] | None:
+    """The same for the attached sub-agents: the tool description the
+    subject model is shown, and what the sub-agent's own model is told,
+    within `SUB_AGENT_CHANGE_CHARS`."""
+    return _changes(
+        parent.sub_agent_ids,
+        sub_agent_texts(parent),
+        candidate.sub_agent_ids,
+        sub_agent_texts(candidate),
+        "sub-agent",
+        SUB_AGENT_CHANGE_CHARS,
     )
 
 
@@ -574,11 +598,13 @@ async def check_generality(
     prompt_changed = normalized(parent) != normalized(candidate)
     changes = skill_changes(parent_text, candidate_text)
     tool_changes = code_tool_changes(parent_text, candidate_text)
+    sub_changes = sub_agent_changes(parent_text, candidate_text)
     transform_changes = input_transform_changes(parent_text, candidate_text)
     if (
         not prompt_changed
         and changes == []
         and tool_changes == []
+        and sub_changes == []
         and not transform_changes
     ):
         return GeneralityCheck("unchanged")
@@ -587,6 +613,7 @@ async def check_generality(
         for what, got in (
             ("the skills' text", changes),
             ("the code tools' text", tool_changes),
+            ("the sub-agents' text", sub_changes),
         )
         if got is None
     ]
@@ -594,6 +621,7 @@ async def check_generality(
         not prompt_changed
         and not changes
         and not tool_changes
+        and not sub_changes
         and not transform_changes
     ):
         return GeneralityCheck(
@@ -606,6 +634,7 @@ async def check_generality(
             ("the input transform", transform_changes),
             ("the skills", changes),
             ("the code tools", tool_changes),
+            ("the sub-agents", sub_changes),
         )
         if shown
     ]
@@ -618,7 +647,8 @@ async def check_generality(
     # Known text: the task's instructions, and the prompt and skills of a
     # parent on the baseline chain. A new line that repeats an id such a
     # parent already has (a route in an inherited skill, say) copies nothing
-    # from train that the parent did not carry. Not a code tool's files (a
+    # from train that the parent did not carry. Not a code tool's files, the
+    # subject's or a sub-agent's (a
     # data table there is what the baseline audit reports), and not a parent
     # off the chain (an earlier arm's text was never audited or promoted).
     instructions = "\n".join(await task_instructions(ctx))
@@ -626,7 +656,7 @@ async def check_generality(
         [
             text
             for where, text in whole_texts(parent_text).items()
-            if not where.startswith("code tool ")
+            if not where.startswith("code tool ") and ", code tool " not in where
         ]
         if parent_rc_id in ctx.policy_exempt_rcs
         else []
@@ -665,6 +695,7 @@ async def check_generality(
             target_items=[t for t in dict.fromkeys(targets) if t in shown],
             skill_changes=changes or [],
             code_tool_changes=tool_changes or [],
+            sub_agent_changes=sub_changes or [],
             input_transform_changes=transform_changes,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,
@@ -714,18 +745,24 @@ class BaselineAudit:
     judge_copy: BaselineAudit | None = None
 
 
-def _whole_blocks(rc: RcText) -> tuple[list[str], list[str]]:
-    """Every file of every attached skill and code tool, each as a new file:
-    the reviewer reads the baseline's whole text as added."""
+def _whole_blocks(rc: RcText) -> tuple[list[str], list[str], list[str]]:
+    """Every file of every attached skill, code tool and sub-agent, each as
+    a new file: the reviewer reads the baseline's whole text as added."""
     skills = [b for x in (rc.skills or {}).values() for b in _file_blocks(x, None)]
     tools = [
         b
         for x in (rc.code_tools or {}).values()
         for b in _file_blocks(x, None, "code tool")
     ]
+    subs = [
+        b
+        for x in (sub_agent_texts(rc) or {}).values()
+        for b in _file_blocks(x, None, "sub-agent")
+    ]
     return (
         _clipped(skills, SKILL_CHANGE_CHARS, "file(s)"),
         _clipped(tools, CODE_TOOL_CHANGE_CHARS, "file(s)"),
+        _clipped(subs, SUB_AGENT_CHANGE_CHARS, "file(s)"),
     )
 
 
@@ -815,6 +852,7 @@ async def _audit_train_copies(ctx: Ctx, rc_id: str) -> BaselineAudit:
         for what, got in (
             ("the skills' text", text.skills),
             ("the code tools' text", text.code_tools),
+            ("the sub-agents' text", sub_agent_texts(text)),
         )
         if got is None
     ]
@@ -825,7 +863,7 @@ async def _audit_train_copies(ctx: Ctx, rc_id: str) -> BaselineAudit:
     findings = [f"exact match: {m}" for m in exact_matches(whole, docs, instructions)]
     if not findings:
         lines = train_input_lines(ctx, [])
-        skill_blocks, tool_blocks = _whole_blocks(text)
+        skill_blocks, tool_blocks, sub_blocks = _whole_blocks(text)
         result = await call_with_retries(
             ctx.dispatch.generality_review,
             GeneralityReviewInput(
@@ -840,6 +878,7 @@ async def _audit_train_copies(ctx: Ctx, rc_id: str) -> BaselineAudit:
                 ),
                 skill_changes=skill_blocks,
                 code_tool_changes=tool_blocks,
+                sub_agent_changes=sub_blocks,
                 input_transform_changes=input_transform_changes(
                     RcText(prompt="", skill_ids=(), skills={}), text
                 ),

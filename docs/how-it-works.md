@@ -225,12 +225,15 @@ flowchart TD
 Every candidate goes through one measurement engine, in chunks.
 
 - **Timing pairs.** Under `speed` and `cost`, in every screening round, and to
-  check the lever of a model swap, each chunk first drives 15 train items
-  without a judge, up to 30 in total. The candidate and the baseline run the
-  same item one after the other, in the same time window. So provider load
-  affects both sides of a pair in the same way. Under `quality` an experiment
-  is not timed: its latency and cost per request are read from its stored runs
-  and shown on its record.
+  check the lever of a model swap or of a new sub-agent, each chunk first
+  drives 15 train items without a judge, up to 30 in total. The candidate
+  and the baseline run the same item one after the other, in the same time
+  window. So provider load affects both sides of a pair in the same way.
+  Under `quality` any other experiment is not timed: its latency and cost
+  per request are read from its stored runs and shown on its record. A run
+  config that calls a sub-agent has no latency number, and a cost number
+  only on a Kiln that records the sub-agent's cost
+  ([limitations.md](limitations.md)).
 - **Judged items.** Then one eval job for each eval judges the chunk's items.
   The baseline's judgments are its stored rows. Code compares the two on the
   same items.
@@ -264,7 +267,9 @@ Then a report agent writes the round report from the run's records. After a
 quota or auth error, or a crash after the first wave, code writes a shorter
 fallback report with no agent; an interrupt writes none. Code adds tables to
 each report, among them the smells of each baseline: the code detections and
-the review's findings. Code saves the report to
+the review's findings. When the run created a sub-agent (a second agent
+that yours calls as a tool), code also lists each one: its tool, its task,
+its model, and whether the final baseline uses it. Code saves the report to
 `~/.kiln_ai/harness_tuner/reports/kiln-harness-tuner-<run id>.md` by default.
 The run prints the path when it ends. The state folder holds all
 of a run's files

@@ -69,10 +69,24 @@ from kiln_harness_tuner.restrictions import (
     SKILL_TOOL_PREFIX,
     ToolLock,
 )
+from kiln_harness_tuner.sub_agents import (
+    CREATED_FILE,
+    KILN_TASK_TOOL_PREFIX,
+    SUB_AGENT_RUN_CONFIG_KIND,
+    SUB_AGENT_TASK_KIND,
+    SUB_AGENT_TOOL_KIND,
+    SubAgent,
+    cost_measured,
+    latency_measured,
+    prompt_reads_runs,
+    read_sub_agent,
+    read_sub_agent_tree,
+    read_sub_agent_usage,
+    tool_ids_of,
+)
 
 Call = Callable[..., Awaitable[Any]]
 RAG_TOOL_PREFIX = "kiln_tool::rag::"
-KILN_TASK_TOOL_PREFIX = "kiln_task::"
 # The tools that read or write Kiln's own state, not the subject task's
 # world. Kiln's memory tools (`kiln_tool::memory::<operation>`) read and
 # write the memory store the loop keeps its `baseline` and `val` records in.
@@ -87,15 +101,12 @@ STATE_TOOL_KINDS = (
     f"a Kiln memory tool ({MEMORY_TOOL_PREFIX}…), a Kiln API tool"
     f" (…{KILN_API_TOOL_NAME})"
 )
-# The prompts of a called task that the gateway renders: a saved prompt, a
-# run config's frozen prompt, a fine-tune's prompt, and the generators that
-# use only the task's own fields. Every other generator (few-shot,
-# multi-shot, repairs) builds its text from the task's stored runs.
-RUN_FREE_PROMPT_PREFIXES = ("id::", "task_run_config::", "fine_tune_prompt::")
-RUN_FREE_PROMPT_GENERATORS = frozenset(
-    {"simple_prompt_builder", "simple_chain_of_thought_prompt_builder"}
-)
-
+# The tools a sub-agent's run config cannot attach besides those of
+# Kiln's own state (`_state_tools`): another sub-agent (one level only). An
+# OpenEnv tool is allowed: the route of a drive reads the tools of each
+# attached sub-agent (`EvalJobDriver.needed`), so a run config whose
+# sub-agent has one is driven as an eval job, with an episode.
+SUB_AGENT_REFUSED_TOOL_PREFIXES = (KILN_TASK_TOOL_PREFIX,)
 PROJECT_SCOPE = "project"
 VAL_MEMORY_TAG = RecordKind.VAL.value
 # The `baseline` record names the run config each run starts from. Loop code
@@ -103,7 +114,6 @@ VAL_MEMORY_TAG = RecordKind.VAL.value
 # could make a candidate the baseline with no val gate.
 BASELINE_MEMORY_TAG = RecordKind.BASELINE.value
 GATEWAY_RUN_TAG = "kiln_harness_tuner_gateway"
-CREATED_FILE = "gateway_created.jsonl"
 # One line per memory write an agent makes, for the loop to forward into
 # the wave log (`kiln_harness_tuner.memory_feed`).
 MEMORY_FILE = "gateway_memory.jsonl"
@@ -133,6 +143,15 @@ MANAGED_RC_PROPS = tuple(k for k in RC_PROP_KEYS if k != TRANSFORM_KEY)
 NOT_TRAIN = (
     "not available: this record is not provably a train record. The gateway"
     " shows only train items and what this run created on them."
+)
+# Why a train result row has no latency, or no latency and no cost.
+ROW_LATENCY_NOT_MEASURED = (
+    "latency not measured: the run calls a sub-agent, and the latency of a"
+    " run leaves the sub-agent's time out. The cost includes the sub-agent"
+)
+ROW_NOT_MEASURED = (
+    "latency and cost not measured: the run calls a sub-agent, and the run"
+    " does not hold the sub-agent's time or usage"
 )
 # The largest expected output `get_train_expected` returns whole, as JSON
 # text. A larger one comes back clipped and says so; the whole of it is also
@@ -686,6 +705,7 @@ class Gateway:
             if isinstance(row.get("task_run_usage"), dict)
             else {}
         )
+        timed, costed = latency_measured(row), cost_measured(row)
         raw_scores = row.get("scores") if isinstance(row.get("scores"), dict) else {}
         scores = {
             str(k): (float(v) if isinstance(v, (int, float)) else None)
@@ -712,8 +732,17 @@ class Gateway:
             output_preview=output[:OUTPUT_PREVIEW_CHARS]
             if isinstance(output, str)
             else None,
-            task_cost_usd=usage.get("cost"),
-            latency_ms=usage.get("total_llm_latency_ms"),
+            # A row whose run calls a sub-agent has the latency of its own
+            # model calls only, and its cost is the request's only when the
+            # run holds the sub-agent's usage. A number that is not the
+            # request's is not shown.
+            task_cost_usd=usage.get("cost") if costed else None,
+            latency_ms=usage.get("total_llm_latency_ms") if timed else None,
+            usage_note=None
+            if timed
+            else ROW_LATENCY_NOT_MEASURED
+            if costed
+            else ROW_NOT_MEASURED,
             skipped_reason=_text(row.get("skipped_reason")),
             skipped_detail=_text(row.get("skipped_detail")),
             trace_path=trace_path,
@@ -1128,36 +1157,20 @@ class Gateway:
         calls it with. Only the task's own fields and that one run config:
         the task's runs and evals can hold items of this task's held-out
         splits, so they are never read."""
-        server_id = req.id.removeprefix(KILN_TASK_TOOL_PREFIX)
-        # `/config` reads the saved record only. The plain route also asks an
-        # MCP server for its tools: it connects to a remote one, starts a
-        # local one, and answers a failure with its command, URL and stderr.
-        server = await self.call(
-            "GET", f"{self.s.project}/tool_servers/{server_id}/config"
-        )
-        server = server if isinstance(server, dict) else {}
-        props = (
-            server.get("properties")
-            if isinstance(server.get("properties"), dict)
-            else {}
-        )
-        if server.get("type") != "kiln_task" or not props.get("task_id"):
+        sub = await read_sub_agent(self.call, self.s.project_id, req.id)
+        if sub is None:
             raise GatewayError(f"{req.id} is not a Kiln task tool")
-        task_id = str(props["task_id"])
-        sub_base = f"{self.s.project}/tasks/{task_id}"
-        task, rc_rows = await asyncio.gather(
-            self.call("GET", sub_base), self.call("GET", f"{sub_base}/run_configs")
-        )
-        task = task if isinstance(task, dict) else {}
-        reqs = [m.project(m.Requirement, r) for r in _rows(task.get("requirements"))]
+        sub_base = f"{self.s.project}/tasks/{sub.task_id}"
+        reqs = [
+            m.project(m.Requirement, r) for r in _rows(sub.task.get("requirements"))
+        ]
         view = m.KilnTaskToolView(
-            tool_id=f"{KILN_TASK_TOOL_PREFIX}{server_id}",
-            tool_name=props.get("name") or server.get("name"),
-            tool_description=props.get("description") or server.get("description"),
-            task=m.project(m.TaskView, task, requirements=reqs),
+            tool_id=sub.tool_id,
+            tool_name=sub.tool_name or None,
+            tool_description=sub.tool_description or None,
+            task=m.project(m.TaskView, sub.task, requirements=reqs),
         )
-        rc_id = str(props.get("run_config_id") or "")
-        row = next((r for r in _rows(rc_rows) if str(r.get("id")) == rc_id), None)
+        rc_id, row = sub.run_config_id, sub.run_config
         if row is None:
             view.note = f"the tool's run config {rc_id or '(none)'} was not found"
             return view
@@ -1165,9 +1178,7 @@ class Gateway:
         prompt_id = view.run_config.prompt_id
         if view.run_config.prompt is not None or not prompt_id:
             return view
-        if prompt_id not in RUN_FREE_PROMPT_GENERATORS and not prompt_id.startswith(
-            RUN_FREE_PROMPT_PREFIXES
-        ):
+        if prompt_reads_runs(prompt_id):
             # A generator such as few-shot or repairs builds its text from
             # the called task's stored runs, which the loop does not split:
             # one made while a held-out item was driven would show here.
@@ -1183,15 +1194,51 @@ class Gateway:
 
     # ------------------------------------------------------------ writes
 
-    def _policy_check(self, props: dict[str, Any]) -> None:
+    def _policy_check(self, props: dict[str, Any], *, sub_agent: bool = False) -> None:
         if props.get("type", "kiln_agent") != "kiln_agent":
             raise GatewayError("only kiln_agent run configs can be created here")
         if self.s.policy is not None:
             refusal = self.s.policy.refusal(
-                props.get("model_provider_name"), props.get("model_name")
+                props.get("model_provider_name"),
+                props.get("model_name"),
+                sub_agent=sub_agent,
             )
             if refusal is not None:
                 raise GatewayError(refusal)
+
+    async def _sub_agent_check(self, props: dict[str, Any]) -> None:
+        """The rules for the sub-agents a run config of the subject task
+        attaches, and for the sub-agents of those, three levels down: each
+        `kiln_task::` tool is a Kiln task tool of this project, its task is
+        not the subject task, and the run config it pins exists and is
+        inside the model policy. The model policy is about where the task's
+        data is sent, and a sub-agent's input is the task's data."""
+        # The checks need the tool server and the pinned run config, not the
+        # called task's own record.
+        tree = await read_sub_agent_tree(
+            self.call, self.s.project_id, props, with_task=False
+        )
+        for tool_id, sub in tree.items():
+            if sub is None:
+                raise GatewayError(f"{tool_id} is not a Kiln task tool of this project")
+            if sub.task_id == self.s.task_id:
+                raise GatewayError(
+                    f"{tool_id} calls the subject task itself; a sub-agent is"
+                    " another task"
+                )
+            if sub.run_config is None:
+                raise GatewayError(
+                    f"{tool_id}: its run config {sub.run_config_id or '(none)'}"
+                    " was not found, so every call of the tool would fail"
+                )
+            self._sub_agent_policy(sub)
+
+    def _sub_agent_policy(self, sub: SubAgent) -> None:
+        if self.s.policy is None:
+            return
+        refusal = self.s.policy.refusal(*sub.pair, sub_agent=True)
+        if refusal is not None:
+            raise GatewayError(f"sub-agent tool {sub.tool_id}: {refusal}")
 
     async def _template_check(self, template: str) -> tuple[bool, str | None]:
         """Kiln's compile check of a Jinja template: (valid, the error)."""
@@ -1352,25 +1399,17 @@ class Gateway:
         calls its task with. Empty when the record is not a Kiln task tool,
         or when its run config is not found: the tool then calls nothing.
         Only the saved record and the called task's run configs are read, as
-        in `get_kiln_task_tool`."""
-        server = await self.call(
-            "GET", f"{self.s.project}/tool_servers/{server_id}/config"
-        )
-        server = server if isinstance(server, dict) else {}
-        props = (
-            server.get("properties")
-            if isinstance(server.get("properties"), dict)
-            else {}
-        )
-        if server.get("type") != "kiln_task" or not props.get("task_id"):
-            return []
-        rc_rows = await self.call(
-            "GET", f"{self.s.project}/tasks/{props['task_id']}/run_configs"
-        )
-        rc_id = str(props.get("run_config_id") or "")
-        row = next((r for r in _rows(rc_rows) if str(r.get("id")) == rc_id), None)
-        rc_props = (row or {}).get("run_config_properties")
-        return _rc_tool_ids(rc_props if isinstance(rc_props, dict) else {})
+        in `get_kiln_task_tool` (`sub_agents.read_sub_agent`, the one reader
+        of the record)."""
+        try:
+            sub = await read_sub_agent(
+                self.call, self.s.project_id, server_id, with_task=False
+            )
+        except KilnAPIError as exc:
+            if exc.status_code != 404:
+                raise
+            sub = None  # no such tool server: it calls nothing
+        return _rc_tool_ids(sub.properties) if sub is not None else []
 
     async def _state_reach(
         self, tool_id: str, seen: set[str], cache: dict[str, list[str]]
@@ -1549,6 +1588,7 @@ class Gateway:
         # After the carry: these checks read the properties that are sent.
         props = body["run_config_properties"]
         await self._rc_tools_check(props)
+        await self._sub_agent_check(props)
         await self._input_transform_check(props)
         notes = await self._output_mode_check(props, parent)
         row = await self.call("POST", f"{self.s.base}/run_configs", body=body)
@@ -1621,6 +1661,7 @@ class Gateway:
             raise GatewayError(f"no run config {req.run_config_id}")
         props = rc.get("run_config_properties") or {}
         self._policy_check(props)
+        await self._sub_agent_check(props)
         inp = inputs[req.item_id]
         driver = self._driver()
         if await driver.needed([props], [inp]):
@@ -1638,7 +1679,20 @@ class Gateway:
         run = run if isinstance(run, dict) else {}
         if run.get("id"):
             self.s.record(str(run["id"]), "task_run", "train", req.item_id)
-        return self._run_view(run, req.item_id)
+        return await self._driven_view(run, req.item_id)
+
+    async def _driven_view(self, run: dict[str, Any], item_id: str) -> m.TaskRunView:
+        """The view of a run this operation drove, with what its trace
+        shows of sub-agents: the calls, and the usage of the sub-agents'
+        own runs beside the run's `usage`, never added to it. Only the
+        `usage` and the trace of a sub-agent's run are read."""
+        info = await read_sub_agent_usage(self.call, self.s.project_id, run)
+        view = self._run_view(run, item_id)
+        if isinstance(run.get("trace"), list):
+            view.sub_agent_calls = info.calls
+        view.sub_agent_usage = _usage(info.usage)
+        view.sub_agent_note = info.note or None
+        return view
 
     async def _run_task_by_job(
         self, req: m.RunTaskRequest, driver: EvalJobDriver
@@ -1652,7 +1706,201 @@ class Gateway:
         run = outcome.run
         if run.get("id"):
             self.s.record(str(run["id"]), "task_run", "train", req.item_id)
-        return self._run_view(run, req.item_id)
+        return await self._driven_view(run, req.item_id)
+
+    async def create_sub_agent(self, req: m.SubAgentCreate) -> m.SubAgentCreated:
+        """A new sub-agent of the subject task: a new single-turn task in
+        the same project, ONE run config on it, and the `kiln_task::` tool
+        that calls the task with that run config. Nothing existing changes:
+        the subject task gets the tool only when a new run config attaches
+        its id.
+
+        Every check runs before the first write. The sub-agent's model is
+        held to the model policy, as the subject's is. Its run config
+        cannot attach another sub-agent, or a tool that reaches Kiln's own
+        state at any depth (`_state_tools`, as for the subject), or set an
+        input transform, and it follows the output-mode rules
+        (`_sub_agent_mode`). It takes nothing from a parent run config: the
+        carry of `create_run_config` (`_inherit`) is not used here.
+
+        The three records go in the run's registry (`gateway_created.jsonl`)
+        the moment each exists, so a create that fails half-way still names
+        what it left."""
+        props = dict(req.run_config_properties)
+        props.setdefault("type", "kiln_agent")
+        props.setdefault("prompt_id", "simple_prompt_builder")
+        self._policy_check(props, sub_agent=True)
+        if prompt_reads_runs(props.get("prompt_id")):
+            # Few-shot and repair prompts are built from the new task's
+            # stored runs. The loop does not split them, and a drive of a
+            # held-out item through the run endpoint saves one there.
+            raise GatewayError(
+                f"a sub-agent's prompt cannot be the generator"
+                f" {props['prompt_id']!r}: it builds its text from the task's"
+                " stored runs. Put the instructions in `instruction`"
+            )
+        if transform_of(props) is not None:
+            # Code checks a template on the subject task's train inputs. A
+            # sub-agent's input is the arguments of a tool call, which no
+            # train item holds, so a template here would reach Kiln
+            # unchecked.
+            raise GatewayError(
+                f"a sub-agent's run config cannot set {TRANSFORM_KEY}: code"
+                " checks a template only on the subject task's train inputs."
+                " Leave it out, and put the input's form in `input_json_schema`"
+            )
+        refused = [
+            t
+            for t in tool_ids_of(props)
+            if t.startswith(SUB_AGENT_REFUSED_TOOL_PREFIXES)
+        ]
+        if refused:
+            raise GatewayError(
+                f"a sub-agent's run config cannot attach {', '.join(refused)}:"
+                " no sub-agent of a sub-agent"
+            )
+        # No baseline exception: the sub-agent is new, so it has nothing to
+        # keep.
+        state = await self._state_tools(list(tool_ids_of(props)))
+        if state:
+            paths = "; ".join(" -> ".join(p) for p in state.values())
+            raise GatewayError(
+                f"a sub-agent's run config cannot attach {STATE_TOOL_KINDS}, or"
+                f" a code tool that reaches one: {paths}. These tools read and"
+                " write the loop's own records"
+            )
+        notes = await self._sub_agent_mode(props, req.output_json_schema is not None)
+        run = self.s.run_dir.name if self.s.run_dir is not None else "a run"
+        note = (
+            f"Sub-agent of task {self.s.task_id}, called through the tool"
+            f" {req.tool_name}. Created by Kiln Harness Tuner ({run})."
+        )
+        task_body: dict[str, Any] = {
+            "name": req.name,
+            "description": f"{req.description.strip()}\n\n{note}"
+            if req.description and req.description.strip()
+            else note,
+            "instruction": req.instruction,
+            "turn_mode": "single_turn",
+        }
+        if req.thinking_instruction:
+            task_body["thinking_instruction"] = req.thinking_instruction
+        # Kiln stores a task's schemas as JSON text.
+        if req.input_json_schema is not None:
+            task_body["input_json_schema"] = json.dumps(req.input_json_schema)
+        if req.output_json_schema is not None:
+            task_body["output_json_schema"] = json.dumps(req.output_json_schema)
+        task = await self.call("POST", f"{self.s.project}/tasks", body=task_body)
+        task_id = str((task if isinstance(task, dict) else {}).get("id") or "")
+        if not task_id:
+            raise GatewayError("the sub-agent's task was not created (no id returned)")
+        self.s.record(f"{SUB_AGENT_TASK_KIND}:{task_id}", SUB_AGENT_TASK_KIND, "meta")
+        made = f"the sub-agent's task {task_id} exists"
+        rc_body: dict[str, Any] = {
+            "name": req.name,
+            "description": note,
+            "run_config_properties": props,
+        }
+        if req.provenance is not None:
+            rc_body["provenance"] = req.provenance
+        try:
+            rc = await self.call(
+                "POST", f"{self.s.project}/tasks/{task_id}/run_configs", body=rc_body
+            )
+        except KilnAPIError as exc:
+            raise GatewayError(
+                f"{made}, but its run config was refused: {exc.body!r}"[:1500]
+            ) from exc
+        rc = rc if isinstance(rc, dict) else {}
+        rc_id = str(rc.get("id") or "")
+        if not rc_id:
+            raise GatewayError(f"{made}, but its run config was not created")
+        self.s.record(
+            f"{SUB_AGENT_RUN_CONFIG_KIND}:{rc_id}",
+            SUB_AGENT_RUN_CONFIG_KIND,
+            "meta",
+            task_id,
+        )
+        try:
+            server = await self.call(
+                "POST",
+                f"{self.s.project}/kiln_task_tool",
+                body={
+                    "name": req.tool_name,
+                    "description": req.tool_description,
+                    "task_id": task_id,
+                    "run_config_id": rc_id,
+                    "is_archived": False,
+                },
+            )
+        except KilnAPIError as exc:
+            raise GatewayError(
+                f"{made} with the run config {rc_id}, but the tool was refused:"
+                f" {exc.body!r}"[:1500]
+            ) from exc
+        server_id = str((server if isinstance(server, dict) else {}).get("id") or "")
+        if not server_id:
+            raise GatewayError(
+                f"{made} with the run config {rc_id}, but the tool was not created"
+            )
+        self.s.record(
+            f"{SUB_AGENT_TOOL_KIND}:{server_id}", SUB_AGENT_TOOL_KIND, "meta", task_id
+        )
+        stored = rc.get("run_config_properties")
+        stored = stored if isinstance(stored, dict) else props
+        return m.SubAgentCreated(
+            tool_id=f"{KILN_TASK_TOOL_PREFIX}{server_id}",
+            tool_name=req.tool_name,
+            tool_description=req.tool_description,
+            task_id=task_id,
+            run_config_id=rc_id,
+            model_name=stored.get("model_name"),
+            model_provider_name=stored.get("model_provider_name"),
+            note=" ".join(
+                [
+                    *notes,
+                    "Attach tool_id in tools_config.tools of a new run config"
+                    " of the subject task. The tool pins this run config: a"
+                    " change to the sub-agent is a new sub-agent.",
+                ]
+            ),
+        )
+
+    async def _sub_agent_mode(
+        self, props: dict[str, Any], structured: bool
+    ) -> list[str]:
+        """The output-mode rules (`kiln_harness_tuner.output_modes`) for a
+        new sub-agent's run config: a mode that is not given is set to
+        Kiln's default for the pair, and a mode that cannot run is refused.
+        `structured`: the sub-agent's task has an output schema. Returns
+        the notes for the answer."""
+        provider, model = props.get("model_provider_name"), props.get("model_name")
+        default = output_modes.server_default(
+            await self._read("/api/available_models"), provider, model
+        )
+        notes: list[str] = []
+        if output_modes.mode_of(props) is None:
+            choice = output_modes.swap_mode(
+                None,
+                default,
+                provider=provider,
+                tools=bool(output_modes.attached_tools(props)),
+            )
+            if choice.mode is None:
+                raise GatewayError(
+                    "run_config_properties names no structured_output_mode, and"
+                    f" Kiln's model list gives no default for {model} on"
+                    f" {provider}. Name one: " + ", ".join(output_modes.MODES) + "."
+                )
+            props["structured_output_mode"] = choice.mode
+            notes.append(
+                "structured_output_mode was not given: set to"
+                f" {choice.mode} ({choice.why})."
+            )
+        refused = output_modes.refusal(props, structured=structured, default=default)
+        if refused is not None:
+            raise GatewayError(refused)
+        return notes
 
     async def create_code_tool(self, req: m.CodeToolCreate) -> m.CodeToolView:
         # A wrapper of a locked tool is refused here, before it exists, and
@@ -2070,6 +2318,13 @@ OPS = _ops(
     ),
     ("rename_run_config", m.RunConfigRename, "Rename a run config."),
     ("create_prompt", m.PromptCreate, "A new saved prompt."),
+    (
+        "create_sub_agent",
+        m.SubAgentCreate,
+        "A new sub-agent: a new task, its run config (model policy checked)"
+        " and the kiln_task:: tool that calls it. Attach the tool id on a new"
+        " run config.",
+    ),
     ("run_task", m.RunTaskRequest, "Drive a run config on one train item."),
     ("create_code_tool", m.CodeToolCreate, "A new code tool."),
     ("archive_code_tool", m.Archive, "Archive a code tool."),
@@ -2162,6 +2417,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         "validate_input_transform",
         "rename_run_config",
         "create_prompt",
+        "create_sub_agent",
         "run_task",
         *_CODE_TOOLS,
         "archive_code_tool",

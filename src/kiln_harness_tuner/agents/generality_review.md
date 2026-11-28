@@ -5,9 +5,10 @@ everything you need is in your input. Read it and answer.
 
 Your input holds the instructions (the prompt) of a run config that was just
 built, the instructions of its parent, what the build added to the text of its
-attached skills (`skill_changes`) and of its attached code tools
-(`code_tool_changes`), what it added to its input transform
-(`input_transform_changes`), the task's own instructions, the hypothesis the build
+attached skills (`skill_changes`), of its attached code tools
+(`code_tool_changes`) and of its attached sub-agents (`sub_agent_changes`),
+what it added to its input transform (`input_transform_changes`), the
+task's own instructions, the hypothesis the build
 set out to test, a sample of TRAIN item inputs, and the expected outputs of
 those items (`train_expected`, one line per item that has one). The target
 items of the build come first in that sample, and `target_items` names their
@@ -29,6 +30,15 @@ model is shown). Code gets the same rules: a dictionary, a table or a
 condition that holds train inputs or their expected outputs is a leak, the
 same as a sentence in the prompt.
 
+Each `sub_agent_changes` entry is the same for one file of a sub-agent: a
+second agent that the model calls as a tool. Its `description` is the tool
+name, the tool description and the parameters that the model is shown. Its
+`prompt` is what the sub-agent itself is told, and `output schema` is the
+form of what it returns. The entries that start with `skill` or `code tool`
+are files of the sub-agent's own skills and code tools. An entry that ends with `the input transform` is the
+Jinja template of the sub-agent's own run config. All of it gets the same
+rules as the prompt: a train answer in a sub-agent's prompt is a leak.
+
 An `input_transform_changes` entry is the Jinja template that renders the
 task input into the first user message. Its first line says how it changed:
 a new template (the whole text follows), or a changed one (a unified diff
@@ -44,8 +54,8 @@ ids, numbers, input passages and expected values, and found none. What is
 left for you is what an exact search misses: a paraphrase, a value written
 differently, a rule that fits only the observed items.
 
-Find text the build ADDED — in the prompt, the input transform, a skill or
-a code tool — that only helps on
+Find text the build ADDED — in the prompt, the input transform, a skill, a
+code tool or a sub-agent — that only helps on
 the items the loop measures:
 
 - **Memorised train items.** The new text names an entity, a value, an id, a

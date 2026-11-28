@@ -1492,11 +1492,21 @@ class TestKilnStateTools:
         gateway, kiln = _gateway(tmp_path, routes)
         tools = ["kiln_task::s3", "kiln_task::s5", "kiln_task::s6"]
         _run(gateway, "create_code_tool", **self._create_args(tools))
-        _run(gateway, "create_run_config", **self._rc_args(tools))
+        _run(gateway, "create_run_config", **self._rc_args(["kiln_task::s3"]))
         assert self._writes(kiln) == [
             ("POST", f"/api/projects/{PROJECT}/code_tools"),
             ("POST", f"{BASE}/run_configs"),
         ]
+        # On a run config, a `kiln_task::` tool is a sub-agent, and the
+        # sub-agent check refuses one that cannot run: s5's run config is
+        # gone, and s6 is not a Kiln task tool.
+        for broken, why in (
+            ("kiln_task::s5", "was not found"),
+            ("kiln_task::s6", "not a Kiln task tool"),
+        ):
+            with pytest.raises(gw.GatewayError, match=why):
+                _run(gateway, "create_run_config", **self._rc_args([broken]))
+        assert len(self._writes(kiln)) == 2
 
     def test_a_run_config_keeps_the_kiln_task_tool_of_its_baseline(self, tmp_path):
         # The baseline has s1, which reaches a memory tool: a candidate may
@@ -2519,3 +2529,636 @@ def test_a_tool_answer_is_text_only(tmp_path):
     result = asyncio.run(server.call_tool("ping", {}))
     assert [type(part).__name__ for part in result] == ["TextContent"]
     assert json.loads(result[0].text) == {"ok": True}
+
+
+# ------------------------------------------------------------ sub-agents
+
+SUB_TASK = "424242700001"
+SUB_RC = "424242700002"
+SUB_SERVER = "424242700003"
+SUB_TOOL = f"kiln_task::{SUB_SERVER}"
+P = f"/api/projects/{PROJECT}"
+SUB_PROPS = {
+    "model_name": "gpt-test",
+    "model_provider_name": "openai",
+    "structured_output_mode": "json_schema",
+}
+
+
+def _sub_agent_routes(sent: dict[str, Any]) -> dict:
+    """The three creates of `create_sub_agent`; `sent` gets each body."""
+
+    def create(kind: str, record_id: str):
+        def route(_query, body):
+            sent[kind] = body
+            return {"id": record_id, **body}
+
+        return route
+
+    return {
+        ("POST", f"{P}/tasks"): create("task", SUB_TASK),
+        ("POST", f"{P}/tasks/{SUB_TASK}/run_configs"): create("run_config", SUB_RC),
+        ("POST", f"{P}/kiln_task_tool"): create("tool", SUB_SERVER),
+        # The reads of the checks: Kiln's model list (the output mode), and
+        # the code tool `c1` (whether it reaches Kiln's own state).
+        ("GET", "/api/available_models"): [],
+        ("GET", f"{P}/code_tools/c1"): {"id": "c1", "tool_allowlist": []},
+    }
+
+
+SUB_PARENT = "424242700050"
+
+
+def _parent_routes() -> dict:
+    """What `create_run_config` reads besides the sub-agents: the parent
+    that `provenance.derived_from_ids` names, Kiln's model list, the task,
+    and the code tool `c1`."""
+    return {
+        ("GET", f"{BASE}/run_configs"): [
+            {
+                "id": SUB_PARENT,
+                "run_config_properties": {
+                    "type": "kiln_agent",
+                    "model_provider_name": "openai",
+                    "model_name": "gpt-test",
+                    "structured_output_mode": "json_schema",
+                },
+            }
+        ],
+        ("GET", "/api/available_models"): [],
+        ("GET", BASE): {"id": TASK},
+        ("GET", f"{P}/code_tools/c1"): {"id": "c1", "tool_allowlist": []},
+    }
+
+
+def _sub_agent_args(**overrides: Any) -> dict:
+    return {
+        "name": "Manifest reader",
+        "tool_name": "read_manifest",
+        "tool_description": "Read one manifest and return its counts.",
+        "instruction": "You read a freight manifest and return its counts.",
+        "run_config_properties": dict(SUB_PROPS),
+        **overrides,
+    }
+
+
+def _attached_sub_agent(provider: str = "openai", task_id: str = SUB_TASK) -> dict:
+    """The reads behind a `kiln_task::` tool a run config attaches."""
+    return {
+        ("GET", f"{P}/tool_servers/{SUB_SERVER}/config"): {
+            "id": SUB_SERVER,
+            "type": "kiln_task",
+            "properties": {
+                "name": "read_manifest",
+                "description": "Read one manifest.",
+                "task_id": task_id,
+                "run_config_id": SUB_RC,
+            },
+        },
+        ("GET", f"{P}/tasks/{task_id}"): {"id": task_id, "instruction": "x"},
+        ("GET", f"{P}/tasks/{task_id}/run_configs"): [
+            {
+                "id": SUB_RC,
+                "run_config_properties": {
+                    "model_name": "m",
+                    "model_provider_name": provider,
+                },
+            }
+        ],
+    }
+
+
+OPENAI_ONLY = {"allow": [{"provider": "openai", "model": "*"}]}
+
+
+class TestSubAgents:
+    def test_a_sub_agent_is_a_task_a_run_config_and_a_tool(self, tmp_path):
+        sent: dict[str, Any] = {}
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes(sent))
+        out = _run(
+            gateway,
+            "create_sub_agent",
+            **_sub_agent_args(
+                description="Reads manifests.",
+                output_json_schema={
+                    "type": "object",
+                    "properties": {"pallets": {"type": "integer"}},
+                },
+                provenance={"origin": "agent", "notes": "why"},
+            ),
+        )
+
+        assert out["tool_id"] == SUB_TOOL
+        assert (out["task_id"], out["run_config_id"]) == (SUB_TASK, SUB_RC)
+        assert (out["model_provider_name"], out["model_name"]) == ("openai", "gpt-test")
+        # The task: single-turn, the instruction as its prompt, the schemas
+        # as JSON text, and a description that says where it comes from.
+        task = sent["task"]
+        assert task["instruction"].startswith("You read a freight manifest")
+        assert task["turn_mode"] == "single_turn"
+        assert json.loads(task["output_json_schema"])["properties"] == {
+            "pallets": {"type": "integer"}
+        }
+        assert "input_json_schema" not in task
+        assert task["description"].startswith("Reads manifests.")
+        assert f"Sub-agent of task {TASK}" in task["description"]
+        # The run config: on the NEW task, with a prompt that sends the
+        # instruction, and the provenance.
+        rc = sent["run_config"]
+        assert rc["run_config_properties"]["prompt_id"] == "simple_prompt_builder"
+        assert rc["run_config_properties"]["type"] == "kiln_agent"
+        assert rc["provenance"] == {"origin": "agent", "notes": "why"}
+        # The tool pins that task and that run config.
+        assert sent["tool"] == {
+            "name": "read_manifest",
+            "description": "Read one manifest and return its counts.",
+            "task_id": SUB_TASK,
+            "run_config_id": SUB_RC,
+            "is_archived": False,
+        }
+        # Nothing of the subject task was written.
+        assert not [p for m, p, *_ in kiln.calls if m == "POST" and BASE in p]
+
+    def test_what_it_created_is_in_the_runs_registry(self, tmp_path):
+        from kiln_harness_tuner.sub_agents import CreatedSubAgent, created_sub_agents
+
+        gateway, _ = _gateway(tmp_path, _sub_agent_routes({}))
+        _run(gateway, "create_sub_agent", **_sub_agent_args())
+        assert created_sub_agents(tmp_path / "run") == [
+            CreatedSubAgent(SUB_TASK, SUB_RC, SUB_TOOL)
+        ]
+        # No registry key can be taken for a train record's id.
+        assert gateway.s.created_train() == set()
+        assert all(":" in key for key in gateway.s.created)
+
+    def test_a_model_outside_the_policy_is_refused_before_any_write(self, tmp_path):
+        policy = ModelPolicy.from_json(OPENAI_ONLY)
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes({}), policy=policy)
+        props = {**SUB_PROPS, "model_provider_name": "groq", "model_name": "kimi"}
+        with pytest.raises(gw.GatewayError, match="outside the model policy"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert kiln.calls == []
+        _run(gateway, "create_sub_agent", **_sub_agent_args())  # inside: allowed
+
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "kiln_task::424242700009",
+            "kiln_tool::call_kiln_api",
+            "kiln_tool::memory::search",
+        ],
+    )
+    def test_a_sub_agent_gets_no_sub_agent_and_no_way_into_kiln(self, tmp_path, tool):
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes({}))
+        props = {**SUB_PROPS, "tools_config": {"tools": ["kiln_tool::code::c1", tool]}}
+        with pytest.raises(gw.GatewayError, match="cannot attach"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        # Refused before any write; a code tool's record may be read.
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_a_code_tool_that_reaches_kiln_state_is_refused(self, tmp_path):
+        """The check of the state tools follows a code tool's allowlist, as
+        for the subject (`_state_tools`)."""
+        routes = _sub_agent_routes({})
+        routes[("GET", f"{P}/code_tools/c1")] = {
+            "id": "c1",
+            "tool_allowlist": ["kiln_tool::call_kiln_api"],
+        }
+        gateway, kiln = _gateway(tmp_path, routes)
+        props = {**SUB_PROPS, "tools_config": {"tools": ["kiln_tool::code::c1"]}}
+        with pytest.raises(gw.GatewayError, match="kiln_tool::code::c1 -> "):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_a_sub_agent_follows_the_output_mode_rules(self, tmp_path):
+        """No mode given: Kiln's default for the pair is set. A mode that
+        sends the schema as a tool, with a tool attached and an output
+        schema, is refused before any write."""
+        sent: dict[str, Any] = {}
+        routes = _sub_agent_routes(sent)
+        routes[("GET", "/api/available_models")] = [
+            {
+                "provider_id": "openai",
+                "models": [{"id": "gpt-test", "structured_output_mode": "json_schema"}],
+            }
+        ]
+        gateway, kiln = _gateway(tmp_path, routes)
+        props = {k: v for k, v in SUB_PROPS.items() if k != "structured_output_mode"}
+        out = _run(
+            gateway, "create_sub_agent", **_sub_agent_args(run_config_properties=props)
+        )
+        mode = sent["run_config"]["run_config_properties"]["structured_output_mode"]
+        assert mode == "json_schema" and "set to json_schema" in out["note"]
+
+        schema = {"type": "object", "properties": {"n": {"type": "integer"}}}
+        tool_props = {
+            **SUB_PROPS,
+            "structured_output_mode": "function_calling",
+            "tools_config": {"tools": ["kiln_tool::code::c1"]},
+        }
+        kiln.calls.clear()
+        with pytest.raises(gw.GatewayError, match="sends the output schema as a tool"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(
+                    run_config_properties=tool_props, output_json_schema=schema
+                ),
+            )
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_a_sub_agent_of_a_restricted_model_is_refused(self, tmp_path):
+        """The owner's restrictions hold for a sub-agent's model too."""
+        policy = ModelPolicy.from_json(
+            {
+                "allow": [{"provider": "*", "model": "*"}],
+                "restrictions": [
+                    {
+                        "name": "eu",
+                        "statement": "Only OpenAI.",
+                        "allow": [{"provider": "openai", "model": "*"}],
+                    }
+                ],
+            }
+        )
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes({}), policy=policy)
+        props = {**SUB_PROPS, "model_provider_name": "groq", "model_name": "kimi"}
+        with pytest.raises(gw.GatewayError, match="restriction 'Only OpenAI.'"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert kiln.calls == []
+
+    def test_a_sub_agent_can_have_tools_of_its_own(self, tmp_path):
+        sent: dict[str, Any] = {}
+        gateway, _ = _gateway(tmp_path, _sub_agent_routes(sent))
+        # An OpenEnv tool too: the route of a drive reads the sub-agent's
+        # tools, so such a run config is driven as an eval job.
+        tools = {
+            "tools": [
+                "kiln_tool::code::c1",
+                "mcp::remote::m1::search",
+                "kiln_tool::openenv::424242700008::read_scenario",
+            ]
+        }
+        props = {**SUB_PROPS, "tools_config": tools}
+        _run(
+            gateway, "create_sub_agent", **_sub_agent_args(run_config_properties=props)
+        )
+        assert sent["run_config"]["run_config_properties"]["tools_config"] == tools
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"tool_name": "ReadManifest"},
+            {"tool_name": "read_manifest_"},
+            {"tool_name": "read__manifest"},
+            {"tool_name": "9lives"},
+            {"tool_description": "x" * 129},
+            {"instruction": ""},
+            {"input_json_schema": {"type": "string"}},
+            {"output_json_schema": {"type": "object"}},
+            {"task_id": TASK},
+        ],
+    )
+    def test_what_kiln_would_refuse_never_reaches_kiln(self, tmp_path, bad):
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes({}))
+        with pytest.raises(ValueError):
+            _run(gateway, "create_sub_agent", **_sub_agent_args(**bad))
+        assert kiln.calls == []
+
+    def test_a_create_that_fails_half_way_names_what_it_left(self, tmp_path):
+        from kiln_harness_tuner.sub_agents import CreatedSubAgent, created_sub_agents
+
+        routes = _sub_agent_routes({})
+
+        def refuse(_query, _body):
+            raise KilnAPIError("POST", "x", 422, {"detail": "bad output mode"})
+
+        routes[("POST", f"{P}/tasks/{SUB_TASK}/run_configs")] = refuse
+        gateway, _ = _gateway(tmp_path, routes)
+        with pytest.raises(gw.GatewayError) as err:
+            _run(gateway, "create_sub_agent", **_sub_agent_args())
+        assert f"the sub-agent's task {SUB_TASK} exists" in str(err.value)
+        assert "bad output mode" in str(err.value)
+        assert created_sub_agents(tmp_path / "run") == [CreatedSubAgent(SUB_TASK)]
+
+    @pytest.mark.parametrize(
+        "prompt_id", ["few_shot_prompt_builder", "repairs_prompt_builder"]
+    )
+    def test_a_prompt_built_from_stored_runs_is_refused(self, tmp_path, prompt_id):
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes({}))
+        props = {**SUB_PROPS, "prompt_id": prompt_id}
+        with pytest.raises(gw.GatewayError, match="stored runs"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert kiln.calls == []
+
+    def test_an_input_transform_is_refused_and_nothing_is_carried(self, tmp_path):
+        sent: dict[str, Any] = {}
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes(sent))
+        transform = {"type": "jinja", "template": "Q: {{ input.question }}"}
+        props = {**SUB_PROPS, "input_transform": transform}
+        with pytest.raises(gw.GatewayError, match="cannot set input_transform"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert kiln.calls == []
+        # With no transform in the request, the sub-agent's run config has
+        # none: nothing is carried from a run config of the subject task.
+        _run(gateway, "create_sub_agent", **_sub_agent_args())
+        assert "input_transform" not in sent["run_config"]["run_config_properties"]
+
+    def test_a_sub_agent_of_a_sub_agent_outside_the_policy_is_refused(self, tmp_path):
+        routes = {
+            **_attached_sub_agent("openai"),
+            ("GET", f"{P}/tool_servers/inner/config"): {
+                "id": "inner",
+                "type": "kiln_task",
+                "properties": {"task_id": "424242700011", "run_config_id": "rc_in"},
+            },
+            ("GET", f"{P}/tasks/424242700011"): {"id": "424242700011"},
+            ("GET", f"{P}/tasks/424242700011/run_configs"): [
+                {
+                    "id": "rc_in",
+                    "run_config_properties": {
+                        "model_name": "kimi",
+                        "model_provider_name": "groq",
+                    },
+                }
+            ],
+        }
+        rcs = routes[("GET", f"{P}/tasks/{SUB_TASK}/run_configs")]
+        rcs[0]["run_config_properties"]["tools_config"] = {
+            "tools": ["kiln_task::inner"]
+        }
+        policy = ModelPolicy.from_json(OPENAI_ONLY)
+        gateway, kiln = _gateway(tmp_path, routes, policy=policy)
+        with pytest.raises(gw.GatewayError, match="kiln_task::inner"):
+            self._attach(gateway)
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_only_the_build_agent_creates_a_sub_agent(self):
+        roles = [r for r, ops in gw.ROLE_OPS.items() if "create_sub_agent" in ops]
+        assert roles == ["create_experiment_rc"]
+
+    # ---- attaching one: `create_run_config` and `run_task`
+
+    def _attach(self, gateway, tool: str = SUB_TOOL):
+        for key, value in _parent_routes().items():
+            gateway.call.routes.setdefault(key, value)
+        props = {
+            "type": "kiln_agent",
+            "model_provider_name": "openai",
+            "model_name": "gpt-test",
+            "tools_config": {"tools": ["kiln_tool::code::c1", tool]},
+        }
+        return _run(
+            gateway,
+            "create_run_config",
+            name="n",
+            run_config_properties=props,
+            provenance={"derived_from_ids": [SUB_PARENT]},
+        )
+
+    def test_a_run_config_attaches_a_sub_agent_inside_the_policy(self, tmp_path):
+        routes = {
+            **_attached_sub_agent("openai"),
+            ("POST", f"{BASE}/run_configs"): lambda _q, body: {"id": "rc9", **body},
+        }
+        policy = ModelPolicy.from_json(OPENAI_ONLY)
+        gateway, kiln = _gateway(tmp_path, routes, policy=policy)
+        out = self._attach(gateway)
+        assert SUB_TOOL in out["tools"]
+        # Only the task's own record and its run configs were read.
+        assert not any("/runs" in p or "/evals" in p for _m, p, *_ in kiln.calls)
+
+    def test_a_run_config_is_refused_for_the_model_of_its_sub_agent(self, tmp_path):
+        """The model policy is about where the task's data is sent. A
+        sub-agent's input is the task's data."""
+        policy = ModelPolicy.from_json(OPENAI_ONLY)
+        gateway, kiln = _gateway(tmp_path, _attached_sub_agent("groq"), policy=policy)
+        with pytest.raises(gw.GatewayError) as err:
+            self._attach(gateway)
+        assert f"sub-agent tool {SUB_TOOL}" in str(err.value)
+        assert "outside the model policy" in str(err.value)
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_a_tool_that_calls_the_subject_task_is_refused(self, tmp_path):
+        routes = _attached_sub_agent(task_id=TASK)
+        # The tool pins a run config of the subject task itself, so the
+        # task's run configs hold it beside the parent.
+        routes[("GET", f"{BASE}/run_configs")] = [
+            *_parent_routes()[("GET", f"{BASE}/run_configs")],
+            *routes[("GET", f"{BASE}/run_configs")],
+        ]
+        gateway, kiln = _gateway(tmp_path, routes)
+        with pytest.raises(gw.GatewayError, match="the subject task itself"):
+            self._attach(gateway)
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_a_tool_id_that_names_no_kiln_task_tool_is_refused(self, tmp_path):
+        def gone(_query, _body):
+            raise KilnAPIError("GET", "x", 404, {"detail": "not found"})
+
+        routes = {
+            ("GET", f"{P}/tool_servers/{SUB_SERVER}/config"): gone,
+            ("GET", f"{P}/tool_servers/m1/config"): {"id": "m1", "type": "remote_mcp"},
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        for tool in (SUB_TOOL, "kiln_task::m1"):
+            with pytest.raises(gw.GatewayError, match="not a Kiln task tool"):
+                self._attach(gateway, tool)
+
+    def test_a_tool_whose_run_config_is_gone_is_refused(self, tmp_path):
+        routes = _attached_sub_agent()
+        routes[("GET", f"{P}/tasks/{SUB_TASK}/run_configs")] = []
+        gateway, _ = _gateway(tmp_path, routes)
+        with pytest.raises(gw.GatewayError, match="every call of the tool would fail"):
+            self._attach(gateway)
+
+    def test_a_drive_is_refused_for_the_model_of_its_sub_agent(self, tmp_path):
+        rc = {
+            "id": "rc1",
+            "run_config_properties": {
+                "model_name": "gpt-test",
+                "model_provider_name": "openai",
+                "tools_config": {"tools": [SUB_TOOL]},
+            },
+        }
+        routes = {**_attached_sub_agent("groq"), ("GET", f"{BASE}/run_configs"): [rc]}
+        policy = ModelPolicy.from_json(OPENAI_ONLY)
+        gateway, kiln = _gateway(tmp_path, routes, policy=policy)
+        with pytest.raises(gw.GatewayError, match="outside the model policy"):
+            _run(gateway, "run_task", run_config_id="rc1", item_id="tr1")
+        assert not [m for m, *_ in kiln.calls if m == "POST"]
+
+    def test_a_drive_shows_the_sub_agent_calls_and_their_usage(self, tmp_path):
+        """Kiln's `usage` holds the run's own model calls. The answer counts
+        the sub-agent calls and gives the usage of the sub-agent's own run
+        beside it. It never adds the two: the fix for the sum is in Kiln."""
+        rc = {
+            "id": "rc1",
+            "run_config_properties": {
+                "model_name": "m",
+                "model_provider_name": "p",
+                "tools_config": {"tools": [SUB_TOOL]},
+            },
+        }
+        data = f"{PROJECT}:::{SUB_TOOL}:::{SUB_TASK}"
+        run = {
+            "id": "424242600030",
+            "output": {"output": "ok"},
+            "usage": {"cost": 0.01, "total_llm_latency_ms": 300.0},
+            "trace": [
+                {"role": "user", "content": "q"},
+                {"role": "tool", "kiln_task_tool_data": f"{data}:::424242600031"},
+                {"role": "tool", "kiln_task_tool_data": f"{data}:::None"},
+            ],
+        }
+        routes = {
+            **_attached_sub_agent(),
+            ("GET", f"{BASE}/run_configs"): [rc],
+            ("GET", BASE): {"id": TASK, "turn_mode": "single_turn"},
+            ("POST", f"{BASE}/run"): run,
+            ("GET", f"{P}/tasks/{SUB_TASK}/runs/424242600031"): {
+                "id": "424242600031",
+                "input": "SECRET",
+                "usage": {"cost": 0.02, "total_llm_latency_ms": 700.0},
+            },
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _run(gateway, "run_task", run_config_id="rc1", item_id="tr1")
+
+        # `usage` is what Kiln gave. The sub-agent's own run is beside it.
+        assert out["usage"]["cost"] == 0.01
+        assert out["usage"]["total_llm_latency_ms"] == 300.0
+        assert out["sub_agent_usage"]["cost"] == 0.02
+        assert out["sub_agent_usage"]["total_llm_latency_ms"] == 700.0
+        assert out["sub_agent_calls"] == 2
+        assert "1 of them have no usage record" in out["sub_agent_note"]
+        assert "it is not in `usage`" in out["sub_agent_note"]
+        _clean(out)  # only the usage of the sub-agent's run is read
+
+    def test_a_drive_with_no_sub_agent_call_says_so(self, tmp_path):
+        rc = {
+            "id": "rc1",
+            "run_config_properties": {"model_name": "m", "model_provider_name": "p"},
+        }
+        routes = {
+            ("GET", f"{BASE}/run_configs"): [rc],
+            ("GET", BASE): {"id": TASK, "turn_mode": "single_turn"},
+            ("POST", f"{BASE}/run"): {
+                "id": "424242600040",
+                "output": {"output": "ok"},
+                "trace": [{"role": "user", "content": "q"}],
+            },
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _run(gateway, "run_task", run_config_id="rc1", item_id="tr1")
+        assert out["sub_agent_calls"] == 0 and out["sub_agent_note"] is None
+        assert out["sub_agent_usage"] is None
+
+    def test_a_train_result_that_calls_a_sub_agent_shows_no_cost(self, tmp_path):
+        """The row's usage is the run's own model calls, not the request's.
+        An agent that reads it would take a delegating arm for a cheap one."""
+        results = f"{BASE}/evals/e1/eval_config/ec1/run_config/rc1/results"
+        data = f"{PROJECT}:::{SUB_TOOL}:::{SUB_TASK}:::None"
+        calls = _eval_run("tr1", "er1", "fine")
+        calls["task_run_trace"] = json.dumps(
+            [{"role": "tool", "kiln_task_tool_data": data}]
+        )
+        plain = _eval_run("tr2", "er2", "fine")
+        routes = {
+            ("GET", f"{BASE}/evals/e1"): {"id": "e1", "current_config_id": "ec1"},
+            ("GET", results): {"results": [calls, plain]},
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _run(gateway, "get_train_results", eval_id="e1", run_config_id="rc1")
+        by_item = {r["item_id"]: r for r in out["rows"]}
+
+        assert by_item["tr1"]["task_cost_usd"] is None
+        assert by_item["tr1"]["latency_ms"] is None
+        assert "calls a sub-agent" in by_item["tr1"]["usage_note"]
+        assert by_item["tr2"]["task_cost_usd"] == 0.01
+        assert by_item["tr2"]["usage_note"] is None
+
+    def test_a_train_result_that_holds_the_sub_agents_usage_shows_its_cost(
+        self, tmp_path
+    ):
+        """A Kiln with Kiln-AI/Kiln#2077 writes the sub-agent's usage on the
+        tool message and in the run's usage: the cost is the request's. The
+        latency never is."""
+        results = f"{BASE}/evals/e1/eval_config/ec1/run_config/rc1/results"
+        row = _eval_run("tr1", "er1", "fine")
+        data = f"{PROJECT}:::{SUB_TOOL}:::{SUB_TASK}:::None"
+        message = {"role": "tool", "kiln_task_tool_data": data}
+        row["task_run_trace"] = json.dumps([{**message, "usage": {"cost": 0.004}}])
+        routes = {
+            ("GET", f"{BASE}/evals/e1"): {"id": "e1", "current_config_id": "ec1"},
+            ("GET", results): {"results": [row]},
+        }
+        gateway, _ = _gateway(tmp_path, routes)
+        out = _run(gateway, "get_train_results", eval_id="e1", run_config_id="rc1")
+        (shown,) = out["rows"]
+        assert shown["task_cost_usd"] == 0.01 and shown["latency_ms"] is None
+        assert shown["usage_note"].startswith("latency not measured")
+
+    def test_two_allowed_models_let_the_two_agents_differ(self, tmp_path):
+        """A policy with two models: the main agent on one, the sub-agent on
+        the other. A third model is refused for either."""
+        policy = ModelPolicy.from_json(
+            {
+                "allow": [
+                    {"provider": "openai", "model": "gpt-test"},
+                    {"provider": "groq", "model": "kimi"},
+                ]
+            }
+        )
+        routes = {
+            **_sub_agent_routes({}),
+            **_attached_sub_agent("groq"),
+            ("POST", f"{BASE}/run_configs"): lambda _q, body: {"id": "rc9", **body},
+        }
+        routes[("GET", f"{P}/tasks/{SUB_TASK}/run_configs")] = [
+            {
+                "id": SUB_RC,
+                "run_config_properties": {
+                    "model_name": "kimi",
+                    "model_provider_name": "groq",
+                },
+            }
+        ]
+        gateway, _ = _gateway(tmp_path, routes, policy=policy)
+        cheap = {**SUB_PROPS, "model_provider_name": "groq", "model_name": "kimi"}
+        made = _run(
+            gateway, "create_sub_agent", **_sub_agent_args(run_config_properties=cheap)
+        )
+        assert (made["model_provider_name"], made["model_name"]) == ("groq", "kimi")
+        assert SUB_TOOL in self._attach(gateway)["tools"]  # the main agent: openai
+        other = {**SUB_PROPS, "model_name": "gpt-other"}
+        with pytest.raises(gw.GatewayError, match="outside the model policy"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=other),
+            )

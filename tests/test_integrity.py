@@ -596,6 +596,189 @@ class TestTheLastGuard:
         assert ok_ and applied == ["rc_cand"]
 
 
+# ---- (e): write tools behind a new sub-agent ----
+
+SUB_TOOL = "kiln_task::424242800001"
+SUB_SERVER, SUB_TASK, SUB_RC = "424242800001", "424242800002", "424242800003"
+WRITE_MCP = "mcp::remote::424242800010::update_ticket"
+READ_MCP = "mcp::remote::424242800010::get_ticket"
+WRITE_WORLD = "kiln_tool::openenv::424242800020::set_status"
+
+
+def _row(rc_id: str, *tools: str) -> dict:
+    return {
+        "id": rc_id,
+        "name": rc_id,
+        "prompt": {"prompt": BASE_PROMPT},
+        "run_config_properties": {"tools_config": {"tools": list(tools)}},
+    }
+
+
+def _sub_agent_ctx(*sub_agent_tools: str):
+    from conftest import make_ctx
+
+    ctx = make_ctx()
+    ctx.kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC, tools=list(sub_agent_tools))
+    return ctx
+
+
+class TestWriteToolsBehindASubAgent:
+    def test_the_name_match_is_the_one_of_the_write_action_check(self):
+        from kiln_harness_tuner.integrity import write_named
+
+        names = ["update_ticket", "get_ticket", "refund", "search", "set_status"]
+        assert write_named(names) == ["refund", "set_status", "update_ticket"]
+        # What (c) calls a write by its name, (e) calls a write too.
+        for name in names:
+            by_trace = bool(write_actions({"trace": [_call(name)]}))
+            assert by_trace == (name in write_named([name]))
+
+    def test_a_tool_id_gives_its_function_name_when_it_carries_one(self):
+        from kiln_harness_tuner.integrity import tool_name_of_id
+
+        assert tool_name_of_id(WRITE_MCP) == "update_ticket"
+        assert tool_name_of_id("mcp::local::s::delete_file") == "delete_file"
+        assert tool_name_of_id(WRITE_WORLD) == "set_status"
+        assert tool_name_of_id("kiln_tool::add_numbers") == "add_numbers"
+        for other in ("kiln_tool::skill::1", "kiln_tool::rag::1"):
+            assert tool_name_of_id(other) is None  # they write nothing
+        for other in ("kiln_tool::code::1", "kiln_task::1"):
+            assert tool_name_of_id(other) is None  # the name is in a record
+
+    @pytest.mark.parametrize("tool", [WRITE_MCP, WRITE_WORLD, "kiln_tool::send_mail"])
+    async def test_a_new_sub_agent_with_a_write_named_tool_is_flagged(self, tool):
+        from kiln_harness_tuner.orchestrator import sub_agent_write_flags
+
+        ctx = _sub_agent_ctx(READ_MCP, tool)
+        (flag,) = await sub_agent_write_flags(
+            ctx, _row("rc_base"), _row("rc_cand", SUB_TOOL)
+        )
+        assert flag.startswith(f"the new sub-agent {SUB_TOOL} can call tool(s)")
+        assert tool.rsplit("::", 1)[-1] in flag and "get_ticket" not in flag
+        assert "not in the candidate's traces" in flag
+
+    async def test_a_sub_agent_with_read_only_names_is_not_flagged(self):
+        from kiln_harness_tuner.orchestrator import sub_agent_write_flags
+
+        ctx = _sub_agent_ctx(READ_MCP, "kiln_tool::rag::424242800030")
+        cand = _row("rc_cand", SUB_TOOL)
+        assert await sub_agent_write_flags(ctx, _row("rc_base"), cand) == []
+
+    async def test_a_write_tool_moved_from_the_subject_into_a_sub_agent_is_flagged(
+        self,
+    ):
+        """The baseline calls the write tool itself, so check (c) sees its
+        writes. The candidate hides the same tool behind a sub-agent: its
+        traces show no write, and (c) finds nothing new."""
+        from kiln_harness_tuner.orchestrator import sub_agent_write_flags
+
+        ctx = _sub_agent_ctx(WRITE_MCP)
+        base = _row("rc_base", READ_MCP, WRITE_MCP)
+        cand = _row("rc_cand", READ_MCP, SUB_TOOL)
+        (flag,) = await sub_agent_write_flags(ctx, base, cand)
+        assert "update_ticket" in flag
+        base_trace = [_val("v1", "ok", [_call("update_ticket")])]
+        cand_trace = [_val("v1", "ok", [_call("ask_expert")])]
+        assert write_action_findings(base_trace, cand_trace, "E") == []
+
+    async def test_a_sub_agent_the_baseline_attaches_is_not_new(self):
+        from kiln_harness_tuner.orchestrator import sub_agent_write_flags
+
+        ctx = _sub_agent_ctx(WRITE_MCP)
+        both = (_row("rc_base", SUB_TOOL), _row("rc_cand", SUB_TOOL))
+        assert await sub_agent_write_flags(ctx, *both) == []
+        assert await sub_agent_write_flags(ctx, _row("a"), _row("b")) == []
+
+    async def test_a_code_tool_is_read_by_its_name_and_its_allowlist(self, tmp_path):
+        """A code tool's own name can be harmless while its code calls a
+        write tool of its allowlist. What the code does beyond that is not
+        seen."""
+        from kiln_harness_tuner.orchestrator import sub_agent_write_flags
+
+        directory = tmp_path / "code_tools" / "424242800040 - lookup"
+        directory.mkdir(parents=True)
+        record = {
+            "id": "424242800040",
+            "name": "lookup",
+            "tool_function_name": "lookup",
+            "tool_allowlist": [READ_MCP, "mcp::remote::424242800010::delete_order"],
+        }
+        (directory / "code_tool.kiln").write_text(json.dumps(record))
+        ctx = _sub_agent_ctx("kiln_tool::code::424242800040")
+        ctx.target = ctx.target.model_copy(update={"project_path": str(tmp_path)})
+        (flag,) = await sub_agent_write_flags(
+            ctx, _row("rc_base"), _row("rc_cand", SUB_TOOL)
+        )
+        assert "['delete_order']" in flag
+
+    async def test_tools_that_cannot_be_read_are_a_flag_not_a_pass(self):
+        from kiln_harness_tuner.orchestrator import sub_agent_write_flags
+
+        # The sub-agent's code tool is not on disk.
+        ctx = _sub_agent_ctx("kiln_tool::code::424242800099")
+        cand = _row("rc_cand", SUB_TOOL)
+        (flag,) = await sub_agent_write_flags(ctx, _row("rc_base"), cand)
+        assert flag.startswith(f"unread: the tools of the new sub-agent {SUB_TOOL}")
+        # The tool names no sub-agent at all.
+        ctx.kiln.tool_servers.clear()
+        (flag,) = await sub_agent_write_flags(ctx, _row("rc_base"), cand)
+        assert flag.startswith("unread: ")
+
+
+def _gate_ctx_with_sub_agent(*sub_agent_tools: str, gate_agent="always"):
+    """The gate's context, with a candidate that attaches a new sub-agent."""
+    ctx = _gate_ctx(BASE_PROMPT, gate_agent=gate_agent)
+    ctx.kiln.add_sub_agent(SUB_SERVER, SUB_TASK, SUB_RC, tools=list(sub_agent_tools))
+    ctx.kiln.run_configs[1] = {
+        **ctx.kiln.run_configs[1],
+        "run_config_properties": {"tools_config": {"tools": [SUB_TOOL]}},
+    }
+    ctx.dispatch.queue("generality_review", _clean_review())
+    return ctx
+
+
+def _clean_review():
+    from kiln_harness_tuner.schemas import GeneralityReviewResult
+
+    return ok(GeneralityReviewResult(leaks=[]))
+
+
+async def test_a_write_tool_behind_a_sub_agent_reaches_the_gate_as_a_flag():
+    ctx = _gate_ctx_with_sub_agent(WRITE_MCP)
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val"))
+    await orchestrate(ctx, "g", timeout_mins=180)
+
+    (table,) = ctx.dispatch.calls_to("promote_best")[0].candidates
+    (flag,) = [f for f in table.integrity_flags if "sub-agent" in f]
+    assert "update_ticket" in flag
+    # A flag that the rationale does not address blocks the promotion.
+    assert not _promoted(ctx)
+    (blocked,) = [f for k, f in ctx.log.events if k == "promotion_blocked"]
+    assert any("update_ticket" in r for r in blocked["reasons"])
+    (line,) = [f["line"] for k, f in ctx.log.events if k == "integrity"]
+    assert "update_ticket" in line
+
+
+async def test_the_code_gate_sends_a_sub_agent_write_flag_to_the_agent():
+    ctx = _gate_ctx_with_sub_agent(WRITE_MCP, gate_agent="auto")
+    ctx.dispatch.queue(
+        "promote_best",
+        decision("rc_cand", "Integrity: the sub-agent files the ticket by design."),
+    )
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert ctx.dispatch.calls_to("promote_best")
+    assert _promoted(ctx)
+
+
+async def test_a_read_only_sub_agent_adds_no_flag_at_the_gate():
+    ctx = _gate_ctx_with_sub_agent(READ_MCP)
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val"))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (table,) = ctx.dispatch.calls_to("promote_best")[0].candidates
+    assert not [f for f in table.integrity_flags if "sub-agent" in f]
+    assert _promoted(ctx)
+
+
 # ---- the input transform at the gate ----
 
 KEEP_TWO = "Depot: {{ input.depot }}\nQuestion: {{ input.question }}"
