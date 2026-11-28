@@ -1,7 +1,7 @@
 ---
 title: Cheaper or faster
 description: The user wants the agent to cost less or answer sooner, with quality held - each step is marked cheaper, faster or both, because the two goals do not always agree.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 kind: goal
 applies_to: all
 ---
@@ -49,16 +49,21 @@ screening rounds of the planner's skill.
    When a prompt cache serves the prompt, and most runs need most of a
    skill:
    [skill into the prompt](../techniques/skill-into-the-prompt.md).
-4. **Both.** Fewer tokens from the tools, and fewer calls. A result that
+4. **Both.** A smaller task input, on a single-turn task. An input with
+   fields that no correct answer uses:
+   [keep only the fields the task needs](../techniques/keep-only-the-fields-the-task-needs.md).
+   A few items with a very long text field that take most of the input
+   tokens: [cut long input text](../techniques/cut-long-input-text.md).
+5. **Both.** Fewer tokens from the tools, and fewer calls. A result that
    carries fields the agent does not use:
    [cap and preview wrapper](../techniques/cap-and-preview-wrapper.md). A
    chain of calls that is the same each time:
    [roll-up tool](../techniques/roll-up-tool.md).
-5. **Both.** Fewer output tokens, when the answer has text the task does
+6. **Both.** Fewer output tokens, when the answer has text the task does
    not need (the input restated, a long preamble): a rule on the layout of
    the answer,
    [state the output contract](../techniques/state-the-output-contract.md).
-6. **Cheaper, often faster.** A smaller model of the class, with the
+7. **Cheaper, often faster.** A smaller model of the class, with the
    harness adapted to it, when the model is a lever (`allowed_models`
    lists another model):
    [model swap inside a class](../techniques/model-swap-inside-a-class.md).
@@ -83,6 +88,6 @@ screening rounds of the planner's skill.
 ## Budget
 
 On a small budget, steps 1 and 2 come first: they change one setting,
-with the harness unchanged, and cost the least to measure. Steps 3 to 6
-need a build and a full check of quality. On a large budget, step 6 can
+with the harness unchanged, and cost the least to measure. Steps 3 to 7
+need a build and a full check of quality. On a large budget, step 7 can
 include a scan of the smaller models of the class.
