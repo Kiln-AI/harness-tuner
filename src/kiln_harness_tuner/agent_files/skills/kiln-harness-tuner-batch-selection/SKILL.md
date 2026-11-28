@@ -549,7 +549,7 @@ more, emit valid JSON, produce output) is a `check` probe that no agent
 runs; only "did the output change in the named way" needs the agent.
 
 - **Fix experiments** — issue × technique (`prompt | skill | tool_config |
-  new_tool | params | output_mode | input_transform | …`), with `needs_eval: true` when the
+  new_tool | params | output_mode | input_transform | rag | …`), with `needs_eval: true` when the
   issue has no eval yet and `eval_building` is `true` (otherwise the issue is not a candidate —
   Hard rules; a `smell`, `baseline_audit` or `baseline_judge_copy` issue is
   planned with `needs_eval: false` and an active eval that the change
@@ -945,7 +945,7 @@ Per experiment item:
   60 characters, one line. It is the id of a lever document of the
   `kiln-harness-tuner-knowledge` skill where one exists (`prompt`, `skill`,
   `tool_config`, `new_tool`, `params`, `output_mode`, `input_transform`,
-  `model`), it is the
+  `model`, `rag`), it is the
   key of
   `lever_attempts`, and the experiment record's label carries it. Put what
   the build does in the `hypothesis` (the record keeps its first 900

@@ -13,7 +13,13 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypeVar
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 from kiln_harness_tuner.input_transform import TEMPLATE_MAX_CHARS
 from kiln_harness_tuner.kiln_names import kiln_name
@@ -512,8 +518,10 @@ class ToolDefinition(Out):
 
 class RagPart(Out):
     """One stage of a RAG config: the extractor, chunker, embedding, vector
-    store or reranker."""
+    store or reranker. `id` is what `create_rag_config` takes to use the
+    part again."""
 
+    id: str | None = None
     name: str | None = None
     description: str | None = None
     extractor_type: str | None = None
@@ -565,6 +573,89 @@ class DocumentView(Out):
     size: int | None = None
 
 
+class RagPartOption(RagPart):
+    """A part of the project that a new RAG config can use again."""
+
+    # RAG configs of the project that use the part.
+    used_by: list[str] = []
+    created_by_this_run: bool = False
+    # Extractor configs only: how many documents of the library have an
+    # extraction for it. A new RAG config indexes only such documents.
+    extracted_documents: int | None = None
+    # Extractor configs only: whether a new RAG config may use it under
+    # the model policy, and why not.
+    allowed: bool | None = None
+    note: str | None = None
+
+
+class RagModelOption(Out):
+    """An embedding or reranker model that Kiln offers, and whether a new
+    RAG config of this run may use it."""
+
+    model_provider_name: str
+    model_name: str
+    name: str | None = None
+    allowed: bool = True
+    note: str | None = None  # why it is refused
+    n_dimensions: int | None = None
+    max_input_tokens: int | None = None
+    suggested_for_chunk_embedding: bool | None = None
+    deprecated: bool | None = None
+
+
+class RagParts(Out):
+    """What a new RAG config can be made from. The tuner creates chunker,
+    embedding, vector store (search type) and reranker configs. It creates
+    no extractor config and starts no extraction."""
+
+    documents: int = 0
+    # tag -> how many documents carry it.
+    document_tags: dict[str, int] = {}
+    extractors: list[RagPartOption] = []
+    chunkers: list[RagPartOption] = []
+    embeddings: list[RagPartOption] = []
+    vector_stores: list[RagPartOption] = []
+    rerankers: list[RagPartOption] = []
+    embedding_models: list[RagModelOption] = []
+    reranker_models: list[RagModelOption] = []
+    created_this_run: int = 0
+    max_created_per_run: int = 0
+    index_max_bytes: int = 0
+    note: str = ""
+
+
+class RagIndexView(Out):
+    """The state of a RAG config's index. `complete`: every document went
+    through every step and every chunk is in the index."""
+
+    rag_config_id: str
+    complete: bool = False
+    documents: int = 0
+    documents_done: int = 0
+    chunks: int = 0
+    chunks_indexed: int = 0
+    errors: list[str] = []
+    note: str | None = None
+
+
+class RagConfigCreated(Out):
+    """A RAG config this run created. Attach `tool_id` in
+    `tools_config.tools` of a new run config."""
+
+    tool_id: str
+    rag_config: RagConfigView
+    # part -> the id of the config this call created for it.
+    created_parts: dict[str, str] = {}
+    index: RagIndexView
+    # What the index sent to the embedding model, counted before the call.
+    paid_documents: int = 0
+    paid_bytes: int = 0
+    # The document check: what was read, and a flag when a document holds
+    # the expected output of an eval item.
+    document_check: str | None = None
+    note: str | None = None
+
+
 class KilnTaskToolView(Out):
     """A Kiln task attached as a tool (`kiln_task::<tool server id>`): the
     task it calls and the run config it calls it with. Never the task's runs
@@ -613,6 +704,10 @@ class ValSummary(Out):
 
 Id = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:\-]+$")
 Tag = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_\-]+$")
+# An id that a request can leave out.
+OptionalId = Field(
+    default=None, min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_.:\-]+$"
+)
 
 
 class NoArgs(In):
@@ -739,6 +834,96 @@ class RunConfigCreate(In):
     description: str | None = Field(default=None, max_length=2000)
     run_config_properties: dict[str, Any]
     provenance: dict[str, Any] | None = None
+
+
+class NewChunker(In):
+    """A new chunker config. `fixed_window`: `chunk_size` and
+    `chunk_overlap`. `semantic`: `buffer_size` and
+    `breakpoint_percentile_threshold`; it finds the breaks with the RAG
+    config's embedding model."""
+
+    chunker_type: Literal["fixed_window", "semantic"]
+    chunk_size: int | None = Field(default=None, ge=16, le=8192)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=4096)
+    buffer_size: int | None = Field(default=None, ge=1, le=10)
+    breakpoint_percentile_threshold: int | None = Field(default=None, ge=1, le=99)
+
+    @model_validator(mode="after")
+    def _fields_of_the_type(self) -> NewChunker:
+        if self.chunker_type == "fixed_window":
+            if self.chunk_size is None or self.chunk_overlap is None:
+                raise ValueError(
+                    "a fixed_window chunker needs chunk_size and chunk_overlap"
+                )
+            if self.chunk_overlap >= self.chunk_size:
+                raise ValueError("chunk_overlap must be less than chunk_size")
+        elif self.buffer_size is None or self.breakpoint_percentile_threshold is None:
+            raise ValueError(
+                "a semantic chunker needs buffer_size and"
+                " breakpoint_percentile_threshold"
+            )
+        return self
+
+
+class NewEmbedding(In):
+    model_provider_name: str = Field(min_length=1, max_length=100)
+    model_name: str = ModelId
+    dimensions: int | None = Field(default=None, ge=1, le=16_384)
+
+
+class NewSearch(In):
+    """A new vector store config: the search type, and how many chunks one
+    search returns."""
+
+    store_type: Literal["lancedb_fts", "lancedb_hybrid", "lancedb_vector"]
+    similarity_top_k: int = Field(ge=1, le=50)
+
+
+class NewReranker(In):
+    model_provider_name: str = Field(min_length=1, max_length=100)
+    model_name: str = ModelId
+    top_n: int = Field(ge=1, le=50)
+
+
+class RagConfigCreate(In):
+    """A new RAG config from parts. The extractor is a config of the
+    project. Each other part is a config of the project (its id) or a new
+    one: give exactly one of the two. The reranker is optional."""
+
+    name: KilnName120 = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    tool_name: str = Field(max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
+    tool_description: str = Field(min_length=1, max_length=128)
+    extractor_config_id: str = Id
+    chunker_config_id: str | None = OptionalId
+    new_chunker: NewChunker | None = None
+    embedding_config_id: str | None = OptionalId
+    new_embedding: NewEmbedding | None = None
+    vector_store_config_id: str | None = OptionalId
+    new_search: NewSearch | None = None
+    reranker_config_id: str | None = OptionalId
+    new_reranker: NewReranker | None = None
+    # The document tags to index; none means every document.
+    tags: list[Annotated[str, Tag]] | None = Field(
+        default=None, min_length=1, max_length=20
+    )
+    provenance: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _one_source_per_part(self) -> RagConfigCreate:
+        for part, existing, new in (
+            ("chunker", self.chunker_config_id, self.new_chunker),
+            ("embedding", self.embedding_config_id, self.new_embedding),
+            ("search", self.vector_store_config_id, self.new_search),
+        ):
+            if (existing is None) == (new is None):
+                raise ValueError(
+                    f"give exactly one of the existing {part} config's id and"
+                    f" a new {part}"
+                )
+        if self.reranker_config_id is not None and self.new_reranker is not None:
+            raise ValueError("give at most one of reranker_config_id and new_reranker")
+        return self
 
 
 class InputTransformValidate(In):

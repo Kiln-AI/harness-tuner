@@ -746,6 +746,59 @@ def render_tradeoff_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+RAG_APPENDIX_HEADING = "## RAG configs (code-computed)"
+
+
+def render_rag_appendix(status: RunStatus) -> str:
+    """The `## RAG configs` section: each RAG config this run created, with
+    its search tool, its parts, the run configs of the task that attach it,
+    and its state against the final baseline. Empty string when the run
+    created none."""
+    if not status.rag_configs:
+        return ""
+    final = status.baseline_history[-1] if status.baseline_history else None
+    lines = [
+        RAG_APPENDIX_HEADING,
+        "",
+        "The RAG configs that this run created. A run config attaches one as"
+        " the search tool `kiln_tool::rag::<id>`. The run archives a RAG"
+        " config that no run config attaches. It deletes nothing: a config"
+        " that is not in the final baseline stays in the project, with its"
+        " index, for you to keep or archive in the Kiln app.",
+        "",
+        "| tool id | config | attached by | state |",
+        "|---|---|---|---|",
+    ]
+    for record in status.rag_configs:
+        if final is not None and final in record.attached_by:
+            state = f"in the final baseline `{_md(final)}`"
+        elif record.archived:
+            state = "archived: no run config attaches it"
+        elif record.attached_by:
+            state = "not in the final baseline"
+        else:
+            state = "not attached"
+        attached = ", ".join(f"`{_md(rc)}`" for rc in record.attached_by) or "—"
+        lines.append(
+            f"| `{_md(record.tool_id)}` | {_md(record.summary or record.name or '—')}"
+            f" | {attached} | {state} |"
+        )
+    lines += [
+        "",
+        "The spend above leaves out what a RAG config costs. Kiln reports no"
+        " cost for an embedding call or a reranker call. So the index of each"
+        " config, and the query embedding and the reranker call of each"
+        " search, are in no cost figure of this report. The latency of a run"
+        " is the time of its model calls: it leaves out the time of a search."
+        " So under the speed or the cost objective, the cost and the latency of"
+        " an arm that adds or replaces a RAG tool are not measured: the arm"
+        " ends before its measurement, and it cannot win. An arm that keeps"
+        " its parent's RAG tools is measured, because the searches are left"
+        " out of both arms.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 MISSING_EVALS_APPENDIX_HEADING = "## Issues with no eval (code-computed)"
 KILN_EVALS_DOCS_URL = "https://docs.kiln.tech/docs/evaluations"
 # A bound on the report-time issue read on either path: a Kiln server that
@@ -1133,6 +1186,9 @@ class ReportWriter:
         missing_evals = render_missing_evals_appendix(status)
         if missing_evals:
             markdown = markdown.rstrip("\n") + "\n\n" + missing_evals
+        rag = render_rag_appendix(status)
+        if rag:
+            markdown = markdown.rstrip("\n") + "\n\n" + rag
         smells = render_smells_appendix(status)
         if smells:
             markdown = markdown.rstrip("\n") + "\n\n" + smells

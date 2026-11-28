@@ -305,6 +305,10 @@ what to write.
 | `list_rag_configs` / `get_rag_config` | — / `id` (the RAG config id or its `kiln_tool::rag::` tool id) | a RAG search tool's config: its tool name and description, the document tags it indexes, and each stage (extractor, chunker, embedding, vector store, reranker) with its model and settings |
 | `rag_search` | `id`, `query` | the chunks the RAG search tool returns for `query`: the same retrieval a model's call gets. Each search is one embedding call, which `--budget-usd` does not count: search only to answer a specific question |
 | `list_documents` | — | the project's document library: name, description, kind, tags, file name, type and size. Not the text: the text reaches you as `rag_search` chunks |
+| `list_rag_parts` | — | what a new RAG config can be made from: the project's extractor, chunker, embedding, vector store (search type) and reranker configs, each with its `id`, the RAG configs that use it and, for an extractor, `extracted_documents` and whether the model policy allows its model (`allowed`, `note`); the embedding and reranker models that Kiln offers, each with `allowed` and, when refused, the reason in `note`; the library's `document_tags`; and the limits `max_created_per_run`, `created_this_run` and `index_max_bytes` |
+| `create_rag_config` | `name`, `tool_name` (lower case, digits and `_`), `tool_description` (128 characters at most), `extractor_config_id`, one of `chunker_config_id` / `new_chunker`, one of `embedding_config_id` / `new_embedding`, one of `vector_store_config_id` / `new_search`, at most one of `reranker_config_id` / `new_reranker`, `tags?`, `description?`, `provenance?` | a new RAG config, indexed: its `tool_id` (`kiln_tool::rag::<id>`), the config, `created_parts`, the `index` state, `paid_documents` and `paid_bytes` (what the index sent to the embedding model) and the `document_check` line. `new_chunker`: `chunker_type` `fixed_window` with `chunk_size` and `chunk_overlap`, or `semantic` with `buffer_size` and `breakpoint_percentile_threshold`. `new_embedding`: `model_provider_name`, `model_name`, `dimensions?`. `new_search`: `store_type` (`lancedb_fts`, `lancedb_hybrid` or `lancedb_vector`) and `similarity_top_k`. `new_reranker`: `model_provider_name`, `model_name`, `top_n`. The refusals are listed under this table |
+| `index_rag_config` | `id` | runs the index of a RAG config that this run created again, and gives its state. Use it when a create answers `index.complete: false` |
+| `archive_rag_config` | `id`, `archived?` | archives a RAG config that this run created and that no run config attaches |
 | `get_kiln_task_tool` | `id` (`kiln_task::<id>` or the tool server id) | the Kiln task a task tool calls: the task's instruction and requirements, the run config the tool uses and its prompt (a saved or frozen prompt; a generator prompt such as few-shot is named in `note`, not shown, because it is built from stored runs). Never that task's runs or evals |
 
 A skill is installed with the skill installer tool, not the gateway.
@@ -347,6 +351,30 @@ tool, and use the subject task's own tools.
   parent's mode and the new pair has another one. A named mode is kept:
   the note is information.
 
+`create_rag_config` makes every check before it writes. It is refused when:
+
+- the run already created `max_created_per_run` RAG configs;
+- the extractor config is not in the project. The gateway creates no
+  extractor config and starts no extraction;
+- a document to index has no extraction for the extractor config;
+- the extractor, embedding or reranker model is outside the model policy,
+  and no RAG config that existed before this run uses it in that role.
+  The documents and every search query are sent to these models;
+- the index would send more than `index_max_bytes` of extracted text to
+  the embedding model. A document that already has embeddings for the same
+  extractor, chunker and embedding config is not counted: Kiln uses them
+  again;
+- a document to index holds the whole input of an eval item of the task,
+  or the check cannot read every document. The refusal names the
+  documents, never the item.
+
+The index is paid work that `--budget-usd` does not count: Kiln reports no
+cost for an embedding call. `create_run_config` and `run_task` refuse a
+`kiln_tool::rag::` tool that is not a RAG config of the project, that
+searches a document that holds an eval item's input, or that this run
+created and whose index is not complete. `rag_search` refuses a RAG config
+whose documents hold an eval item's input.
+
 ### Building an eval (eval_build)
 
 Eval building is experimental and off by default. The loop starts an
@@ -381,7 +409,7 @@ shows the train items only. Read results with `get_train_results` after
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
 | batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory |
-| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `validate_input_transform`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
+| create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `validate_input_transform`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill`, `create_rag_config`, `index_rag_config`, `archive_rag_config` |
 | probe | reading the task, models and providers, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, `validate_input_transform`, the code-tool writes, the artifact reads, memory (no update) |
 | analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, the artifact reads, memory |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |

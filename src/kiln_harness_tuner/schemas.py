@@ -635,6 +635,11 @@ class ProbeCheck(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _no_rag_tool(self) -> ProbeCheck:
+        _refuse_rag_tool_overrides(self.overrides, "a probe check")
+        return self
+
+    @model_validator(mode="after")
     def _authored_text_is_built(self) -> ProbeCheck:
         _refuse_build_only_overrides(self.overrides, "a probe check")
         return self
@@ -698,6 +703,22 @@ BatchItem = Annotated[
 ]
 
 
+def _refuse_rag_tool_overrides(overrides: dict[str, Any], where: str) -> None:
+    """A screen or a probe forks a run config in code, with none of the
+    checks of the RAG lever (`kiln_harness_tuner.rag_lever`): the document
+    check and the check that the search tool is called. So it may not
+    attach a RAG search tool."""
+    config = overrides.get("tools_config")
+    tools = config.get("tools") if isinstance(config, dict) else None
+    hit = [t for t in tools or [] if str(t).startswith("kiln_tool::rag::")]
+    if hit:
+        raise ValueError(
+            f"{where} may not attach a RAG search tool ({', '.join(map(str, hit))}):"
+            " plan it as an experiment item with `technique: rag`, or"
+            " `technique: tool_config` for a RAG config that exists"
+        )
+
+
 # Run-config properties a candidate VARIANT changes — a model, a provider, a
 # thinking level, a sampling parameter. Variants are screened in code
 # (`BatchPlan.screen`, `kiln_harness_tuner.viability`), never probed.
@@ -747,6 +768,11 @@ class ScreenCandidate(BaseModel):
     # the finding that is worth it. None = code's default. Clamped by code.
     max_usd: float | None = Field(default=None, gt=0)
     budget_reason: str = ""
+
+    @model_validator(mode="after")
+    def _no_rag_tool(self) -> ScreenCandidate:
+        _refuse_rag_tool_overrides(self.overrides, "a screen candidate")
+        return self
 
     @model_validator(mode="after")
     def _budget_needs_a_reason(self) -> ScreenCandidate:
@@ -2240,6 +2266,21 @@ class WaveStatus(BaseModel):
     baseline_val_holes: str | None = None
 
 
+class RagConfigRecord(BaseModel):
+    """One RAG config this run created, as the run ends
+    (`rag_lever.close_rag_configs`). `summary`: its tool, search type,
+    chunker, embedding model, reranker and tags, in one line. `attached_by`:
+    the run configs of the task that attach its search tool."""
+
+    id: str
+    tool_id: str
+    name: str | None = None
+    tool_name: str | None = None
+    summary: str = ""
+    attached_by: list[str] = []
+    archived: bool = False
+
+
 class RunStatus(BaseModel):
     project_id: str
     task_id: str
@@ -2337,6 +2378,9 @@ class RunStatus(BaseModel):
     # Each review of a baseline by the baseline reviewer, in order
     #   (`baseline_review` events): done, skipped, failed or off.
     baseline_reviews: list[BaselineReview] = []
+    # The RAG configs this run created (`rag_configs` event, at the end of
+    #   the run) — the report's RAG configs section.
+    rag_configs: list[RagConfigRecord] = []
 
 
 class ReportInput(BaseModel):

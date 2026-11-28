@@ -286,6 +286,7 @@ SETUP_LINE_EVENTS = frozenset(
         "baseline_measured",
         "baseline_speed",
         "probe_rcs_archived",
+        "rag_configs",
         "provider_quota",
         "measure_chunk",
         "candidate_budget",

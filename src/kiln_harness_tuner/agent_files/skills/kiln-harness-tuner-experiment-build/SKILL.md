@@ -63,6 +63,14 @@ going looking.
    config in one `POST`; a mistake means another new config, noted in
    `build_notes`.
 
+   A **`rag` arm** creates one new RAG config with `create_rag_config` and
+   attaches its `tool_id` on the new run config. The knowledge lever
+   `levers/rag.md` gives the steps. The operation refuses a document with
+   no extraction, a model outside the policy, an index over the budget and
+   a document that holds an eval item's input: a refusal is a dead end for
+   that config, not a reason to work around it. List the RAG config's id
+   and its new parts in `change`.
+
    A **`params` arm** is the smallest build there is: one `POST` of a run
    config identical to the parent except the named provider parameter(s),
    no new prompt, skill or tool. Its `change` block lists the one parameter

@@ -143,6 +143,7 @@ from kiln_harness_tuner.quarantine import (
     task_dirs,
 )
 from kiln_harness_tuner.quarantine import eval_ids as quarantine_eval_ids
+from kiln_harness_tuner.rag_lever import close_rag_configs
 from kiln_harness_tuner.reconcile import reconcile
 from kiln_harness_tuner.restrictions import (
     Restrictions,
@@ -602,6 +603,10 @@ async def _orchestrate(ctx: Ctx, user_guidance: str, timeout_mins: int) -> str:
         # no report — the operator asked us to stop NOW.
         ctx.log.event("exit", reason="interrupted")
         raise
+    try:
+        await close_rag_configs(ctx)
+    except Exception as exc:  # the report must still be written
+        ctx.log.event("rag_configs_unclosed", error=repr(exc)[:200])
     if ctx.write_report is not None:  # report seam (report.py)
         return await ctx.write_report(ctx, exit_reason)
     return exit_reason

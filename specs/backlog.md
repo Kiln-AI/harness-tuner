@@ -46,17 +46,6 @@ Knowledge settles a tie, never a loss. The stretch goal is a difference inside t
 The cost that Kiln measures can be wrong when a single-turn task gets no caching. It also decides
 if `skill-into-the-prompt` can save money.
 
-### RAG
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 5; overview 7.1
-
-The lever. RAG or skill, and when each wins. Documents and extraction first; extract once and do
-not tune it. Test that RAG helps before the chunker and the search type. Reranking. Size in tokens,
-not in documents.
-
 ### Detectors from the trace counts
 
 - Kind: detector
@@ -650,6 +639,16 @@ On a long multi-turn trace that can use it, check that the prompt cache is used.
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
 
+### The cost and latency of a RAG search
+
+- Kind: gap
+- Where: kiln
+- Depends on: None
+- Source: [rag-lever](projects/rag-lever/project_overview.md), section 3
+
+Kiln records no cost for an embedding or reranker call and no time for a search in a run's usage,
+and reports no cost for an index. Until it does, a RAG arm is not measured under speed or cost,
+and an index is not in `--budget-usd`.
 ### Output modes that a model supports
 
 - Kind: gap

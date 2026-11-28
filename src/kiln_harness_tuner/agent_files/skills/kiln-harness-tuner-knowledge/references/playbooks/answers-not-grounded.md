@@ -1,7 +1,7 @@
 ---
 title: Answers are not grounded
 description: The answers need knowledge that is not in the agent's context - attach the source, then add scope discipline. A source behind a lookup tool can move into a skill.
-reviewed: 2026-11-12
+reviewed: 2026-11-25
 kind: failure
 applies_to: all
 ---
@@ -32,11 +32,19 @@ says how to recognise it.
 1. [Attach the knowledge source](../techniques/attach-the-knowledge-source.md),
    when the agent has no source for the facts. Attach an existing search
    or RAG tool, or write the knowledge into a skill.
-2. [Answer only from the source](../techniques/answer-only-from-the-source.md),
+2. [RAG or a skill for a knowledge source](../techniques/rag-or-a-skill-for-a-knowledge-source.md),
+   when no source exists in a form that the agent can use, and the
+   project's document library holds the facts. Choose the form by the
+   size in tokens. For RAG, start with
+   [test that RAG helps first](../techniques/test-that-rag-helps-first.md),
+   then [add a reranker](../techniques/add-a-reranker.md) and
+   [tune the search type and the chunker](../techniques/tune-the-search-type-and-the-chunker.md)
+   when the searches miss.
+3. [Answer only from the source](../techniques/answer-only-from-the-source.md),
    when the source is in the context and the answers go past it. A short
    rule of scope discipline: answer from the source, and say so when the
    source does not cover the question.
-3. [Document into a skill](../techniques/document-into-a-skill.md), when a
+4. [Document into a skill](../techniques/document-into-a-skill.md), when a
    long reference document sits behind a lookup tool (by page, by search
    or by section), and the agent picks the wrong part or never looks. A
    contents file that names what each section holds, one reference file
@@ -54,6 +62,8 @@ says how to recognise it.
 
 ## Budget
 
-The order does not change with the budget. Step 1 and step 3 have a
-medium cost. On a small budget, step 2 alone is worth an arm when the
-source is already attached.
+The order does not change with the budget. Steps 1, 2 and 4 have a
+medium cost. On a small budget, step 3 alone is worth an arm when the
+source is already attached. A RAG config's index is not in
+`--budget-usd`: on a small budget, take step 2 only when its parts are
+already indexed.
