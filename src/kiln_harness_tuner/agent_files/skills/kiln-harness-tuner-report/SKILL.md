@@ -88,6 +88,22 @@ going looking.
   advice to create each eval in the Kiln app and a link to the Kiln docs.
   Name the issues in Suggested next steps and point at that section; never
   restate its link or call a dropped item a failure.
+- `external_defects`, `defect_guard_actions`: the defects outside the
+  harness. A defect is a tool that returns wrong data, stale data, or a
+  quota: no experiment can fix it, and the owner fixes it outside the
+  tuner. `external_defects` is each open defect record, read from memory
+  when the report is written (`source`, `kind`, `seen`, `item_ids`,
+  `blocked_item_ids`, `issue_ids`, who recorded it and in which run);
+  `null` when the read failed, and `recorded_defects` then holds the
+  one-line summary of each record that an agent wrote in this run. A
+  record can be from an earlier run. `defect_guard_actions` is what code
+  did to planned fix arms because of them: it removed blocked items from an
+  arm's targets (`targets_removed`), or dropped the arm (`dropped`; a
+  dropped arm never ran and has no outcome). Code appends a "Fix
+  elsewhere: defects outside the harness (code-computed)" section after
+  your markdown, with each record's evidence. Name each defect in one line in Outcome, put
+  "fix it" first in Suggested next steps, and point at that section. Never
+  rebuild the section, and never call a defect a failure of an experiment.
 - `detectability` and `noise_check`: the pre-run check —
   per (eval, score) the train items with room, the significance floor, and
   the val split's size with an estimate of its room — and, with
@@ -274,7 +290,9 @@ promotion is "no clear loss", never "no loss". When the run screened candidates,
 cheapest or fastest rows with what they lost (see `screen_results`).>
 
 ## Suggested next steps
-<from the experiments' next: lines, pooled unmerged wins (say which are
+<first, each defect outside the harness that the owner must fix (see the
+"Fix elsewhere: defects outside the harness (code-computed)" section); then,
+from the experiments' next: lines, pooled unmerged wins (say which are
 val-rejected: ingredients for a different combination, not re-runs), starved
 issues, each promoted change whose hypothesis says "not in the knowledge" (a
 candidate for the knowledge system), and, while eval building is off, the issues no eval measures (create

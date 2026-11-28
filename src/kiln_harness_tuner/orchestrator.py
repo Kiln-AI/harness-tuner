@@ -77,6 +77,7 @@ from kiln_harness_tuner.integrity import (
 )
 from kiln_harness_tuner.items import (
     LOOP_DISPATCH_BACKOFFS,
+    apply_defect_guard,
     call_with_retries,
     drop_eval_building_items,
     execute_plan_item,
@@ -162,6 +163,7 @@ from kiln_harness_tuner.schemas import (
     ErrorInfo,
     EvalTarget,
     ExperimentItem,
+    ExternalDefect,
     FixWork,
     GateBlock,
     IntegrityReviewInput,
@@ -482,6 +484,12 @@ class Ctx:
     # Each drop's line, oldest first: every later planner reads them
     #   (`BatchPlanInput.dropped_eval_items`), so it knows they never ran.
     dropped_eval_lines: list[str] = field(default_factory=list)
+    # The defect guard (`items.apply_defect_guard`): each line of what it
+    #   did to a plan of this run, oldest first, for every later planner
+    #   (`BatchPlanInput.defect_guard_lines`). `external_defects`: the open
+    #   defect records at the last read that worked, used when a read fails.
+    defect_guard_lines: list[str] = field(default_factory=list)
+    external_defects: list[ExternalDefect] = field(default_factory=list)
     # The smell detectors in code (`kiln_harness_tuner.smells`): the
     #   detections of the present baseline, for every planner, and the rc
     #   they were run on. Run again when a promotion moves the baseline.
@@ -1027,6 +1035,7 @@ async def _dispatch_plan(
             baseline_latency = await ensure_baseline_speed(ctx, baseline.rc_id)
             baseline_cost = ctx.baseline_cost.get(baseline.rc_id)
         lever_attempts = await _lever_attempts(ctx)
+        external_defects = await _external_defects(ctx)
         models = await _allowed_models(ctx, baseline.rc_id)
         result = await call_with_retries(
             ctx.dispatch.batch_plan,
@@ -1083,6 +1092,8 @@ async def _dispatch_plan(
                 detections=planner_detections(
                     ctx.detections, ctx.baseline_reviews, ctx.detected_rc_id
                 ),
+                external_defects=external_defects,
+                defect_guard_lines=list(ctx.defect_guard_lines),
             ),
             backoffs=LOOP_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,
@@ -1109,7 +1120,10 @@ async def _dispatch_plan(
         # Every plan the loop runs comes from here, so the wave that follows
         # (and its `wave_start` line) carries only the items that will run.
         kept = drop_eval_building_items(ctx, result.data.items, wave)
-        if len(kept) != len(result.data.items):
+        if any(isinstance(i, ExperimentItem) for i in kept):
+            # Read again: this planner can have recorded a defect itself.
+            kept = apply_defect_guard(ctx, kept, wave, await _external_defects(ctx))
+        if kept != result.data.items:
             if not kept and not after_drop:
                 ctx.log.event(
                     "plan_all_items_dropped",
@@ -3639,6 +3653,39 @@ def lever_costs(ctx: Ctx) -> dict[str, LeverCost]:
         for technique, samples in ctx.build_samples.items()
         if samples
     }
+
+
+async def _external_defects(ctx: Ctx) -> list[ExternalDefect]:
+    """The open defect records, for the planner's input and for the defect
+    guard. Advisory, like `lever_attempts`: a read that fails is logged and
+    gives the records of the last read that worked, never a lost wave.
+
+    Train only: a record of an earlier run can name an item that a later
+    split change made held out. Such ids are taken out, and a record left
+    with no item is left out: its text describes held-out traces."""
+    try:
+        read = await ctx.memory.open_external_defects()
+    except KilnError:
+        ctx.log.event("external_defects_unavailable")
+        return list(ctx.external_defects)
+    heldout = ctx.analyzer.heldout_ids
+    kept = []
+    for defect in read:
+        if heldout and defect.item_ids:
+            items = [i for i in defect.item_ids if i not in heldout]
+            if not items:
+                continue
+            defect = defect.model_copy(
+                update={
+                    "item_ids": items,
+                    "blocked_item_ids": [
+                        i for i in defect.blocked_item_ids if i not in heldout
+                    ],
+                }
+            )
+        kept.append(defect)
+    ctx.external_defects = kept
+    return list(kept)
 
 
 async def _lever_attempts(ctx: Ctx) -> dict[str, dict[str, int]]:

@@ -355,15 +355,6 @@ Failure: a classifier gives one class to most inputs.
 
 Failure: the change fixes the items it was built for, and items that passed now fail.
 
-### Playbook: a defect outside the harness
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Failure: a broken tool, stale data or a quota. No harness change fixes it.
-
 ### Playbook: eval feedback with a score and no reason
 
 - Kind: playbook
@@ -561,15 +552,6 @@ A fix must pass the items that led to it, and break none that passed.
 
 Compare the spread of the predicted labels with the spread of the expected labels.
 
-### A "fix elsewhere" result in the report
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-The report names a defect outside the harness, which no experiment can fix.
-
 ### A baseline review that closes a smell issue
 
 - Kind: code
@@ -650,6 +632,25 @@ On a long multi-turn trace that can use it, check that the prompt cache is used.
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
 
+### Blocked items out of an arm's first block
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [architecture](../docs/architecture.md), section 8, "Defect records"
+
+A train item that a defect record blocks stays among the failing items of the discriminating
+block. An arm can then stop NOT LANDED because of the defect. Take such items after the others.
+
+### A check that a recorded defect is gone
+
+- Kind: code
+- Where: tuner
+- Depends on: None
+- Source: [architecture](../docs/architecture.md), section 8, "Defect records"
+
+Only the owner resolves a defect record. A cheap drive of one blocked item at the start of a
+run can show that the tool works again, and tell the owner that the record is out of date.
 ### Output modes that a model supports
 
 - Kind: gap

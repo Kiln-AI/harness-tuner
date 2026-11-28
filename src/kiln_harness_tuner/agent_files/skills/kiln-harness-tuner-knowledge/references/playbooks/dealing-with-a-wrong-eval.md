@@ -32,7 +32,8 @@ tunes the agent toward the judge, not toward the task.
    eval-data failure or a judge failure. Only a config failure is a
    candidate for an arm. An environment failure (a tool server, the
    provider) or noise (the same config passes it on another run) gets
-   nothing until it recurs.
+   nothing until it recurs. A tool failure that recurs:
+   [a defect outside the harness](a-defect-outside-the-harness.md).
 2. When it is not clear that the baseline still fails in the way an
    issue says: measure the issue on the current baseline (a
    `measure_issue_baseline` item).

@@ -43,6 +43,7 @@ means that the shape does not matter.
 <!-- BEGIN GENERATED: playbooks -->
 | Playbook | Kind | Applies to | Description |
 |---|---|---|---|
+| [a-defect-outside-the-harness](playbooks/a-defect-outside-the-harness.md) | failure | tools | A tool is broken, its data is stale, or a quota stops it. No harness change fixes that. Tell it from a harness problem, do what the harness still can, then record it for the owner. |
 | [a-few-items-carry-the-signal](playbooks/a-few-items-carry-the-signal.md) | eval | all | Every difference between arms comes from the same few items. Find out why those items move - noise, a wrong expected output, or the only real failures - before you plan against them. |
 | [an-eval-too-small-for-the-effect](playbooks/an-eval-too-small-for-the-effect.md) | eval | all | The eval has too few items, or too few that fail, to show a change of the size you predict. Check the size before the arm, then aim at more items, a larger effect, or a merge. |
 | [answers-not-grounded](playbooks/answers-not-grounded.md) | failure | all | The answers need knowledge that is not in the agent's context - attach the source, then add scope discipline. A source behind a lookup tool can move into a skill. |

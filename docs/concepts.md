@@ -201,6 +201,7 @@ why a crashed run loses spend but not knowledge.
 | `constraint` | project | an open question for a person, and its re-ask condition |
 | `lesson` | project | something learned about this world, or about working in it |
 | `dead_end` | task | an approach ruled out, with the conditions under which it is dead |
+| `external_defect` | task | a defect outside the harness (a broken tool, stale data, a quota), with the train items that show it; no experiment can fix it, and the report names it |
 
 The memory API has no structured fields beyond tags, so state is encoded in
 text by convention: lifecycle prefixes on an issue's overview (`UNMEASURED:`,

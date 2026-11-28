@@ -60,7 +60,11 @@ from kiln_harness_tuner.job_drives import (
     run_config_tool_ids,
 )
 from kiln_harness_tuner.kiln import JOB_WAIT_MARGIN_SECS, KilnAPIError, KilnError
-from kiln_harness_tuner.memory_schema import RecordKind
+from kiln_harness_tuner.memory_schema import (
+    DefectRecord,
+    RecordKind,
+    defect_is_resolved,
+)
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import ModelPolicy
 from kiln_harness_tuner.rc_inherit import FROZEN_KEYS, InheritError, inherit
@@ -163,6 +167,15 @@ OPENENV_LIST_TIMEOUT_SECS = 45.0
 TRAIN_EVAL_WAIT_TIMEOUT_SECS = 600.0
 # How many over-cap answers a gateway process keeps for `get_answer_part`.
 KEPT_ANSWERS = 16
+# A defect record has one writer, so that code can read every one back. Its
+# owner resolves it; no agent does.
+DEFECT_WRITE_REFUSED = (
+    "an `external_defect` record is written by record_external_defect only,"
+    " and no operation changes one: its owner resolves it"
+)
+# The page size of the defect-record listing, and of each `/by_ids` read
+# (ids go in the query string, so a long list is read in parts).
+DEFECT_PAGE_SIZE = 50
 
 
 @dataclass
@@ -937,6 +950,8 @@ class Gateway:
     async def memory_create(self, req: m.MemoryCreate) -> m.MemoryView:
         _scope_ok(req.scope, self.s)
         _code_tags_refused(req.tags)
+        if RecordKind.EXTERNAL_DEFECT.value in req.tags:
+            raise GatewayError(DEFECT_WRITE_REFUSED)
         row = await self.call(
             "POST", f"{self.s.project}/memories", body=req.model_dump(exclude_none=True)
         )
@@ -954,6 +969,8 @@ class Gateway:
                 "writes it"
             )
         _code_tags_refused(req.tags or [])
+        if RecordKind.EXTERNAL_DEFECT.value in [*current.tags, *(req.tags or [])]:
+            raise GatewayError(DEFECT_WRITE_REFUSED)
         body = req.model_dump(exclude_none=True, exclude={"id"})
         view = m.project(
             m.MemoryView,
@@ -961,6 +978,144 @@ class Gateway:
         )
         self.s.record_memory("update", view)
         return view
+
+    async def _open_defect(self, key: str) -> tuple[str, DefectRecord] | None:
+        """The open defect record of this task with this key (source and
+        kind), as its id and its content, or None."""
+        scope = f"task::{self.s.task_id}"
+        ids: list[str] = []
+        offset = seen = 0
+        while True:
+            page = (
+                await self.call(
+                    "GET",
+                    f"{self.s.project}/memories",
+                    query_params={
+                        "scope": scope,
+                        "tags": [RecordKind.EXTERNAL_DEFECT.value],
+                        "limit": DEFECT_PAGE_SIZE,
+                        "offset": offset,
+                    },
+                )
+                or {}
+            )
+            rows = _rows(page, "listings")
+            ids += [
+                str(r["id"])
+                for r in rows
+                if r.get("id") and not defect_is_resolved(str(r.get("overview") or ""))
+            ]
+            offset += len(rows)
+            seen += len(rows)
+            # The `matched` bound stops a server that repeats a page.
+            if (
+                not rows
+                or not page.get("remaining")
+                or seen >= int(page.get("matched") or 0)
+            ):
+                break
+        rows = []
+        for start in range(0, len(ids), DEFECT_PAGE_SIZE):
+            rows += _rows(
+                await self.call(
+                    "GET",
+                    f"{self.s.project}/memories/by_ids",
+                    query_params={"ids": ids[start : start + DEFECT_PAGE_SIZE]},
+                )
+            )
+        for row in rows:
+            if row.get("scope") != scope:
+                continue
+            if defect_is_resolved(str(row.get("overview") or "")):
+                continue
+            found = DefectRecord.parse(row.get("content"))
+            if found is not None and found.key == key:
+                return str(row["id"]), found
+        return None
+
+    async def record_external_defect(
+        self, req: m.ExternalDefectReport
+    ) -> m.ExternalDefectRecorded:
+        """Write the record of a defect outside the harness, or add this
+        report to the open record of the same source and kind. The format is
+        code's (`memory_schema.DefectRecord`): the planner's input, the
+        planner guard and the report read it back."""
+        train = self.s.train_items()
+        unknown = sorted(set(req.item_ids) - train)
+        if unknown:
+            raise GatewayError(
+                f"not train items: {', '.join(unknown)}. item_ids names train"
+                " items only (list_train_items gives their ids)"
+            )
+        stray = sorted(set(req.blocked_item_ids) - set(req.item_ids))
+        if stray:
+            raise GatewayError(
+                f"blocked_item_ids names items that item_ids does not:"
+                f" {', '.join(stray)}"
+            )
+        if req.issue_ids:
+            issues = await self.memory_get(m.MemoryIdsRequest(ids=req.issue_ids))
+            known = {view.id for view in issues if RecordKind.ISSUE.value in view.tags}
+            missing = [i for i in req.issue_ids if i not in known]
+            if missing:
+                raise GatewayError(
+                    f"not issue records of this run's scopes: {', '.join(missing)}"
+                )
+        items = set(req.item_ids)
+        # The start-up evals, and the evals that this run created.
+        every_eval = set(self.s.train.per_eval) | {
+            eval_id
+            for kind, _split, eval_id in self.s.created.values()
+            if kind == "eval_item" and eval_id
+        }
+        evals = sorted(e for e in every_eval if items & self.s.train_items(e))
+        report = DefectRecord(
+            source=req.source,
+            kind=req.kind,
+            seen=req.seen,
+            checked=req.checked,
+            item_ids=tuple(req.item_ids),
+            blocked_item_ids=tuple(req.blocked_item_ids),
+            eval_ids=tuple(evals),
+            rc_ids=tuple(req.rc_ids),
+            issue_ids=tuple(req.issue_ids),
+            harness=req.harness_can_still or "",
+            role=self.s.role,
+            run_id=self.s.run_dir.name if self.s.run_dir is not None else "",
+            date=datetime.now().date().isoformat(),
+        ).bounded()
+        existing = await self._open_defect(report.key)
+        if existing is None:
+            record = report
+            row = await self.call(
+                "POST",
+                f"{self.s.project}/memories",
+                body={
+                    "overview": record.overview(),
+                    "scope": f"task::{self.s.task_id}",
+                    "content": record.render(),
+                    "tags": [RecordKind.EXTERNAL_DEFECT.value],
+                },
+            )
+        else:
+            memory_id, first = existing
+            record = first.merged(report)
+            row = await self.call(
+                "PATCH",
+                f"{self.s.project}/memories/{memory_id}",
+                body={"content": record.render()},
+            )
+        view = m.project(m.MemoryView, row)
+        self.s.record_memory("create" if existing is None else "update", view)
+        return m.ExternalDefectRecorded(
+            id=view.id,
+            overview=view.overview,
+            merged=existing is not None,
+            item_ids=list(record.item_ids),
+            blocked_item_ids=list(record.blocked_item_ids),
+            eval_ids=list(record.eval_ids),
+            not_kept=sorted(set(req.item_ids) - set(record.item_ids)),
+        )
 
     # ------------------------------------------------------------ artifacts
 
@@ -2036,6 +2191,12 @@ OPS = _ops(
     ("memory_summary", m.MemorySummaryRequest, "Counts per scope."),
     ("memory_create", m.MemoryCreate, "Write a memory record."),
     ("memory_update", m.MemoryUpdate, "Update a memory record."),
+    (
+        "record_external_defect",
+        m.ExternalDefectReport,
+        "Record a defect outside the harness (a broken tool, stale data, a"
+        " quota), with the train items that show it. The report names it.",
+    ),
     ("list_code_tools", m.NoArgs, "The project's code tools."),
     ("get_code_tool", m.ById, "One code tool, with its code."),
     ("list_skills", m.NoArgs, "The project's skills."),
@@ -2146,6 +2307,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_ARTIFACTS,
         *_MEM_READ,
         *_MEM_WRITE,
+        "record_external_defect",
     ),
     "create_experiment_rc": (
         *_TASK,
@@ -2190,6 +2352,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_ARTIFACTS,
         *_MEM_READ,
         *_MEM_WRITE,
+        "record_external_defect",
     ),
     "promote_best": (
         "get_task",

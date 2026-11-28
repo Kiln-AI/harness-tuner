@@ -258,7 +258,25 @@ Per wave, in order:
    the same wave, with the drops in its input (one
    `plan_all_items_dropped` event). If that plan also has no item left, the
    run exits `empty_plan`. The report names each open issue that has no eval
-   (section 11).
+   (section 11). **The defect guard** (`items.apply_defect_guard`): the
+   plan's input carries each open defect record
+   (`BatchPlanInput.external_defects`, section 8): a defect outside the
+   harness, which no experiment can fix. After the planner returns, code
+   reads the records again, because the planner can have recorded one in
+   that session. For each fix arm, code removes from `target_items` the
+   train items that a record blocks. It drops an arm whose targets were all
+   blocked, and an arm with no target on an issue that a record with
+   blocked items names. Each action is one `defect_guard` event and one
+   line, and each later planner input lists the lines
+   (`defect_guard_lines`). A plan with no item left is planned once more,
+   as for the eval-building guard. The guard changes what an arm targets,
+   never what is measured: a blocked item stays in every measurement. A
+   merge, a probe, a measurement item and a screening candidate are left as
+   they are. A failed read of the records is logged
+   (`external_defects_unavailable`) and uses the records of the last read
+   that worked. A record of an earlier run can name an item that a later
+   split change made held out: the planner's copy leaves such ids out, and
+   leaves out a record with no train item left (`analyzer.heldout_ids`).
 6. **Optionally, screening rounds** (`_screening_phase`). When the plan
    carries `screen` instead of items, code measures every variant it names
    on the screening subset and calls the planner again with the table
@@ -838,6 +856,36 @@ same smell and run config is not written again. `find_smell_issues` reads
 them back in any state: one is enough to show that the run config was
 reviewed.
 
+**Defect records** (`DefectRecord`, `RecordKind.EXTERNAL_DEFECT`) name a
+defect outside the harness: a tool that returns wrong data, stale data, a
+quota. No change to the run config can fix one, so it is not an issue, and
+no experiment is planned on it. A record is a task-scope memory with the
+one tag `external_defect`, the overview `FIX ELSEWHERE: <source> (<kind>):
+<what was seen>`, and `key: value` content lines: `source`, `defect`
+(`broken_tool`, `stale_data`, `quota` or `other`), `seen`, `checked` (how
+it was told from a harness problem), `items` (the train items whose traces
+show it), `blocked items` (the items among them that no harness change can
+make pass), `evals`, `run configs`, `issues`, `harness` (what a harness
+change can still do) and `recorded` (the role, the run, the date). Its one
+writer is the gateway operation `record_external_defect`, which the planner
+and the analyzer have. The operation accepts train item ids only, takes
+the evals from the train set, checks that each issue id is an issue record,
+and adds a report to the open record of the same source and kind instead of
+a second record: the ids are joined, the first `seen` text stays, and the
+later `seen` text becomes one `- ` line (the newest three are kept).
+`memory_create` refuses the tag and `memory_update` refuses such a record,
+so every record has the format that code reads back, and no agent resolves
+one. Two sessions that record the same defect at the same moment can write
+two records; the report then shows both. The owner resolves a record after
+the fix: `RESOLVED:` at the start of its overview (in any case), or a
+delete. A record keeps at most 30 item ids, the blocked ones first. `MemoryWriter.open_external_defects` reads
+the open records for the planner's input, for the defect guard (section
+3.2) and for the report (section 11). The baseline reviewer records none:
+it writes nothing and does not diagnose a failed item. It can name the
+smell `tools-on-a-live-server`, and the playbook
+`a-defect-outside-the-harness` tells the planner and the analyzer how to
+confirm a defect before they record it.
+
 Both caps are enforced by the API and clamped client-side before any write:
 `OVERVIEW_MAX_CHARS` and `CONTENT_MAX_CHARS` in `memory_schema.py`. The clamps
 are structure-aware — a replacement write keeps the head's identity lines and
@@ -889,8 +937,9 @@ it would be refused. Four rules keep the state readable:
 Agents do their own discovery writes — `lesson`, `dead_end`, a new `issue` —
 through the gateway's `memory_create` / `memory_update`, in the two scopes
 only. Lifecycle writes are code's alone by contract: the memory operations
-enforce the two scopes, refuse the `val` and `baseline` tags, and refuse
-any update of the `baseline` record. They do not check the record kind.
+enforce the two scopes, refuse the `val`, `baseline` and `external_defect`
+tags, and refuse any update of the `baseline` record. They do not check any
+other record kind.
 An agent cannot go around this guard with Kiln's own memory tools: the
 gateway refuses them in a code tool allowlist and in a new run config
 (section 12, "No tool that reaches Kiln's own state").
@@ -1133,6 +1182,23 @@ way.
   issues and the ones setup found with no eval binding. The
   section tells the owner to create each eval in the Kiln app, with a link
   to the Kiln docs on evals.
+  "## Fix elsewhere: defects outside the harness (code-computed)"
+  (`render_fix_elsewhere_appendix`) is there when the task has an open
+  defect record (section 8), from this run or from an earlier one. For
+  each record it gives the tool or the source and the kind of defect, what
+  was seen, how it was checked, the train items that show it with their
+  evals, the items that cannot pass until it is fixed, the run configs, the
+  issues that it explains, what a harness change can still do, each later
+  report of it, who recorded it and in which run, the memory id, and what
+  the defect guard did in this run (`RunStatus.defect_guard_actions`,
+  folded from the `defect_guard` events). It ends with how the owner
+  resolves a record. The records are read from memory when the report is
+  written (`RunStatus.external_defects`), on both report paths; the
+  fallback report reads once, without the retry ladder. When the read
+  fails, the rows are the one-line summaries of the records that agents
+  wrote in this run (`RunStatus.recorded_defects`, folded from the
+  `memory_written` events). The section does not depend on the report
+  agent: the agent gets the same records and only points at it.
   "## Design review" (`render_smells_appendix`) is there when a baseline of the
   run had a detection or a finding, or a review that was not done. For
   each baseline it gives the review's status line, the detections table
@@ -1286,7 +1352,9 @@ reads a list: it takes the last `"type": "result"` event.
      item and takes the input from the item, never from the agent — on a
      multi-turn or OpenEnv task as a one-item TRAIN eval job (section 16); an eval
      job runs split `train` on the eval's train items; memory writes stay in
-     the two scopes, and the `val` and `baseline` tags are code's. A new eval
+     the two scopes, and the `val` and `baseline` tags are code's. A defect
+     record (`record_external_defect`, section 8) names train items only, in
+     code's format. A new eval
      (`create_eval`) gets splits the gateway assigns; its val and test
      items are never readable back. There is no operation that changes
      settings or providers, and no operation for deletes, split edits or
@@ -1567,6 +1635,9 @@ tree with one deliberate violation for each rule and asserts that exactly
 that rule is reported; `test_backlog.py` holds `specs/backlog.md` to its
 format. `test_smells.py` and `test_baseline_review.py` cover the detectors
 and the review step against the fake dispatcher and the fake Kiln.
+`test_external_defects.py` covers the defect record's format, the gateway
+operation that writes it, the defect guard on a plan, and the report's
+"Fix elsewhere" section.
 
 **The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
 runs in CI, not under pytest, because the suite runs from the checkout and

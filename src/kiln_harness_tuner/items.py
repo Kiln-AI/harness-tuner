@@ -71,6 +71,7 @@ from kiln_harness_tuner.schemas import (
     EvalOnlyItem,
     EvalTarget,
     ExperimentItem,
+    ExternalDefect,
     FixWork,
     ItemOutcome,
     LatencyComparison,
@@ -319,6 +320,95 @@ def drop_eval_building_items(ctx: Ctx, items: list, wave: int) -> list:
         )
         logger.warning("%s", line)
         ctx.dropped_eval_lines.append(line)
+    return kept
+
+
+def _ids(ids: Collection[str]) -> str:
+    return ", ".join(sorted(ids))
+
+
+def apply_defect_guard(
+    ctx: Ctx, items: list, wave: int, defects: list[ExternalDefect]
+) -> list:
+    """The defect guard: no experiment can fix a defect outside the harness
+    (a broken tool, stale data, a quota), so no fix arm is spent on the
+    train items that an open defect record blocks. For each fix arm:
+
+    - the blocked items are removed from its `target_items`. The `targets`
+      stop rule would end the arm NOT LANDED on an item that cannot pass;
+    - an arm whose targets were all blocked is dropped;
+    - an arm with no target, on an issue that a record with blocked items
+      names, is dropped. The planner plans that issue again only with
+      target items that no record blocks.
+
+    Each action is one `defect_guard` event and one line. Every later
+    planner reads the lines (`BatchPlanInput.defect_guard_lines`). A merge,
+    a probe, a measurement and a screening candidate are left as they are.
+    The blocked items stay in every measurement: the guard changes what an
+    arm targets, never what is measured."""
+    blocked: dict[str, list[str]] = {}
+    issues: dict[str, list[str]] = {}
+    for defect in defects:
+        for item_id in defect.blocked_item_ids:
+            blocked.setdefault(item_id, []).append(defect.memory_id)
+        if defect.blocked_item_ids:
+            for issue_id in defect.issue_ids:
+                issues.setdefault(issue_id, []).append(defect.memory_id)
+    if not blocked:
+        return list(items)
+    kept = []
+    for item in items:
+        if not (isinstance(item, ExperimentItem) and isinstance(item.work, FixWork)):
+            kept.append(item)
+            continue
+        work = item.work
+        hit = [t for t in work.target_items if t in blocked]
+        left = [t for t in work.target_items if t not in blocked]
+        if hit:
+            defect_ids = sorted({d for t in hit for d in blocked[t]})
+            if left:
+                action = "targets_removed"
+                line = (
+                    f"{item.id}: removed the target item(s) {_ids(hit)}: the"
+                    f" defect record(s) {_ids(defect_ids)} say that no harness"
+                    " change can make them pass"
+                )
+                kept.append(
+                    item.model_copy(
+                        update={"work": work.model_copy(update={"target_items": left})}
+                    )
+                )
+            else:
+                action = "dropped"
+                line = (
+                    f"dropped {item.id}: the defect record(s) {_ids(defect_ids)}"
+                    f" block every target item ({_ids(hit)}), so no harness"
+                    " change can make them pass"
+                )
+        elif not work.target_items and work.issue_memory_id in issues:
+            defect_ids = sorted(set(issues[work.issue_memory_id]))
+            action = "dropped"
+            line = (
+                f"dropped {item.id}: the defect record(s) {_ids(defect_ids)} name"
+                f" issue {work.issue_memory_id}, and the item names no target"
+                " item. Plan a fix on this issue only with target items that no"
+                " defect record blocks"
+            )
+        else:
+            kept.append(item)
+            continue
+        ctx.log.event(
+            "defect_guard",
+            wave=wave,
+            item_id=item.id,
+            action=action,
+            issue_memory_id=work.issue_memory_id,
+            item_ids=sorted(hit),
+            defect_ids=defect_ids,
+            line=line,
+        )
+        logger.warning("%s", line)
+        ctx.defect_guard_lines.append(line)
     return kept
 
 

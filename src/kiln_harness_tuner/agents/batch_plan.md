@@ -38,6 +38,20 @@ and you plan it on an active eval that the change serves. When it is
 `true`, the skill's rules for `eval_only` items and `needs_eval` apply as
 written.
 
+**Defects outside the harness.** Your input's `external_defects` lists
+each open defect record: a tool that returns wrong data, stale data, or a
+quota, with the train items that show it. No experiment can fix one, so
+plan no fix arm on it, and keep its `blocked_item_ids` out of
+`target_items`. Code removes a blocked item from an arm's targets. Code
+drops a fix arm whose targets are all blocked, and a fix arm with no target
+on an issue that a record with blocked items names. `defect_guard_lines` lists what code did
+to earlier plans of this run: a dropped item never ran. When the lines name
+every item of your last plan for this wave, this is your second and last
+plan for the wave. When you find such a defect in the traces, follow the
+playbook `references/playbooks/a-defect-outside-the-harness.md`
+of the knowledge skill and record it with `record_external_defect` (the
+skill's "Defects outside the harness").
+
 Your input's `dropped_eval_items` lists each item that code dropped from an
 earlier plan of this run, one line each. A dropped item never ran: do not
 count it as an attempt, and do not plan it again. When the list holds items

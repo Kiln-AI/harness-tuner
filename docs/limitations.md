@@ -70,6 +70,18 @@ dropped items. When code drops every item of a plan, the planner plans that
 wave once more. An issue that no eval measures is then left alone. The report's "Issues with no eval" section names it, so that
 you can create its eval in the Kiln app.
 
+**The loop does not fix a defect outside the harness, and does not check
+that one is gone.** When a tool returns wrong data, its data is stale, or a
+quota stops it, the planner or the analyzer records it, and the report's
+"Fix elsewhere" section names it. Code keeps the train items that cannot
+pass out of the targets of later experiments, in this run and in later
+runs, until you mark the record as resolved (`RESOLVED: ` at the start of
+its overview) or delete it. The tuner does not test that the tool works
+again. Those items stay in every measurement, so an eval with many of them
+shows less of an arm's effect, and an arm can stop early because of them.
+The record is one agent's reading of the traces, not a measurement: read
+the traces that it names before you act on it.
+
 **The loop never reads test.** That is deliberate — it is how the number you
 ship on stays one the loop did not optimize against — but it means the loop
 cannot tell you that number. You take it yourself, outside the loop.

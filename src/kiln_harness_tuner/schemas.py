@@ -1238,6 +1238,47 @@ class IssueWithoutEval(BaseModel):
     overview: str  # the record's one-line overview, prefix included
 
 
+class ExternalDefect(BaseModel):
+    """A defect outside the harness, from an open `external_defect` memory
+    record (`memory_schema.DefectRecord`): a broken tool, stale data, a
+    quota. No experiment can fix it. The planner gets every open one in its
+    input, and the report names each one for the owner. Train only: the
+    gateway accepts train item ids alone, and the two roles that can record
+    one read train records alone."""
+
+    memory_id: str
+    overview: str  # the record's one line
+    source: str = ""  # the tool or the data source
+    kind: str = ""  # broken_tool | stale_data | quota | other
+    seen: str = ""  # what the traces show
+    checked: str = ""  # how it was told from a harness problem
+    item_ids: list[str] = []  # the train items that show it
+    # The items among them that no harness change can make pass. The
+    #   planner guard removes them from a fix arm's `target_items`.
+    blocked_item_ids: list[str] = []
+    eval_ids: list[str] = []  # the evals that hold those train items
+    rc_ids: list[str] = []
+    issue_ids: list[str] = []  # the issues whose failing items it explains
+    harness: str = ""  # what a harness change can still do
+    recorded_by: str = ""  # the role
+    run_id: str = ""
+    date: str = ""
+    later_reports: list[str] = []  # one line for each later report of it
+
+
+class DefectGuardAction(BaseModel):
+    """What the planner guard did to one planned fix arm because of the open
+    defect records (`defect_guard` events, `items.apply_defect_guard`)."""
+
+    item_id: str
+    wave: int
+    action: Literal["targets_removed", "dropped"]
+    issue_memory_id: str = ""
+    item_ids: list[str] = []  # the blocked train items that the arm named
+    defect_ids: list[str] = []  # the memory ids of the defect records
+    line: str = ""
+
+
 Objective = Literal["quality", "speed", "cost"]
 # `--objective`: what the loop optimises. quality = the eval scores (the
 # behaviour before the other objectives); speed = per-request wall-clock latency, and
@@ -2022,6 +2063,15 @@ class BatchPlanInput(BaseModel):
     #   reviewer's reading of it when a review of this baseline read it.
     #   Empty when none was found.
     detections: list[PlannerDetection] = []
+    # Every open defect record of this task, from this run and from earlier
+    #   runs: a defect outside the harness, which no experiment can fix.
+    #   Code removes the `blocked_item_ids` from a fix arm's `target_items`,
+    #   and drops a fix arm that is left with no target, or that names no
+    #   target on an issue that a record names. Empty when there is none.
+    external_defects: list[ExternalDefect] = []
+    # What that guard did to earlier plans of this run, one line each,
+    #   oldest first. A dropped item never ran.
+    defect_guard_lines: list[str] = []
 
 
 class EvalBuildInput(BaseModel):
@@ -2337,6 +2387,16 @@ class RunStatus(BaseModel):
     # Each review of a baseline by the baseline reviewer, in order
     #   (`baseline_review` events): done, skipped, failed or off.
     baseline_reviews: list[BaselineReview] = []
+    # The report's "Fix elsewhere" section. `external_defects`: the open
+    #   defect records, read from memory when the report is written (None =
+    #   not read, or the read failed). `recorded_defects`: the defect records
+    #   that agents wrote or added to in this run, id -> overview
+    #   (`memory_written` events): the section's rows when the read failed.
+    #   `defect_guard_actions`: what the planner guard did (`defect_guard`
+    #   events).
+    external_defects: list[ExternalDefect] | None = None
+    recorded_defects: dict[str, str] = {}
+    defect_guard_actions: list[DefectGuardAction] = []
 
 
 class ReportInput(BaseModel):

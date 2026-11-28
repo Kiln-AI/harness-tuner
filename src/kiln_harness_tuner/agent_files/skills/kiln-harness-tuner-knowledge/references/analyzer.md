@@ -31,6 +31,7 @@ A class of failure seen in the traces of eval items.
 <!-- BEGIN GENERATED: playbooks-failure -->
 | Playbook | Applies to | Description |
 |---|---|---|
+| [a-defect-outside-the-harness](playbooks/a-defect-outside-the-harness.md) | tools | A tool is broken, its data is stale, or a quota stops it. No harness change fixes that. Tell it from a harness problem, do what the harness still can, then record it for the owner. |
 | [answers-not-grounded](playbooks/answers-not-grounded.md) | all | The answers need knowledge that is not in the agent's context - attach the source, then add scope discipline. A source behind a lookup tool can move into a skill. |
 | [change-the-surface-not-the-words](playbooks/change-the-surface-not-the-words.md) | all | Two text changes failed on one issue, or the failure is mechanical. Change what the model touches before the words it reads. A policy failure comes here only after two text arms failed. |
 | [failure-at-a-tool-call](playbooks/failure-at-a-tool-call.md) | tools | The failing message comes before or with a tool call - a preamble, or a narration that rides the call. A new tool description, then a directive in the tool's response. |

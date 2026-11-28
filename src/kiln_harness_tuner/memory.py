@@ -66,6 +66,7 @@ from kiln_harness_tuner.memory_schema import (
     VAL_STATS_OVERVIEW,
     VAL_STATS_TAG,
     BaselineView,
+    DefectView,
     ExperimentState,
     ExperimentView,
     FixOpening,
@@ -85,6 +86,7 @@ from kiln_harness_tuner.memory_schema import (
     baseline_seeded_overview,
     canonical_question,
     clamp,
+    defect_is_resolved,
     eval_ids_from_tags,
     eval_tag,
     experiment_label_for,
@@ -132,6 +134,7 @@ from kiln_harness_tuner.schemas import (
     EvalDescription,
     ExperimentItem,
     ExperimentResult,
+    ExternalDefect,
     MergeWork,
     OpenUnknown,
     ProbeItem,
@@ -802,6 +805,56 @@ class MemoryWriter:
         )
         records = await self._get_many((s.id for s in summaries), retries=retries)
         return [IssueView.from_record(r) for r in records]
+
+    async def open_external_defects(
+        self, *, retries: bool | None = None
+    ) -> list[ExternalDefect]:
+        """Every open defect record of the task (`external_defect`, not
+        `RESOLVED:`), oldest first: the planner's input, the planner guard
+        and the report read them. The gateway operation
+        `record_external_defect` is their one writer. A record that has the
+        tag and not the content lines is kept with its overview alone: it
+        is shown, and it blocks nothing. One listing plus one `/by_ids`, and
+        no `/by_ids` when the listing is empty."""
+        summaries = await self._list(
+            self.task_scope, [RecordKind.EXTERNAL_DEFECT.value], retries=retries
+        )
+        records = await self._get_many(
+            (s.id for s in summaries if not defect_is_resolved(s.overview)),
+            retries=retries,
+        )
+        found: list[ExternalDefect] = []
+        for record in records:
+            view = DefectView.from_record(record)
+            if view.resolved:
+                continue
+            defect = view.defect
+            if defect is None:
+                found.append(ExternalDefect(memory_id=view.id, overview=view.overview))
+                continue
+            found.append(
+                ExternalDefect(
+                    memory_id=view.id,
+                    overview=view.overview,
+                    source=defect.source,
+                    kind=defect.kind,
+                    seen=defect.seen,
+                    checked=defect.checked,
+                    item_ids=list(defect.item_ids),
+                    blocked_item_ids=[
+                        i for i in defect.blocked_item_ids if i in defect.item_ids
+                    ],
+                    eval_ids=list(defect.eval_ids),
+                    rc_ids=list(defect.rc_ids),
+                    issue_ids=list(defect.issue_ids),
+                    harness=defect.harness,
+                    recorded_by=defect.role,
+                    run_id=defect.run_id,
+                    date=defect.date,
+                    later_reports=[note.removeprefix("- ") for note in defect.notes],
+                )
+            )
+        return found
 
     # ---- baseline record (reads for the loop; write = promote below) ----
 

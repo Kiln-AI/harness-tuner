@@ -21,13 +21,18 @@ from kiln_harness_tuner.items import LOOP_DISPATCH_BACKOFFS, call_with_retries
 from kiln_harness_tuner.memory_schema import (
     BASELINE_AUDIT_TAG,
     BASELINE_JUDGE_COPY_TAG,
+    DEFECT_KINDS,
+    DEFECT_RESOLVED_PREFIX,
     ISSUE_TERMINAL_STATES,
     SMELL_TAG,
+    defect_is_resolved,
 )
 from kiln_harness_tuner.schemas import (
     PROVIDER_LANE,
     SUBSCRIPTION_LANE,
     BaselineReview,
+    DefectGuardAction,
+    ExternalDefect,
     IssueWithoutEval,
     ItemOutcome,
     ItemStatus,
@@ -840,6 +845,153 @@ def render_missing_evals_appendix(status: RunStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
+FIX_ELSEWHERE_APPENDIX_HEADING = (
+    "## Fix elsewhere: defects outside the harness (code-computed)"
+)
+# The roles that can record a defect (`gateway.ops.ROLE_OPS`), as the report
+# names them. Another role's name is shown as it is.
+_DEFECT_ROLES = {
+    "batch_plan": "the planner",
+    "analyze_experiment_results": "the analyzer",
+}
+
+
+async def read_external_defects(
+    ctx: Ctx, *, retries: bool | None = None
+) -> list[ExternalDefect] | None:
+    """The open defect records, read from memory when the report is
+    written, so the records of earlier runs are in the report too. None
+    when the read fails; the section then uses what the run recorded."""
+    try:
+        return await asyncio.wait_for(
+            ctx.memory.open_external_defects(retries=retries), ISSUE_READ_TIMEOUT_SECS
+        )
+    except Exception as exc:  # the report must ship without it
+        logger.warning("report: the defect record read failed: %r", exc)
+        return None
+
+
+def _code_ids(ids: list[str]) -> str:
+    return ", ".join(f"`{_md(i)}`" for i in ids)
+
+
+def _guard_phrase(action: DefectGuardAction) -> str:
+    where = f"`{_md(action.item_id)}` (wave {action.wave})"
+    if action.action == "dropped":
+        return f"code dropped the fix arm {where}"
+    return f"code removed {_code_ids(action.item_ids)} from the targets of {where}"
+
+
+def _defect_lines(
+    defect: ExternalDefect, actions: list[DefectGuardAction]
+) -> list[str]:
+    if not defect.source:
+        # The record has the tag and not the lines that code writes.
+        return [
+            f"### {_md(defect.overview)}",
+            "",
+            f"- **Memory record:** `{_md(defect.memory_id)}`. Code could not read"
+            " its fields, so it blocks no train item.",
+        ]
+    kind = DEFECT_KINDS.get(defect.kind, defect.kind)
+    lines = [
+        f"### `{_md(defect.source)}`: {_md(kind)}",
+        "",
+        f"- **What was seen:** {_md(defect.seen)}",
+        f"- **How it was checked:** {_md(defect.checked)}",
+    ]
+    shown = f"- **Train items that show it:** {_code_ids(defect.item_ids)}"
+    if defect.eval_ids:
+        shown += f" (evals {_code_ids(defect.eval_ids)})"
+    lines.append(shown)
+    if defect.blocked_item_ids:
+        lines.append(
+            "- **Train items that cannot pass until it is fixed:**"
+            f" {_code_ids(defect.blocked_item_ids)}"
+        )
+    else:
+        lines.append(
+            "- **Train items that cannot pass until it is fixed:** none named."
+            " A harness change can still make each item pass."
+        )
+    if defect.rc_ids:
+        lines.append(f"- **Run configs that show it:** {_code_ids(defect.rc_ids)}")
+    if defect.issue_ids:
+        lines.append(f"- **Issues that it explains:** {_code_ids(defect.issue_ids)}")
+    if defect.harness:
+        lines.append(f"- **What a harness change can still do:** {_md(defect.harness)}")
+    lines += [f"- **Seen again:** {_md(note)}" for note in defect.later_reports]
+    role = _DEFECT_ROLES.get(defect.recorded_by) or (
+        f"`{_md(defect.recorded_by)}`" if defect.recorded_by else "an agent"
+    )
+    lines.append(
+        f"- **Recorded:** by {role}, run `{_md(defect.run_id)}`, {_md(defect.date)}."
+        f" Memory record `{_md(defect.memory_id)}`."
+    )
+    mine = [a for a in actions if defect.memory_id in a.defect_ids]
+    if mine:
+        lines.append(
+            "- **In this run:** " + "; ".join(_guard_phrase(a) for a in mine) + "."
+        )
+    return lines
+
+
+def render_fix_elsewhere_appendix(status: RunStatus) -> str:
+    """The `## Fix elsewhere … (code-computed)` section: each open defect
+    outside the harness (a broken tool, stale data, a quota), with its
+    evidence, for the owner to fix outside the tuner. The rows are the report-time read
+    (`external_defects`). Without that read, the rows are the overviews of
+    the records that agents wrote in this run (`recorded_defects`). Empty
+    string when there is none."""
+    if status.external_defects is None:
+        written = {
+            memory_id: overview
+            for memory_id, overview in status.recorded_defects.items()
+            if not defect_is_resolved(overview)
+        }
+        if not written:
+            return ""
+        lines = [
+            FIX_ELSEWHERE_APPENDIX_HEADING,
+            "",
+            "The agents recorded these defects in this run. No change to the"
+            " harness can fix them: fix each one outside the tuner. The read of"
+            " the records failed, so only their one-line summaries are here."
+            " Each memory record holds the train items and what was seen.",
+            "",
+        ]
+        lines += [
+            f"- `{_md(memory_id)}`: {_md(overview)}"
+            for memory_id, overview in written.items()
+        ]
+        return "\n".join(lines) + "\n"
+    if not status.external_defects:
+        return ""
+    lines = [
+        FIX_ELSEWHERE_APPENDIX_HEADING,
+        "",
+        "The agents found these defects in a tool or a data source of the task."
+        " No change to the harness (the prompt, the model, the tools, the skills"
+        " or the settings) can fix them, so the tuner spends no experiment on"
+        " them. Fix each one outside the tuner. The train items and the run"
+        " configs name the traces that show it: a trace is a file in the folder"
+        " of the run that recorded the defect,"
+        " `runs/<run id>/scratch/traces/<run config>/<eval>/<train item>.md`.",
+    ]
+    for defect in status.external_defects:
+        lines += ["", *_defect_lines(defect, status.defect_guard_actions)]
+    lines += [
+        "",
+        "After you fix a defect, put"
+        f" `{DEFECT_RESOLVED_PREFIX.strip()}` at the start of the overview of its"
+        " memory record, or delete the record. The tuner then plans on its"
+        " train items again. Until then, each run keeps the items that cannot"
+        " pass out of the targets of its experiments. The items stay in every"
+        " measurement.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 SMELLS_APPENDIX_HEADING = "## Design review"
 
 
@@ -1133,6 +1285,9 @@ class ReportWriter:
         missing_evals = render_missing_evals_appendix(status)
         if missing_evals:
             markdown = markdown.rstrip("\n") + "\n\n" + missing_evals
+        fix_elsewhere = render_fix_elsewhere_appendix(status)
+        if fix_elsewhere:
+            markdown = markdown.rstrip("\n") + "\n\n" + fix_elsewhere
         smells = render_smells_appendix(status)
         if smells:
             markdown = markdown.rstrip("\n") + "\n\n" + smells
@@ -1154,6 +1309,7 @@ class ReportWriter:
         # One attempt, no retry ladder: on a fatal exit Kiln may be what
         # failed, and the report must not wait on it.
         await _add_issues_without_eval(ctx, status, retries=False)
+        status.external_defects = await read_external_defects(ctx, retries=False)
         path = self._write(render_fallback_report(status), status)
         ctx.log.event("report_written", path=path, fallback=True)
         return path
@@ -1174,6 +1330,7 @@ class ReportWriter:
         )
         await snapshot_memory(ctx, "report-before")  # the store at exit
         await _add_issues_without_eval(ctx, status)
+        status.external_defects = await read_external_defects(ctx)
         try:
             result = await call_with_retries(
                 ctx.dispatch.report_writer,

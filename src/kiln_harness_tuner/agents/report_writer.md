@@ -15,8 +15,9 @@ writes the file (`reports/kiln-harness-tuner-<run_id>.md`). Code appends a code-
 `budget … · elapsed … · exit …` header over the per-source × per-lane table)
 after your markdown — narrate spend and the run's clock, never build or
 restate them. Code also appends why each arm stopped, the screened
-candidates' trade-offs and the smells of each baseline (the code
-detections, and the status and findings of the design review): point at
-those tables, never rebuild them.
+candidates' trade-offs, the defects outside the harness that the owner must
+fix elsewhere (a broken tool, stale data, a quota, each with its evidence)
+and the smells of each baseline (the code detections, and the status and
+findings of the design review): point at those tables, never rebuild them.
 Reading is your only API activity: no file writes, no memory
 writes, no eval jobs, no `split` params.
