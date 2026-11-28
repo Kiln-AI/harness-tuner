@@ -18,7 +18,11 @@ from kiln_harness_tuner.cli import (
     check_role_efforts,
     make_dispatcher,
 )
-from kiln_harness_tuner.dispatch.agent_cli import DEFAULT_AGENT_CLI, parse_agent_cli
+from kiln_harness_tuner.dispatch.agent_cli import (
+    CLAUDE_SETTINGS_PROBLEM,
+    DEFAULT_AGENT_CLI,
+    parse_agent_cli,
+)
 from kiln_harness_tuner.dispatch.claude_cli import (
     CLI_CHECK_PROMPT,
     CLI_CHECK_WORD,
@@ -72,6 +76,33 @@ class TestParsing:
         # Claude Code would ignore it with a warning and use its own default.
         with pytest.raises(ValueError, match="not a Claude Code effort level"):
             parse_agent_cli("claude -p --effort extreme")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "claude -p --settings own.json",
+            "claude -p --settings=own.json --verbose",
+            "claude --settings '{\"env\": {}}' -p",
+        ],
+    )
+    def test_a_claude_settings_option_is_refused(self, text):
+        """Claude Code reads only the last `--settings`, and that is always
+        the run's own file: the user's file would have no effect."""
+        with pytest.raises(ValueError) as caught:
+            parse_agent_cli(text)
+        message = str(caught.value)
+        assert message == CLAUDE_SETTINGS_PROBLEM
+        assert "\n" not in message
+        assert "settings.json" in message
+
+    def test_codex_and_opencode_keep_their_own_settings_options(self):
+        # The refusal is Claude's alone: the other CLIs read no Claude
+        # Code settings file.
+        assert parse_agent_cli("codex exec -c a.b=1").options == ("-c", "a.b=1")
+        assert parse_agent_cli("opencode run --settings x").options == (
+            "--settings",
+            "x",
+        )
 
     def test_opencode_with_a_model_and_a_variant(self):
         cli = parse_agent_cli(

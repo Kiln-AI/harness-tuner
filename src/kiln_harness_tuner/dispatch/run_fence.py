@@ -22,6 +22,7 @@ import logging
 import os
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,20 @@ def read_rule(path: Path) -> str:
     """The `Read(...)` deny rule for one path (a tree for a directory)."""
     body = str(path).lstrip("/")
     return f"Read(//{body}/**)" if path.is_dir() else f"Read(//{body})"
+
+
+# A run's Claude Code settings files can hold the user's model-access keys
+# (`claude_cli.with_user_model_access`), so only their owner can read them.
+SETTINGS_FILE_MODE = 0o600
+
+
+def write_settings(path: Path, settings: dict[str, Any]) -> None:
+    """Write a settings file with mode `SETTINGS_FILE_MODE`. The mode is set
+    before the content goes in, and also on a file that exists already."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, SETTINGS_FILE_MODE)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        os.fchmod(handle.fileno(), SETTINGS_FILE_MODE)
+        handle.write(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
 
 
 def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> list[str]:
@@ -59,7 +74,7 @@ def refresh_run_dir_denials(run_dir: Path, settings_paths: Sequence[Path]) -> li
         deny.extend(new)
         added.update(new)
         tmp = settings_path.with_name(settings_path.name + ".tmp")
-        tmp.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+        write_settings(tmp, settings)
         os.replace(tmp, settings_path)
     if added:
         logger.warning(

@@ -6,6 +6,18 @@ folder (`install_agents.install_for_run`), so its `.claude/skills/` and
 servers come from the per-run rendered config (`--mcp-config` +
 `--strict-mcp-config`, host-injected), NOT the installed
 `.mcp.json`; write tools are sandboxed by the per-run rendered `--settings`.
+
+The user's own Claude Code setup does not reach a loop session:
+`--setting-sources project` loads the agents folder's settings and skills and
+not the user's, so the user's skills (`~/.claude/skills`), plugins,
+permissions and hooks stay out. The user's model-access settings (`env`,
+`apiKeyHelper` and the others in `USER_MODEL_ACCESS_KEYS`) are copied into the
+run's settings files (`with_user_model_access`), so a session reaches its model
+as the user's own Claude Code does. Claude Code still loads each `CLAUDE.md`
+and `.claude/rules` in the folders above the agents folder, `~/.claude`
+included, as project memory. The run's settings files name them in
+`claudeMdExcludes` (`claude_md_excludes`), so they do not load.
+
 Shared plumbing lives in two private helpers (`_run` → `_dispatch`) that each
 public method calls with its concrete types.
 
@@ -29,6 +41,7 @@ import logging
 import os
 import re
 import signal
+import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -39,7 +52,10 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
+from kiln_harness_tuner.dispatch.run_fence import (
+    refresh_run_dir_denials,
+    write_settings,
+)
 from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
 from kiln_harness_tuner.provider_errors import (
     ProviderQuotaError,
@@ -231,6 +247,113 @@ def shorten_prompt(length: int, budget: int) -> str:
 
 
 DEFAULT_CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+# The Claude Code setting sources a loop session loads. `project` is the
+# agents folder: its `.claude/skills/` and `CLAUDE.md`. `user` is left out,
+# so the user's skills, plugins, permissions and hooks do not reach the
+# session: they fill its skill listing and can shadow a tuner skill of the
+# same name. `local` is left out: the agents folder has no
+# `.claude/settings.local.json`. The `--settings` file and managed settings
+# load whatever this names.
+SETTING_SOURCES = "project"
+
+# The keys of the user's Claude Code settings that decide how a session
+# reaches its model: the provider and endpoint (`env`, for example
+# `CLAUDE_CODE_USE_BEDROCK` or `ANTHROPIC_BASE_URL`), the credential helpers,
+# the model ids of a provider, and the sign-in method. Without `user` in
+# `SETTING_SOURCES` the session does not read them, so the run copies them
+# into its own settings files. `enabledPlugins`, `permissions` and `hooks` are
+# not copied.
+USER_MODEL_ACCESS_KEYS = (
+    "env",
+    "apiKeyHelper",
+    "awsAuthRefresh",
+    "awsCredentialExport",
+    "gcpAuthRefresh",
+    "proxyAuthHelper",
+    "modelOverrides",
+    "forceLoginMethod",
+    "forceLoginOrgUUID",
+)
+
+
+def claude_config_dir(environ: dict[str, str] | None = None) -> Path:
+    """The user's Claude Code folder: `CLAUDE_CONFIG_DIR`, else `~/.claude`."""
+    source = os.environ if environ is None else environ
+    configured = source.get("CLAUDE_CONFIG_DIR")
+    return Path(configured).expanduser() if configured else Path.home() / ".claude"
+
+
+def user_model_access_settings(
+    environ: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """The `USER_MODEL_ACCESS_KEYS` of the user's Claude Code settings file.
+    Empty when there is no file, or when it is not a JSON object."""
+    path = claude_config_dir(environ) / "settings.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {key: data[key] for key in USER_MODEL_ACCESS_KEYS if key in data}
+
+
+def with_user_model_access(
+    settings: dict[str, Any], environ: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """`settings` with the user's model-access settings added. A key that
+    `settings` sets itself is kept as it is."""
+    return {**user_model_access_settings(environ), **settings}
+
+
+# The memory files Claude Code loads from one folder as project memory, as
+# glob patterns relative to that folder.
+_FOLDER_MEMORY_FILES = (
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    ".claude/CLAUDE.md",
+    ".claude/rules/**",
+)
+
+# The characters that Claude Code's glob matcher (picomatch) reads as glob
+# syntax in a `claudeMdExcludes` pattern.
+_GLOB_SPECIAL = frozenset("()[]{}*?!+@|")
+
+
+def glob_literal(path: Path) -> str:
+    """`path` as a glob pattern that matches only `path`. Each glob character
+    goes in a bracket class of its own, for example `(` becomes `[(]`. A
+    backslash escape does not work: Claude Code changes `\\` to `/` before
+    it matches."""
+    return "".join(f"[{c}]" if c in _GLOB_SPECIAL else c for c in str(path))
+
+
+def claude_md_excludes(
+    agents_dir: Path, environ: dict[str, str] | None = None
+) -> list[str]:
+    """The `claudeMdExcludes` of a loop session: the memory files that are not
+    the run's own. `--setting-sources project` stops the user memory type
+    only. Claude Code also goes up from the working folder to `/` and loads
+    the `CLAUDE.md` files and `.claude/rules` of each folder on the way as
+    project memory. The agents folder is in the state folder, usually under
+    the home folder, so that walk gets to `~/.claude/CLAUDE.md` and
+    `~/.claude/rules`. So this names the user's Claude Code folder (also when
+    `CLAUDE_CONFIG_DIR` moves it) and the memory files of every folder above
+    the agents folder, by its path as given and by its real path. The agents
+    folder's own `CLAUDE.md` is not in the list. Each folder name is written
+    with `glob_literal`, so a name such as `Drive (work)` matches."""
+    source = os.environ if environ is None else environ
+    home = Path(source["HOME"]) if source.get("HOME") else Path.home()
+    patterns: list[str] = []
+    for config in (claude_config_dir(environ), home / ".claude"):
+        folder = glob_literal(config)
+        patterns += [f"{folder}/CLAUDE.md", f"{folder}/rules/**"]
+    for form in (agents_dir.absolute(), agents_dir.resolve()):
+        for parent in form.parents:
+            folder = glob_literal(parent).rstrip("/")
+            patterns += [f"{folder}/{name}" for name in _FOLDER_MEMORY_FILES]
+    return list(dict.fromkeys(patterns))
 
 
 class DispatchTimeoutError(Exception):
@@ -973,6 +1096,9 @@ class ClaudeCliDispatcher:
             *self._cli_options,
             "--output-format",
             "json",
+            # Not the user's skills, plugins or settings (`SETTING_SOURCES`).
+            "--setting-sources",
+            SETTING_SOURCES,
         ]
         model = self._model_for(agent)
         if model:
@@ -1042,6 +1168,25 @@ class ClaudeCliDispatcher:
     def _effort_for(self, agent: str) -> str:
         return self._efforts.get(agent, self._default_effort)
 
+    def _cli_check_argv(self, folder: Path, label: str) -> list[str]:
+        """The start-up check's command. The check runs before the run
+        directory exists, so it has no run settings file. The user's
+        model-access settings and the `claudeMdExcludes` of the run's
+        settings then go into a file in `folder`, which the caller deletes:
+        the check reaches the model as the loop sessions do. This file is the
+        last `--settings` of the command, as the run's file is in a loop
+        session. Claude Code reads only the last one, so `parse_agent_cli`
+        refuses a `--settings` in the `--agent-cli` options."""
+        argv = self._argv(CLI_CHECK_ROLE, label=label)
+        if self._settings_path is not None:
+            return argv  # `_argv` gave it the run's settings file
+        check_settings = with_user_model_access(
+            {"claudeMdExcludes": claude_md_excludes(self._agents_dir)}
+        )
+        path = folder / "settings.json"
+        write_settings(path, check_settings)
+        return [*argv, "--settings", str(path)]
+
     async def check_cli(self, command: str) -> Usage:
         """Send one short prompt through the agent CLI before the run starts. The loop
         does not manage the CLI's sign-in, so this is where a CLI that is not installed,
@@ -1049,17 +1194,17 @@ class ClaudeCliDispatcher:
         printed, instead of as an `agent_crash` on every session. `command` is the
         `--agent-cli` text, for the message. Raises PreflightError."""
         label = "cli-check"
-        argv = self._argv(CLI_CHECK_ROLE, label=label)
         problem: str | None = None
         output = ""
         usage = Usage()
         try:
-            proc = await self._runner.run(
-                argv,
-                stdin_text=CLI_CHECK_PROMPT,
-                timeout_secs=CLI_CHECK_TIMEOUT_SECS,
-                cwd=str(self._cwd(label)),
-            )
+            with tempfile.TemporaryDirectory(prefix="kiln-harness-tuner-") as tmp:
+                proc = await self._runner.run(
+                    self._cli_check_argv(Path(tmp), label),
+                    stdin_text=CLI_CHECK_PROMPT,
+                    timeout_secs=CLI_CHECK_TIMEOUT_SECS,
+                    cwd=str(self._cwd(label)),
+                )
         except DispatchTimeoutError:
             problem = f"no answer in {CLI_CHECK_TIMEOUT_SECS // 60} minutes"
         except OSError as exc:
