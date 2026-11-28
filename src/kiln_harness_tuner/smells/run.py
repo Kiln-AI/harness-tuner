@@ -4,6 +4,8 @@ the baseline reviewer.
 `ensure_baseline_reviewed` runs once for each baseline, at the top of a
 wave. It runs the detectors (`ensure_detections`), then dispatches the
 reviewer, and code writes one smell issue for each finding it validates.
+Then code closes each open smell issue of an earlier baseline that the
+present baseline no longer shows (`close_earlier_smell_issues`).
 `run_detectors` collects the inputs once, runs each registered detector,
 and keeps the detections whose smell is a smell document. Neither raises,
 apart from `ProviderQuotaError`. Code computes the facts; the planner and
@@ -12,14 +14,19 @@ the baseline reviewer interpret them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from kiln_harness_tuner.gateway.trace_files import parse_trace, trace_stats
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.knowledge import load
-from kiln_harness_tuner.memory_schema import fits_tag
+from kiln_harness_tuner.memory_schema import (
+    AUDITED_RC_TAG_PREFIX,
+    SMELL_TAG_PREFIX,
+    IssueView,
+    fits_tag,
+)
 from kiln_harness_tuner.prompt_text import SKILL_TOOL_PREFIX, rc_texts
 from kiln_harness_tuner.provider_errors import ProviderQuotaError
 from kiln_harness_tuner.schemas import (
@@ -29,8 +36,11 @@ from kiln_harness_tuner.schemas import (
     BaselineReviewInput,
     Detection,
     DetectionCheck,
+    EarlierSmellIssue,
     PlannerDetection,
     SmellFinding,
+    SmellIssueCheck,
+    SmellIssueClosure,
     TraceSample,
 )
 from kiln_harness_tuner.smells.detectors import DETECTORS
@@ -48,6 +58,10 @@ REVIEW_MAX_ITEMS = 20
 # first ones of a longer list.
 REVIEW_MAX_FINDINGS = 15
 REVIEW_REASON_CHARS = 300
+# The earlier smell issues that one review reads again, and how much of the
+# text of each one it is given.
+REVIEW_MAX_EARLIER_ISSUES = 15
+EARLIER_ISSUE_SUMMARY_CHARS = 1_200
 # The review sits before the planner on the run's clock: one retry at most,
 # and none after a session that hit its time cap (`timeout`).
 REVIEW_DISPATCH_BACKOFFS: tuple[float, ...] = (30.0,)
@@ -59,9 +73,13 @@ async def ensure_baseline_reviewed(
     baseline: BaselineRef,
     *,
     wrap_up: bool = False,
+    lineage: Sequence[str] = (),
 ) -> None:
     """Find the smells of the present baseline, once for each baseline: the
-    detectors in code, then the baseline reviewer. At wave 1 the baseline is
+    detectors in code, then the baseline reviewer. Then close each open
+    smell issue of an earlier baseline that this one no longer shows.
+    `lineage`: the baselines that this one replaced; only their smell
+    issues are read. At wave 1 the baseline is
     the first one; after a promotion the next wave sees a new rc id, so the
     step runs again. A run that ends on the wave of a promotion pays for no
     review that no planner would read.
@@ -85,10 +103,11 @@ async def ensure_baseline_reviewed(
         not_run = BaselineReview(
             rc_id=baseline.rc_id, status="skipped", reason="a wrap-up wave"
         )
+    earlier = await _earlier_smell_issues(ctx, baseline.rc_id, lineage)
     if not_run is not None:
         # No session runs, so no phase opens: the detectors are free reads.
         await ensure_detections(ctx, baseline)
-        _record(ctx, not_run)
+        _record(ctx, await _closed_or_kept(ctx, not_run, earlier))
         return
     started = ctx.clock()
     ctx.log.event(
@@ -97,44 +116,55 @@ async def ensure_baseline_reviewed(
         label="Design review: checking the agent's design…",
     )
     try:
-        _record(ctx, await _review_or_failure(ctx, baseline))
+        review, found = await _review_or_failure(ctx, baseline, earlier)
+        _record(ctx, await _closed_or_kept(ctx, review, earlier, found))
     finally:
         ctx.log.event(
             "phase_end", name="baseline_review", elapsed_secs=ctx.clock() - started
         )
 
 
-async def _review_or_failure(ctx: Ctx, baseline: BaselineRef) -> BaselineReview:
+async def _review_or_failure(
+    ctx: Ctx, baseline: BaselineRef, earlier: Sequence[IssueView] = ()
+) -> tuple[BaselineReview, frozenset[str]]:
     """The detectors, then the review; an exception other than
     `ProviderQuotaError` becomes a `failed` review."""
     try:
         await ensure_detections(ctx, baseline)
-        return await _review(ctx, baseline.rc_id)
+        return await _review(ctx, baseline.rc_id, earlier)
     except ProviderQuotaError:
         raise
     except Exception as exc:
         reason = f"{type(exc).__name__}: {exc}"
-        return BaselineReview(
+        failed = BaselineReview(
             rc_id=baseline.rc_id, status="failed", reason=reason[:REVIEW_REASON_CHARS]
         )
+        return failed, frozenset()
 
 
-async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
+async def _review(
+    ctx: Ctx, rc_id: str, earlier: Sequence[IssueView] = ()
+) -> tuple[BaselineReview, frozenset[str]]:
     """One review of the run config `rc_id`: skipped (a resumed lineage
     already holds its smell issues), failed (the session gave no result),
     or done, with one smell issue for each finding. A write that fails is
-    logged and named in `reason`; its `issue_ids` entry is empty."""
+    logged and named in `reason`; its `issue_ids` entry is empty.
+    `earlier`: the open smell issues of earlier baselines; the reviewer
+    reads again the ones that need a reader. The second value is the smell
+    of every finding that the session returned, before any cut."""
     known_issues = await ctx.memory.find_smell_issues(rc_id)
     if known_issues:
-        return BaselineReview(
+        skipped = BaselineReview(
             rc_id=rc_id,
             status="skipped",
             reason="already reviewed",
             issue_ids=[issue.id for issue in known_issues],
         )
+        return skipped, frozenset()
     from kiln_harness_tuner.items import call_with_retries
 
     titles = _smell_titles(ctx)
+    asked = _issues_for_the_reviewer(ctx, earlier)
     result = await call_with_retries(
         ctx.dispatch.baseline_review,
         BaselineReviewInput(
@@ -142,6 +172,7 @@ async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
             detections=list(ctx.detections),
             samples=await baseline_trace_samples(ctx, rc_id),
             known_smells=sorted(titles or ()),
+            earlier_issues=asked,
         ),
         backoffs=REVIEW_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -162,11 +193,12 @@ async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
             if result.error
             else (result.status)
         )
-        return BaselineReview(
+        failed = BaselineReview(
             rc_id=rc_id,
             status="failed",
             reason=f"the review did not run ({kind}: {why})"[:REVIEW_REASON_CHARS],
         )
+        return failed, frozenset()
     findings = _valid_findings(ctx, result.data.findings, titles)
     issue_ids: list[str] = []
     unwritten: list[str] = []
@@ -196,7 +228,8 @@ async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
             f"{len(unwritten)} of {len(findings)} finding(s) could not be written"
             f" as issues: {', '.join(unwritten)}"
         )[:REVIEW_REASON_CHARS]
-    return BaselineReview(
+    asked_ids = {issue.issue_id for issue in asked}
+    review = BaselineReview(
         rc_id=rc_id,
         status="done",
         reason=reason,
@@ -204,7 +237,10 @@ async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
         issue_ids=issue_ids,
         detection_checks=result.data.detection_checks,
         notes=result.data.notes,
+        # A reading of an issue that was not in the input is dropped.
+        issue_checks=[c for c in result.data.issue_checks if c.issue_id in asked_ids],
     )
+    return review, frozenset(f.smell for f in result.data.findings)
 
 
 def _valid_findings(
@@ -271,8 +307,14 @@ def flagged_smells(
 
 def review_line(review: BaselineReview, flagged: Sequence[str]) -> str:
     """The review's one plain line for the displays. A flagged smell is a
-    possible issue, not a confirmed one."""
+    possible issue, not a confirmed one. It ends with the count of the
+    earlier smell issues that code closed, when there is one."""
     reason = review.reason.rstrip(".")
+    closed = ""
+    if review.closed_issues:
+        count = len(review.closed_issues)
+        noun = "smell issue" if count == 1 else "smell issues"
+        closed = f" {count} earlier {noun} closed."
     if review.status == "done":
         if flagged:
             names = ", ".join(smell.replace("-", " ") for smell in flagged)
@@ -280,9 +322,9 @@ def review_line(review: BaselineReview, flagged: Sequence[str]) -> str:
             line = f"Design review complete: {len(flagged)} {noun} flagged ({names})"
         else:
             line = "Design review complete: nothing flagged"
-        return line + (f"; {reason}." if reason else ".")
+        return line + (f"; {reason}." if reason else ".") + closed
     verb = "failed" if review.status == "failed" else "skipped"
-    return f"Design review {verb}: {reason}."
+    return f"Design review {verb}: {reason}." + closed
 
 
 def planner_detections(
@@ -364,15 +406,19 @@ async def baseline_trace_samples(ctx: Ctx, rc_id: str) -> list[TraceSample]:
 async def ensure_detections(ctx: Ctx, baseline: BaselineRef) -> None:
     """Run the detectors once for each baseline (`ensure_baseline_reviewed`
     calls it first). `ctx.detections` is replaced, never appended to: it
-    always describes the present baseline.
+    always describes the present baseline. `ctx.sure_detectors` is replaced
+    with it: the detectors whose answer on this baseline is sure.
 
     It never raises, apart from `ProviderQuotaError`: a raise before wave 1
     would end the run with no report."""
     if ctx.detected_rc_id == baseline.rc_id:
         return
     ctx.detected_rc_id = baseline.rc_id
+    sure: set[str] = set()
+    ctx.sure_detectors = frozenset()
     try:
-        ctx.detections = await run_detectors(ctx, baseline.rc_id)
+        ctx.detections = await run_detectors(ctx, baseline.rc_id, sure=sure)
+        ctx.sure_detectors = frozenset(sure)
     except ProviderQuotaError:
         raise
     except Exception as exc:
@@ -385,11 +431,20 @@ async def ensure_detections(ctx: Ctx, baseline: BaselineRef) -> None:
 
 
 async def run_detectors(
-    ctx: Ctx, rc_id: str, *, detectors: Sequence[Detector] = DETECTORS
+    ctx: Ctx,
+    rc_id: str,
+    *,
+    detectors: Sequence[Detector] = DETECTORS,
+    sure: set[str] | None = None,
 ) -> list[Detection]:
     """The detections of the run config `rc_id`, with the events
     `smell_detector_failed`, `smell_unknown`, `smell_detection_skipped` and
     `smell_detections`.
+
+    `sure`: when given, it receives the id of each detector whose answer is
+    sure: it ran with no error, and it is not blind on these inputs
+    (`Detector.blind`). Only such a detector shows, with an empty answer,
+    that its smell is absent.
 
     The stored train rows are read only when a detector reads traces (the
     component design reads them each time): no V1 detector does, and the
@@ -412,6 +467,8 @@ async def run_detectors(
             # A return that is not a list of detections counts as a failure
             # of that detector, like a raise.
             found += [Detection.model_validate(d) for d in detector.run(inputs)]
+            if sure is not None and not (detector.blind and detector.blind(inputs)):
+                sure.add(detector.id)
         except Exception as exc:
             ctx.log.event(
                 "smell_detector_failed",
@@ -435,6 +492,245 @@ async def run_detectors(
         unread_tools=unread_tools,
     )
     return detections
+
+
+# ---- the smell issues of earlier baselines ----
+
+
+def _tagged(issue: IssueView, prefix: str) -> str:
+    """The rest of the first tag of `issue` that starts with `prefix`, or
+    an empty string."""
+    return next((t[len(prefix) :] for t in issue.tags if t.startswith(prefix)), "")
+
+
+async def _earlier_smell_issues(
+    ctx: Ctx, rc_id: str, lineage: Sequence[str]
+) -> list[IssueView]:
+    """The open smell issues of the baselines that `rc_id` replaced, the
+    issues of the newest baseline first (the order of `lineage`). No read
+    of memory when the lineage names no earlier baseline. A read that fails
+    gives none, with the event `smell_issue_check_skipped`."""
+    earlier = [rc for rc in dict.fromkeys(lineage) if rc != rc_id]
+    if not earlier:
+        return []
+    try:
+        issues = await ctx.memory.open_smell_issues(earlier)
+        age = {rc: n for n, rc in enumerate(earlier)}
+        return sorted(
+            issues,
+            key=lambda issue: age.get(
+                _tagged(issue, AUDITED_RC_TAG_PREFIX), len(earlier)
+            ),
+        )
+    except ProviderQuotaError:
+        raise
+    except Exception as exc:
+        ctx.log.event(
+            "smell_issue_check_skipped",
+            rc=rc_id,
+            reason=f"{type(exc).__name__}: {exc}"[:REVIEW_REASON_CHARS],
+        )
+        return []
+
+
+def _smells_for_a_reader() -> frozenset[str] | None:
+    """The smells whose document says that an agent can detect them
+    (`detected_by` has `agent`). Code cannot decide alone that such a smell
+    is absent. None when the knowledge skill cannot be read."""
+    try:
+        return frozenset(
+            doc.id
+            for doc in load().by_kind("smells")
+            if doc.meta is not None and "agent" in doc.meta.detected_by
+        )
+    except Exception:  # `_smell_titles` emits the event for the same failure
+        return None
+
+
+def _issues_for_the_reviewer(
+    ctx: Ctx, earlier: Sequence[IssueView]
+) -> list[EarlierSmellIssue]:
+    """The earlier smell issues that the reviewer reads again, at most
+    `REVIEW_MAX_EARLIER_ISSUES`, in the order of `earlier`: the ones whose
+    smell needs a reader, and that a reading can close. An issue is left
+    out when a detector of its smell fires on the present baseline (the
+    detection shows that the smell is still there) or could not tell (no
+    reading can then close it). An issue left out of the list stays open."""
+    readers = _smells_for_a_reader() or frozenset()
+    detected = {d.smell for d in ctx.detections}
+    unsure = {d.smell for d in DETECTORS if d.id not in ctx.sure_detectors}
+    asked = []
+    for issue in earlier:
+        smell = _tagged(issue, SMELL_TAG_PREFIX)
+        if smell not in readers or smell in detected or smell in unsure:
+            continue
+        asked.append(
+            EarlierSmellIssue(
+                issue_id=issue.id,
+                smell=smell,
+                rc_id=_tagged(issue, AUDITED_RC_TAG_PREFIX),
+                summary=(issue.content or issue.overview).strip()[
+                    :EARLIER_ISSUE_SUMMARY_CHARS
+                ],
+            )
+        )
+    return asked[:REVIEW_MAX_EARLIER_ISSUES]
+
+
+def _names(detector_ids: Sequence[str]) -> str:
+    noun = "detector" if len(detector_ids) == 1 else "detectors"
+    return f"the {noun} " + ", ".join(f"`{i}`" for i in detector_ids)
+
+
+def earlier_issue_verdict(
+    smell: str,
+    *,
+    detections: Sequence[Detection],
+    sure_detectors: Collection[str],
+    readers: Collection[str] | None,
+    review: BaselineReview,
+    check: SmellIssueCheck | None,
+    found: Collection[str] = (),
+    detectors: Sequence[Detector] = DETECTORS,
+) -> tuple[Literal["code", "review"] | None, str]:
+    """Whether the present baseline still shows the smell of one earlier
+    smell issue. The answer is who decides that it does not (`code` or
+    `review`) with the basis, or None with the reason why the issue stays
+    open. Each doubt keeps the issue open.
+
+    A smell with a detector: it is absent for code only when each of its
+    detectors is sure (`sure_detectors`) and none fires. A finding of the
+    smell in the review of this baseline keeps the issue open, for every
+    kind of smell (`found`: the smell of each returned finding). A smell
+    that only code detects (`readers` does not have it) is then closed by
+    code alone, with or without a review. A smell that an agent detects
+    also needs the reviewer: a `done` review of this baseline whose reading
+    of this issue (`check`) is `shows: false`."""
+    if readers is None:
+        return None, "the smell documents cannot be read"
+    own = [d.id for d in detectors if d.smell == smell]
+    if any(d.smell == smell for d in detections):
+        return None, f"{_names(own) if own else 'a detector'} fires on this baseline"
+    unsure = [i for i in own if i not in sure_detectors]
+    if unsure:
+        return None, f"{_names(unsure)} could not tell on this baseline"
+    if smell in found:
+        return None, "the design review names the smell on this baseline"
+    silent = f"{_names(own)} did not fire" if own else ""
+    if smell not in readers:
+        if not own:
+            return None, "no detector and no reader can tell for this smell"
+        return "code", silent
+    if review.status != "done":
+        return None, "no design review of this baseline was done"
+    if check is None:
+        return None, "the design review did not read this issue again"
+    if check.shows is None:
+        return None, "the design review could not tell"
+    if check.shows:
+        return None, "the design review still sees the smell"
+    basis = "the design review read the issue again and did not see the smell"
+    return "review", f"{basis}; {silent}" if silent else basis
+
+
+def _one_reading_each(
+    checks: Sequence[SmellIssueCheck],
+) -> dict[str, SmellIssueCheck]:
+    """One reading for each issue id. Two readings of one issue that
+    disagree become "could not tell", so the issue stays open."""
+    by_issue: dict[str, SmellIssueCheck] = {}
+    for check in checks:
+        first = by_issue.get(check.issue_id)
+        if first is not None and first.shows != check.shows:
+            check = SmellIssueCheck(
+                issue_id=check.issue_id,
+                shows=None,
+                note="two readings of this issue disagree",
+            )
+        by_issue[check.issue_id] = check
+    return by_issue
+
+
+async def _closed_or_kept(
+    ctx: Ctx,
+    review: BaselineReview,
+    earlier: Sequence[IssueView],
+    found: Collection[str] = (),
+) -> BaselineReview:
+    """`close_earlier_smell_issues`, which never stops the run: an error
+    other than `ProviderQuotaError` keeps every issue open."""
+    try:
+        return await close_earlier_smell_issues(ctx, review, earlier, found)
+    except ProviderQuotaError:
+        raise
+    except Exception as exc:
+        ctx.log.event(
+            "smell_issue_check_skipped",
+            rc=review.rc_id,
+            reason=f"{type(exc).__name__}: {exc}"[:REVIEW_REASON_CHARS],
+        )
+        return review
+
+
+async def close_earlier_smell_issues(
+    ctx: Ctx,
+    review: BaselineReview,
+    earlier: Sequence[IssueView],
+    found: Collection[str] = (),
+) -> BaselineReview:
+    """Close each open smell issue of an earlier baseline (`earlier`) that
+    the baseline of `review` no longer shows, and return the review with
+    the closures. `earlier_issue_verdict` decides each one. Code writes
+    every closure (`memory.close_smell`): the reviewer has no write.
+
+    One event, `smell_issues_checked`, names each closed issue and each
+    kept issue with its reason. A write that fails keeps that issue open."""
+    if not earlier:
+        return review
+    readers = _smells_for_a_reader()
+    checks = _one_reading_each(review.issue_checks)
+    closed: list[SmellIssueClosure] = []
+    kept: list[dict[str, str]] = []
+    for issue in earlier:
+        smell = _tagged(issue, SMELL_TAG_PREFIX)
+        who, basis = earlier_issue_verdict(
+            smell,
+            detections=ctx.detections,
+            sure_detectors=ctx.sure_detectors,
+            readers=readers,
+            review=review,
+            check=checks.get(issue.id),
+            found=found,
+        )
+        if who is not None:
+            try:
+                if not await ctx.memory.close_smell(issue.id, review.rc_id, basis):
+                    who, basis = None, "the issue is closed already"
+            except ProviderQuotaError:
+                raise
+            except Exception as exc:
+                who = None
+                basis = f"the write failed ({type(exc).__name__}: {exc})"
+        if who is None:
+            kept.append(
+                {
+                    "issue": issue.id,
+                    "smell": smell,
+                    "reason": basis[:REVIEW_REASON_CHARS],
+                }
+            )
+            continue
+        closed.append(
+            SmellIssueClosure(
+                issue_id=issue.id,
+                smell=smell,
+                found_in_rc=_tagged(issue, AUDITED_RC_TAG_PREFIX),
+                closed_by=who,
+                basis=basis,
+            )
+        )
+    ctx.log.event("smell_issues_checked", rc=review.rc_id, closed=closed, kept=kept)
+    return review.model_copy(update={"closed_issues": closed})
 
 
 def _smell_titles(ctx: Ctx) -> dict[str, str] | None:
@@ -491,6 +787,7 @@ async def _collect(
             trace_stats=await _train_trace_stats(ctx, rc_id) if traces else [],
             model=_model_facts(ctx, properties),
             run_date=ctx.run_started_at.date() if ctx.run_started_at else None,
+            unread_tools=tuple(unread),
         ),
         unread,
     )

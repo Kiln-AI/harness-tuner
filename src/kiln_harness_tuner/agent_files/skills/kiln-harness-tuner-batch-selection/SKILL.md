@@ -646,9 +646,12 @@ passes or fails. Two sources name the smells of the **present** baseline:
   an agent that reads the design of each baseline before you plan. Each
   carries the tags `smell`, `smell_<smell id>` and `audited_rc_<rc id>`: the
   ones whose `audited_rc_` tag names `baseline.rc_id` are about the present
-  baseline. An earlier baseline's smell issues stay open until a lifecycle
-  write closes them, so read the tag. The content gives the evidence, where
-  it was seen and how sure the reviewer is.
+  baseline. After each promotion, code closes an earlier baseline's smell
+  issue when the new baseline no longer shows the smell: its overview then
+  starts with `FIXED:`, and a line `- no longer shown on baseline <rc>`
+  says who decided (a detector, or the reviewer's second reading). An earlier issue that is still open was
+  not shown to be gone, so read the tag. The content gives the evidence,
+  where it was seen and how sure the reviewer is.
 
 For each one:
 

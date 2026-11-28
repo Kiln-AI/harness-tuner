@@ -41,5 +41,8 @@ def detect(inputs: DetectorInputs) -> list[Detection]:
 
 
 DETECTOR = Detector(
-    id="long_tool_description", smell="very-long-tool-description", run=detect
+    id="long_tool_description",
+    smell="very-long-tool-description",
+    run=detect,
+    blind=lambda inputs: bool(inputs.unread_tools),
 )

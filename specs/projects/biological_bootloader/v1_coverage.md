@@ -248,7 +248,7 @@ One row for each idea of the project overview and the design notes.
 | A very large tool result | 9 | V1 smell `tool-results-flood-the-context`. Backlog: its detector |
 | A very long tool description; a very long prompt | 9 | V1 smells with detectors |
 | A skill of a few words | 9 | V1 `skill-too-small-to-earn-its-place`. Backlog: its detector |
-| Thousands of skills | 9 | Backlog: Too many skills |
+| Thousands of skills | 9 | Smell `too-many-skills`, added after V1 |
 | A problem that blocks everything else | 9, 10 | V1 "What it blocks" in each smell; `ordering-work` |
 | A library of wins from real cases | 2, 10 | Priors; the maintenance skill |
 | Tips for a query tool: timestamps, sample queries | 10 | V1 `guide-skill-for-a-tool-set`, in sub-files |

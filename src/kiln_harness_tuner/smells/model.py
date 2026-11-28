@@ -38,7 +38,8 @@ class DetectorInputs:
     registered detector reads traces. `model`: the baseline's model, with
     its release date from the run's model catalogue; None when the run
     config names no model. `run_date`: the date the run started; None when
-    it is not known."""
+    it is not known. `unread_tools`: the id of each attached tool whose
+    definition could not be read, so it is not in `tool_definitions`."""
 
     rc_id: str
     properties: dict[str, Any]
@@ -47,6 +48,7 @@ class DetectorInputs:
     trace_stats: list[dict[str, Any]] = field(default_factory=list)
     model: ModelFacts | None = None
     run_date: date | None = None
+    unread_tools: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,9 +56,15 @@ class Detector:
     """One detector of one smell. `run` is a pure function: it makes no call
     to Kiln and reads no file, and it returns an empty list when the smell
     is not seen. `reads_traces`: the detector reads `trace_stats`, so
-    `run_detectors` reads the stored train rows for it."""
+    `run_detectors` reads the stored train rows for it. `blind`: true when
+    the inputs lack what the detector reads (a text that could not be read,
+    a date that is not known). The detector then returns an empty list, and
+    that list does not show that the smell is absent. None: the detector
+    can always tell. The step that closes a smell issue reads it
+    (`smells.run.close_earlier_smell_issues`)."""
 
     id: str  # lower case with "_", for example "long_prompt"
     smell: str  # the smell document's id
     run: Callable[[DetectorInputs], list[Detection]]
     reads_traces: bool = False
+    blind: Callable[[DetectorInputs], bool] | None = None

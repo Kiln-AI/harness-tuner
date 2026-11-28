@@ -62,5 +62,8 @@ def detect(inputs: DetectorInputs) -> list[Detection]:
 
 
 DETECTOR = Detector(
-    id="long_skill_description", smell="very-long-skill-description", run=detect
+    id="long_skill_description",
+    smell="very-long-skill-description",
+    run=detect,
+    blind=lambda inputs: inputs.texts.skills is None,
 )

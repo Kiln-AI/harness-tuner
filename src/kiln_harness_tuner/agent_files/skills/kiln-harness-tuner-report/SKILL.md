@@ -239,7 +239,10 @@ or the failure class. Include rejected_summary highlights and tripwires.>
 
 ## Issues moved
 <FIXED (with citations) · reopened at promotion · WONT_FIX (not reproduced /
-deliberate) · still open, worth the next run.>
+deliberate) · still open, worth the next run. A `smell` issue whose last
+lines hold `no longer shown on baseline <rc>` was closed by code because
+that baseline no longer shows the smell: say so, and do not cite an
+experiment for it unless the record names one.>
 
 ## Open unknowns & assumptions
 <each OPEN: record raised or still standing: question, default assumed, what

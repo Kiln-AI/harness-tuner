@@ -220,7 +220,8 @@ def test_the_v1_playbook_is_present_with_its_kind(playbook):
 # detectors. `too-many-narrow-tools` was split after V1 into `too-many-tools`
 # and `unnecessary-tools`: a count of tools and a tool set with tools it does
 # not need are two issues. Then the smells added after V1: `old-model` (the
-# model-provider-info project).
+# model-provider-info project) and `too-many-skills` (the backlog entry
+# "Smell: very many skills").
 CODE = ["code"]
 AGENT = ["agent"]
 BOTH = ["code", "agent"]
@@ -240,6 +241,7 @@ V1_SMELL_DETECTION = {
     "very-long-tool-description": (CODE, ["long_tool_description"]),
     "tools-on-a-live-server": (AGENT, []),
     "old-model": (CODE, ["old_model"]),
+    "too-many-skills": (CODE, ["many_skills"]),
 }
 
 

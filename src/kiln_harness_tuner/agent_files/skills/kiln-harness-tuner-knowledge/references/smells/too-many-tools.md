@@ -25,7 +25,8 @@ is a property of the design, whether an eval passes or fails.
 In the harness:
 
 - the code detection in your input gives the number of attached tools and
-  the reference it was compared with. Skills are not counted.
+  the reference it was compared with. Skills are not counted: see
+  [too many skills](too-many-skills.md).
 
 In how the agent runs:
 

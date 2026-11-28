@@ -1,6 +1,6 @@
 ---
 name: kiln-harness-tuner-baseline-review
-description: The Kiln Harness Tuner baseline-review agent's procedure - review the design of the baseline agent (prompt, skills, tools, model, settings) before the planner plans against it, name each smell that the evidence shows, and say whether each code detection holds. Read-only, train only, no diagnosis of failed eval items; return BaselineReviewResult. Load when dispatched as the Kiln Harness Tuner baseline-review agent (template `baseline_review.md` - input is a BaselineReviewInput with the baseline rc id, the code detections, the trace samples and the known smell ids).
+description: The Kiln Harness Tuner baseline-review agent's procedure - review the design of the baseline agent (prompt, skills, tools, model, settings) before the planner plans against it, name each smell that the evidence shows, say whether each code detection holds, and say whether the baseline still shows each earlier smell issue. Read-only, train only, no diagnosis of failed eval items; return BaselineReviewResult. Load when dispatched as the Kiln Harness Tuner baseline-review agent (template `baseline_review.md` - input is a BaselineReviewInput with the baseline rc id, the code detections, the trace samples, the known smell ids and the earlier smell issues).
 metadata:
   version: "1.0"
 ---
@@ -44,6 +44,11 @@ return instead of going looking.
 - `known_smells`: the id of each smell document. Use only these ids. When
   the list is empty, code could not read the knowledge skill: use the ids
   of the table in `references/smells.md`.
+- `earlier_issues`: the open smell issues that a review of an earlier
+  baseline wrote, and that need a reader. Each has its `issue_id`, its
+  `smell`, the `rc_id` of the earlier baseline, and a `summary`: what was
+  seen then, and where. The list is empty on the first baseline of a
+  lineage.
 
 ## Procedure
 
@@ -86,7 +91,20 @@ return instead of going looking.
      is the sure case, not the only one. With no detection in your input,
      apply the document's criterion for a reader, and return a finding when
      the evidence shows it.
-7. **Put a design issue that fits no smell in `notes`**, in a few lines.
+7. **Read each earlier smell issue again.** For each entry in
+   `earlier_issues`, look in the present baseline at the place that its
+   `summary` names, and apply the "How to confirm it" of its smell. Return
+   one `SmellIssueCheck`:
+   - `shows: true` when the present baseline still shows the smell;
+   - `shows: false` when you read that place and the smell is not there
+     any more;
+   - `shows: null` when you cannot tell, for example when the evidence was
+     in traces and the sample does not cover that path.
+   Put the reason in `note`, in one sentence. Code closes the earlier
+   issue only on `false`, so use `false` only for what you read. When the
+   answer is `true`, also return a finding for the smell (step 6), so that
+   the present baseline has its own issue.
+8. **Put a design issue that fits no smell in `notes`**, in a few lines.
 
 ## Hard rules
 
@@ -113,6 +131,8 @@ Return `BaselineReviewResult` in the fenced JSON envelope, with
   evidence.
 - `detection_checks`: one `DetectionCheck` (`smell`, `detector`, `holds`,
   `note`) for each detection in the input.
+- `issue_checks`: one `SmellIssueCheck` (`issue_id`, `shows`, `note`) for
+  each entry of `earlier_issues`. An empty list when the input has none.
 - `notes`: the design issues that fit no smell, or an empty string.
 
 Use `"failed_expected"` only when you cannot review at all, for example

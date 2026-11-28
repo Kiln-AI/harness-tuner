@@ -30,4 +30,9 @@ def detect(inputs: DetectorInputs) -> list[Detection]:
     ]
 
 
-DETECTOR = Detector(id="long_prompt", smell="very-long-prompt", run=detect)
+DETECTOR = Detector(
+    id="long_prompt",
+    smell="very-long-prompt",
+    run=detect,
+    blind=lambda inputs: inputs.texts.prompt is None,
+)

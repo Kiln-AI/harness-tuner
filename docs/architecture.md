@@ -233,9 +233,10 @@ Per wave, in order:
    once for each baseline: on wave 1, and on the wave after a promotion,
    when the run config differs from the one last reviewed. The smell
    detectors in code run first, then one `baseline_review` session, and
-   code writes one `smell` issue for each finding (section 18). No session
-   runs with `--no-design-review` or on a wrap-up wave; the detectors
-   still run. It never raises, apart from a quota error. The review is part
+   code writes one `smell` issue for each finding (section 18). Then code
+   closes each open smell issue of an earlier baseline that this baseline
+   no longer shows (section 18.6). No session runs with
+   `--no-design-review` or on a wrap-up wave; the detectors still run. It never raises, apart from a quota error. The review is part
    of the wave: the clock is not checked again after it, so a review that
    ends past the time limit is still followed by this wave's plan.
 5. **Plan.** One `batch_plan` dispatch. Its input carries the present
@@ -836,7 +837,10 @@ baseline reviewer's findings. Each is an issue with the tags `issue`, `p1`,
 config it was found in), and with no eval binding. An open issue of the
 same smell and run config is not written again. `find_smell_issues` reads
 them back in any state: one is enough to show that the run config was
-reviewed.
+reviewed. `close_smell` closes the smell issue of an earlier baseline that
+the present baseline no longer shows (section 18.6): the `FIXED:` prefix,
+and one line that code composes, `- no longer shown on baseline <rc>
+(<date>): <basis>`. It writes nothing on an issue that is closed already.
 
 Both caps are enforced by the API and clamped client-side before any write:
 `OVERVIEW_MAX_CHARS` and `CONTENT_MAX_CHARS` in `memory_schema.py`. The clamps
@@ -1054,6 +1058,7 @@ resubmit them unchanged once the question is answered.
 | the baseline reviewer failing, timing out or turned off | the run goes on with the code detections. The event `baseline_review_skipped` gives the reason, and the report states it |
 | the knowledge skill unreadable at run time | detections and findings are kept unchecked (`knowledge_unreadable`); a finding whose id does not fit a memory tag is dropped |
 | a smell id that is not a smell document | the detection or the finding is dropped (`smell_unknown`) |
+| the earlier smell issues unreadable, or a close write failing | every issue of the failed read stays open (`smell_issue_check_skipped`); a failed write keeps that one issue open, and `smell_issues_checked` names it with the reason |
 
 **The tripwire.** More than half a wave's items ending `failed_infra` with the
 same error class marks the wave aborted, notes the incomplete experiment
@@ -1138,7 +1143,10 @@ way.
   each baseline it gives the review's status line, the detections table
   (the fact, the reference and its source, and the reviewer's reading of
   it) and the findings table (the evidence, where, the confidence, and the
-  id of the `smell` issue code wrote). It is folded from the
+  id of the `smell` issue code wrote), and then the smell issues of
+  earlier baselines that code closed on this baseline (the issue, the
+  smell, the baseline it was found in, who decided, the basis, and the
+  reviewer's note). It is folded from the
   `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
   `RunStatus.baseline_reviews`), and the fallback report has it too.
 - **The transcripts.** The dispatcher copies every agent session's
@@ -1566,7 +1574,9 @@ generated block with the files; `test_knowledge_checks.py` builds a small
 tree with one deliberate violation for each rule and asserts that exactly
 that rule is reported; `test_backlog.py` holds `specs/backlog.md` to its
 format. `test_smells.py` and `test_baseline_review.py` cover the detectors
-and the review step against the fake dispatcher and the fake Kiln.
+and the review step against the fake dispatcher and the fake Kiln, and
+`test_smell_issue_closing.py` covers the step that closes the smell issues
+of earlier baselines.
 
 **The packaging smoke test** (`tests/packaging/smoke_installed_wheel.py`)
 runs in CI, not under pytest, because the suite runs from the checkout and
@@ -2509,6 +2519,7 @@ config, its texts, its tool definitions and the catalogue snapshot
 | `long_tool_description` | `very-long-tool-description` | a tool's description is over `LONG_TOOL_DESCRIPTION_CHARS` (4,096) |
 | `long_skill_description` | `very-long-skill-description` | a skill's description is over `LONG_SKILL_DESCRIPTION_CHARS` (1,024) |
 | `many_tools` | `too-many-tools` | the run config attaches more than `MANY_TOOLS` (40) tools, skills not counted |
+| `many_skills` | `too-many-skills` | the run config attaches more than `MANY_SKILLS` (20) skills; the fact also gives the total length of their descriptions when the skills can be read |
 | `old_model` | `old-model` | the baseline's model was released more than `OLD_MODEL_MONTHS` (8) calendar months before the run started; silent when the catalogue has no release date for it, for example a fine-tune |
 
 The thresholds are in `smells/thresholds.py`, each with its source. No
@@ -2520,6 +2531,13 @@ compared with and the source of that reference. It states no verdict.
 `try`. A detector that raises, or returns something that is not a
 detection, is skipped. A detection whose smell is not a smell document is
 dropped. It never raises, apart from `ProviderQuotaError`.
+
+A detector that returns nothing does not always show that its smell is
+absent. `Detector.blind` is true when the inputs lack what the detector
+reads: a prompt or a skill that could not be read, a tool definition that
+could not be read (`DetectorInputs.unread_tools`), a model with no release
+date. `ctx.sure_detectors` holds, for the present baseline, the detectors
+that ran with no error and were not blind. Section 18.6 reads it.
 
 ### 18.5 The baseline reviewer
 
@@ -2558,3 +2576,57 @@ gives "Design review skipped: <reason>." or "Design review failed:
 A resumed run reviews a baseline again when its first review wrote no
 issue (it found no smell, or every write failed), because the check for an
 earlier review reads the smell issues in memory.
+
+### 18.6 Closing the smell issues of earlier baselines
+
+A smell issue names the run config it was found in. After a promotion that
+run config is no longer the baseline, and no eval measures a smell, so no
+promotion result can close the issue. `close_earlier_smell_issues`
+(`smells/run.py`) does it, in the same step, after the detectors and the
+review of the new baseline.
+
+**Which issues.** The smell issues that are not closed, and whose
+`audited_rc_<rc>` tag names a baseline that the present one replaced: a
+run config of the baseline record's lineage, other than the present one.
+An issue of any other run config is not read. With no earlier baseline in
+the lineage, memory is not read.
+
+**What "no longer shows" means.** `earlier_issue_verdict` decides each
+issue. Each doubt keeps the issue open.
+
+| The smell | The baseline no longer shows it when | Who decides |
+|---|---|---|
+| only code detects it (`detected_by: code`) | each detector of the smell is in `ctx.sure_detectors`, and none fires on the new baseline | code alone, with or without a review |
+| an agent detects it (`detected_by` has `agent`) | the review of the new baseline is `done`, and its `SmellIssueCheck` for this issue has `shows: false`; when the smell also has a detector, that detector is sure and does not fire | the reviewer, on its second reading |
+
+For both kinds, a finding of the same smell in the review of the new
+baseline keeps the earlier issue open. Two readings of one issue that
+disagree count as "could not tell".
+
+The reviewer gets the issues that need a reader in
+`BaselineReviewInput.earlier_issues`, at most `REVIEW_MAX_EARLIER_ISSUES`
+(15): the id, the smell, the earlier run config and the text of the issue.
+The issues of the newest earlier baseline come first. An issue whose
+detector fires on the new baseline is not in the list: the detection shows
+that the smell is still there. An issue whose detector could not tell is
+not in the list: no reading can close it. A reading of an issue that was
+not in the list is dropped, so an issue past the limit stays open until a
+later review reads it. An issue stays open when the review is
+off, skipped or failed, when the reading is `true`, `null` or missing, when
+a detector could not tell, and when the smell documents cannot be read.
+
+**Who writes.** Code writes every closure (`memory.close_smell`,
+section 8). The reviewer has no write. The line on the issue holds code's
+own basis, for example "the detector `many_tools` did not fire" or "the
+design review read the issue again and did not see the smell". The
+reviewer's note stays in the report.
+
+**What a run shows.** The event `smell_issues_checked` names each closed
+issue and each kept issue with its reason. `BaselineReview.closed_issues`
+holds the closures, in every status. The display line of the review ends
+with "N earlier smell issue(s) closed." The report's `## Design review`
+section lists them (section 11).
+
+A smell that the new baseline still shows keeps its earlier issue open,
+and the review writes a new issue for the new baseline. The planner reads
+the `audited_rc_` tag to know which one is about the present baseline.

@@ -42,6 +42,21 @@ MANY_TOOLS_SOURCE = (
     "a default of the tuner, set by the project owner; not a measured optimum"
 )
 
+MANY_SKILLS = 20
+# A default of the tuner, not a measured optimum, from two public numbers.
+# The name and the description of each skill cost about 100 tokens at
+# startup (Agent Skills specification, agentskills.io). Claude Code starts
+# to drop skill descriptions when their listing is over 1% of the model's
+# context window (Claude Code documentation, "Extend Claude with skills").
+# 20 skills reach that share of a 200,000-token window. Both read
+# 2026-11-25. Every skill description is in the context of every call.
+MANY_SKILLS_SOURCE = (
+    "a default of the tuner, not a measured optimum: at about 100 tokens of"
+    " name and description for each skill (Agent Skills specification), 20"
+    " skills take 1% of a 200,000-token context window, the share at which"
+    " Claude Code starts to drop skill descriptions (both read 2026-11-25)"
+)
+
 OLD_MODEL_MONTHS = 8
 # A house default, set by the project owner on 2026-11-13. No published
 # value. A model line usually has a newer release within this time.

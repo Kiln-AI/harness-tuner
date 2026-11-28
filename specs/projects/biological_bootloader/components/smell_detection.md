@@ -387,6 +387,9 @@ async def find_smell_issues(self, rc_id: str) -> list[IssueView]
   The planner reads the tag `audited_rc_<present rc>` to know which are
   about the present baseline. A smell that the new review does not find is
   not closed by code: lifecycle writes stay with the existing rules.
+  (Changed after V1: code closes a smell issue of an earlier baseline that
+  the new baseline no longer shows. `docs/architecture.md`, section 18.6,
+  has the rule.)
 
 Two places that treat an issue with no eval binding as a missing eval get
 the same exclusion that the audit issues have:
