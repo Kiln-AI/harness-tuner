@@ -165,15 +165,16 @@ flowchart TD
 4. **The wave items**, in parallel. The main kind of item is the
    **experiment**:
    1. A build agent makes one new run config, for example a prompt edit, a
-      tool or skill change, a thinking level, or a model swap where one is
-      allowed. It reads the technique that the planner named, in the
+      tool or skill change, an input transform, a thinking level, or a
+      model swap where one is allowed. It reads the technique that the planner named, in the
       knowledge system. It stamps the provenance and
       smoke-tests the config. It stops before any result exists.
    2. Two text checks run before any money is spent on measurement:
       - The **generality check** looks for text that copies train items, first
         in code (an exact-text search) and then in a review session.
       - The **judge-copy check** looks for a run of 8 or more words that the
-        candidate's whole prompt, skills or code tools share with a judge
+        candidate's whole prompt, input transform, skills or code tools
+        share with a judge
         prompt, an eval spec or an eval description. It reads the whole text,
         so a phrase inherited from a parent is caught too. Text that the
         baseline or the task instructions already have is allowed.

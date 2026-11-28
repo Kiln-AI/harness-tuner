@@ -635,6 +635,11 @@ class ProbeCheck(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _authored_text_is_built(self) -> ProbeCheck:
+        _refuse_build_only_overrides(self.overrides, "a probe check")
+        return self
+
+    @model_validator(mode="after")
     def _variants_are_screened(self) -> ProbeCheck:
         frozen = [k for k in FROZEN_KEYS if k in self.overrides]
         if frozen:
@@ -705,6 +710,24 @@ SCREEN_ONLY_OVERRIDES = (
 )
 
 
+# Run-config properties that only a build session changes. The input
+# transform's template is authored text, like a prompt: the build agent
+# checks it with the gateway, and code reads it for copies of the train
+# set and of the evals before any measurement. A screen or a code probe
+# forks a run config in code, with none of those steps.
+BUILD_ONLY_OVERRIDES = ("input_transform",)
+
+
+def _refuse_build_only_overrides(overrides: dict[str, Any], where: str) -> None:
+    hit = [k for k in BUILD_ONLY_OVERRIDES if k in overrides]
+    if hit:
+        raise ValueError(
+            f"{where} may not override {hit}: an input transform is authored"
+            " text, built and checked like a prompt — plan it as an experiment"
+            " item with `technique: input_transform`"
+        )
+
+
 class ScreenCandidate(BaseModel):
     """One candidate of a screening round: a fork of the parent
     run config with `overrides` (model, provider, thinking level, sampling
@@ -728,6 +751,11 @@ class ScreenCandidate(BaseModel):
     @model_validator(mode="after")
     def _budget_needs_a_reason(self) -> ScreenCandidate:
         _budget_reason_required(self.max_usd, self.budget_reason)
+        return self
+
+    @model_validator(mode="after")
+    def _authored_text_is_built(self) -> ScreenCandidate:
+        _refuse_build_only_overrides(self.overrides, "a screen candidate")
         return self
 
 
@@ -1519,6 +1547,11 @@ class IntegrityReviewInput(BaseModel):
     candidate_instructions: str
     baseline_instructions: str
     judge_texts: dict[str, str]  # label ("the judge of eval X") -> text
+    # The templates of the two input transforms, "" when a run config has
+    #   none. A template's literal text is in the first user message of
+    #   every call.
+    candidate_input_transform: str = ""
+    baseline_input_transform: str = ""
 
 
 class IntegrityReviewResult(BaseModel):
@@ -1556,6 +1589,11 @@ class GeneralityReviewInput(BaseModel):
     # The same for the attached code tools — their code and the
     #   description the model is shown.
     code_tool_changes: list[str] = []
+    # What the build added to the input transform's template:
+    #   at most one block, a header line and then the whole template (the
+    #   parent has none) or its unified diff against the parent's. Empty
+    #   when the template did not change.
+    input_transform_changes: list[str] = []
     # "<item id>: <expected output>" for the items in
     #   `train_inputs` that have one, clipped.
     train_expected: list[str] = []
@@ -2105,7 +2143,8 @@ class CandidateValTable(BaseModel):
     # a table without it, whichever path decided (`_apply_checked`).
     integrity_checked: bool = False
     # The findings of check (a) alone — the copied eval text,
-    # read from the prompt and the eval definitions, never from val. The one
+    # read from the prompt or the input transform ("prompt quotes …",
+    # "input transform quotes …") and the eval definitions, never from val. The one
     # part of a block that may reach the planner and a train-readable
     # record (`orchestrator._record_gate_blocks`); every other flag is
     # computed from val traces and stays with the val readers.
