@@ -38,7 +38,7 @@ Layout of a record, by kind:
                            (moves: EXPERIMENT_TRANSITIONS; the technique is
                            bounded to TECHNIQUE_MAX_CHARS, and this shape
                            with no suffix reads UNKNOWN)
-                           → <analyzer verdict row>[ — REFUTED]
+                           → <analyzer verdict row>[ — REFUTED | — UNVERIFIED]
                              [ — PROMOTED <MM-DD>][ — REJECTED AT VAL <MM-DD>]
                              [ — HELD (constraint <id>) <MM-DD>]
                            → … — FAILED (infra: <class>) | — ABANDONED (<why>)
@@ -740,6 +740,10 @@ class ExperimentState(StrEnum):
     RUNNING = "running"
     VERDICT = "verdict"
     REFUTED = "refuted"
+    UNVERIFIED = "unverified"  # Measured and analyzed, and too few items
+    #   differ between the arm and its parent for a win or a loss
+    #   (`kiln_harness_tuner.thin_evidence`). A result, like REFUTED, and
+    #   not a loss.
     FAILED = "failed"
     ABANDONED = "abandoned"
     DEAD_END = "dead_end"
@@ -760,6 +764,7 @@ class ExperimentState(StrEnum):
 _SUFFIX_TEMPLATE: dict[ExperimentState, str] = {
     ExperimentState.RUNNING: " — RUNNING",
     ExperimentState.REFUTED: " — REFUTED",
+    ExperimentState.UNVERIFIED: " — UNVERIFIED",
     ExperimentState.FAILED: " — FAILED (infra: {detail})",
     ExperimentState.ABANDONED: " — ABANDONED ({detail})",
     ExperimentState.DEAD_END: " — DEAD END ({detail})",
@@ -793,6 +798,7 @@ _FORWARD_MOVES = frozenset(
     {
         ExperimentState.VERDICT,
         ExperimentState.REFUTED,
+        ExperimentState.UNVERIFIED,
         ExperimentState.FAILED,
         ExperimentState.ABANDONED,
         ExperimentState.DEAD_END,
@@ -812,17 +818,21 @@ EXPERIMENT_TRANSITIONS: dict[ExperimentState, frozenset[ExperimentState]] = {
     ExperimentState.CAPPED: frozenset(),
     ExperimentState.VERDICT: frozenset(),
     ExperimentState.REFUTED: frozenset(),
+    ExperimentState.UNVERIFIED: frozenset(),
     ExperimentState.ABANDONED: frozenset(),
     ExperimentState.DEAD_END: frozenset(),
 }
-STAMPABLE_STATES = frozenset({ExperimentState.VERDICT, ExperimentState.REFUTED})
+STAMPABLE_STATES = frozenset(
+    {ExperimentState.VERDICT, ExperimentState.REFUTED, ExperimentState.UNVERIFIED}
+)
 # The states that count as a failure of the arm's idea (the three-failures
 # rule, `MemoryWriter.rejected_ideas`): a train measurement that says the
 # arm did not fix its issue. REFUTED is the analysis; NOT LANDED is the
 # measurement engine's stop on the items the arm was built to fix. A DEAD
 # END is not counted: most are a fault of the build (a generality leak, a
 # judge copy, a missing reference) or a lever that did not apply, not a
-# measurement of the idea. FAILED (infra), ABANDONED and CAPPED are not
+# measurement of the idea. UNVERIFIED is not counted: too few items differ
+# to say that the idea failed. FAILED (infra), ABANDONED and CAPPED are not
 # results, and a verdict is a win on train whatever the val gate did with
 # it later.
 IDEA_FAILURE_STATES = frozenset(
@@ -992,6 +1002,9 @@ class ValRejectionKind(StrEnum):
 
     PASSED_OVER = "passed over"  # another candidate won the same gate
     EVAL_DROPPED = "eval dropped"  # a row went down beyond doubt
+    # Too few val items differ between the candidate and the baseline for a
+    # win or a loss (`kiln_harness_tuner.thin_evidence`). Not a loss.
+    UNVERIFIED = "unverified"
     NO_GAIN = "no gain"  # no targeted row improved at all
     GAIN_NOT_CLEAR = "gain not clear"  # a target improved, not beyond doubt
     # The val evidence had holes at repeated gates of one run (a failed
@@ -1028,6 +1041,11 @@ def _rejection_reason_text(reason: ValRejection) -> str:
             "an eval dropped at val: down beyond doubt on eval "
             + ", ".join(dropped)
             + "."
+        )
+    if kind is ValRejectionKind.UNVERIFIED:
+        return (
+            "unverified at val: too few val items differ from the baseline, so"
+            " val shows no win and no loss."
         )
     if kind is ValRejectionKind.NO_GAIN:
         return "no gain at val: no targeted eval improved."

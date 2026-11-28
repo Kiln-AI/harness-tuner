@@ -43,7 +43,7 @@ only when it is clearly past the noise.
 
 The `technique` field of an experiment is the id of a lever document where
 one exists: `prompt`, `skill`, `tool_config`, `new_tool`, `params`,
-`output_mode`, `model`.
+`output_mode`, `input_transform`, `model`.
 
 Each table gives the task shapes a document applies to. A document applies
 only when the task has every shape in its list. `all` means that the shape
@@ -58,6 +58,7 @@ does not matter.
 | [faulty-inherited-skill](smells/faulty-inherited-skill.md) | all | A skill that the baseline attaches is wrong or stale, contradicts the task, or holds an example whose answer contradicts a rule. It can be changed as a new version. |
 | [fixed-call-chain](smells/fixed-call-chain.md) | tools | The agent calls the same tools in the same order on each run, and passes an id from one result to the next call. The model decides nothing new between the calls. |
 | [general-query-tool-without-a-guide](smells/general-query-tool-without-a-guide.md) | tools | The agent has a SQL, GraphQL or general API tool, with no examples and no guide to the schema, so it must learn the data model on each run. |
+| [input-with-fields-the-task-does-not-need](smells/input-with-fields-the-task-does-not-need.md) | single_turn | The task input is a record made for another reader - ids, audit fields, metadata, one fact in several fields, a field with a wrong name - and the model reads all of it on every item. |
 | [old-model](smells/old-model.md) | all | The baseline's model was released more than the reference time before the run. A code detector reads the release date, and the detection gives the age, the reference and its source. |
 | [one-file-skill-with-many-topics](smells/one-file-skill-with-many-topics.md) | all | An attached skill is one long file that holds many topics, with no reference files. The agent reads all of it to use one part of it. |
 | [skill-too-small-to-earn-its-place](smells/skill-too-small-to-earn-its-place.md) | all | An attached skill holds a few words and no other file. Its description is in every run and opening it costs a call, so it can cost more than it saves. |
@@ -66,6 +67,7 @@ does not matter.
 | [tool-search](smells/tool-search.md) | tools | The tools are listed nowhere the model can read, so the agent must guess that a tool exists and guess the raw search terms that find it. |
 | [tools-on-a-live-server](smells/tools-on-a-live-server.md) | tools | The agent's tools write to a real system, or read data that changes, so the right answer to an eval item moves and a measurement cannot be repeated. A read of fixed data (RAG) is fine. |
 | [unnecessary-tools](smells/unnecessary-tools.md) | tools | Tools that overlap - two tools used for the same kind of request - or tools never called in the traces. One tool for each job, and each tool needed. |
+| [very-long-input-field](smells/very-long-input-field.md) | single_turn | One text field of the task input is very long on some items - a description, a thread, a log - so a few items take most of the input tokens and the decisive part is a small share. |
 | [very-long-prompt](smells/very-long-prompt.md) | all | The system prompt is longer than the reference length, or it holds many unrelated topics and each request needs a few. Code measures the length. |
 | [very-long-skill-description](smells/very-long-skill-description.md) | all | A skill description is longer than the reference length, or it holds rules that the agent needs only after it opens the skill. Code measures the length. |
 | [very-long-tool-description](smells/very-long-tool-description.md) | tools | The description of an attached tool is longer than the reference length. A code detector measures each tool, and each detection names the tool. |
@@ -106,6 +108,7 @@ A class of failure seen in the traces of eval items.
 | [output-contract-not-met](playbooks/output-contract-not-met.md) | all | The output breaks its format - broken JSON or JSON that misses the task's schema, a closing block, a layout of free text, an escaping rule, or the form of a field. |
 | [requirement-missing-from-the-prompt](playbooks/requirement-missing-from-the-prompt.md) | all | The eval checks for something that neither the prompt nor the task instruction asks for. State the requirement in new words - do not copy the eval. |
 | [skill-is-not-read](playbooks/skill-is-not-read.md) | all | The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. A rewrite of the skill, then a prompt rule. |
+| [the-task-input-misleads-the-model](playbooks/the-task-input-misleads-the-model.md) | single_turn | The wrong answers come from how the task input reaches the model - a field it should not follow, a fact it must derive, a long text. Change the input with an input transform, the narrow change first. |
 | [wrong-scope-or-refusal](playbooks/wrong-scope-or-refusal.md) | all | The agent answers requests outside its scope, or refuses valid ones. A paragraph of decline rules, then a rebalance for the refusals that remain. |
 | [wrong-tool-chosen](playbooks/wrong-tool-chosen.md) | tools | The agent picks the wrong tool, or breaks a rule that the product enforces. Fit the tool layer first when the agent as a whole needs it, then remove and scope tools, descriptions, guards. |
 <!-- END GENERATED: playbooks-failure -->
@@ -117,11 +120,13 @@ The measurement is the problem.
 <!-- BEGIN GENERATED: playbooks-eval -->
 | Playbook | Applies to | Description |
 |---|---|---|
+| [a-few-items-carry-the-signal](playbooks/a-few-items-carry-the-signal.md) | all | Every difference between arms comes from the same few items. Find out why those items move - noise, a wrong expected output, or the only real failures - before you plan against them. |
+| [an-eval-too-small-for-the-effect](playbooks/an-eval-too-small-for-the-effect.md) | all | The eval has too few items, or too few that fail, to show a change of the size you predict. Check the size before the arm, then aim at more items, a larger effect, or a merge. |
 | [dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md) | all | A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items. |
 | [dealing-with-a-saturated-eval](playbooks/dealing-with-a-saturated-eval.md) | all | The baseline passes almost every item of an eval, so an arm has no room to show a gain on it. Keep the eval as a guard, put the effort elsewhere, and ask its owner for harder items. |
 | [dealing-with-a-wrong-eval](playbooks/dealing-with-a-wrong-eval.md) | all | The judge fails right answers or passes wrong ones, or the eval does not measure the issue. Classify each fire, arm only the config failures, report the rest. Do not tune toward the judge. |
 | [dealing-with-an-eval-near-zero](playbooks/dealing-with-an-eval-near-zero.md) | all | The baseline passes almost no item of an eval. Read the raw outputs first - text fixes a missing requirement or a wrong format. Try a smarter model only on evidence that the model cannot do the task. |
-| [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, a gain not clear, or val incomplete. Only "no gain" shows that the win did not carry. |
+| [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, not clear, unverified, val incomplete. Only "no gain" shows a win did not carry. |
 <!-- END GENERATED: playbooks-eval -->
 
 ## Design

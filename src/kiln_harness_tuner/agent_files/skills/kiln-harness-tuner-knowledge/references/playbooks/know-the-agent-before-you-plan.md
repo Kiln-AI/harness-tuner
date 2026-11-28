@@ -1,7 +1,7 @@
 ---
 title: Know the agent before you plan
 description: Classify the agent before the first plan - its turns, its output, a classifier shape, its tools, skills and model - because each document says which shapes it fits.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 kind: order
 applies_to: all
 ---
@@ -24,6 +24,10 @@ traces. Record these facts:
   earlier ones. A multi-turn eval is driven by a synthetic user. That user
   can ask an unclear question on purpose, and the agent passes only if it
   asks the right follow-up question.
+- **Input.** Plain text, or a structured input (the task has an input
+  schema). For a structured input: which fields it has, and how long the
+  longest text field is on the train items. Whether the run config has an
+  input transform.
 - **Output.** Structured output (the task has an output schema) or free
   text. A classifier shape: each field of the output takes a small, closed
   set of values.
@@ -61,6 +65,9 @@ to the eval builder in the Kiln app.
      [structure a long prompt](../techniques/structure-a-long-prompt.md).
    - Many tools that are the company's software APIs:
      [fit the tool layer to the agent](fit-the-tool-layer-to-the-agent.md).
+   - A single-turn task whose input is a wide record, with fields that
+     the task instruction does not need:
+     [keep only the fields the task needs](../techniques/keep-only-the-fields-the-task-needs.md).
    - A multi-turn agent that does not ask the follow-up question that the
      synthetic user waits for:
      [requirement missing from the prompt](requirement-missing-from-the-prompt.md).
