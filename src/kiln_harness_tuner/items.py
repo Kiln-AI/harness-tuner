@@ -23,6 +23,7 @@ import logging
 from collections.abc import Awaitable, Callable, Collection
 from typing import TYPE_CHECKING, TypeVar
 
+from kiln_harness_tuner import input_transform
 from kiln_harness_tuner.analysis import (
     AnalysisError,
     MeasurementFailed,
@@ -38,6 +39,7 @@ from kiln_harness_tuner.analysis import (
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
+from kiln_harness_tuner.levers import LeverVerdict
 from kiln_harness_tuner.measure import (
     Candidate,
     Measured,
@@ -861,8 +863,17 @@ async def _execute_plan_item(
 
     exp_mem = await ctx.memory.open_experiment(item, wave, baseline)
 
-    _set_state(ctx, item.id, "building_rc")
     reused = getattr(item.work, "existing_rc_id", None)
+    if not reused and _names_transform_lever(item) and await _task_is_multi_turn(ctx):
+        # The lever does not apply to this task: no build session is paid
+        # for. This comes after an item's own eval build (with
+        # `--experimental-eval-building`): the record needs the eval's id,
+        # and an item with no record is planned again. That eval measures
+        # the issue, not the fix, so it stays linked to the issue.
+        return await _transform_dead_end(
+            ctx, item, exp_mem, input_transform.MULTI_TURN_REFUSAL, status="refused"
+        )
+    _set_state(ctx, item.id, "building_rc")
     if reused:
         # The run config already exists (a prior run built and
         # measured it and lost only the analysis when that run stopped) — no build
@@ -896,6 +907,12 @@ async def _execute_plan_item(
     parent_rc_id = baseline.rc_id
     if isinstance(item.work, FixWork) and item.work.parent_rc_id:
         parent_rc_id = item.work.parent_rc_id
+    # The input transform lever (`kiln_harness_tuner.input_transform`): an
+    # arm that names it must change the transform, and no arm changes it on
+    # a multi-turn task. Code reads the two run configs, before any review.
+    transform = await _check_transform(ctx, item, exp_mem, parent_rc_id, rc.data.rc_id)
+    if isinstance(transform, ItemOutcome):
+        return transform
     # What the build added is checked for train-set memorisation
     # BEFORE any train budget is spent on it (`kiln_harness_tuner.generality`), and
     # its whole text for eval text (`kiln_harness_tuner.judge_copy`),
@@ -907,6 +924,11 @@ async def _execute_plan_item(
     if isinstance(reviewed, ItemOutcome):
         return reviewed
     rc_id = reviewed.rc_id
+    if rc_id != rc.data.rc_id:
+        # The one rebuild is a new run config: the same check on it.
+        transform = await _check_transform(ctx, item, exp_mem, parent_rc_id, rc_id)
+        if isinstance(transform, ItemOutcome):
+            return transform
 
     _set_state(ctx, item.id, "measuring")
     # One measurement path (`kiln_harness_tuner.measure`): the arm is
@@ -919,6 +941,31 @@ async def _execute_plan_item(
     stopped = await _stopped_arm(ctx, item, rc_id, exp_mem, measurement)
     if stopped is not None:
         return stopped
+    transform_line = None
+    if transform is not None:
+        # The arm changed the transform: did it reach the calls? Read from
+        # the train rows the measurement just stored, at no cost.
+        applied = await _transform_applied(ctx, item, rc_id, parent_rc_id)
+        # Only an arm of this lever ends on it. Another arm can change the
+        # transform by accident (a copy with one more blank line): its own
+        # lever is what the measurement is about, so its verdict is a note.
+        if applied.status == "not_applied" and _names_transform_lever(item):
+            out = await _transform_dead_end(
+                ctx, item, exp_mem, applied.reason, rc_id=rc_id, status="not_applied"
+            )
+            out.measurement = measurement_summary(measurement)
+            return out
+        transform_line = f"input transform: {transform}; {applied.reason}"
+        ctx.log.event(
+            "input_transform",
+            item_id=item.id,
+            rc_id=rc_id,
+            status=applied.status,
+            line=f"input transform {rc_id}: {applied.reason}",
+        )
+        ctx.log.event(
+            "item_detail", item_id=item.id, detail=f"input transform: {applied.reason}"
+        )
     try:
         bundle = await ctx.analyzer.run_experiment_analysis(
             item,
@@ -977,9 +1024,36 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
+    # `successful` is the ticket into the val gate, and the code
+    # rule is its floor — the analyzer keeps its interpretation and may veto,
+    # never promote past the numbers (`successful` = analyzer AND rule). The
+    # rule reads only the measured rows, so code applies it now: its
+    # `verdict:` line is then in `code_lines` before the room is sized.
+    from kiln_harness_tuner.orchestrator import (
+        eval_weights,
+    )  # the orchestrator imports us
+
+    verdict = (
+        success_by_speed_rule(
+            bundle, ctx.coverage_floor, ctx.objective, await eval_weights(ctx)
+        )
+        if efficiency
+        else success_by_rule(item, bundle, ctx.coverage_floor)
+    )
+
     # The code-composed lines on the record the planner reads. They are
     # known now, so the analyzer is told the room they leave it.
     code_lines = [f"measurement: {measurement.line}"]
+    # Too few items differ for a win or a loss
+    # (`kiln_harness_tuner.thin_evidence`). Dropped below when the analyzer
+    # vetoes for a reason of its own: dropping a line only frees room.
+    verdict_line = (
+        f"verdict: {verdict.unverified}" if verdict.unverified is not None else None
+    )
+    if verdict_line is not None:
+        code_lines.append(verdict_line)
+    if transform_line is not None:
+        code_lines.append(transform_line)
     if bundle.latency is not None or bundle.cost is not None:
         code_lines += [
             latency_line("latency", bundle.latency),
@@ -1035,27 +1109,28 @@ async def _execute_plan_item(
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
 
-    # `successful` is the ticket into the val gate, and the code
-    # rule is its floor — the analyzer keeps its interpretation and may veto,
-    # never promote past the numbers (`successful` = analyzer AND rule).
-    from kiln_harness_tuner.orchestrator import (
-        eval_weights,
-    )  # the orchestrator imports us
-
-    verdict = (
-        success_by_speed_rule(
-            bundle, ctx.coverage_floor, ctx.objective, await eval_weights(ctx)
-        )
-        if efficiency
-        else success_by_rule(item, bundle, ctx.coverage_floor)
-    )
     ctx.log.event(
         "success_rule",
         item_id=item.id,
         analyzer_successful=res.data.successful,
         rule_ok=verdict.ok,
         reasons=verdict.reasons,
+        unverified=verdict.unverified,
     )
+    # Too few items differ for a win or a loss
+    # (`kiln_harness_tuner.thin_evidence`). Code owns this field: whatever the
+    # analyzer returned in it is replaced. The record gets `— UNVERIFIED`,
+    # not `— REFUTED`, and the reason on a `verdict:` line. An analyzer veto
+    # for a reason of its own (a regression, holes, a dominated merge) stays
+    # a refutation: only a veto with no reason, or a prediction miss, is
+    # about the size of the gain.
+    own_veto = not res.data.successful and res.data.veto_reason not in (
+        None,
+        "prediction_miss",
+    )
+    res.data.unverified_reason = None if own_veto else verdict.unverified
+    if own_veto and verdict_line is not None:
+        code_lines.remove(verdict_line)
     if res.data.successful and not verdict.ok:
         logger.warning(
             "item %s: analyzer said successful, code rule says no — %s",
@@ -1097,6 +1172,15 @@ async def _execute_plan_item(
         )
         ctx.log.event("veto_overridden", item_id=item.id, veto_reason="prediction_miss")
 
+    if (
+        res.data.unverified_reason is not None
+        and not res.data.findings.rstrip().endswith(res.data.unverified_reason)
+    ):
+        # The analyzer already said "not successful": the override above did
+        # not run, so the reason is not in the findings yet.
+        res.data.findings = (
+            res.data.findings.rstrip() + "\n\n[code rule] " + res.data.unverified_reason
+        )
     res.data.memory_content = (
         res.data.memory_content.rstrip() + "\n" + "\n".join(code_lines)
     )
@@ -1115,6 +1199,140 @@ async def _execute_plan_item(
     )
     done.measurement = measurement_summary(measurement)
     return done
+
+
+def _names_transform_lever(item: ExperimentItem) -> bool:
+    return (
+        isinstance(item.work, FixWork)
+        and item.work.technique.strip().lower() == input_transform.LEVER
+    )
+
+
+async def _task_is_multi_turn(ctx: Ctx) -> bool:
+    from kiln_harness_tuner.job_drives import driver_for
+
+    return await driver_for(ctx).multi_turn()
+
+
+async def _transform_dead_end(
+    ctx: Ctx,
+    item: ExperimentItem,
+    exp_mem: str,
+    reason: str,
+    *,
+    status: str,
+    rc_id: str | None = None,
+) -> ItemOutcome:
+    """End an arm on the input transform lever's own rules: a dead end, with
+    the reason on the record, in the wave log and on the item."""
+    reason = reason.removeprefix("lever not applied: ")
+    if status == "not_applied":
+        reason = f"lever not applied: {reason}"
+    else:
+        reason = f"input transform: {reason}"
+    await _experiment_write(
+        ctx, item.id, "mark_dead_end", ctx.memory.mark_dead_end(exp_mem, reason[:200])
+    )
+    ctx.log.event(
+        "input_transform",
+        item_id=item.id,
+        rc_id=rc_id,
+        status=status,
+        line=f"input transform {rc_id or item.id}: {reason}",
+    )
+    ctx.log.event("item_detail", item_id=item.id, detail=f"dead end: {reason}")
+    return _outcome(item, "dead_end", rc_id=rc_id, experiment_memory_id=exp_mem)
+
+
+async def _check_transform(
+    ctx: Ctx, item: ExperimentItem, exp_mem: str, parent_rc_id: str, rc_id: str
+) -> ItemOutcome | str | None:
+    """The input transform lever's rules on a built run config, read by
+    code from the two run configs.
+
+    - The arm changes the transform and the task is multi-turn: a dead end.
+      The lever applies to single-turn tasks only.
+    - The item names the lever (`technique: input_transform`) and the
+      transform is the parent's: a dead end, "lever not applied".
+    - The arm changes the transform: the change, in one line (the parent's
+      template size and the arm's). The caller checks the drives later.
+    - No change, and the item names another lever: None.
+
+    A run config that cannot be read is logged, and the item goes on: the
+    gateway made the same checks when the run config was created."""
+    try:
+        parent = await rc_props(ctx, parent_rc_id)
+        child = await rc_props(ctx, rc_id)
+    except Exception as exc:
+        ctx.log.event(
+            "input_transform_check_unavailable", rc_id=rc_id, error=repr(exc)[:200]
+        )
+        return None
+    if not input_transform.changed(parent, child):
+        if not _names_transform_lever(item):
+            return None
+        return await _transform_dead_end(
+            ctx,
+            item,
+            exp_mem,
+            f"the item's technique is {input_transform.LEVER}, but the input"
+            f" transform of {rc_id} is its parent's ({parent_rc_id})",
+            rc_id=rc_id,
+            status="not_applied",
+        )
+    if await _task_is_multi_turn(ctx):
+        return await _transform_dead_end(
+            ctx,
+            item,
+            exp_mem,
+            f"{input_transform.MULTI_TURN_REFUSAL}; {rc_id} changes the transform"
+            f" of its parent ({parent_rc_id})",
+            rc_id=rc_id,
+            status="refused",
+        )
+    line = input_transform.change_line(parent, child)
+    ctx.log.event(
+        "input_transform",
+        item_id=item.id,
+        rc_id=rc_id,
+        parent_rc_id=parent_rc_id,
+        status="changed",
+        line=f"input transform {rc_id}: changed — {line}",
+    )
+    ctx.log.event(
+        "item_detail", item_id=item.id, detail=f"input transform: changed — {line}"
+    )
+    return line
+
+
+async def _transform_applied(
+    ctx: Ctx, item: ExperimentItem, rc_id: str, parent_rc_id: str
+) -> LeverVerdict:
+    """Did the changed transform reach the calls? The first user message of
+    each stored train row of the arm against its parent's on the same item,
+    over the evals the item targets (`input_transform.applied_verdict`).
+    Rows that cannot be read leave the lever unverified."""
+    from kiln_harness_tuner.analysis import _runs_by_item
+    from kiln_harness_tuner.orchestrator import _active_evals
+
+    wanted = {t.eval_id for t in item.evaluation_target}
+    mine: dict[str, str] = {}
+    parents: dict[str, str] = {}
+    try:
+        for eval_def, config_id in await _active_evals(ctx):
+            eval_id = str(eval_def["id"])
+            if wanted and eval_id not in wanted:
+                continue
+            for rc, found in ((rc_id, mine), (parent_rc_id, parents)):
+                rows = await ctx.analyzer.stored_results(
+                    eval_id, config_id, rc, "train"
+                )
+                found.update(input_transform.user_messages(_runs_by_item(rows).items()))
+    except Exception as exc:  # the verdict is then "unverified", never a stop
+        ctx.log.event(
+            "input_transform_check_unavailable", rc_id=rc_id, error=repr(exc)[:200]
+        )
+    return input_transform.applied_verdict(parents, mine)
 
 
 async def _build_rc(

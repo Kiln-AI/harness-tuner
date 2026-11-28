@@ -195,6 +195,15 @@ Under `speed` and `cost`, quality must be equal or better: the net items
 over all evals, weighted by eval priority, must be zero or more. So this
 drop of 7 items is refused, unless other evals gain at least as much.
 
+**A real gain on one or two items is never promoted.** The loop makes no
+decision on fewer than 3 items that differ between the two sides
+(`thin_evidence.MIN_DIFFERING_ITEMS`). On an eval with few failing items,
+a real fix of two of them ends `— UNVERIFIED` on train, and "unverified at
+val" at the gate. The minimum is a fixed count, not a test that reads the
+eval's noise: on an eval with no noise at all, two items would be real
+evidence, and the loop still does not act on them. The arm that fixes every
+failing item of a train row is the one exception, on train only.
+
 **A small speed gain cannot be shown on 30 pairs.** The sign test needs 21
 or more of 30 pairs faster (exact two-sided sign test, p < 0.05). When the per-pair latency
 noise is large next to the gain, a real small speed-up often does not get
@@ -223,9 +232,25 @@ level changes the answer's length), so a real no-op whose answers happen to
 lengthen by a quarter passes. A model switch no drive records is
 unverified the same way.
 
+**The input transform lever is for single-turn tasks, and its check reads
+one message.** The lever changes the Jinja template that renders the task
+input into the first user message. On a multi-turn task the gateway
+refuses a new template and the loop ends an arm that changes one: the
+tuner has no evidence for a template that also renders each later user
+message. A screen and a code probe cannot change the template: only a
+build session can. The gateway renders a new template on every train
+input, with the engine of the installed `kiln-ai` library, and refuses one
+that fails. It reads train inputs only, so a field that only a val or test
+input lacks still fails that item, with no output. A library older than
+the template engine, or one that does not compile a template that the
+server compiled, renders nothing, and the answer says so. "Applied" means that the first user message differs
+from the parent's on at least one paired train item. It does not say that
+the template does what the hypothesis intends.
+
 **The integrity checks are heuristics.** Quoting is blocked only as a run
 of 8 identical words, or an eval's full name. The gate checks the run
-config's prompt; the build-time judge-copy check also reads
+config's prompt and its input transform; the build-time judge-copy check
+also reads
 the text of its skills and code tools, so a verbatim quote there ends the
 arm before measurement. A run of 7 words, or a quote with one word changed,
 passes both. Text the baseline already carries is exempt from both checks;

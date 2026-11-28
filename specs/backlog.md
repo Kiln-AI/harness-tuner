@@ -16,17 +16,6 @@ reference or `None`. `tests/test_backlog.py` checks the format.
 
 ## Ranked
 
-### Input transforms
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 1; overview 7.3
-
-The lever, and its techniques: keep only the fields the task needs, cut long text, add computed
-features, remove a field that misleads. The run config field passes through, and nothing teaches,
-screens or checks it.
-
 ### Sub-agents
 
 - Kind: gap
@@ -56,16 +45,6 @@ Knowledge settles a tie, never a loss. The stretch goal is a difference inside t
 
 The cost that Kiln measures can be wrong when a single-turn task gets no caching. It also decides
 if `skill-into-the-prompt` can save money.
-
-### The task shape for loop agents
-
-- Kind: gap
-- Where: tuner
-- Depends on: None
-- Source: [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), gap 4
-
-`get_task` drops `turn_mode`. The step "know the agent before you plan" needs it. The model
-capability flags are in `get_model_details` (project model-provider-info).
 
 ### RAG
 
@@ -385,24 +364,6 @@ Failure: the change fixes the items it was built for, and items that passed now 
 
 Failure: a broken tool, stale data or a quota. No harness change fixes it.
 
-### Playbook: an eval too small to show the effect
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Eval: the eval has too few items to show a difference of the expected size.
-
-### Playbook: a few items carry all the signal
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Eval: every difference between arms comes from the same few items.
-
 ### Playbook: eval feedback with a score and no reason
 
 - Kind: playbook
@@ -544,15 +505,6 @@ leak risk before anything teaches it.
 The v2 eval-input routes, multi-turn synthetic items and world resets are not reachable. Decide
 what the tuner must read.
 
-### A decision that turns on one or two items
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-The loop does not make a decision that turns on one or two items.
-
 ### Guards before a measurement
 
 - Kind: code
@@ -670,12 +622,12 @@ the text of its skill keeps it out.
 
 - Kind: technique
 - Where: knowledge
-- Depends on: Input transforms
+- Depends on: None
 - Source: owner, 2026-11-18; [feature-engineering](projects/feature-engineering/project_overview.md)
 
-Fix the data before the model reads it: via the input transform, or a code wrapper on a tool result.
-Drop and dedupe fields, compute `is_open`, cut long text, wrap user text in tags, rename a wrong
-field. The owner's notes, the moves, the risks and the research to do are in the overview.
+Fix the data before the model reads it. The `input_transform` lever and four techniques exist.
+Left: wrap user text in tags, reformat, codes into words, the same moves on a tool result, and
+the research list of the overview.
 
 ### Prompt cache usage
 

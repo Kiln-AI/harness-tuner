@@ -166,6 +166,17 @@ def test_landed_success_cards():
     assert all(state == "done" for _, state in run.card("w1-3").steps)
 
 
+def test_an_unverified_arm_is_not_shown_as_no_win():
+    run = wave_one(fix("w1-1"))
+    run.state("w1-1", "analyzing").outcome(
+        "w1-1",
+        rc_id="rc_a",
+        successful=False,
+        unverified_reason="unverified: primary target eval_1 shows no win",
+    )
+    assert run.line5("w1-1") == "○ Unverified: too few items differ"
+
+
 def test_a_card_at_the_gate_shows_its_val_progress():
     run = wave_one(fix("w1-1"))
     run.success("w1-1", "rc_a", row())

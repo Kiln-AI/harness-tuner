@@ -5,8 +5,11 @@ status: draft
 # Feature engineering on the data that reaches the model
 
 **Status of this document.** A record of the owner's idea, so that the
-project is easy to start later. The owner gave it on 2026-11-18. It is not
-started. The research is not done. Section 7 lists what to find out.
+project is easy to start later. The owner gave it on 2026-11-18. The
+research is not done. Section 7 lists what to find out. The project
+[input-transform-lever](../input-transform-lever/project_overview.md) built
+the first surface: the `input_transform` lever, and the techniques for
+moves 4.1 to 4.4 and for the removal half of 4.6.
 
 ## 1. The owner's notes
 
@@ -49,9 +52,9 @@ One technique, two places to apply it:
 
 1. **The input transform** of a single-turn task with structured input.
    This is the Jinja template on the run config (`JinjaInputTransform` in
-   Kiln). It renders the task input into the first user message. The tuner
-   cannot reach this field today: see the backlog entry `Input transforms`.
-   So this surface depends on that gap.
+   Kiln). It renders the task input into the first user message. The
+   tuner changes it with the `input_transform` lever, on single-turn tasks
+   only.
 2. **A code tool wrapper** for tool calls. The wrapper calls the original
    tool and changes its result before the model reads it. The `new_tool`
    lever can do this today. So this surface does not wait on the gap.
@@ -176,5 +179,6 @@ about classifiers. Still to find:
   the moves in one place. Two files match the two levers.
 - Does `cap-and-preview-wrapper` stay separate, with this technique
   pointing to it for 4.4 on tool results?
-- Can the tool-result half ship first, before the `Input transforms` gap is
-  closed?
+- The input-transform half has one technique file for each move. Does the
+  tool-result half get its own files, or do these files cover both
+  surfaces?

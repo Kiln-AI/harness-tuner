@@ -601,6 +601,8 @@ def _same(text: str, tone: Tone, glyph: str) -> Verdict:
 SUCCESS_GATE = _same("Train success · checking validation set", "success", "●")
 SUCCESS = _same("Success", "success", "●")
 NO_WIN = _same("No win", "muted", "○")
+# Too few items differ for a win or a loss (`kiln_harness_tuner.thin_evidence`).
+UNVERIFIED = _same("Unverified: too few items differ", "muted", "○")
 NOT_REPRODUCED = _same("Not reproduced", "muted", "○")
 REPRODUCED = _same("Reproduced", "success", "✓")
 EVAL_BUILT = _same("Eval built", "success", "✓")

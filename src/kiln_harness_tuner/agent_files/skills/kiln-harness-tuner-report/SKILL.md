@@ -153,7 +153,11 @@ going looking.
   cap, the spend and the items judged; report it as unfinished, not as a
   loss); `result` — the analyzer's
   `successful` + `findings` + `memory_overview`, `None` for `eval` and
-  `measure` items, which run no analyzer), `spend_usd`, `elapsed_secs`. A
+  `measure` items, which run no analyzer; `result.unverified_reason` is set
+  by code when fewer than 3 items differed between the arm and its parent
+  on the primary target: report that arm as unverified — no win and no
+  loss, untested at that size — never as refuted), `spend_usd`,
+  `elapsed_secs`. A
   completed `measure` item carries no verdict field: whether the baseline
   reproduced the issue is in the issue memory, not in `RunStatus` — say it
   measured, and read the memory if the round's story needs the answer. An
@@ -236,7 +240,7 @@ Never leave a block out: it is the one gate outcome that says a prompt
 copies an eval.>
 
 ## Experiments, by wave
-<per wave: one line per item — label, `change.summary` when the item carries a `change` (the build agent's structured what-changed block — cite its `changes` entries when the outcome turns on one of them), outcome numbers (from memory_overview),
+<per wave: one line per item — label, its lever when the arm changed the input transform (its experiment record then has an `input transform:` line: write "lever: input_transform" and what that line says about the change and whether it was applied), `change.summary` when the item carries a `change` (the build agent's structured what-changed block — cite its `changes` entries when the outcome turns on one of them), outcome numbers (from memory_overview),
 or the failure class. Include rejected_summary highlights and tripwires.>
 
 ## Issues moved
