@@ -41,8 +41,9 @@ faster and cheaper than a language model on the same input.
   a default.
 - **The classes need reasoning over the input**: arithmetic, dates,
   indirection, long text with irrelevant parts. A decision model reads in
-  one pass and does not reason step by step. Code that computes those
-  facts first is an input transform, which the tuner cannot change today.
+  one pass and does not reason step by step. When the facts follow a
+  fixed rule, code can compute them first, in an input transform:
+  [add computed input features](add-computed-input-features.md).
 
 ## Alternatives
 

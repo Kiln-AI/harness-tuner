@@ -40,6 +40,7 @@ A class of failure seen in the traces of eval items.
 | [output-contract-not-met](playbooks/output-contract-not-met.md) | all | The output breaks its format - broken JSON or JSON that misses the task's schema, a closing block, a layout of free text, an escaping rule, or the form of a field. |
 | [requirement-missing-from-the-prompt](playbooks/requirement-missing-from-the-prompt.md) | all | The eval checks for something that neither the prompt nor the task instruction asks for. State the requirement in new words - do not copy the eval. |
 | [skill-is-not-read](playbooks/skill-is-not-read.md) | all | The agent never loads a skill file, guesses a path, or loads the skill and does not follow it. A rewrite of the skill, then a prompt rule. |
+| [the-task-input-misleads-the-model](playbooks/the-task-input-misleads-the-model.md) | single_turn | The wrong answers come from how the task input reaches the model - a field it should not follow, a fact it must derive, a long text. Change the input with an input transform, the narrow change first. |
 | [wrong-scope-or-refusal](playbooks/wrong-scope-or-refusal.md) | all | The agent answers requests outside its scope, or refuses valid ones. A paragraph of decline rules, then a rebalance for the refusals that remain. |
 | [wrong-tool-chosen](playbooks/wrong-tool-chosen.md) | tools | The agent picks the wrong tool, or breaks a rule that the product enforces. Fit the tool layer first when the agent as a whole needs it, then remove and scope tools, descriptions, guards. |
 <!-- END GENERATED: playbooks-failure -->
@@ -51,9 +52,11 @@ The measurement is the problem.
 <!-- BEGIN GENERATED: playbooks-eval -->
 | Playbook | Applies to | Description |
 |---|---|---|
+| [a-few-items-carry-the-signal](playbooks/a-few-items-carry-the-signal.md) | all | Every difference between arms comes from the same few items. Find out why those items move - noise, a wrong expected output, or the only real failures - before you plan against them. |
+| [an-eval-too-small-for-the-effect](playbooks/an-eval-too-small-for-the-effect.md) | all | The eval has too few items, or too few that fail, to show a change of the size you predict. Check the size before the arm, then aim at more items, a larger effect, or a merge. |
 | [dealing-with-a-noisy-eval](playbooks/dealing-with-a-noisy-eval.md) | all | A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items. |
 | [dealing-with-a-saturated-eval](playbooks/dealing-with-a-saturated-eval.md) | all | The baseline passes almost every item of an eval, so an arm has no room to show a gain on it. Keep the eval as a guard, put the effort elsewhere, and ask its owner for harder items. |
 | [dealing-with-a-wrong-eval](playbooks/dealing-with-a-wrong-eval.md) | all | The judge fails right answers or passes wrong ones, or the eval does not measure the issue. Classify each fire, arm only the config failures, report the rest. Do not tune toward the judge. |
 | [dealing-with-an-eval-near-zero](playbooks/dealing-with-an-eval-near-zero.md) | all | The baseline passes almost no item of an eval. Read the raw outputs first - text fixes a missing requirement or a wrong format. Try a smarter model only on evidence that the model cannot do the task. |
-| [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, a gain not clear, or val incomplete. Only "no gain" shows that the win did not carry. |
+| [dealing-with-train-wins-rejected-at-val](playbooks/dealing-with-train-wins-rejected-at-val.md) | all | A train win ends REJECTED AT VAL. Read the reason first - passed over, copied eval text, an eval dropped, no gain, not clear, unverified, val incomplete. Only "no gain" shows a win did not carry. |
 <!-- END GENERATED: playbooks-eval -->
