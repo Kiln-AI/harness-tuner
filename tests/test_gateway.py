@@ -2871,6 +2871,23 @@ class TestSubAgents:
             )
         assert kiln.calls == []
 
+    def test_an_input_transform_is_refused_and_nothing_is_carried(self, tmp_path):
+        sent: dict[str, Any] = {}
+        gateway, kiln = _gateway(tmp_path, _sub_agent_routes(sent))
+        transform = {"type": "jinja", "template": "Q: {{ input.question }}"}
+        props = {**SUB_PROPS, "input_transform": transform}
+        with pytest.raises(gw.GatewayError, match="cannot set input_transform"):
+            _run(
+                gateway,
+                "create_sub_agent",
+                **_sub_agent_args(run_config_properties=props),
+            )
+        assert kiln.calls == []
+        # With no transform in the request, the sub-agent's run config has
+        # none: nothing is carried from a run config of the subject task.
+        _run(gateway, "create_sub_agent", **_sub_agent_args())
+        assert "input_transform" not in sent["run_config"]["run_config_properties"]
+
     def test_a_sub_agent_of_a_sub_agent_outside_the_policy_is_refused(self, tmp_path):
         routes = {
             **_attached_sub_agent("openai"),

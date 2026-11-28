@@ -837,6 +837,31 @@ async def test_a_run_configs_text_includes_its_sub_agents():
     assert "sub-agent read_manifest, description" in places
 
 
+async def test_the_input_transform_of_a_sub_agent_is_one_of_its_files():
+    """A sub-agent that the user made can carry an input transform. Its
+    text reaches the sub-agent's model, so the checks read it with the
+    subject's own transform."""
+    ctx = make_ctx()
+    ctx.kiln.add_sub_agent(SERVER, SUB_TASK, SUB_RC, tool_name="read_manifest")
+    (sub_rc,) = ctx.kiln.sub_tasks[SUB_TASK]["run_configs"]
+    sub_rc["run_config_properties"]["input_transform"] = {
+        "type": "jinja",
+        "template": "Manifest: {{ input.manifest }}",
+    }
+    row = _attaches("rc_new", "Answer the operator.", TOOL)
+    row["run_config_properties"]["input_transform"] = {
+        "type": "jinja",
+        "template": "Question: {{ input.question }}",
+    }
+    ctx.kiln.run_configs = [row]
+    places = whole_texts((await rc_texts(ctx, ["rc_new"]))["rc_new"])
+    assert places["the input transform"] == "Question: {{ input.question }}"
+    assert (
+        places["sub-agent read_manifest, the input transform"]
+        == "Manifest: {{ input.manifest }}"
+    )
+
+
 async def test_a_frozen_prompt_on_the_sub_agents_run_config_is_its_text():
     ctx = make_ctx()
     ctx.kiln.add_sub_agent(

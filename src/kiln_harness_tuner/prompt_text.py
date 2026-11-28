@@ -34,6 +34,14 @@ subject's, so every reader of this module reads the sub-agent too. The task,
 its run config and the tool server come from the API. A prompt that Kiln
 builds from the sub-agent task's stored runs is not read, and the
 sub-agents' text is then unreadable (None).
+
+The input transform is the Jinja template of the run config's
+`input_transform` (`kiln_harness_tuner.input_transform`). It is on the run
+config row, so it is always readable. Its literal text reaches the model in
+the first user message of every call, so every reader takes it as one more
+place where the run config gives the model text: "the input transform".
+A sub-agent's own run config can have an input transform too: it is read
+as one more file of the sub-agent's bundle.
 """
 
 from __future__ import annotations
@@ -43,6 +51,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from kiln_harness_tuner.input_transform import WHERE as TRANSFORM_WHERE
+from kiln_harness_tuner.input_transform import template_of
 from kiln_harness_tuner.integrity import strings_in
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.skill_installer.bundle import installed_skill_dir
@@ -325,8 +335,9 @@ class SubAgentText:
     `name`: the tool name the subject model calls. `files` maps
     `SUB_AGENT_DESCRIPTION` (what the subject model is shown),
     `SUB_AGENT_PROMPT` (what the sub-agent's model is told),
-    `SUB_AGENT_OUTPUT_SCHEMA` when its task has one, and each file of each
-    skill and code tool its run config attaches, to its text."""
+    `SUB_AGENT_OUTPUT_SCHEMA` when its task has one, the input transform of
+    its run config when it has one, and each file of each skill and code
+    tool its run config attaches, to its text."""
 
     tool_id: str
     name: str
@@ -370,6 +381,9 @@ async def read_sub_agent_text(ctx: Ctx, sub: SubAgent) -> SubAgentText | None:
         SUB_AGENT_DESCRIPTION: json.dumps(description, indent=2, ensure_ascii=False),
         SUB_AGENT_PROMPT: prompt,
     }
+    transform = template_of(sub.run_config.get("run_config_properties"))
+    if transform:
+        files[TRANSFORM_WHERE] = transform
     output_schema = _schema(sub.task.get("output_json_schema"))
     if output_schema is not None:
         files[SUB_AGENT_OUTPUT_SCHEMA] = json.dumps(
@@ -401,7 +415,8 @@ class RcText:
     `sub_agents`: the same for the attached sub-agents, by tool id. A
     sub-agent's text is also what its own model is told.
     `tool_ids`: every tool id the run config attaches, in its tool order;
-    `found`: False when its row is missing."""
+    `input_transform`: the template of its input transform, "" when it has
+    none; `found`: False when its row is missing."""
 
     prompt: str | None
     skill_ids: tuple[str, ...]
@@ -409,6 +424,7 @@ class RcText:
     code_tool_ids: tuple[str, ...] = ()
     code_tools: dict[str, CodeToolText] | None = None
     tool_ids: tuple[str, ...] = ()
+    input_transform: str = ""
     found: bool = True
     sub_agent_ids: tuple[str, ...] = ()
     sub_agents: dict[str, SubAgentText] | None = None
@@ -471,6 +487,7 @@ async def rc_texts(
                 else {i: v for i, v in tools.items() if v is not None}
             ),
             tool_ids=rc_tool_ids(row),
+            input_transform=template_of(row.get("run_config_properties")),
             sub_agent_ids=sub_ids,
             sub_agents=(
                 None
@@ -497,10 +514,12 @@ async def _sub_agent_text(ctx: Ctx, tool_id: str) -> SubAgentText | None:
 
 def whole_texts(rc: RcText) -> dict[str, str]:
     """Where a run config gives the model text -> that whole text: "the
-    prompt", "skill <name>, <file>", "code tool <name>, <file>" and
-    "sub-agent <name>, <file>". The generality check and the judge-copy
-    check name a place this way."""
+    prompt", "the input transform" (when it has one), "skill <name>, <file>",
+    "code tool <name>, <file>" and "sub-agent <name>, <file>". The
+    generality check and the judge-copy check name a place this way."""
     texts = {"the prompt": rc.prompt or ""}
+    if rc.input_transform:
+        texts[TRANSFORM_WHERE] = rc.input_transform
     for kind, bundles in (
         ("skill", rc.skills),
         ("code tool", rc.code_tools),

@@ -12,9 +12,9 @@ measured on train and on val, and then blocked.
 
 So the same matcher also runs right after the build, next to the
 generality check, before any train spend. It reads the WHOLE text of the
-built run config: its prompt, and every file of its attached skills and
-code tools. Whole text, not only added lines, so a phrase that a parent
-carries is found too.
+built run config: its prompt, the template of its input transform, and
+every file of its attached skills and code tools. Whole text, not only
+added lines, so a phrase that a parent carries is found too.
 
 **The exemption is the baseline, not the parent.** A run of words that the
 current baseline already carries, or that the task's own instructions
@@ -24,8 +24,9 @@ contain, is not a copy:
   instructions, which is the exact rule of the gate. A prompt that passes
   here is not blocked by check (a) at the gate, while the evals stay the
   same;
-- for a skill or a code tool file, the exempt text is the baseline's whole
-  text (prompt, skills, code tools) and the task's instructions. A skill
+- for the input transform, a skill or a code tool file, the exempt text is
+  the baseline's whole text (prompt, input transform, skills, code tools)
+  and the task's instructions. A skill
   that the baseline attaches is then not a copy in every build that keeps
   it.
 
@@ -134,7 +135,8 @@ def copy_findings(
     """One finding per (place, eval text) the run config copies, and per
     eval it names verbatim, as `"<where> <integrity finding>"`.
     `prompt_allowed`: the exempt text for the prompt (the gate's rule);
-    `other_allowed`: the exempt text for a skill or code-tool file."""
+    `other_allowed`: the exempt text for the input transform and for a
+    skill or code-tool file."""
     findings: list[str] = []
     for where, text in whole_texts(rc).items():
         if not text.strip():
@@ -188,8 +190,8 @@ class JudgeCopyCheck:
 async def check_judge_copies(
     ctx: Ctx, rc_id: str, baseline_rc_id: str
 ) -> JudgeCopyCheck:
-    """Look for eval text in the whole text of `rc_id`: its prompt, skills
-    and code tools. Code only, no model call, no spend."""
+    """Look for eval text in the whole text of `rc_id`: its prompt, input
+    transform, skills and code tools. Code only, no model call, no spend."""
     try:
         evals = await read_eval_texts(ctx)
     except (KilnError, KeyError, TypeError, ValueError) as exc:

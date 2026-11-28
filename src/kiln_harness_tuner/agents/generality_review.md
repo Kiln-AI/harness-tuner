@@ -7,7 +7,8 @@ Your input holds the instructions (the prompt) of a run config that was just
 built, the instructions of its parent, what the build added to the text of its
 attached skills (`skill_changes`), of its attached code tools
 (`code_tool_changes`) and of its attached sub-agents (`sub_agent_changes`),
-the task's own instructions, the hypothesis the build
+what it added to its input transform (`input_transform_changes`), the
+task's own instructions, the hypothesis the build
 set out to test, a sample of TRAIN item inputs, and the expected outputs of
 those items (`train_expected`, one line per item that has one). The target
 items of the build come first in that sample, and `target_items` names their
@@ -34,16 +35,27 @@ second agent that the model calls as a tool. Its `description` is the tool
 name, the tool description and the parameters that the model is shown. Its
 `prompt` is what the sub-agent itself is told, and `output schema` is the
 form of what it returns. The entries that start with `skill` or `code tool`
-are files of the sub-agent's own skills and code tools. All of it gets the
-same rules as the prompt: a train answer in a sub-agent's prompt is a leak.
+are files of the sub-agent's own skills and code tools. An entry that ends with `the input transform` is the
+Jinja template of the sub-agent's own run config. All of it gets the same
+rules as the prompt: a train answer in a sub-agent's prompt is a leak.
+
+An `input_transform_changes` entry is the Jinja template that renders the
+task input into the first user message. Its first line says how it changed:
+a new template (the whole text follows), or a changed one (a unified diff
+against the parent's follows). The literal text of the template reaches
+the model on every call, so it gets the same rules as the prompt. A
+template that selects, renames, cuts or computes from the fields of
+`input` is a general change, and it is allowed. A template that holds a
+train value, an expected answer, or a condition that fits only a few train
+inputs is a leak.
 
 Code already searched the added text for exact copies of every train item's
 ids, numbers, input passages and expected values, and found none. What is
 left for you is what an exact search misses: a paraphrase, a value written
 differently, a rule that fits only the observed items.
 
-Find text the build ADDED — in the prompt, a skill, a code tool or a
-sub-agent — that only helps on
+Find text the build ADDED — in the prompt, the input transform, a skill, a
+code tool or a sub-agent — that only helps on
 the items the loop measures:
 
 - **Memorised train items.** The new text names an entity, a value, an id, a
@@ -78,13 +90,14 @@ These are allowed. Do not flag them:
   instructions.
 
 Judge only what the build added relative to the parent, in the prompt, in
-the skills and in the code tools. When you are not sure, do not flag: a flag costs a rebuild
+the input transform, in the skills and in the code tools. When you are not sure, do not flag: a flag costs a rebuild
 or ends the experiment.
 
 Return `GeneralityReviewResult`:
 
 - `leaks`: one plain sentence each. Quote a few words of the added text, say
-  where it is (the prompt, or the skill or code tool and its file), and say
+  where it is (the prompt, the input transform, or the skill or code tool
+  and its file), and say
   what it memorises or games (name the train item id when it copies one).
   Empty when you find none — an empty list is a normal answer.
 - `notes`: at most three sentences on anything uncertain.

@@ -11,8 +11,9 @@ decides:
     spec's text or an eval's description — a run the baseline's prompt and
     the task's own instructions do not contain — or names an eval verbatim
     (`MIN_EVAL_NAME_CHARS` characters or more, not in the baseline's
-    prompt). This BLOCKS promotion in code: the candidate is marked
-    ineligible, whoever decides.
+    prompt). The template of the candidate's input transform is read the
+    same way, with the baseline's template exempt too. This BLOCKS
+    promotion in code: the candidate is marked ineligible, whoever decides.
 (b) **Output shape shift on val.** Against the baseline on the same val
     items: the median output length moved by more than `LENGTH_RATIO_LIMIT`
     either way, or the JSON outputs' top-level keys changed.

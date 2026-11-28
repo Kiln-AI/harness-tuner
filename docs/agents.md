@@ -406,10 +406,11 @@ the appendix is authoritative.
 ## `integrity_review`
 
 **Dispatched** at the promotion gate, once per candidate whose prompt text
-differs from the baseline's.
+or input transform differs from the baseline's.
 
 **Given** `IntegrityReviewInput`: the candidate's instructions, the
-baseline's, and the evals' own criteria — judge prompts and eval config
+baseline's, the templates of the two input transforms when they differ,
+and the evals' own criteria — judge prompts and eval config
 steps, spec text, eval descriptions. Never item data: no input, output,
 trace or score.
 
@@ -436,9 +437,9 @@ promotion agent one `Integrity:` sentence.
 ## `generality_review`
 
 **Dispatched** once per `experiment` item between the build and the train
-measurement, when the built run config's prompt text, the text of its
-attached skills, its attached code tools or its attached sub-agents
-differ from its parent's
+measurement, when the built run config's prompt text, the template of its
+input transform, the text of its attached skills, its attached code tools
+or its attached sub-agents differ from its parent's
 and the exact-match pre-check found no copy. Once more after a rebuild. And
 once per baseline at setup, by the baseline audit: then `item_id` is `baseline-audit`, the parent
 instructions are empty and every skill and code-tool file is shown whole, so
@@ -451,8 +452,10 @@ or the whole file when it is new, at most 30,000 characters),
 `code_tool_changes` (the same for the code tools: their code and the
 description the model is shown, at most 20,000 characters),
 `sub_agent_changes` (the same for the sub-agents: the tool description,
-the sub-agent's prompt and output schema, and the files of its own skills
-and code tools, at most 20,000 characters), the task's own
+the sub-agent's prompt, output schema and input transform, and the files
+of its own skills and code tools, at most 20,000 characters),
+`input_transform_changes` (what the build added to the input transform's
+template: the whole template, or a unified diff against the parent's), the task's own
 instructions, the item's hypothesis, up to 12 TRAIN inputs that code read
 from disk — the item's target items first, their ids in `target_items` — and
 `train_expected`, those items' expected outputs. Never a val or test item, a

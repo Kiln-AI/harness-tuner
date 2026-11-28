@@ -58,15 +58,20 @@ The check has three further parts:
 - **Expected outputs for the reviewer.** Agents can read train labels
   (`get_train_expected`), so a build can copy one. The reviewer gets the
   expected output of every train item it is shown (`train_expected`).
+- **The input transform.** The Jinja template of the run config's
+  `input_transform` puts its literal text in the first user message of
+  every call, so a label or a train value fits in one. A new or changed
+  template is diffed against the parent's (`input_transform_changes`), and
+  the exact-match pre-check reads its added lines.
 
 **The baseline audit** (`audit_baseline`). The check above
 reads only what a build ADDS, so text the baseline already carries is never
 checked: an inherited skill that copies train records passes every build.
 Once per baseline, at setup, the same two checks read the baseline's WHOLE
-text — prompt, skills, code tools — as if all of it were added: the
-exact-match pre-check first, the review only when it finds nothing. Leaks
-become one issue record (`baseline_audit`) that asks for a scrub. The audit
-never stops the run.
+text — prompt, input transform, skills, code tools — as if all of it were
+added: the exact-match pre-check first, the review only when it finds
+nothing. Leaks become one issue record (`baseline_audit`) that asks for a
+scrub. The audit never stops the run.
 
 The audit's second half: eval text. The build-time judge-copy
 check (`kiln_harness_tuner.judge_copy`) exempts text the baseline carries, so the
@@ -297,6 +302,21 @@ def skill_changes(parent: RcText, candidate: RcText) -> list[str] | None:
     )
 
 
+def input_transform_changes(parent: RcText, candidate: RcText) -> list[str]:
+    """What the candidate added to its parent's input transform: one block,
+    the whole template when the parent has none, else the unified diff. []
+    when the template is the parent's, was removed, or only lost lines."""
+    new, old = candidate.input_transform, parent.input_transform
+    if not new.strip() or normalized(new) == normalized(old):
+        return []
+    if not old.strip():
+        return [f"the input transform: new — whole template\n{new}"]
+    added = _added_lines(old, new)
+    if not added:
+        return []
+    return [f"the input transform: changed — unified diff\n{added}"]
+
+
 def code_tool_changes(parent: RcText, candidate: RcText) -> list[str] | None:
     """The same for the attached code tools: their code and their
     model-facing description, within `CODE_TOOL_CHANGE_CHARS`."""
@@ -484,8 +504,9 @@ def _distinctive(docs: list[TrainDoc]) -> dict[tuple[str, str], set[str]]:
 
 def added_text(parent: RcText, candidate: RcText) -> dict[str, str]:
     """Where the candidate's instructions say something the parent's do not:
-    "the prompt", "skill <name>, <file>" or "code tool <name>, <file>" -> the
-    lines it added there (a line the parent has anywhere is not added)."""
+    "the prompt", "the input transform", "skill <name>, <file>" or "code tool
+    <name>, <file>" -> the lines it added there (a line the parent has
+    anywhere is not added)."""
     parent_lines = {
         normalized(line)
         for text in whole_texts(parent).values()
@@ -560,10 +581,10 @@ async def check_generality(
     before_review: Callable[[], None] | None = None,
 ) -> GeneralityCheck:
     """Review what the build at `rc_id` added to `parent_rc_id`'s
-    instructions — its prompt and its skills' text. One `generality_review`
-    dispatch, on the item retry ladder, when either differs; none when both
-    are the same. `before_review` runs just before that dispatch (the
-    item's state)."""
+    instructions — its prompt, its input transform, and its skills' and code
+    tools' text. One `generality_review` dispatch, on the item retry ladder,
+    when one of them adds text; none when all are the same. `before_review`
+    runs just before that dispatch (the item's state)."""
     from kiln_harness_tuner.items import ITEM_DISPATCH_BACKOFFS, call_with_retries
 
     texts = await rc_texts(ctx, [parent_rc_id, rc_id])
@@ -578,11 +599,13 @@ async def check_generality(
     changes = skill_changes(parent_text, candidate_text)
     tool_changes = code_tool_changes(parent_text, candidate_text)
     sub_changes = sub_agent_changes(parent_text, candidate_text)
+    transform_changes = input_transform_changes(parent_text, candidate_text)
     if (
         not prompt_changed
         and changes == []
         and tool_changes == []
         and sub_changes == []
+        and not transform_changes
     ):
         return GeneralityCheck("unchanged")
     unread = [
@@ -594,7 +617,13 @@ async def check_generality(
         )
         if got is None
     ]
-    if not prompt_changed and not changes and not tool_changes and not sub_changes:
+    if (
+        not prompt_changed
+        and not changes
+        and not tool_changes
+        and not sub_changes
+        and not transform_changes
+    ):
         return GeneralityCheck(
             "unchecked", note=f"not checked — {' and '.join(unread)} could not be read"
         )
@@ -602,6 +631,7 @@ async def check_generality(
         what
         for what, shown in (
             ("the prompt", True),
+            ("the input transform", transform_changes),
             ("the skills", changes),
             ("the code tools", tool_changes),
             ("the sub-agents", sub_changes),
@@ -666,6 +696,7 @@ async def check_generality(
             skill_changes=changes or [],
             code_tool_changes=tool_changes or [],
             sub_agent_changes=sub_changes or [],
+            input_transform_changes=transform_changes,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -848,6 +879,9 @@ async def _audit_train_copies(ctx: Ctx, rc_id: str) -> BaselineAudit:
                 skill_changes=skill_blocks,
                 code_tool_changes=tool_blocks,
                 sub_agent_changes=sub_blocks,
+                input_transform_changes=input_transform_changes(
+                    RcText(prompt="", skill_ids=(), skills={}), text
+                ),
             ),
             backoffs=ITEM_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,

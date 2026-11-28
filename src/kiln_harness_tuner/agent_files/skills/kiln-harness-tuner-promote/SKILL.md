@@ -108,6 +108,20 @@ candidate or return no winner, and say in your rationale which evals need
 a `remeasure` top-up. Never claim "no regressions" for an eval that appears
 in a candidate's `errors` — it was not measured for that comparison.
 
+**No win and no loss on one or two items.** Each row carries `n_differing`
+(the val items whose result differs between the candidate and the baseline:
+the flips of a binary row, the non-zero differences of a rating) and
+`n_room` (the items the baseline side has not at the best value). A row on
+which fewer than 3 items differ shows no win and no loss, whatever its p or
+its CI says. Code applies this before you are dispatched: a candidate whose
+targeted rows rest on so few items is marked `unverified` with the reason,
+and it is not in your `candidates`. Its record gets the rejection reason
+"unverified at val", which says it is not a loss. When every candidate is
+unverified, code decides "no winner" and you are not dispatched. For the
+candidates you see, give a guard row with fewer than 3 differing items no
+weight as a regression, and a target row with fewer than 3 no weight as a
+win.
+
 Missing rows are **missing evidence**, not zeros (an eval that failed to
 measure for a candidate is a hole — holes doctrine): weigh them. A hole on
 the candidate's **primary designed-to-move pair** (the analyzer's term;
@@ -253,8 +267,9 @@ merge minus the culprit" is a future wave's fresh experiment, noted in
   each passed-over candidate's own experiment record `— REJECTED AT VAL
   <MM-DD>` plus one metric-free line. Code chooses that line's reason from
   the gate's outcome and the candidate's val table (another candidate won,
-  an eval dropped beyond doubt, no targeted gain, or a gain not beyond
-  doubt); your `rationale` never reaches it. Their wins stay merge-eligible as
+  an eval dropped beyond doubt, too few val items that differ for a win or
+  a loss, no targeted gain, or a gain not beyond doubt); your `rationale`
+  never reaches it. Their wins stay merge-eligible as
   ingredients, never as a re-submission of that rc or of the combination
   that just lost (`kiln-harness-tuner-batch-selection`, Merge timing + the val-gate
   carve-out).

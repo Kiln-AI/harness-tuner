@@ -152,13 +152,14 @@ def _gate_ctx(
         {"id": "rc_cand", "name": "c", "prompt": {"prompt": cand_prompt}},
     ]
     trace = [_call("kestrel_api", method="GET")]
+    # The candidate fixes three val items: enough items differ for a val
+    # verdict (`thin_evidence.MIN_DIFFERING_ITEMS`), so it reaches the agent.
     kiln.pending[("eval_1", "rc_base", "val")] = [
-        _val("v1", "ok", trace, accuracy=0.0),
+        *(_val(f"v{i}", "ok", trace, accuracy=0.0) for i in (1, 3, 4)),
         _val("v2", "ok", trace, accuracy=1.0),
     ]
     kiln.pending[("eval_1", "rc_cand", "val")] = [
-        _val("v1", cand_output, trace, accuracy=1.0),
-        _val("v2", cand_output, trace, accuracy=1.0),
+        _val(f"v{i}", cand_output, trace, accuracy=1.0) for i in (1, 2, 3, 4)
     ]
     ctx.dispatch.queue(
         "batch_plan",
@@ -248,9 +249,9 @@ async def test_the_code_gate_sends_a_flagged_winner_to_the_agent():
 
 async def test_new_write_actions_reach_the_agent_as_a_flag():
     ctx = _gate_ctx(BASE_PROMPT)
+    delete = [_call("kestrel_api", method="DELETE")]
     ctx.kiln.pending[("eval_1", "rc_cand", "val")] = [
-        _val("v1", "ok", [_call("kestrel_api", method="DELETE")], accuracy=0.0),
-        _val("v2", "ok", [_call("kestrel_api", method="DELETE")], accuracy=1.0),
+        _val(f"v{i}", "ok", delete, accuracy=1.0) for i in (1, 2, 3, 4)
     ]
     ctx.dispatch.queue("promote_best", decision("rc_cand", "Integrity: fine."))
     await orchestrate(ctx, "g", timeout_mins=180)
@@ -305,7 +306,12 @@ async def test_a_changed_prompt_gets_one_review_with_no_item_data():
         "candidate_instructions",
         "baseline_instructions",
         "judge_texts",
+        # Run-config text, like the instructions: the two templates.
+        "candidate_input_transform",
+        "baseline_input_transform",
     }
+    assert review.candidate_input_transform == ""
+    assert review.baseline_input_transform == ""
     (table,) = ctx.dispatch.calls_to("promote_best")[0].candidates
     assert 'review: "totals agree with the manifest" paraphrases X' in (
         table.integrity_flags
@@ -771,3 +777,72 @@ async def test_a_read_only_sub_agent_adds_no_flag_at_the_gate():
     (table,) = ctx.dispatch.calls_to("promote_best")[0].candidates
     assert not [f for f in table.integrity_flags if "sub-agent" in f]
     assert _promoted(ctx)
+
+
+# ---- the input transform at the gate ----
+
+KEEP_TWO = "Depot: {{ input.depot }}\nQuestion: {{ input.question }}"
+
+
+def _with_template(ctx, template: str, baseline_template: str | None = None) -> None:
+    """Give the candidate an input transform (and the baseline, when named)."""
+    for row in ctx.kiln.run_configs:
+        value = template if row["id"] == "rc_cand" else baseline_template
+        row["run_config_properties"] = (
+            {"input_transform": {"type": "jinja", "template": value}} if value else {}
+        )
+
+
+async def test_a_template_that_quotes_the_judge_is_never_promoted():
+    ctx = _gate_ctx(BASE_PROMPT)
+    _with_template(
+        ctx, KEEP_TWO + "\nEvery count in the answer matches the manifest exactly."
+    )
+    ctx.dispatch.queue("integrity_review", _review())
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert not _promoted(ctx)
+    (block,) = [f for k, f in ctx.log.events if k == "gate_block"]
+    (reason,) = block["reasons"]
+    assert reason.startswith("the candidate's input transform quotes the judge of")
+
+
+async def test_a_changed_template_gets_the_review_with_both_templates():
+    ctx = _gate_ctx(BASE_PROMPT)
+    _with_template(ctx, KEEP_TWO + "\nOpen: {{ input.is_open }}", KEEP_TWO)
+    ctx.dispatch.queue("integrity_review", _review())
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (review,) = ctx.dispatch.calls_to("integrity_review")
+    assert review.candidate_instructions == review.baseline_instructions == BASE_PROMPT
+    assert review.candidate_input_transform.endswith("Open: {{ input.is_open }}")
+    assert review.baseline_input_transform == KEEP_TWO
+    assert _promoted(ctx)
+
+
+async def test_a_template_the_baseline_has_is_not_reviewed_or_blocked():
+    quoting = KEEP_TWO + "\nEvery count in the answer matches the manifest exactly."
+    ctx = _gate_ctx(BASE_PROMPT)
+    _with_template(ctx, quoting, quoting)
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "+9% on val."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    assert ctx.dispatch.calls_to("integrity_review") == []
+    assert _promoted(ctx)
+
+
+async def test_a_changed_template_is_reviewed_when_the_prompt_cannot_be_read():
+    ctx = _gate_ctx(BASE_PROMPT)
+    _by_id(ctx, BASE_PROMPT)
+    ctx.kiln.saved_prompts.clear()  # the candidate's prompt id resolves nowhere
+    for row in ctx.kiln.run_configs:
+        if row["id"] == "rc_cand":
+            row["run_config_properties"]["input_transform"] = {
+                "type": "jinja",
+                "template": KEEP_TWO,
+            }
+    ctx.dispatch.queue("integrity_review", _review())
+    ctx.dispatch.queue("promote_best", decision("rc_cand", "Integrity: read it."))
+    await orchestrate(ctx, "g", timeout_mins=180)
+    (review,) = ctx.dispatch.calls_to("integrity_review")
+    assert review.candidate_instructions == ""
+    assert review.candidate_input_transform == KEEP_TWO

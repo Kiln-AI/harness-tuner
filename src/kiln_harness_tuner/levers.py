@@ -39,6 +39,10 @@ nothing (`lever_verdict`):
   the subject model never delegates, so the sub-agent changes nothing. It
   is UNVERIFIED when fewer drives have a trace.
 
+The input transform is not checked here: this check does not know the
+arm's technique, and only an arm of that lever may end on it. The item
+path checks it (`items._transform_applied`).
+
 An unverified lever is logged and the candidate goes on; only "not
 applied" stops it.
 """

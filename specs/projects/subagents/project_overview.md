@@ -150,6 +150,13 @@ choices that the owner can change: each one is the conservative choice.
     ([tie-promotion](../tie-promotion/project_overview.md)), which uses a
     sub-agent as an example. A probe that creates a sub-agent. A read of
     the sub-agent's own trace through the gateway.
+15. **Conservative (2026-11-28): no input transform on a new sub-agent.**
+    `create_sub_agent` refuses `input_transform`. Code checks a template
+    only on the subject task's train inputs, and a sub-agent's input is
+    the arguments of a tool call. The sub-agent's run config takes nothing
+    from a parent: the carry of `create_run_config` is not used. A
+    sub-agent that the user made can have a transform: the integrity
+    checks read it as one more file of the sub-agent.
 
 ## 3. The finding on cost and latency
 

@@ -206,8 +206,8 @@ why a crashed run loses spend but not knowledge.
 The memory API has no structured fields beyond tags, so state is encoded in
 text by convention: lifecycle prefixes on an issue's overview (`UNMEASURED:`,
 `UNMEASURABLE:`, `FIXED:`, `WONT_FIX:`) and state suffixes on an experiment's
-(`— RUNNING`, `— FAILED`, `— ABANDONED`, `— PROMOTED`, `— REJECTED AT VAL`,
-`— HELD`). One module owns those strings, so there is one writer and one
+(`— RUNNING`, `— REFUTED`, `— UNVERIFIED`, `— FAILED`, `— ABANDONED`,
+`— PROMOTED`, `— REJECTED AT VAL`, `— HELD`). One module owns those strings, so there is one writer and one
 parser. Overviews are capped at `OVERVIEW_MAX_CHARS` and content at
 `CONTENT_MAX_CHARS`, both enforced by the API.
 
