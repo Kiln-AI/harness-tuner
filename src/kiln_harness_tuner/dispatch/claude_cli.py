@@ -40,7 +40,7 @@ from typing import Any, Literal, Protocol, TypeVar
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from kiln_harness_tuner.dispatch.run_fence import refresh_run_dir_denials
-from kiln_harness_tuner.gateway.ops import ROLE_OPS, role_tools
+from kiln_harness_tuner.gateway.ops import NO_EXPECTED_ROLES, ROLE_OPS, role_tools
 from kiln_harness_tuner.provider_errors import (
     ProviderQuotaError,
     classify_provider_message,
@@ -165,6 +165,15 @@ DEFAULT_ALLOWED_TOOLS["create_experiment_rc"] += [
 ]
 # A probe may stage a throwaway skill to ask "does the model read one".
 DEFAULT_ALLOWED_TOOLS["probe"] += [_SKILL_INSTALLER_TOOL]
+# A role that must not read an expected output reads traces with Read, Grep
+# and Glob only. Their deny rules are permission rules, and a permission deny
+# beats every allow. Bash is not given, so the fence does not depend on how
+# the OS sandbox orders `allowRead` and `denyRead`
+# (`run_fence.denied_trace_reads`).
+for _role in NO_EXPECTED_ROLES:
+    DEFAULT_ALLOWED_TOOLS[_role] = [
+        t for t in DEFAULT_ALLOWED_TOOLS[_role] if t != "Bash"
+    ]
 
 # Roles that run with no MCP server and every built-in tool disallowed: the
 # session can read its input and answer, nothing else. It has no Kiln lane

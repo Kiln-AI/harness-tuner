@@ -239,6 +239,26 @@ class TestTheCommand:
             ]
             assert str(traces) not in profile, role
 
+    def test_the_design_reviewer_may_not_read_expected_outputs(self, tmp_path):
+        """The profile denies the expected-output files to the design
+        reviewer. The entry is a deeper path than the readable trace
+        folder, and Codex applies the deeper entry. No other role gets it."""
+        dispatcher, _ = make(tmp_path, [])
+        expected = (tmp_path / "run" / "scratch" / "traces" / "_expected").resolve()
+        line = f'"{expected}" = "deny"'
+        profile = config_of(dispatcher._argv("baseline_review", label="r"))[
+            "permissions.kiln_harness_tuner"
+        ]
+        assert line in profile
+        assert f'"{expected.parent}" = "read"' in profile
+        # The folder exists before the session starts.
+        assert expected.is_dir()
+        for role in ("batch_plan", "analyze_experiment_results", "eval_build"):
+            profile = config_of(dispatcher._argv(role, label=role))[
+                "permissions.kiln_harness_tuner"
+            ]
+            assert str(expected) not in profile, role
+
     def test_the_workspace_links_the_agents_folders_skills(self, tmp_path):
         dispatcher, _ = make(tmp_path, [])
         dispatcher._argv("batch_plan", label="w1")

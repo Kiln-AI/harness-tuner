@@ -18,6 +18,9 @@ profile `kiln_harness_tuner`, passed per call with `-c`:
   else of it;
 - the gateway's trace folder (`runs/<run_id>/scratch/traces/`) is
   readable to the roles that read traces (`TRACE_READER_ROLES`);
+- the expected-output files inside it (`_expected/`) are denied to the
+  roles that must not read one (`run_fence.denied_trace_reads`). The entry
+  of the deeper path applies;
 - the network is off for every command.
 
 This is an allow list, not a deny list: a directory nobody thought to fence is
@@ -61,6 +64,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
     ClaudeCliDispatcher,
     CliRound,
 )
+from kiln_harness_tuner.dispatch.run_fence import denied_trace_reads
 from kiln_harness_tuner.gateway.hook import SKILL_INSTALLER_TOOLS
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, ROLE_OPS, TRACE_READER_ROLES
 from kiln_harness_tuner.gateway.trace_files import traces_dir
@@ -201,9 +205,12 @@ def permission_profile(
     writable: bool,
     install_paths: Sequence[Path] = (),
     read_paths: Sequence[Path] = (),
+    deny_paths: Sequence[Path] = (),
 ) -> dict[str, Any]:
     """`read_paths`: more folders the session may read — the gateway's
-    trace folder for a role that reads traces."""
+    trace folder for a role that reads traces. `deny_paths`: folders inside
+    a readable one that the session may not read. Codex applies the entry
+    of the deeper path, so a deny inside a readable folder holds."""
     filesystem: dict[str, Any] = {
         ":root": "deny",
         ":minimal": "read",
@@ -212,6 +219,8 @@ def permission_profile(
     }
     for path in [*install_paths, *read_paths]:
         filesystem[str(path)] = "read"
+    for path in deny_paths:
+        filesystem[str(path)] = "deny"
     return {
         "description": "Kiln Harness Tuner agent session: its workspace and the skills",
         "filesystem": filesystem,
@@ -346,6 +355,12 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
         folder.mkdir(parents=True, exist_ok=True)
         return [folder]
 
+    def _trace_denials(self, agent: str) -> list[Path]:
+        """The part of the trace folder the role must not read."""
+        if self._run_dir is None:
+            return []
+        return denied_trace_reads(self._run_dir, agent)
+
     # ---- the command ----
 
     @staticmethod
@@ -405,6 +420,7 @@ class CodexCliDispatcher(ClaudeCliDispatcher):
                     writable=writable,
                     install_paths=self._install_paths,
                     read_paths=self._trace_reads(agent),
+                    deny_paths=self._trace_denials(agent),
                 ),
             ),
             ("default_permissions", PROFILE),

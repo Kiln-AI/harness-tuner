@@ -250,24 +250,29 @@ def _derived_from(record: Any) -> tuple[str, ...]:
     return tuple(str(i) for i in ids or [] if i)
 
 
+def code_tool_dir(project_path: str | Path, tool_id: str) -> Path | None:
+    """The one `<id> - <name>` directory of a code tool, or None when there
+    is no such directory or more than one. Raises `OSError` when the folder
+    cannot be listed."""
+    tools_dir = Path(project_path).expanduser() / "code_tools"
+    if not tools_dir.is_dir():
+        return None
+    matches = [
+        d
+        for d in tools_dir.iterdir()
+        if d.is_dir() and d.name.split(" - ")[0] == tool_id
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 def read_code_tool(project_path: str | Path, tool_id: str) -> CodeToolText | None:
     """The code tool's text from `<project>/code_tools/`, or None when it is
     not there, or its record or a text file cannot be read. A binary file,
     or one over `ASSET_MAX_BYTES`, is left out."""
-    tools_dir = Path(project_path).expanduser() / "code_tools"
     try:
-        matches = (
-            [
-                d
-                for d in tools_dir.iterdir()
-                if d.is_dir() and d.name.split(" - ")[0] == tool_id
-            ]
-            if tools_dir.is_dir()
-            else []
-        )
-        if len(matches) != 1:
+        directory = code_tool_dir(project_path, tool_id)
+        if directory is None:
             return None
-        (directory,) = matches
         record = json.loads((directory / CODE_TOOL_RECORD).read_text(encoding="utf-8"))
         files: dict[str, str] = {}
         for path in _tree_files(directory):

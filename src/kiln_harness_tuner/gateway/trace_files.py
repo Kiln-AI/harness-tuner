@@ -331,6 +331,94 @@ def _header(title: str, fields: Iterable[tuple[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- reading
+
+JUDGE_SECTION, INPUT_SECTION, OUTPUT_SECTION = "Judge reason", "Input", "Output"
+MESSAGES_SECTION = "Messages"
+# Who wrote a part of a trace file (`read_trace_text`).
+JUDGE, AGENT, USER, TOOL = "judge", "agent", "user", "tool"
+_SECTION_LINES = {
+    f"# {name}": name
+    for name in (JUDGE_SECTION, INPUT_SECTION, OUTPUT_SECTION, MESSAGES_SECTION)
+}
+_BLOCK = re.compile(r"^## \[\d+\] (\w+)")
+_BLOCK_AUTHORS = {"assistant": AGENT, "user": USER, "tool": TOOL}
+
+
+def _json_strings(text: str) -> str:
+    """The string values of `text` when it is a JSON object or list (the
+    judge's reason is written as one), else `text`."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(value, (dict, list)):
+        return text
+    out: list[str] = []
+    stack: list[Any] = [value]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            stack.extend(reversed(list(current.values())))
+        elif isinstance(current, list):
+            stack.extend(reversed(current))
+        elif isinstance(current, str):
+            out.append(current)
+    return "\n".join(out)
+
+
+def read_trace_text(text: str) -> tuple[str | None, list[tuple[str, str]]]:
+    """The item id of a trace file this module wrote, and its text in
+    parts, each with who wrote it: `JUDGE` (the judge's reason), `AGENT`
+    (the output, and each assistant message with its reasoning), `USER` (a
+    user turn) or `TOOL` (a tool result).
+
+    Left out: the header, the `Input` section (the item's stored input),
+    the system and developer markers, and the arguments of tool calls. A
+    line of a message that looks like a marker of this format starts a new
+    part: the reader is for a search of the text, not for an exact copy of
+    the stored trace. The `Messages` section is the last one the writer
+    puts in a file, so once it starts, a line that looks like a section
+    heading is text of a message."""
+    item_id: str | None = None
+    parts: list[tuple[str, str]] = []
+    section: str | None = None
+    author: str | None = None
+    lines: list[str] = []
+
+    def close() -> None:
+        body = "\n".join(lines).strip()
+        if author is not None and body:
+            parts.append((author, _json_strings(body) if author == JUDGE else body))
+        lines.clear()
+
+    for line in text.splitlines():
+        if line in _SECTION_LINES and section != MESSAGES_SECTION:
+            close()
+            section = _SECTION_LINES[line]
+            author = {JUDGE_SECTION: JUDGE, OUTPUT_SECTION: AGENT}.get(section)
+            continue
+        if section is None:
+            if line.startswith("item_id: "):
+                item_id = line.removeprefix("item_id: ").strip() or None
+            continue
+        if section == MESSAGES_SECTION:
+            block = _BLOCK.match(line)
+            if block is not None:
+                close()
+                author = _BLOCK_AUTHORS.get(block.group(1))
+                continue
+            if line.startswith("### tool call "):
+                close()
+                author = None
+                continue
+            if line == "### reasoning":
+                continue
+        lines.append(line)
+    close()
+    return item_id, parts
+
+
 class TraceWriter:
     """Writes trace files under one root (`traces_dir`)."""
 
@@ -401,7 +489,7 @@ class TraceWriter:
                 else json.dumps(value, ensure_ascii=False, indent=1, default=str)
             )
             body += [f"# {name}", "", text, ""]
-        body += ["# Messages", "", _messages_text(messages, system_path)]
+        body += [f"# {MESSAGES_SECTION}", "", _messages_text(messages, system_path)]
         write_atomic(self._inside(path), "\n".join(body).rstrip() + "\n")
         return path, stats
 
@@ -444,17 +532,17 @@ class TraceWriter:
             usage,
             [
                 (
-                    "Judge reason",
+                    JUDGE_SECTION,
                     intermediate
                     if isinstance(intermediate, dict) and intermediate
                     else None,
                 ),
                 (
-                    "Input",
+                    INPUT_SECTION,
                     row.get("input") if isinstance(row.get("input"), str) else None,
                 ),
                 (
-                    "Output",
+                    OUTPUT_SECTION,
                     row.get("output") if isinstance(row.get("output"), str) else None,
                 ),
             ],
@@ -500,10 +588,10 @@ class TraceWriter:
             usage,
             [
                 (
-                    "Input",
+                    INPUT_SECTION,
                     run.get("input") if isinstance(run.get("input"), str) else None,
                 ),
-                ("Output", output if isinstance(output, str) else None),
+                (OUTPUT_SECTION, output if isinstance(output, str) else None),
             ],
         )
 

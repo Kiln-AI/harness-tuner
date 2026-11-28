@@ -258,12 +258,14 @@ structural rather than a rule.
 
 It is dispatched a second time for the same item in one case only: the
 generality review found a leak, the judge-copy check found
-eval text in the build's prompt, skills or code tools, or, with
+eval text in the build's prompt, skills or code tools, the build added more
+harness text than the growth limit allows, or, with
 `--reference-check refuse`, the reference check found a skill or a tool that
 the build names but does not attach. Then `RcBuildInput`
 also carries `rejected_rc_id` and `generality_findings`,
-`judge_copy_findings` and/or `reference_findings`, and the agent builds the
-item again without the flagged text, with each rule in its own words.
+`judge_copy_findings`, `growth_findings` and/or `reference_findings`, and the
+agent builds the item again without the flagged text, with each rule in its
+own words.
 
 **Skill:** `kiln-harness-tuner-experiment-build`, plus `references/merging.md` for a
 merge item, `references/skill-authoring.md` for a skill lever, and
@@ -456,7 +458,18 @@ long numbers in its input and expected output, every eight-word run of its
 input and its longer expected values. A string in more than a fifth of the
 train items is boilerplate and is not searched; a string the parent or the
 task's instructions already have is not added. A match is a leak — the
-finding starts `exact match:` — and the session is not dispatched. Code reads skill text from the
+finding starts `exact match:` — and the session is not dispatched.
+
+**The trace-copy pre-check** runs in code at the same point. It searches the
+train trace files of the parent run config for every eight-word run of the
+lines the build added: in the judge's reason, in the agent's output and in
+the user turns. Text that the parent or the task's instructions have, a
+train input, text of a tool result, and text in the traces of many items
+are not a copy ([architecture.md](architecture.md) section 4 has the
+rules). A match is a leak — the finding starts `trace copy:` — and the
+session is not dispatched.
+
+Code reads skill text from the
 project's `skills/` tree on disk (`prompt_text.rc_texts`): `SKILL.md`, the
 `references/` files and the text files under `assets/`. A binary asset is not
 read, and neither is an asset over 256 KiB, so a change to one is not reviewed.
@@ -560,9 +573,11 @@ as files, like the planner. It does not get `get_train_expected` or
 `get_task_run`: an expected output serves only to judge whether an answer
 is right, and the reviewer must not judge that, or diagnose why an eval
 item failed. It runs under the read-only settings, with the trace-folder
-read rule of the trace readers. That rule also lets it read the `_expected/`
-files that the `get_train_expected` calls of other roles write in the trace
-folder. Its skill forbids them; no settings rule denies them.
+read rule of the trace readers. The `get_train_expected` calls of other
+roles write `_expected/` files in the trace folder. The dispatcher denies
+the reviewer that folder for each agent CLI
+([architecture.md](architecture.md) section 18.5), and its skill tells it
+not to open them.
 
 **Skill:** `kiln-harness-tuner-baseline-review`. The template names
 `references/smells.md` of the knowledge skill.

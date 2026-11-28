@@ -505,15 +505,6 @@ leak risk before anything teaches it.
 The v2 eval-input routes, multi-turn synthetic items and world resets are not reachable. Decide
 what the tuner must read.
 
-### Guards before a measurement
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-A limit on how much a change grows the harness, and no phrase copied from a trace or an eval.
-
 ### What the planner is given for each failed item
 
 - Kind: code
@@ -617,16 +608,6 @@ as which of two conflicting requirements wins. Each question offers options, plu
 
 A planner item, or a flag on `remeasure`, that drives and judges an existing run config again on
 train items. Today only `--noise-check` repeats a measurement, one time, before wave 1.
-
-### A read fence on expected outputs for the design reviewer
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [smell_detection.md](projects/biological_bootloader/components/smell_detection.md), 4.3; phase 7 code review
-
-A hard read fence in code, so that the design reviewer cannot read `traces/_expected/`. Today only
-the text of its skill keeps it out.
 
 ### Feature engineering on the data that reaches the model
 

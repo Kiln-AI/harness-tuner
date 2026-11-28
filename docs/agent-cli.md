@@ -394,6 +394,7 @@ Codex home:
 | `":workspace_roots" = {"." = "write"}` | The session's scratch directory, its workspace. `"read"` for the read-only roles (`READ_ONLY_ROLES`: the val readers, the two reviewers and the baseline reviewer). |
 | the agents folder's `.agents/skills` = `"read"` | The skills, and nothing else of the state folder. |
 | the run folder's `scratch/traces` = `"read"` | The gateway's trace folder, for the roles that read traces (`TRACE_READER_ROLES`) only. |
+| the run folder's `scratch/traces/_expected` = `"deny"` | The expected-output files in the trace folder, for the baseline reviewer (`NO_EXPECTED_ROLES`) only. Codex applies the entry of the deeper path, so the deny holds inside the readable folder. |
 | `network.enabled = false` | No network for any command: no `curl` to the Kiln server. |
 
 This is an **allow list**, where the Claude fence is a deny list: a directory
@@ -475,9 +476,9 @@ session cannot read or change it) and names with `OPENCODE_CONFIG`:
 | Rule | Effect |
 |---|---|
 | `"*": "deny"` | Every tool is denied, so the shell, web fetch, web search, grep, glob, sub-agents and the rest are not in the session at all. |
-| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces. Also allowed for the `tool_*` files in OpenCode's own `tool-output` folder (`<XDG data>/opencode/tool-output`): when OpenCode cuts a long tool answer, it puts the rest there and names the file. The agent cannot list that folder. Denied everywhere else. |
+| `read` | Allowed in the session's workspace and in the agents folder's `.agents/skills`, and in the gateway's trace folder for the roles that read traces. Also allowed for the `tool_*` files in OpenCode's own `tool-output` folder (`<XDG data>/opencode/tool-output`): when OpenCode cuts a long tool answer, it puts the rest there and names the file. The agent cannot list that folder. Denied everywhere else. For the baseline reviewer, the `_expected/` folder of the trace folder is denied by a rule after the allow. |
 | `edit` | Allowed in the workspace, except its `.agents/`: that holds the link to the agents folder's skills, which every later session and run reads. Denied for the read-only roles (the val readers, the two reviewers and the baseline reviewer). |
-| `external_directory` | Denied, except the workspace, the skills, the `tool_*` files in OpenCode's `tool-output` folder and, for the roles that read traces, the trace folder. |
+| `external_directory` | Denied, except the workspace, the skills, the `tool_*` files in OpenCode's `tool-output` folder and, for the roles that read traces, the trace folder (without its `_expected/` folder for the baseline reviewer). |
 | `skill` | Allowed, so the skills load as they do under Claude Code. |
 | `kiln_harness_tuner_gateway_*` | Allowed: the gateway serves only the role's operations. |
 | `skill_installer_<tool>` | Allowed by name, for the two roles that hold the installer. |

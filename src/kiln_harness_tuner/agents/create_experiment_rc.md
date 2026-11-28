@@ -14,7 +14,9 @@ generality leak" section. For a rebuild after a judge copy
 copy" section: remove each copied passage, even one the parent carried, and
 state any rule it carries in your own words. For a rebuild after a dangling
 reference (`reference_findings` set), follow its "A rebuild
-after a dangling reference" section.
+after a dangling reference" section. For a rebuild after a growth refusal
+(`growth_findings` set), follow its "A rebuild after a growth refusal"
+section.
 
 Build ONE new run config implementing the item's hypothesis — additive,
 never mutating the parent (new objects; the parent's skills and tools are

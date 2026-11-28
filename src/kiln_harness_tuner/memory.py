@@ -512,6 +512,7 @@ def verdict_content(stored: ExperimentView, content: str) -> str:
         "generality": stored.generality,
         "judge copy": stored.judge_copy,
         "reference check": stored.reference_check,
+        "growth": stored.growth,
     }
     for key in CARRIED_KEYS:
         value = carried[key]
@@ -1137,6 +1138,18 @@ class MemoryWriter:
         record = await self._get_experiment(exp_mem_id)
         self._require_move(record, ExperimentState.VERDICT, "record its check")
         line = render_kv([("reference check", head_value(finding, FINDING_MAX_CHARS))])
+        await self._patch(
+            exp_mem_id, {"content": _append_experiment_content(record.content, line)}
+        )
+
+    async def record_growth(self, exp_mem_id: str, finding: str) -> None:
+        """Append the growth limit's `growth:` line to the RUNNING record
+        (`kiln_harness_tuner.growth`): a build over the limit, the one
+        rebuild, or why the check could not run. Carried past the verdict
+        (`CARRIED_KEYS`), like the `generality:` line."""
+        record = await self._get_experiment(exp_mem_id)
+        self._require_move(record, ExperimentState.VERDICT, "record its check")
+        line = render_kv([("growth", head_value(finding, FINDING_MAX_CHARS))])
         await self._patch(
             exp_mem_id, {"content": _append_experiment_content(record.content, line)}
         )

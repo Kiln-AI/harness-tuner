@@ -702,6 +702,19 @@ def test_the_rebuild_names_the_finding_that_forced_it():
     )
 
 
+def test_the_rebuild_names_the_growth_limit():
+    run = wave_one(fix("w1-1"))
+    run.state("w1-1", "building_rc")
+    # The growth check runs first; the others find nothing.
+    run.emit("growth", item_id="w1-1", rc_id="rc_a", status="over")
+    run.emit("judge_copy", item_id="w1-1", rc_id="rc_a", status="clean")
+    run.state("w1-1", "building_rc")
+    assert run.card("w1-1").line4.text.startswith("rebuilding once · adds too much")
+    assert run.log()[-1] == (
+        "w1-1: adds more harness text than the growth limit allows, rebuilding once"
+    )
+
+
 def test_recon_counts_only_the_probes_with_an_answer():
     run = Run().standard_start()
     run.at(3).wave_start(0, probe("r0-1"), probe("r0-2"))

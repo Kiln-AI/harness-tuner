@@ -274,7 +274,8 @@ what keeps a run honest is that val and test stay out of reach, and they
 do. The cost is a higher pull toward memorising: a build can copy an
 expected value as well as an input. Three filters stand against it, in
 order: the exact-match pre-check (code, every train item, verbatim copies
-only), the generality review (a model, a sample of 12 items, paraphrase
+only; with it, the trace-copy pre-check, on the parent's train traces),
+the generality review (a model, a sample of 12 items, paraphrase
 too), and the val gate. A paraphrased copy of an item outside the review's
 sample passes the first two; the val gate is then what stops it gaining
 anything.

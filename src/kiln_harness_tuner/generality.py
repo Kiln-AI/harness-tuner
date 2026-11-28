@@ -35,7 +35,7 @@ run, or instructions that cannot be read, let the item go on to its
 measurement, and the experiment record says the check did not run. The
 integrity checks at the val gate still stand behind it.
 
-The check has three further parts:
+The check has four further parts:
 
 - **Code tools.** A code tool's code and its model-facing description are
   instructions too, and a lookup table of train answers fits in one. A new
@@ -49,6 +49,24 @@ The check has three further parts:
   searched; a string the parent or the task instructions already have is
   not added. A match is a leak with no review: it costs nothing, and it is
   certain where the review is a judgment.
+- **The trace-copy pre-check** (`trace_copies`), in code, with the
+  exact-match pre-check. Agents read the parent's train traces as files, so
+  a build can copy a passage from one. The exact-match pre-check reads the
+  train items, not the traces: it does not see what the agent, the judge or
+  a synthetic user wrote. This pre-check searches the trace files of the
+  PARENT run config, in the run's trace folder, for each eight-word run of
+  the added text. It reads three parts of a trace: the judge's reason, the
+  agent's output and reasoning, and the user turns. A match is a leak with
+  no review. Four kinds of run are not a copy: a run that the parent's
+  text, the task's instructions or the parent's `_system/` files (the
+  system prompt and the tool definitions as Kiln sent them) have; a run of
+  a train input (the exact-match pre-check has those); a run a tool result
+  of those traces has (text from the environment, which a build may move
+  into the harness); and a run in the traces of many items (boilerplate, by
+  the rule of the exact-match pre-check, or in the traces of every item
+  read). Only the parent's traces are searched: the agent can repeat only
+  the harness text of the run config that made the trace, and for the
+  parent that text is known. The search runs in a worker thread.
 - **Expected outputs for the reviewer.** Agents can read train labels
   (`get_train_expected`), so a build can copy one. The reviewer gets the
   expected output of every train item it is shown (`train_expected`).
@@ -76,6 +94,7 @@ that asks for a scrub. Code only; once per baseline, like the first half.
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import json
 import re
@@ -84,6 +103,16 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from kiln_harness_tuner.gateway.trace_files import (
+    AGENT,
+    JUDGE,
+    SYSTEM,
+    TOOL,
+    USER,
+    read_trace_text,
+    safe_name,
+    traces_dir,
+)
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.latency import sample_inputs, split_inputs
 from kiln_harness_tuner.memory_schema import BASELINE_JUDGE_COPY_TAG
@@ -129,6 +158,9 @@ COMMON_SHARE = 0.2
 COMMON_MIN_ITEMS = 2
 # How many exact matches become findings; the rest are counted.
 MATCH_FINDINGS = 8
+# The trace-copy pre-check reads at most this many bytes of trace files
+# (64 MiB). A file past the total is not read, and an event says how many.
+TRACE_COPY_MAX_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -549,18 +581,174 @@ def exact_matches(
     return findings
 
 
+# ---- the trace-copy pre-check ----
+
+_TRACE_AUTHORS = {
+    JUDGE: "the judge's reason",
+    AGENT: "the agent's output",
+    USER: "a user turn",
+}
+
+
+def parent_trace_files(ctx: Ctx, parent_rc_id: str) -> tuple[list[Path], list[Path]]:
+    """The files the gateway wrote in this run for the parent run config:
+    its train traces (`<trace folder>/<rc>/<eval>/<item>.md`), and its
+    `_system/` files (the system prompt and the tool definitions that the
+    traces share). Not the `_stats` entries. Both empty with no run
+    directory."""
+    if ctx.run_dir is None:
+        return [], []
+    folder = traces_dir(Path(ctx.run_dir)) / safe_name(parent_rc_id)
+    if not folder.is_dir():
+        return [], []
+    files = [
+        p for p in sorted(folder.rglob("*.md")) if p.is_file() and not p.is_symlink()
+    ]
+    traces = [
+        p
+        for p in files
+        if not any(part.startswith("_") for part in p.relative_to(folder).parts)
+    ]
+    system = [p for p in files if p.relative_to(folder).parts[0] == SYSTEM]
+    return traces, system
+
+
+def _read_known(files: list[Path], budget: int) -> tuple[str, int]:
+    """The text of `files` while it fits in `budget` bytes, and the bytes
+    left. A file that cannot be read is skipped."""
+    texts: list[str] = []
+    for path in files:
+        try:
+            size = path.stat().st_size
+            if size > budget:
+                continue
+            texts.append(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+        budget -= size
+    return "\n".join(texts), budget
+
+
+def trace_copies(
+    added: dict[str, str],
+    files: list[Path],
+    known: str = "",
+    docs: list[TrainDoc] | None = None,
+    known_files: list[Path] | None = None,
+) -> tuple[list[str], int]:
+    """One finding per passage of the added text that a trace file holds
+    verbatim: `"<run>" in <where> is copied from the train trace of item
+    <id> (<who wrote it>)`. Also the number of files left unread (over
+    `TRACE_COPY_MAX_BYTES`, or not text).
+
+    `known`: text the run config may repeat (the task's instructions and
+    the parent's own text). `known_files`: files of more such text (the
+    parent's `_system/` files), read first, inside the same byte budget.
+    `docs`: the train items, whose input runs are the exact-match
+    pre-check's and are not searched here. Code, no model."""
+    if not added or not files:
+        return [], 0
+    system_text, budget = _read_known(known_files or [], TRACE_COPY_MAX_BYTES)
+    exempt = _runs(known) | _runs(system_text)
+    for doc in docs or []:
+        exempt |= _runs(doc.input_text)
+    wanted: set[str] = set()
+    for text in added.values():
+        wanted |= _runs(text)
+    wanted -= exempt
+    if not wanted:
+        return [], 0
+    n = MATCH_RUN_WORDS
+    # A run is built only where a wanted run can start: most words of a
+    # trace start none.
+    starts = {run.split(" ", 1)[0] for run in wanted}
+    found: dict[str, dict[str, set[str]]] = {}  # run -> author -> items
+    from_tools: set[str] = set()
+    items: set[str] = set()
+    unread = 0
+    for path in files:
+        try:
+            size = path.stat().st_size
+            if size > budget:
+                unread += 1
+                continue
+            item_id, parts = read_trace_text(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            unread += 1
+            continue
+        budget -= size
+        item = item_id or path.stem
+        items.add(item)
+        for author, part in parts:
+            words = _WORD.findall(part.casefold())
+            for i in range(len(words) - n + 1):
+                if words[i] not in starts:
+                    continue
+                run = " ".join(words[i : i + n])
+                if run not in wanted:
+                    continue
+                if author == TOOL:
+                    from_tools.add(run)
+                else:
+                    found.setdefault(run, {}).setdefault(author, set()).add(item)
+    limit = max(COMMON_MIN_ITEMS, int(COMMON_SHARE * len(items)))
+    copied: dict[str, tuple[str, frozenset[str]]] = {}
+    for run, by_author in found.items():
+        of_run = frozenset().union(*by_author.values())
+        common = len(of_run) > limit or (len(items) > 1 and of_run == items)
+        if run in from_tools or common:
+            continue
+        author = next(a for a in _TRACE_AUTHORS if a in by_author)
+        copied[run] = (author, of_run)
+    findings: list[str] = []
+    for where, text in added.items():
+        flat = " ".join(_WORD.findall(text.casefold()))
+        here = sorted((r for r in _runs(text) if r in copied), key=flat.find)
+        # A copied passage is many overlapping runs: one finding per author
+        # and item set, its earliest run in the text.
+        first: dict[tuple[str, frozenset[str]], str] = {}
+        for run in here:
+            first.setdefault(copied[run], run)
+        for (author, of_run), run in first.items():
+            names = ", ".join(sorted(of_run)[:3])
+            findings.append(
+                f'"{run[:80]}" in {where} is copied from the train trace of item'
+                f" {names} ({_TRACE_AUTHORS[author]})"
+            )
+    if len(findings) > MATCH_FINDINGS:
+        more = len(findings) - MATCH_FINDINGS
+        findings = [*findings[:MATCH_FINDINGS], f"… and {more} more trace copy(ies)"]
+    return findings, unread
+
+
+def _parent_trace_copies(
+    ctx: Ctx,
+    parent_rc_id: str,
+    added: dict[str, str],
+    known: str,
+    docs: list[TrainDoc],
+) -> tuple[list[str], int]:
+    """`trace_copies` over the parent's files: run in a worker thread, as
+    it reads and splits up to `TRACE_COPY_MAX_BYTES` of text."""
+    traces, system = parent_trace_files(ctx, parent_rc_id)
+    return trace_copies(added, traces, known, docs, known_files=system)
+
+
 async def check_generality(
     ctx: Ctx,
     item: ExperimentItem,
     rc_id: str,
     parent_rc_id: str,
     before_review: Callable[[], None] | None = None,
+    review: bool = True,
 ) -> GeneralityCheck:
     """Review what the build at `rc_id` added to `parent_rc_id`'s
     instructions — its prompt, its input transform, and its skills' and code
     tools' text. One `generality_review` dispatch, on the item retry ladder,
     when one of them adds text; none when all are the same. `before_review`
-    runs just before that dispatch (the item's state)."""
+    runs just before that dispatch (the item's state). `review=False`: the
+    free pre-checks only, and no session (another check already refuses the
+    build)."""
     from kiln_harness_tuner.items import ITEM_DISPATCH_BACKOFFS, call_with_retries
 
     texts = await rc_texts(ctx, [parent_rc_id, rc_id])
@@ -639,10 +827,37 @@ async def check_generality(
         passed = len(exact_matches(added, docs, instructions)) - len(matches)
         if passed > 0:
             ctx.log.event("generality_parent_known", item_id=item.id, matches=passed)
-    if matches:
-        ctx.log.event("generality_exact_match", item_id=item.id, matches=len(matches))
+    # The trace-copy pre-check: the parent's own text is always known here.
+    # The agent that made the parent's traces read it, and can repeat it.
+    copies, unread_traces = await asyncio.to_thread(
+        _parent_trace_copies,
+        ctx,
+        parent_rc_id,
+        added,
+        "\n".join([instructions, *whole_texts(parent_text).values()]),
+        docs,
+    )
+    if unread_traces:
+        ctx.log.event("generality_traces_unread", item_id=item.id, files=unread_traces)
+    if matches or copies:
+        if matches:
+            ctx.log.event(
+                "generality_exact_match", item_id=item.id, matches=len(matches)
+            )
+        if copies:
+            ctx.log.event("generality_trace_copy", item_id=item.id, matches=len(copies))
         return GeneralityCheck(
-            "leaked", leaks=[f"exact match: {m}" for m in matches], note=note
+            "leaked",
+            leaks=[
+                *(f"exact match: {m}" for m in matches),
+                *(f"trace copy: {c}" for c in copies),
+            ],
+            note=note,
+        )
+    if not review:
+        return GeneralityCheck(
+            "unchecked",
+            note="not reviewed — the growth limit already refuses this build",
         )
     work = item.work
     targets = list(work.target_items) if isinstance(work, FixWork) else []

@@ -2256,6 +2256,10 @@ TRACE_OPS = frozenset(
 TRACE_READER_ROLES = frozenset(
     role for role, ops in ROLE_OPS.items() if TRACE_OPS & set(ops)
 )
+# The trace readers that must not read an expected output. The dispatcher
+# denies them the folder of the expected-output files inside the trace
+# folder, for each agent CLI (`dispatch.run_fence.denied_trace_reads`).
+NO_EXPECTED_ROLES = frozenset({"baseline_review"})
 
 GATEWAY_SERVER = "kiln_harness_tuner_gateway"
 

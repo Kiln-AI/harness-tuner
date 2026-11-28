@@ -13,7 +13,10 @@ dispatcher writes for it (`OPENCODE_CONFIG`):
   grep, glob, sub-agents and the rest are not in the session at all;
 - `read` is allowed in the session's workspace and in the agents folder's
   skills folder, and — for the roles that read traces — in the
-  gateway's trace folder, and nowhere else;
+  gateway's trace folder, and nowhere else. The expected-output files in
+  that folder (`_expected/`) are denied to the roles that must not read
+  one (`run_fence.denied_trace_reads`): the deny rule is after the allow
+  rule and has the longer pattern, so it applies;
 - `edit` is allowed in the workspace except its `.agents/` (the link to the
   shared skills), and denied for the val readers;
 - `skill` is allowed, so the skills load as they do under Claude Code;
@@ -57,6 +60,7 @@ from kiln_harness_tuner.dispatch.codex_cli import (
     mcp_tool_names,
     stage_workspace,
 )
+from kiln_harness_tuner.dispatch.run_fence import denied_trace_reads
 from kiln_harness_tuner.gateway.ops import GATEWAY_SERVER, TRACE_READER_ROLES
 from kiln_harness_tuner.gateway.trace_files import traces_dir
 from kiln_harness_tuner.schemas import TargetBlock, Usage
@@ -115,10 +119,12 @@ def opencode_config(
     max_turns: int | None,
     read_dirs: list[Path] | None = None,
     environ: dict[str, str] | None = None,
+    deny_dirs: list[Path] | None = None,
 ) -> dict[str, Any]:
     """One session's OpenCode config. `tools=False`: every tool denied.
     `read_dirs`: more folders `read` may open — the gateway's trace folder
-    for a role that reads traces."""
+    for a role that reads traces. `deny_dirs`: folders inside a readable
+    one that `read` may not open."""
     permission: dict[str, Any] = {"*": "deny"}
     if tools:
         worktree = _worktree(workspace.resolve())
@@ -136,9 +142,13 @@ def opencode_config(
         # follow the link. Last and longest, so it wins under either rule.
         link_folder = SKILLS_LINK.parent.as_posix()
         links = [f"{p.removesuffix('/**')}/{link_folder}/**" for p in ws]
+        # After the allows, and longer than the allow of the folder that
+        # holds them, so they apply under either rule (as for `links`).
+        denied = [p for d in deny_dirs or [] for p in path_patterns(d, worktree)]
         permission["read"] = {
             "*": "deny",
             **dict.fromkeys(ws + skills + extra, "allow"),
+            **dict.fromkeys(denied, "deny"),
         }
         permission["edit"] = (
             {"*": "deny", **dict.fromkeys(ws, "allow"), **dict.fromkeys(links, "deny")}
@@ -148,6 +158,7 @@ def opencode_config(
         permission["external_directory"] = {
             "*": "deny",
             **dict.fromkeys(ws + skills + extra, "allow"),
+            **dict.fromkeys(denied, "deny"),
         }
         permission["skill"] = "allow"
         permission.update(dict.fromkeys(mcp_tools, "allow"))
@@ -314,6 +325,9 @@ class OpenCodeCliDispatcher(ClaudeCliDispatcher):
             max_turns=self._max_turns,
             read_dirs=[traces_dir(self._run_dir.resolve())]
             if self._run_dir is not None and agent in TRACE_READER_ROLES
+            else None,
+            deny_dirs=denied_trace_reads(self._run_dir, agent)
+            if self._run_dir is not None
             else None,
         )
         path = self._session_root() / "opencode" / f"{label or agent}.json"

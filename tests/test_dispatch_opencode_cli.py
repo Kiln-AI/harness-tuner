@@ -275,6 +275,37 @@ class TestThePermissions:
             permission = config_of(dispatcher._argv(role, label=role))["permission"]
             assert rule not in permission["read"], role
 
+    @pytest.mark.parametrize("git_root", [False, True])
+    def test_the_design_reviewer_may_not_read_expected_outputs(
+        self, tmp_path, git_root
+    ):
+        """`read` denies the expected-output files to the design reviewer,
+        in both pattern forms. Each deny is after the allow of the trace
+        folder and is longer than it, so it applies. No other role gets
+        it."""
+        if git_root:
+            (tmp_path / ".git").mkdir()
+        dispatcher, _ = make(tmp_path, [])
+        traces = run_dir(tmp_path) / "scratch" / "traces"
+        permission = config_of(dispatcher._argv("baseline_review", label="r"))[
+            "permission"
+        ]
+        for key in ("read", "external_directory"):
+            rules = permission[key]
+            allows = [k for k in rules if k.endswith("/traces/**")]
+            denies = [k for k in rules if k.endswith("/traces/_expected/**")]
+            assert len(allows) == 2 and len(denies) == 2, key
+            # The absolute form is there, with or without a worktree.
+            assert f"{traces.resolve().as_posix()}/_expected/**" in denies
+            for deny in denies:
+                assert rules[deny] == "deny"
+                assert deny.removesuffix("_expected/**") + "**" in allows
+            order = list(rules)
+            assert min(map(order.index, denies)) > max(map(order.index, allows))
+        for role in ("batch_plan", "analyze_experiment_results", "eval_build"):
+            read = config_of(dispatcher._argv(role, label=role))["permission"]["read"]
+            assert not [k for k in read if "_expected" in k], role
+
     @pytest.mark.parametrize(
         "role", ["promote_best", "report_writer", "baseline_review"]
     )

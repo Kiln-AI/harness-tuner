@@ -54,6 +54,7 @@ from kiln_harness_tuner.dispatch.claude_cli import (
 )
 from kiln_harness_tuner.dispatch.codex_cli import CodexCliDispatcher
 from kiln_harness_tuner.dispatch.opencode_cli import OpenCodeCliDispatcher
+from kiln_harness_tuner.dispatch.run_fence import denied_trace_reads, read_rule
 from kiln_harness_tuner.gateway.hook import MCP_MATCHER, SKILL_INSTALLER_TOOLS
 from kiln_harness_tuner.gateway.hook import hook_command as gateway_hook_command
 from kiln_harness_tuner.gateway.ops import (
@@ -1244,6 +1245,13 @@ def render_run_configs(
             per_role["permissions"]["allow"].append(
                 f"Read(//{str(traces_root).lstrip('/')}/**)"
             )
+        if denied := denied_trace_reads(run_dir, role):
+            # The expected-output files. A permission deny beats the allow
+            # above, for Read, Grep and Glob. The role gets no Bash: the bare
+            # `Bash` deny removes the tool (and `claude_cli` does not allow
+            # it). The sandbox `denyRead` is one more layer.
+            per_role["permissions"]["deny"] += ["Bash", *map(read_rule, denied)]
+            per_role["sandbox"]["filesystem"]["denyRead"] += map(str, denied)
         (run_dir / f"settings.{role}.json").write_text(
             json.dumps(per_role, indent=2, ensure_ascii=False) + "\n"
         )

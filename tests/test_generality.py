@@ -19,7 +19,9 @@ from kiln_harness_tuner.generality import (
     check_generality,
     code_tool_changes,
     exact_matches,
+    parent_trace_files,
     skill_changes,
+    trace_copies,
     train_documents,
     train_expected_lines,
     train_input_lines,
@@ -928,3 +930,223 @@ async def test_an_unreadable_baseline_is_not_audited(tmp_path):
     audit = await audit_baseline(ctx, "rc_base")
     assert audit.status == "unchecked"
     assert ctx.dispatch.calls_to("generality_review") == []
+
+
+# ---- the trace-copy pre-check ----
+
+
+def _trace_writer(run_dir):
+    from kiln_harness_tuner.gateway.trace_files import TraceWriter, traces_dir
+
+    return TraceWriter(traces_dir(run_dir))
+
+
+def _write_trace(
+    run_dir,
+    item_id: str,
+    *,
+    rc_id: str = "rc_base",
+    judge: str = "",
+    reply: str = "",
+    tool: str = "",
+    user: str = "How many pallets are at the depot today?",
+):
+    """One train trace file of `rc_id`, as the gateway writes it."""
+    messages = [
+        {"role": "system", "content": BASE_PROMPT},
+        {"role": "user", "content": user},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "manifest", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": tool},
+        {"role": "assistant", "content": reply},
+    ]
+    path, _stats = _trace_writer(run_dir).write_result(
+        run_config_id=rc_id,
+        eval_id="e1",
+        eval_config_id="c1",
+        item_id=item_id,
+        row={
+            "id": f"run_{item_id}",
+            "input": user,
+            "output": reply,
+            "intermediate_outputs": {"reasoning": judge} if judge else None,
+            "task_run_trace": json.dumps(messages),
+        },
+        scores={"a": 0.0},
+    )
+    return path
+
+
+JUDGE_SAYS = "The answer gave the count before it opened the Halden gate ledger."
+AGENT_SAYS = "The cold store at bay nine holds fourteen pallets of seed potatoes."
+TOOL_SAYS = "Depot rule 7: a count is valid only after the gate ledger is signed."
+
+
+def _copies(added: str, files, known: str = "", docs=None) -> list[str]:
+    found, unread = trace_copies({"the prompt": added}, list(files), known, docs)
+    assert unread == 0
+    return found
+
+
+def test_the_trace_reader_names_who_wrote_each_part(tmp_path):
+    from kiln_harness_tuner.gateway.trace_files import read_trace_text
+
+    path = _write_trace(
+        tmp_path, "424242500001", judge=JUDGE_SAYS, reply=AGENT_SAYS, tool=TOOL_SAYS
+    )
+    item_id, parts = read_trace_text(path.read_text())
+    assert item_id == "424242500001"
+    by_author: dict[str, list[str]] = {}
+    for author, text in parts:
+        by_author.setdefault(author, []).append(text)
+    assert by_author["judge"] == [JUDGE_SAYS]
+    # The `Output` section and the last assistant message.
+    assert by_author["agent"] == [AGENT_SAYS, AGENT_SAYS]
+    assert by_author["user"] == ["How many pallets are at the depot today?"]
+    assert by_author["tool"] == [TOOL_SAYS]
+    # No header, no system text, no tool-call arguments.
+    assert not any(BASE_PROMPT in text or "run_config_id" in text for _, text in parts)
+
+
+def test_trace_copies_find_the_judges_and_the_agents_words(tmp_path):
+    files = [
+        _write_trace(tmp_path, "424242500001", judge=JUDGE_SAYS, reply=AGENT_SAYS),
+        _write_trace(tmp_path, "424242500002", reply="Nine pallets."),
+        _write_trace(tmp_path, "424242500003", reply="Two pallets."),
+    ]
+    (judge,) = _copies(f"Note: {JUDGE_SAYS}", files)
+    assert judge == (
+        '"the answer gave the count before it opened" in the prompt is copied'
+        " from the train trace of item 424242500001 (the judge's reason)"
+    )
+    (agent,) = _copies(f"Say this: {AGENT_SAYS.upper()}", files)
+    assert agent.endswith("item 424242500001 (the agent's output)")
+    # A general rule, and a phrase of fewer than eight words, are not copies.
+    assert _copies("Open the gate ledger before you state a count.", files) == []
+    assert _copies("Remember the Halden gate ledger.", files) == []
+
+
+def test_trace_copies_skip_known_input_tool_and_common_text(tmp_path):
+    question = "Which bay holds the seed potatoes for the Halden depot run?"
+    files = [
+        _write_trace(
+            tmp_path,
+            "424242500001",
+            reply=f"{AGENT_SAYS} {TOOL_SAYS}",
+            tool=TOOL_SAYS,
+            user=question,
+        ),
+        _write_trace(tmp_path, "424242500002", reply="Nine pallets."),
+        _write_trace(tmp_path, "424242500003", reply="Two pallets."),
+    ]
+    assert _copies(AGENT_SAYS, files)
+    # The parent's own text, which the agent repeated.
+    assert _copies(AGENT_SAYS, files, known=AGENT_SAYS) == []
+    # A tool result is text from the environment: a build may move it into
+    # the harness, and the agent's quote of it is not a copy.
+    assert _copies(TOOL_SAYS, files) == []
+    # A train input is the exact-match pre-check's.
+    docs = [TrainDoc(id="424242500001", input_text=question)]
+    assert _copies(question, files)[0].endswith("(a user turn)")
+    assert _copies(question, files, docs=docs) == []
+    # Words in the traces of many items are boilerplate.
+    stock = "I have checked the manifest and the gate ledger for you."
+    many = [
+        _write_trace(tmp_path, f"42424250001{i}", reply=f"{stock} Bay {i}.")
+        for i in range(4)
+    ]
+    assert _copies(stock, many) == []
+    # In every item read is boilerplate too, with two items.
+    assert _copies(stock, many[:2]) == []
+    assert _copies(stock, many[:1])
+
+
+def test_a_user_turn_of_a_trace_is_searched(tmp_path):
+    turn = "My second question is about the cold store door at bay nine."
+    files = [
+        _write_trace(tmp_path, "424242500001", user=turn),
+        _write_trace(tmp_path, "424242500002"),
+        _write_trace(tmp_path, "424242500003"),
+    ]
+    (found,) = _copies(turn, files)
+    assert found.endswith("(a user turn)")
+
+
+def test_trace_copies_stop_at_the_byte_cap(tmp_path, monkeypatch):
+    import kiln_harness_tuner.generality as g
+
+    files = [_write_trace(tmp_path, "424242500001", reply=AGENT_SAYS)]
+    monkeypatch.setattr(g, "TRACE_COPY_MAX_BYTES", 10)
+    assert trace_copies({"the prompt": AGENT_SAYS}, files) == ([], 1)
+
+
+def test_only_the_parents_trace_files_are_searched(tmp_path):
+    ctx = _ctx()
+    ctx.run_dir = tmp_path
+    mine = _write_trace(tmp_path, "424242500001", reply=AGENT_SAYS)
+    _write_trace(tmp_path, "424242500001", rc_id="rc_other", reply=AGENT_SAYS)
+    _trace_writer(tmp_path).write_expected("424242500001", {"a": 1})
+    traces, system = parent_trace_files(ctx, "rc_base")
+    assert traces == [mine]
+    # The system prompt the trace moved out, as known text.
+    (system_file,) = system
+    assert system_file.parent.name == "_system"
+    assert BASE_PROMPT in system_file.read_text()
+    assert parent_trace_files(ctx, "rc_none") == ([], [])
+    ctx.run_dir = None
+    assert parent_trace_files(ctx, "rc_base") == ([], [])
+
+
+def test_a_heading_inside_a_message_is_message_text(tmp_path):
+    """The `Messages` section is the last one: a line in a message that looks
+    like a section heading does not change who wrote what follows."""
+    from kiln_harness_tuner.gateway.trace_files import read_trace_text
+
+    tool = f"# Output\n{TOOL_SAYS}\n# Input\nRow two of the ledger."
+    path = _write_trace(tmp_path, "424242500001", reply=AGENT_SAYS, tool=tool)
+    _item, parts = read_trace_text(path.read_text())
+    assert ("tool", tool) in parts
+    assert parts[-1] == ("agent", AGENT_SAYS)
+    # So the tool text keeps its exemption.
+    assert _copies(TOOL_SAYS, [path]) == []
+
+
+def test_text_of_the_parents_system_files_is_not_a_copy(tmp_path):
+    """The agent can quote a tool definition or the system prompt as Kiln
+    sent it; a build that repeats that text copies nothing from train."""
+    definition = "Returns the signed gate ledger rows for one depot and one day."
+    path = _write_trace(tmp_path, "424242500001", reply=f"I used it. {definition}")
+    system = tmp_path / "system.md"
+    system.write_text(f"## tool definitions\n\n{definition}\n")
+    added = {"the prompt": definition}
+    assert trace_copies(added, [path])[0]
+    assert trace_copies(added, [path], known_files=[system]) == ([], 0)
+
+
+async def test_a_trace_copy_is_a_leak_with_no_review(tmp_path):
+    ctx = _ctx(("rc_new", f"{BASE_PROMPT} {JUDGE_SAYS}"), ("rc_new2", GENERAL))
+    ctx.run_dir = tmp_path
+    _write_trace(tmp_path, "424242500001", judge=JUDGE_SAYS)
+    seed_measurement(ctx.kiln, "rc_new2")
+    ctx.dispatch.queue("create_experiment_rc", _built("rc_new"), _built("rc_new2"))
+    ctx.dispatch.queue("generality_review", _review())
+    ctx.dispatch.queue("analyze_experiment_results", ok(make_result()))
+    outcome = await execute_plan_item(ctx, fix_item(), BASELINE, ["rc_base"], 1)
+
+    assert outcome.status == "completed"
+    assert outcome.rc_id == "rc_new2"
+    _first, rebuild = ctx.dispatch.calls_to("create_experiment_rc")
+    (finding,) = rebuild.generality_findings
+    assert finding.startswith('trace copy: "the answer gave the count before it')
+    assert finding.endswith("item 424242500001 (the judge's reason)")
+    # Only the rebuild needed the reviewer: the copy itself was code.
+    (review,) = ctx.dispatch.calls_to("generality_review")
+    assert review.candidate_rc_id == "rc_new2"
+    assert [k for k, _ in ctx.log.events if k == "generality_trace_copy"]
+    record = _view(next(iter(ctx.kiln.memories.values())))
+    assert "trace copy:" in (record.generality or "")

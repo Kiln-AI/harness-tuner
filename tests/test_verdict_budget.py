@@ -6,6 +6,7 @@ and `next:`."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
@@ -34,6 +35,7 @@ from kiln_harness_tuner.memory_schema import (
     CONTENT_MAX_CHARS,
     TRUNCATION_MARKER,
     ExperimentState,
+    kv_value,
 )
 from kiln_harness_tuner.schemas import (
     AnalysisBundle,
@@ -415,3 +417,12 @@ def test_the_shorten_prompt_is_json_safe():
         "<the whole output object>", "{}"
     )
     assert json.loads(example) == {"status": "ok", "data": {}, "detail": None}
+
+
+async def test_the_growth_line_is_carried_into_the_verdict_content():
+    # `growth` is a key of `CARRIED_KEYS`: `verdict_content` puts the line
+    # back when the analyzer's content dropped it.
+    kiln = FakeKiln()
+    view = _view(kiln.memories[await _running_record(kiln)])
+    content = verdict_content(dataclasses.replace(view, growth="a finding"), "")
+    assert kv_value(content, "growth") == "a finding"

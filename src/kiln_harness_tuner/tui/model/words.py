@@ -238,12 +238,14 @@ FINDINGS = {
     "judge_copy": "copied text found",
     "generality": "train item text found",
     "reference_check": "names what it does not attach",
+    "growth": "adds too much text",
 }
 REBUILD_UNKNOWN = "a check found a problem"
 FINDING_LOG = {
     "judge_copy": "copied judge text",
     "generality": "train item text leaked into the change",
     "reference_check": "names a skill or tool it does not attach",
+    "growth": "adds more harness text than the growth limit allows",
 }
 
 

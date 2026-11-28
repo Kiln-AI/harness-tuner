@@ -169,17 +169,21 @@ flowchart TD
       model swap where one is allowed. It reads the technique that the planner named, in the
       knowledge system. It stamps the provenance and
       smoke-tests the config. It stops before any result exists.
-   2. Two text checks run before any money is spent on measurement:
+   2. Three checks of the text run before any money is spent on measurement:
       - The **generality check** looks for text that copies train items, first
-        in code (an exact-text search) and then in a review session.
+        in code (an exact-text search of the train items, and of the parent's
+        train traces) and then in a review session.
       - The **judge-copy check** looks for a run of 8 or more words that the
         candidate's whole prompt, input transform, skills or code tools
         share with a judge
         prompt, an eval spec or an eval description. It reads the whole text,
         so a phrase inherited from a parent is caught too. Text that the
         baseline or the task instructions already have is allowed.
+      - The **growth limit** compares the size of the candidate's whole text
+        with its parent's. A build that adds more than 200,000 characters in
+        one change is over the limit.
 
-      A hit in either check gets one rebuild, with the findings. A second hit
+      A hit in any check gets one rebuild, with the findings. A second hit
       ends the item.
    3. **Measurement on train.** Code judges the config in chunks of 12 items,
       up to the whole train split, and checks the stop rules after each chunk.
