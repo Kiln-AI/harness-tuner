@@ -20,6 +20,7 @@ from kiln_harness_tuner.gateway.trace_files import parse_trace, trace_stats
 from kiln_harness_tuner.kiln import KilnError
 from kiln_harness_tuner.knowledge import load
 from kiln_harness_tuner.memory_schema import fits_tag
+from kiln_harness_tuner.owner_questions import known_owner_questions
 from kiln_harness_tuner.prompt_text import SKILL_TOOL_PREFIX, rc_texts
 from kiln_harness_tuner.provider_errors import ProviderQuotaError
 from kiln_harness_tuner.schemas import (
@@ -29,6 +30,8 @@ from kiln_harness_tuner.schemas import (
     BaselineReviewInput,
     Detection,
     DetectionCheck,
+    KnownOwnerQuestion,
+    OwnerQuestion,
     PlannerDetection,
     SmellFinding,
     TraceSample,
@@ -142,6 +145,7 @@ async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
             detections=list(ctx.detections),
             samples=await baseline_trace_samples(ctx, rc_id),
             known_smells=sorted(titles or ()),
+            known_owner_questions=await _known_owner_questions(ctx),
         ),
         backoffs=REVIEW_DISPATCH_BACKOFFS,
         sleep=ctx.sleep,
@@ -204,7 +208,38 @@ async def _review(ctx: Ctx, rc_id: str) -> BaselineReview:
         issue_ids=issue_ids,
         detection_checks=result.data.detection_checks,
         notes=result.data.notes,
+        owner_questions=_owner_questions(result.data.owner_questions, titles),
     )
+
+
+async def _known_owner_questions(ctx: Ctx) -> list[KnownOwnerQuestion]:
+    """The owner questions that memory holds for the task, so that the
+    reviewer does not ask one a second time. A read that fails gives none:
+    code drops a question that memory already holds
+    (`owner_questions.settle_owner_questions`)."""
+    try:
+        return known_owner_questions(await ctx.memory.owner_decisions())
+    except ProviderQuotaError:
+        raise
+    except Exception as exc:
+        ctx.log.event(
+            "owner_questions_unread",
+            reason=f"{type(exc).__name__}: {exc}"[:REVIEW_REASON_CHARS],
+        )
+        return []
+
+
+def _owner_questions(
+    returned: list[OwnerQuestion], titles: dict[str, str] | None
+) -> list[OwnerQuestion]:
+    """The reviewer's questions for the owner. A question keeps its `smell`
+    only when that is a smell document: the question itself stands."""
+    return [
+        q
+        if q.smell is None or (titles is not None and q.smell in titles)
+        else q.model_copy(update={"smell": None})
+        for q in returned
+    ]
 
 
 def _valid_findings(

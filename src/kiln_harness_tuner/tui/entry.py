@@ -52,6 +52,7 @@ from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.names import RcNames
 from kiln_harness_tuner.tui.model.state import RunInfo
+from kiln_harness_tuner.tui.owner import AppOwnerAsker
 from kiln_harness_tuner.tui.sink import TuiSink
 from kiln_harness_tuner.tui.terminal_io import APP_SIGNALS, Takeover, TerminalTakeover
 from kiln_harness_tuner.ui import PlainUi
@@ -156,6 +157,8 @@ class _AppRun:
             interactive=not args.no_interaction,
             on_say=self.closing.said,
         )
+        # The run's questions to the owner, which the app shows.
+        self.owner = AppOwnerAsker(self.queue)
         self.runner = cancellable_runner(args.kiln_host.rstrip("/"))
         self.start = StartHandle(self._start, self.queue, on_stop=self._unwind_start)
         self.run = RunHandle(self._run, self.queue, cli._stopped_by)
@@ -192,7 +195,11 @@ class _AppRun:
         args = self.start.result()
         return asyncio.run(
             cli._run_with_signals(
-                args, display=self._display, on_started=self.run.started
+                args,
+                display=self._display,
+                on_started=self.run.started,
+                # With `--no-interaction` the run never waits for a person.
+                ask_owner=None if args.no_interaction else self.owner,
             )
         )
 
@@ -217,6 +224,8 @@ class _AppRun:
             print_sink=self.takeover.print_sink,
         )
         self.takeover.run(app)
+        # Nobody answers a question of the run now: it takes the defaults.
+        self.owner.close()
         if self.start.began and self.start.outcome is None:
             # The app closed under the start (a crash, or its terminal went
             # away): nobody answers its prompt now.

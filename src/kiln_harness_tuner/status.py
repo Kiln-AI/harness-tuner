@@ -43,6 +43,7 @@ from kiln_harness_tuner.schemas import (
     MergeWork,
     ModelPreflightResult,
     NoiseCheckResult,
+    OwnerQuestionsStatus,
     PhaseSegment,
     ProbeItem,
     ProbeResult,
@@ -554,6 +555,14 @@ class RunStatusTracker:
         # review that does not validate is left out.
         try:
             self._status.baseline_reviews.append(BaselineReview.model_validate(review))
+        except ValidationError:
+            return
+
+    def _on_owner_questions(self, status: object = None, **_: object) -> None:
+        # The owner questions of the run, for the report. Each event holds
+        # every decision of the task, so the last one replaces the others.
+        try:
+            self._status.owner_questions = OwnerQuestionsStatus.model_validate(status)
         except ValidationError:
             return
 

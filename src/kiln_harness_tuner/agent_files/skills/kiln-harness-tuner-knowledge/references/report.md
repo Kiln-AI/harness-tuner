@@ -19,6 +19,7 @@ means that the shape does not matter.
 <!-- BEGIN GENERATED: smells -->
 | Smell | Applies to | Description |
 |---|---|---|
+| [conflicting-requirements](smells/conflicting-requirements.md) | all | Two texts that the agent reads - the prompt, a skill, a tool description, a tool's response - ask for things that cannot both hold, and no text says which one wins. |
 | [document-behind-a-lookup-tool](smells/document-behind-a-lookup-tool.md) | tools | A long reference document that the agent can reach only by page, by search or by section, through a lookup tool, with no contents to choose from. |
 | [faulty-inherited-skill](smells/faulty-inherited-skill.md) | all | A skill that the baseline attaches is wrong or stale, contradicts the task, or holds an example whose answer contradicts a rule. It can be changed as a new version. |
 | [fixed-call-chain](smells/fixed-call-chain.md) | tools | The agent calls the same tools in the same order on each run, and passes an id from one result to the next call. The model decides nothing new between the calls. |
@@ -94,6 +95,7 @@ Dormant techniques are not listed.
 | [guide-skill-for-a-tool-set](techniques/guide-skill-for-a-tool-set.md) | skill | tools | medium | A side skill that describes the agent's tools by progressive disclosure - which tool for which work, then one leaf file per tool or per query area. |
 | [keep-only-the-fields-the-task-needs](techniques/keep-only-the-fields-the-task-needs.md) | input_transform | single_turn | low | An input transform that passes the model the fields that decide the answer, one field for each fact, and leaves out ids, audit data, metadata and empty fields. |
 | [long-prompt-into-a-skill](techniques/long-prompt-into-a-skill.md) | skill, prompt | all | medium | Move the topics of a long prompt into a skill by progressive disclosure - a short prompt, a router body, one reference file per topic, a path index. |
+| [make-conflicting-texts-agree](techniques/make-conflicting-texts-agree.md) | prompt, skill, new_tool | all | low | Settle a conflict between two texts that the agent reads - change the text that loses, so that the requirement is stated in one place - when it is known which text wins. |
 | [model-swap-inside-a-class](techniques/model-swap-inside-a-class.md) | model | all | high | Lock one model of the class the task needs, tune the harness on it, then scan the class again for a model that is better, cheaper or faster with that harness. |
 | [new-tool-description](techniques/new-tool-description.md) | new_tool | tools | low | A new description for a tool - a code-tool clone, or a wrapper - for a failure at a call. A rule in the tool moves with the tool, so the prompt does not change with the tool set. |
 | [normalize-inputs-wrapper](techniques/normalize-inputs-wrapper.md) | new_tool | tools | medium | A wrapper that accepts the input forms the agent sends - case, aliases, display numbers, types - maps each to what the tool needs, and names the valid values when it cannot. |

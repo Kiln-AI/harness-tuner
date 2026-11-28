@@ -85,7 +85,7 @@ def slow_run(monkeypatch):
     once it waits."""
     running = threading.Event()
 
-    async def fake_run(_args, *, display=None):
+    async def fake_run(_args, *, display=None, ask_owner=None):
         running.set()
         await asyncio.sleep(30)
         return "report.md"
@@ -136,7 +136,7 @@ def test_a_stop_cancels_the_running_run_once(slow_run):
 
 
 def test_a_stop_after_the_run_ended_does_nothing(monkeypatch):
-    async def quick_run(_args, *, display=None):
+    async def quick_run(_args, *, display=None, ask_owner=None):
         return "report.md"
 
     monkeypatch.setattr(cli, "_run", quick_run)

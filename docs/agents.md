@@ -168,6 +168,13 @@ never a verdict. Each also carries the baseline reviewer's reading of it
 (`reviewer_holds` and `reviewer_note`), matched by smell and detector on the
 present baseline; both are `null` when no review of that baseline is done or
 the review did not read that detection.
+`owner_answers` are the owner's answers to the questions to the owner, of
+this run and of earlier runs on the task: each with the question, the
+answer, whether it is an option or the owner's own words, and the option's
+effect. They are owner guidance, with the weight of `guidance`.
+`open_owner_questions` are the questions with no answer, each with the
+default that the run takes ([architecture.md](architecture.md) section
+18.6).
 `eval_building` says if the plan may build a new eval: `false` unless the
 run has `--experimental-eval-building`. While it is `false`, the template
 and the skill tell the planner to give each fix arm an eval that exists,
@@ -382,7 +389,9 @@ It may read exit-time memory, including both val-carrying records, and it must
 label their numbers val-grade.
 
 Code also appends the `## Design review` section: the code detections and the
-baseline reviewer's findings for each baseline of the run
+baseline reviewer's findings for each baseline of the run, and the
+`## Questions for the owner` section: each question to the owner, with its
+answer or the default that the run took
 ([architecture.md](architecture.md) section 11).
 
 **Skill:** `kiln-harness-tuner-report`. Where the knowledge helps it explain
@@ -526,7 +535,9 @@ The detectors run in each of these cases.
 the facts that the detectors found; `samples`, for each active eval up to 4
 of the baseline's stored train items and 20 in all, taken in the order of
 the train set and never chosen by score; and `known_smells`, the id of each
-smell document. Everything else it reads for itself, through its gateway
+smell document; and `known_owner_questions`, the questions to the owner
+that memory holds for the task, each with its status and answer. Everything
+else it reads for itself, through its gateway
 operations: the run config, its prompt, its skills, its tools and their
 definitions, and the train traces of the samples (and more, when a smell
 needs more evidence).
@@ -541,6 +552,14 @@ needs more evidence).
 - `detection_checks`, one `DetectionCheck` for each detection: `holds` is
   true, false, or null when reading cannot tell, with a one-sentence note.
 - `notes`, a design issue that fits no smell.
+- `owner_questions`, what only the owner can decide, each from a finding:
+  the question, `why` (the passages and where), the `smell`, two to four
+  options each with its `effect`, and `default`, the index of the option
+  that changes least. No option is "Other": the display adds it. A
+  question in `known_owner_questions` is not asked again. Code keeps at
+  most 5 new ones, writes each as a memory record, and asks them before
+  wave 1 when the app can ask ([architecture.md](architecture.md) section
+  18.6).
 
 **Code writes the issues.** The role has no write of any kind. Code checks
 each smell id against the smell documents of the knowledge skill and drops

@@ -9,6 +9,8 @@ description: |
 You plan one wave of the Kiln Harness Tuner optimize loop. You are dispatched fresh each wave
 (memory-first: durable state lives in Kiln memories, not passed context). Your
 input model is `BatchPlanInput`: `guidance` (kickoff human guidance, verbatim),
+`owner_answers` and `open_owner_questions` (the questions to the owner and
+what the run holds for each — see Owner answers below),
 `baseline` (`{rc_id}` — the rc every experiment branches from),
 `should_wrap_up` (true on the last wave only: the run's time limit has
 passed, or the budget has room for one more wave only),
@@ -664,6 +666,32 @@ For each one:
 - A smell is evidence. The reference is a default, not a measured optimum,
   and the reviewer's confidence is not a measurement. An experiment
   decides.
+
+## Owner answers
+
+Before wave 1, the run asks the owner what only the owner can decide, such
+as which of two conflicting requirements wins. The design reviewer writes
+the questions. Code keeps each one in memory, as a task-scope `constraint`
+record with the tag `owner_question`, and gives you what it holds:
+
+- `owner_answers`: each answer, of this run or of an earlier run on the
+  task. `kind: "option"` is one of the reviewer's options, and `effect`
+  says what the tuner does under it. `kind: "other"` is the owner's own
+  words. **An answer is owner guidance, with the weight of `guidance`.** It
+  is the owner's policy for the agent. Plan the change that it asks for
+  (for a conflict: the technique Make conflicting texts agree,
+  `references/techniques/make-conflicting-texts-agree.md`, toward
+  the side that the owner chose), and never plan an arm against it. State
+  the requirement in the harness in your own words, with the owner's
+  answer as its source: it is not eval text.
+- `open_owner_questions`: each question with no answer, and `default`,
+  the option that the run takes. Plan under the default. Plan nothing that
+  settles the question another way, and do not choose a side because one
+  scores higher on train: an eval does not decide the owner's policy. Do
+  not repeat it in `open_questions`: code already holds it, and the report
+  lists it.
+
+Neither list is a memory record you write. Code writes them.
 
 ## Step 2 — Weigh value and cost (reasoning, one short paragraph each)
 

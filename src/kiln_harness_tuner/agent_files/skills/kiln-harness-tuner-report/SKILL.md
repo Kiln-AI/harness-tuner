@@ -243,7 +243,10 @@ deliberate) · still open, worth the next run.>
 
 ## Open unknowns & assumptions
 <each OPEN: record raised or still standing: question, default assumed, what
-it gates, re-ask condition.>
+it gates, re-ask condition. The questions to the owner (`owner_questions` in
+RunStatus) are listed by code in a "Questions for the owner" section after
+your markdown: name how many were answered and how many took their default,
+point at that section, and never restate its options.>
 
 ## Spend
 <narrate: both lanes named with what they mean (API keys $ = real money today,

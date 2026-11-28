@@ -238,10 +238,18 @@ Per wave, in order:
    still run. It never raises, apart from a quota error. The review is part
    of the wave: the clock is not checked again after it, so a review that
    ends past the time limit is still followed by this wave's plan.
+   **The questions to the owner** (`owner_questions.settle_owner_questions`)
+   follow it, once for each baseline: what only the owner can decide, from
+   the review and from earlier runs on the task (section 18.6). On wave 1
+   of a run that can ask, the run waits for the answers, for a limited
+   time. It never raises, apart from a quota error.
 5. **Plan.** One `batch_plan` dispatch. Its input carries the present
    baseline's detections (`BatchPlanInput.detections`), each with the
    baseline reviewer's reading of it (`smells.run.planner_detections`),
-   and it reads the `smell` issues from memory with the other issues. A
+   and it reads the `smell` issues from memory with the other issues. It
+   also carries the owner's answers (`owner_answers`) and the owner
+   questions with no answer (`open_owner_questions`), next to the
+   guidance. A
    hard failure exits the run (`planner_failed`) — it is the loop's
    brain, and another attempt after the
    retry ladder only burns budget. **The eval-building guard**
@@ -828,7 +836,8 @@ kind, so an issue writer handed an experiment id refuses with `RecordKindError`
 Writers, one function per write: open an experiment, record the run config it
 built, record the verdict, mark it failed, promote the baseline, record the val
 stats, stamp promoted / held / rejected, mark an issue fixed / regressed /
-won't-fix, link an eval, record an open question, record a smell.
+won't-fix, link an eval, record an open question, record a smell, record
+an owner question and its answer.
 
 **Smell issues** (`record_smell`, section 18) are written by code from the
 baseline reviewer's findings. Each is an issue with the tags `issue`, `p1`,
@@ -1052,6 +1061,8 @@ resubmit them unchanged once the question is answered.
 | the report writer hard-failing | the report still ships, rendered by code from `RunStatus` |
 | a smell detector raising | that detector is skipped (`smell_detector_failed`); the others run. A run config that cannot be read skips them all (`smell_detection_skipped`) |
 | the baseline reviewer failing, timing out or turned off | the run goes on with the code detections. The event `baseline_review_skipped` gives the reason, and the report states it |
+| the owner questions step raising, or a write of its records failing | the run goes on (`owner_questions_skipped`, `owner_question_write_failed`, `owner_answer_write_failed`). A question that was not written still reaches this run's planner; a later run does not find it |
+| no answer from the owner (no display that can ask, `--no-interaction`, Esc, the wait over, the app closed) | each question takes its default option. The record stays `OPEN: `, the planner gets it in `open_owner_questions`, and the report lists it |
 | the knowledge skill unreadable at run time | detections and findings are kept unchecked (`knowledge_unreadable`); a finding whose id does not fit a memory tag is dropped |
 | a smell id that is not a smell document | the detection or the finding is dropped (`smell_unknown`) |
 
@@ -1141,6 +1152,11 @@ way.
   id of the `smell` issue code wrote). It is folded from the
   `smell_detections` and `baseline_review` events (`RunStatus.detections_by_rc`,
   `RunStatus.baseline_reviews`), and the fallback report has it too.
+  "## Questions for the owner" (`render_owner_questions_appendix`) is there
+  when the run had an owner question (section 18.6): each question, why it
+  is asked, its options with the default marked, and the owner's answer or
+  the default the run took, with the id of its memory record. It is folded
+  from the last `owner_questions` event (`RunStatus.owner_questions`).
 - **The transcripts.** The dispatcher copies every agent session's
   transcript into `traces/` (Claude's and Codex's session files, OpenCode's
   `opencode export`), through a redactor that blanks known credential
@@ -1471,6 +1487,8 @@ src/kiln_harness_tuner/
   restrictions.py   the restrictions the owner states at the start: their
                     rules for the model policy, and the tool lock
   memory.py         when a record is written
+  owner_questions.py  the questions to the owner: the step, the record's
+                    text, what the planner gets
   memory_schema.py  what a record says
   schemas.py        every agent input and output, and RunStatus
   status.py, ui.py, wave_log.py, memory_feed.py, report.py, logbook.py   observability
@@ -2558,3 +2576,69 @@ gives "Design review skipped: <reason>." or "Design review failed:
 A resumed run reviews a baseline again when its first review wrote no
 issue (it found no smell, or every write failed), because the check for an
 earlier review reads the smell issues in memory.
+
+### 18.6 The questions to the owner
+
+Some findings need a decision that only the owner of the agent can make:
+which of two conflicting requirements wins (the smell
+`conflicting-requirements`), or whether a behaviour that the texts leave
+open is wanted. The tuner does not choose for the owner, and an eval does
+not choose either: an answer is the owner's policy.
+
+**Who writes a question.** The baseline reviewer, in
+`BaselineReviewResult.owner_questions`: the question, why it is asked (the
+two passages and where), the smell it comes from, two to four options each
+with what the tuner does under it, and `default`, the index of the
+conservative option (the one that changes least, usually "leave both texts
+as they are"). No option is labelled "Other": the display adds it. The
+reviewer gets the questions that memory holds for the task
+(`known_owner_questions`) and does not ask one again.
+
+**The record.** Code writes each new question as a task-scope `constraint`
+record with the tag `owner_question` (`MemoryWriter.record_owner_question`).
+Its overview is `OPEN: <question>` until the owner answers, then
+`<question> → <answer>`. Its content starts with the five lines of every
+open unknown (`question`, `default`, `gates`, `source`, `re-ask when`),
+then `answer`, `answer kind` and `answered` when answered, and a `record`
+line with the question as JSON, which code reads back. An answer is
+written on the same record (`record_owner_answer`). The owner can also
+answer in Kiln: remove `OPEN: ` and add an `answer:` line.
+
+**The step** (`settle_owner_questions`, after the review, once for each
+baseline). It reads every owner question of the task, adds the review's new
+ones (at most `OWNER_QUESTIONS_MAX`, 5, from one review; a question that
+memory already holds is not doubled), and asks the open ones when all of
+these hold: it is wave 1, it is not a wrap-up wave, and the run has a
+display that can ask (`Ctx.ask_owner`). At most `OWNER_QUESTIONS_MAX`
+questions are asked, and the run waits at most `OWNER_ANSWER_WAIT_SECS`
+(10 minutes), on the run's clock. A question of a later review is recorded
+and not asked: the owner can be away by then. The `owner_questions` event
+carries the decisions (`OwnerQuestionsStatus`) and one line:
+"Questions for the owner: 1 answered; 1 with no answer (the owner left the
+questions for later); the run takes the default of each."
+
+**Who can ask.** Only the terminal app, and only without
+`--no-interaction`. `tui.owner.AppOwnerAsker` puts one `owner_ask` request
+on the app's queue, and the app opens the owner questions dialog over the
+run screen (`tui/screens/owner.py`): one question at a time, its options
+with the default marked and the cursor on it, and "Other", which opens a
+text input. Enter chooses. Esc leaves this question and the next ones for
+later. The wait ends by itself when the time is over, when the run is
+stopped, and when the app closes (`AppOwnerAsker.close`); the dialog then
+goes away. A plain run (`--no-progress` alone included, no terminal, CI)
+asks nothing: each question is recorded as open.
+
+**What the planner gets.** `BatchPlanInput.owner_answers`: each answer,
+with the effect of the chosen option, or the owner's own words.
+`BatchPlanInput.open_owner_questions`: each question with no answer, and
+its default. The planner's skill treats an answer as owner guidance, with
+the weight of `guidance`, and plans nothing that settles an open question
+another way.
+
+**A rerun on the same task** reads the same records. An answered question
+is never asked again, and every planner of the rerun gets its answer. An
+open one is asked again by the next run that can ask.
+
+The report's `## Questions for the owner` section (section 11) lists each
+question with its answer or the default that the run took, and says how to
+answer a question that is still open.

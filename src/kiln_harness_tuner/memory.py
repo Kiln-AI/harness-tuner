@@ -125,6 +125,12 @@ from kiln_harness_tuner.memory_schema import (
     val_stats_line,
     verdict_overview,
 )
+from kiln_harness_tuner.owner_questions import (
+    OWNER_QUESTION_TAG,
+    owner_decision_from_record,
+    owner_record_content,
+    owner_record_overview,
+)
 from kiln_harness_tuner.schemas import (
     BaselineRef,
     ErrorInfo,
@@ -134,6 +140,8 @@ from kiln_harness_tuner.schemas import (
     ExperimentResult,
     MergeWork,
     OpenUnknown,
+    OwnerDecision,
+    OwnerQuestion,
     ProbeItem,
     ProbeResult,
     PromotionDecision,
@@ -1961,6 +1969,59 @@ class MemoryWriter:
         """Single-question convenience over write_open_unknowns."""
         (memory_id,) = await self.write_open_unknowns([q])
         return memory_id
+
+    # ---- owner questions ----
+
+    def today(self) -> str:
+        """The date of an owner's answer, `YYYY-MM-DD`."""
+        return self._iso_date()
+
+    async def owner_decisions(self) -> list[OwnerDecision]:
+        """The owner questions that memory holds for this task, in the
+        order of the listing, each with its answer or `open`
+        (`kiln_harness_tuner.owner_questions`). They are task-scope
+        `constraint` records with the tag `owner_question`. One decision
+        for each question: the first record wins. A record that cannot be
+        read as one is left out."""
+        summaries = await self._list(
+            self.task_scope, [RecordKind.CONSTRAINT.value, OWNER_QUESTION_TAG]
+        )
+        decisions: dict[str, OwnerDecision] = {}
+        for record in await self._get_many(s.id for s in summaries):
+            decision = owner_decision_from_record(record)
+            if decision is not None:
+                decisions.setdefault(question_key(decision.question.question), decision)
+        return list(decisions.values())
+
+    async def record_owner_question(self, question: OwnerQuestion) -> str:
+        """POST one owner question with no answer, as an `OPEN: ` record,
+        and return its memory id."""
+        decision = OwnerDecision(question=question)
+        return await self._post(
+            owner_record_overview(decision),
+            self.task_scope,
+            owner_record_content(decision),
+            [RecordKind.CONSTRAINT.value, OWNER_QUESTION_TAG],
+        )
+
+    async def record_owner_answer(self, decision: OwnerDecision) -> str:
+        """Write the owner's answer on the question's own record, in place:
+        the overview loses its `OPEN: ` prefix and gets the answer. A
+        question with no record (its first write failed) gets one now.
+        Returns the memory id."""
+        overview = owner_record_overview(decision)
+        content = owner_record_content(decision)
+        if not decision.memory_id:
+            return await self._post(
+                overview,
+                self.task_scope,
+                content,
+                [RecordKind.CONSTRAINT.value, OWNER_QUESTION_TAG],
+            )
+        await self._patch(
+            decision.memory_id, {"overview": overview, "content": content}
+        )
+        return decision.memory_id
 
 
 # ---- screening results ----

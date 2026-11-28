@@ -53,6 +53,7 @@ _PHASE_NOUNS = {
     "preflight": "MCP-lane preflight",
     "setup": "setup",
     "baseline_review": "design review",
+    "owner_questions": "questions for the owner",
     "planning": "planning",
     "promotion_gate": "promotion gate",
     "tripwire_backoff": "tripwire backoff",
@@ -323,6 +324,8 @@ SETUP_LINE_EVENTS = frozenset(
         "eval_item_dropped",
         # Each design review of a baseline.
         "baseline_review",
+        # The questions to the owner, and what the run holds for each.
+        "owner_questions",
     }
 )
 

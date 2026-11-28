@@ -36,11 +36,13 @@ from kiln_harness_tuner.tui.model import words
 from kiln_harness_tuner.tui.model.events import Stamped
 from kiln_harness_tuner.tui.model.fold import RunModel
 from kiln_harness_tuner.tui.model.state import ItemKey, RunInfo
+from kiln_harness_tuner.tui.owner import OWNER_ASK, OWNER_ASK_CLOSED, OwnerAsk
 from kiln_harness_tuner.tui.screens.details import (
     DetailsPanel,
     ExperimentPicker,
     RunModal,
 )
+from kiln_harness_tuner.tui.screens.owner import OwnerQuestionsDialog
 from kiln_harness_tuner.tui.screens.run import RunScreen
 from kiln_harness_tuner.tui.screens.startup import StartupScreen
 from kiln_harness_tuner.tui.screens.stop import StopDialog
@@ -227,9 +229,16 @@ class TunerApp(App[None]):
             if stamped.kind == START_ENDED:
                 self._start_ended()
                 continue
+            if stamped.kind == OWNER_ASK:
+                self._ask_owner(stamped.fields["request"])
+                continue
+            if stamped.kind == OWNER_ASK_CLOSED:
+                self._owner_ask_closed(stamped.fields["request"])
+                continue
             if stamped.kind == RUN_ENDED:
                 self._run_ended()
             self._fold(stamped)
+        self._drop_expired_dialog()
         self._read_progress()
         self._look_up_names()
         self._refresh()
@@ -238,6 +247,36 @@ class TunerApp(App[None]):
         """A `Terminal` call of the start, on the start-up screen, which
         fails a prompt it can't show (`StartupScreen.show`)."""
         self.startup_screen.show(stamped.fields["request"])
+
+    # ---- the questions to the owner ----
+
+    def _ask_owner(self, ask: OwnerAsk) -> None:
+        """The run asks the owner, before wave 1, and waits for a limited
+        time (`owner_questions.settle_owner_questions`). The dialog opens
+        over the run screen and over an open panel."""
+        self.push_screen(OwnerQuestionsDialog(ask), ask.resolve)
+
+    def _owner_ask_closed(self, ask: OwnerAsk) -> None:
+        """The run waits no more for `ask`: it has its answers, the time is
+        over, or the run was stopped. Its dialog goes away. A dialog under
+        the stop dialog goes once it is on top (`drain`)."""
+        for screen in self.screen_stack:
+            if isinstance(screen, OwnerQuestionsDialog) and screen.ask is ask:
+                screen.expired = True
+        self._drop_expired_dialog()
+
+    def _drop_expired_dialog(self) -> None:
+        # The stack, not `self.screen`: it is empty while the app closes, and
+        # `self.screen` raises then. The drain runs until the end.
+        stack = self.screen_stack
+        screen = stack[-1] if stack else None
+        if (
+            isinstance(screen, OwnerQuestionsDialog)
+            and screen.expired
+            and not screen.gone
+        ):
+            screen.gone = True
+            self.pop_screen()
 
     def _fold(self, stamped: Stamped) -> None:
         model = self.model

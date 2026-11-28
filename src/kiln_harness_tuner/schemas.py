@@ -11,7 +11,14 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from kiln_harness_tuner.rc_inherit import FROZEN_KEYS
 
@@ -1878,6 +1885,105 @@ class TraceSample(BaseModel):
     item_ids: list[str]
 
 
+class OwnerOption(BaseModel):
+    """One answer that an owner question offers. `effect` says what the
+    tuner does when the owner picks it."""
+
+    label: str = Field(min_length=1, max_length=80)
+    effect: str = Field(default="", max_length=240)
+
+
+class OwnerQuestion(BaseModel):
+    """One question that only the owner of the agent can decide, such as
+    which of two conflicting requirements wins
+    (`kiln_harness_tuner.owner_questions`). The baseline reviewer writes it
+    from the design of the agent: the harness texts, never eval text. The
+    display adds the answer "Other" with free text, so no option has that
+    label. `default` is the index of the conservative option: the one that
+    changes least, which a run takes while it has no answer."""
+
+    question: str = Field(min_length=8, max_length=300)
+    why: str = Field(default="", max_length=400)  # what was seen, and where
+    smell: str | None = None  # the id of the smell document it comes from
+    options: list[OwnerOption] = Field(min_length=2, max_length=4)
+    default: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _options_are_usable(self) -> OwnerQuestion:
+        if self.default >= len(self.options):
+            raise ValueError("default must be the index of one of the options")
+        labels = [" ".join(o.label.split()).casefold() for o in self.options]
+        if len(set(labels)) != len(labels):
+            raise ValueError("each option needs its own label")
+        if "other" in labels:
+            raise ValueError('no option is labelled "Other": the display adds it')
+        return self
+
+
+class OwnerDecision(BaseModel):
+    """One owner question and what the run holds for it: the owner's answer,
+    or `open` when nobody answered. Code keeps each one as a task-scope
+    `constraint` memory record (`memory.MemoryWriter.owner_decisions`), so a
+    later run on the task reads it. An answer is the owner's policy."""
+
+    question: OwnerQuestion
+    memory_id: str = ""  # "" when the record could not be written
+    status: Literal["answered", "open"] = "open"
+    # `answered`: the label of the option the owner chose, or the owner's
+    #   own text. `open`: empty, and the run takes the default option.
+    answer: str = ""
+    answer_kind: Literal["option", "other"] | None = None
+    answered_on: str = ""  # the date, `YYYY-MM-DD`
+    this_run: bool = False  # this run asked it and got the answer
+
+
+class OwnerQuestionsStatus(BaseModel):
+    """The owner questions of a run, for the displays and the report.
+    `asked`: the run showed the open questions to the owner. `reason`: why
+    it did not, or why it stopped waiting."""
+
+    asked: bool = False
+    reason: str = ""
+    decisions: list[OwnerDecision] = []
+
+
+class OwnerAnswer(BaseModel):
+    """One answer of the owner, as the planner gets it, next to the
+    guidance. It is the owner's policy for the agent. `effect` is what the
+    reviewer said the tuner does under the chosen option; it is empty for
+    an answer in the owner's own words (`kind: "other"`)."""
+
+    question: str
+    answer: str
+    kind: Literal["option", "other"]
+    effect: str = ""
+    smell: str | None = None
+    answered_on: str = ""
+    memory_id: str = ""
+
+
+class OpenOwnerQuestion(BaseModel):
+    """One owner question with no answer, as the planner gets it. The run
+    takes `default`, the conservative option, and plans nothing that
+    settles the question another way."""
+
+    question: str
+    why: str = ""
+    default: str  # the label of the default option
+    default_effect: str = ""
+    smell: str | None = None
+    memory_id: str = ""
+
+
+class KnownOwnerQuestion(BaseModel):
+    """One owner question that memory already holds for this task, as the
+    baseline reviewer gets it, so that it does not ask it a second time."""
+
+    question: str
+    status: Literal["answered", "open"]
+    answer: str = ""
+
+
 class BaselineReviewInput(BaseModel):
     """The baseline reviewer's input (`smells.run.ensure_baseline_reviewed`).
     Train only: the samples name stored train rows, and the detections read
@@ -1887,12 +1993,33 @@ class BaselineReviewInput(BaseModel):
     detections: list[Detection]
     samples: list[TraceSample]
     known_smells: list[str]  # the ids of every smell document
+    # The owner questions that memory holds for this task. An answered one
+    #   is settled. An open one is returned again, with the same text, when
+    #   it still applies.
+    known_owner_questions: list[KnownOwnerQuestion] = []
 
 
 class BaselineReviewResult(BaseModel):
     findings: list[SmellFinding] = []
     detection_checks: list[DetectionCheck] = []
     notes: str = ""  # a design issue that fits no smell, in a few lines
+    # What only the owner can decide, each from a finding. Code keeps at
+    #   most `owner_questions.OWNER_QUESTIONS_MAX`. A question that does not
+    #   validate is left out, so one bad question does not lose the review.
+    owner_questions: list[OwnerQuestion] = []
+
+    @field_validator("owner_questions", mode="before")
+    @classmethod
+    def _keep_valid_questions(cls, raw: Any) -> Any:
+        if not isinstance(raw, list):
+            return raw
+        kept = []
+        for item in raw:
+            try:
+                kept.append(OwnerQuestion.model_validate(item))
+            except ValidationError:
+                continue
+        return kept
 
 
 class BaselineReview(BaseModel):
@@ -1911,10 +2038,19 @@ class BaselineReview(BaseModel):
     issue_ids: list[str] = []
     detection_checks: list[DetectionCheck] = []
     notes: str = ""
+    # The reviewer's questions for the owner, as returned. The step
+    #   `owner_questions.settle_owner_questions` records and asks them.
+    owner_questions: list[OwnerQuestion] = []
 
 
 class BatchPlanInput(BaseModel):
     guidance: str  # kickoff human guidance, verbatim, every wave
+    # The owner's answers to the questions of this run and of earlier runs
+    #   on the task: owner guidance, with the weight of `guidance`.
+    #   `open_owner_questions`: the questions with no answer; the run takes
+    #   the default of each (`owner_questions.settle_owner_questions`).
+    owner_answers: list[OwnerAnswer] = []
+    open_owner_questions: list[OpenOwnerQuestion] = []
     baseline: BaselineRef
     should_wrap_up: bool  # code's judgment that this is the last wave
     #   (the time limit has passed, or the budget fits one more wave only)
@@ -2337,6 +2473,10 @@ class RunStatus(BaseModel):
     # Each review of a baseline by the baseline reviewer, in order
     #   (`baseline_review` events): done, skipped, failed or off.
     baseline_reviews: list[BaselineReview] = []
+    # The owner questions of the run and what it holds for each
+    #   (`owner_questions` events): the report's "Questions for the owner"
+    #   section. None when the run had none.
+    owner_questions: OwnerQuestionsStatus | None = None
 
 
 class ReportInput(BaseModel):

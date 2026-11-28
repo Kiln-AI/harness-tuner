@@ -44,6 +44,10 @@ return instead of going looking.
 - `known_smells`: the id of each smell document. Use only these ids. When
   the list is empty, code could not read the knowledge skill: use the ids
   of the table in `references/smells.md`.
+- `known_owner_questions`: the questions to the owner that memory already
+  holds for this task, each `answered` (with the answer) or `open`. An
+  answered question is settled. Do not ask a question again: code drops a
+  question with the same text.
 
 ## Procedure
 
@@ -87,6 +91,26 @@ return instead of going looking.
      apply the document's criterion for a reader, and return a finding when
      the evidence shows it.
 7. **Put a design issue that fits no smell in `notes`**, in a few lines.
+8. **Write a question for the owner only for what only the owner can
+   decide.** The usual case is the smell Conflicting requirements
+   (`references/smells/conflicting-requirements.md`) when
+   neither text is clearly stale or secondary: which requirement wins is
+   the owner's policy, not a fact you can read. Another case is a
+   behaviour that the harness leaves open and that changes what a correct
+   answer is. Do not ask what the harness, the traces or a smell document
+   answers, and do not ask about an eval. Each `OwnerQuestion`:
+   - `question`: one sentence that the owner can answer without the
+     harness in front of them.
+   - `why`: what you saw, and where: the two passages, each with its place.
+   - `smell`: the id of the finding it comes from, or null.
+   - `options`: two to four, each a `label` of a few words and an
+     `effect`, what the tuner does under it. No option is "Other": the
+     display adds it, for an answer in the owner's own words.
+   - `default`: the index of the conservative option, the one that changes
+     least, usually "leave both texts as they are". The run takes it while
+     the owner has not answered.
+   At most 5 questions, the most important first. None is a correct
+   answer: return an empty list.
 
 ## Hard rules
 
@@ -114,6 +138,9 @@ Return `BaselineReviewResult` in the fenced JSON envelope, with
 - `detection_checks`: one `DetectionCheck` (`smell`, `detector`, `holds`,
   `note`) for each detection in the input.
 - `notes`: the design issues that fit no smell, or an empty string.
+- `owner_questions`: a list of `OwnerQuestion` (step 8), or an empty list.
+  Code writes each one in memory and asks the owner before wave 1, when
+  the run can ask.
 
 Use `"failed_expected"` only when you cannot review at all, for example
 when the baseline run config cannot be read. Put the reason in `detail`.
