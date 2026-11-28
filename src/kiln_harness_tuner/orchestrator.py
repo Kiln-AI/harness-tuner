@@ -26,7 +26,7 @@ import math
 import shutil
 import time
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -84,6 +84,12 @@ from kiln_harness_tuner.items import (
 from kiln_harness_tuner.job_drives import run_config_tool_ids
 from kiln_harness_tuner.judge_copy import read_eval_texts
 from kiln_harness_tuner.kiln import KilnError
+from kiln_harness_tuner.label_spread import (
+    LabelSetup,
+    load_setup,
+    log_spreads,
+    run_config_spreads,
+)
 from kiln_harness_tuner.latency import (
     PairedPass,
     arm_line,
@@ -166,6 +172,7 @@ from kiln_harness_tuner.schemas import (
     GateBlock,
     IntegrityReviewInput,
     ItemOutcome,
+    LabelSpread,
     LatencyComparison,
     LeverCost,
     MergeWork,
@@ -487,6 +494,14 @@ class Ctx:
     #   they were run on. Run again when a promotion moves the baseline.
     detections: list[Detection] = field(default_factory=list)
     detected_rc_id: str | None = None
+    # The check of the spread of labels (`kiln_harness_tuner.label_spread`):
+    #   what it knows about the task (the label fields and the expected
+    #   labels of the train items), read from disk one time, and the train
+    #   eval inputs it may count. None until the first read.
+    label_setup: LabelSetup | None = None
+    label_train_ids: frozenset[str] = frozenset()
+    label_spread_said: set[str] = field(default_factory=set)  # the run
+    #   configs whose collapsed row already has its line on the terminal
     # The baseline reviewer (`smells.ensure_baseline_reviewed`): once for each
     #   baseline, after the detectors (cli: on, unless `--no-design-review`;
     #   other tests leave it off). `reviewed_rc_id`: the baseline the step
@@ -1019,7 +1034,11 @@ async def _dispatch_plan(
             eval_sizes,
             baseline_latency,
             detect_rows,
+            train_runs,
         ) = await _eval_train_sizes_and_latency(ctx, baseline.rc_id)
+        label_spreads, label_spread_note = await baseline_label_spreads(
+            ctx, baseline.rc_id, train_runs
+        )
         baseline_cost = None
         if is_efficiency(ctx.objective):
             # The fair numbers: the baseline driven judge-free on the fixed
@@ -1083,6 +1102,8 @@ async def _dispatch_plan(
                 detections=planner_detections(
                     ctx.detections, ctx.baseline_reviews, ctx.detected_rc_id
                 ),
+                label_spreads=label_spreads,
+                label_spread_note=label_spread_note,
             ),
             backoffs=LOOP_DISPATCH_BACKOFFS,
             sleep=ctx.sleep,
@@ -2941,18 +2962,27 @@ def _new_eval_refused(ctx: Ctx, eval_id: str) -> bool:
 
 
 async def _eval_train_sizes(ctx: Ctx, baseline_rc_id: str) -> dict[str, int]:
-    sizes, _latency, _rows = await _eval_train_sizes_and_latency(ctx, baseline_rc_id)
+    sizes, _latency, _rows, _runs = await _eval_train_sizes_and_latency(
+        ctx, baseline_rc_id
+    )
     return sizes
 
 
 async def _eval_train_sizes_and_latency(
     ctx: Ctx, baseline_rc_id: str
-) -> tuple[dict[str, int], LatencyComparison | None, list[TrainDetectability]]:
+) -> tuple[
+    dict[str, int],
+    LatencyComparison | None,
+    list[TrainDetectability],
+    list[dict[str, Any]],
+]:
     """Measurable train items per active eval, for `BatchPlanInput.eval_sizes`.
     Counted from the baseline's STORED train runs rather than the
     dataset's nominal size, because stored runs are what a comparison can
     actually pair, and a nominal count overstates exactly where coverage holes
-    make an undetectable bar most likely. Counted through
+    make an undetectable bar most likely. The last value is those stored
+    train rows themselves, every active eval together, for the check of the
+    spread of labels (`baseline_label_spreads`). Counted through
     `pairable_item_count`, not `len`, for the same reason one step down: the
     pairing is by item id, so duplicate records collapse and item-less records
     drop — a raw record count re-introduces the overstatement in the same
@@ -2969,10 +2999,11 @@ async def _eval_train_sizes_and_latency(
         active = await _active_evals(ctx)
     except KilnError:
         ctx.log.event("eval_sizes_unavailable")
-        return {}, None, []
+        return {}, None, [], []
     sizes: dict[str, int] = {}
     latencies: dict[str, float] = {}
     detect: list[TrainDetectability] = []
+    stored: list[dict[str, Any]] = []
     for eval_def, eval_config_id in active:
         eval_id = eval_def["id"]
         try:
@@ -2983,6 +3014,7 @@ async def _eval_train_sizes_and_latency(
             ctx.log.event("eval_size_unavailable", eval_id=eval_id)
             continue
         sizes[eval_id] = pairable_item_count(runs)
+        stored += runs
         latencies.update({f"{eval_id}:{k}": v for k, v in item_latencies(runs).items()})
         # What these same TRAIN rows can show, per score — the
         # planner's `train_detectability` (`kiln_harness_tuner.detectability`).
@@ -2993,7 +3025,33 @@ async def _eval_train_sizes_and_latency(
             ctx.train_split_sizes,
             runs=runs,
         )
-    return sizes, baseline_latency_summary(latencies), detect
+    return sizes, baseline_latency_summary(latencies), detect, stored
+
+
+async def baseline_label_spreads(
+    ctx: Ctx, rc_id: str, runs: Sequence[dict[str, Any]]
+) -> tuple[list[LabelSpread], str | None]:
+    """The planner's `label_spreads` and `label_spread_note` for the present
+    baseline (`kiln_harness_tuner.label_spread`), from the stored train rows
+    that the planning step has just read. Advisory, like the other planner
+    inputs: a failure gives no row and a note, never a lost wave."""
+    try:
+        rows = await run_config_spreads(ctx, rc_id, "baseline", [], runs=runs)
+        note = load_setup(ctx).note
+    except ProviderQuotaError:
+        raise
+    except Exception as exc:  # advisory: the plan goes on without the check
+        ctx.log.event("label_spread_failed", rc=rc_id, error=str(exc)[:300])
+        return [], f"the check failed ({type(exc).__name__})"
+    if ctx.label_setup is not None and ctx.label_setup.fields:
+        if not rows:
+            empty = (
+                "no train item has both an expected label and a stored output"
+                " of the baseline"
+            )
+            note = f"{empty}. {note}" if note else empty
+        log_spreads(ctx, rc_id, "baseline", rows, note)
+    return rows, note
 
 
 def baseline_latency_summary(latencies: dict[str, float]) -> LatencyComparison | None:

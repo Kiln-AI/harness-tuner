@@ -38,6 +38,7 @@ from kiln_harness_tuner.analysis import (
 )
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
+from kiln_harness_tuner.label_spread import load_setup, log_spreads, run_config_spreads
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
 from kiln_harness_tuner.levers import LeverVerdict
 from kiln_harness_tuner.measure import (
@@ -73,6 +74,7 @@ from kiln_harness_tuner.schemas import (
     ExperimentItem,
     FixWork,
     ItemOutcome,
+    LabelSpread,
     LatencyComparison,
     MeasureIssueBaselineItem,
     MeasurementSummary,
@@ -917,6 +919,7 @@ async def _execute_plan_item(
     if measurement.latency is not None or measurement.cost is not None:
         bundle.latency = measurement.latency  # the engine's paired timing
         bundle.cost = measurement.cost
+    bundle.label_spreads = await _label_spreads(ctx, item, rc_id, parent_rc_id, bundle)
     ctx.log.event(
         "arm_results",
         item_id=item.id,
@@ -926,6 +929,7 @@ async def _execute_plan_item(
         latency=dump_or_none(bundle.latency),
         cost=dump_or_none(bundle.cost),
         errors=[error.model_dump(mode="json") for error in bundle.errors],
+        label_spreads=[row.model_dump(mode="json") for row in bundle.label_spreads],
     )
 
     if not bundle.per_eval and bundle.errors:
@@ -1767,6 +1771,42 @@ def measurement_summary(m: Measured) -> MeasurementSummary:
         judged_per_eval=judged,
         planned_per_eval=dict(m.planned_per_eval),
     )
+
+
+async def _label_spreads(
+    ctx: Ctx,
+    item: ExperimentItem,
+    rc_id: str,
+    parent_rc_id: str,
+    bundle: AnalysisBundle,
+) -> list[LabelSpread]:
+    """The analysis table's `label_spreads`, for a classifier task
+    (`kiln_harness_tuner.label_spread`): the spread of the labels that the
+    candidate gave on the train items of the evals of this table, then the
+    spread that its parent gave. Train only. Empty, with no read of the
+    server, for a task that is not a classifier. Advisory: a failure gives
+    no row and an event, and the item goes on to its analysis."""
+    try:
+        if not load_setup(ctx).fields:
+            return []
+        evals: list[tuple[str, str]] = []
+        for eval_id in dict.fromkeys(row.eval_id for row in bundle.per_eval):
+            eval_def = await ctx.analyzer.fetch_eval(eval_id)
+            evals.append((eval_id, ctx.analyzer.default_eval_config_id(eval_def)))
+        rows: list[LabelSpread] = []
+        for rc, role in ((rc_id, "candidate"), (parent_rc_id, "parent")):
+            found = await run_config_spreads(ctx, rc, role, evals)  # type: ignore[arg-type]
+            if role == "candidate":
+                log_spreads(ctx, rc, "candidate", found, load_setup(ctx).note)
+            rows += found
+        return rows
+    except ProviderQuotaError:
+        raise
+    except Exception as exc:
+        ctx.log.event(
+            "label_spread_failed", item_id=item.id, rc=rc_id, error=str(exc)[:300]
+        )
+        return []
 
 
 async def _measure_arm(

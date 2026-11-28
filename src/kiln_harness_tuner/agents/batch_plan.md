@@ -117,6 +117,18 @@ config scores differently between two runs on a sample of train items. Read
 both before you predict an effect; the planner skill's Detectability section
 says how.
 
+**The spread of labels, on a classifier task.** `label_spreads` gives, for
+each label field of the task output, the labels that the baseline gave on
+the train items beside the labels that the items expect. A row with
+`collapsed: true` says that one class (`top_label`) takes the items of the
+other classes: a failure with one shape, which the pass rate does not
+show. The knowledge skill's playbook
+`references/playbooks/classifier-collapses-to-one-class.md` gives what to
+try.
+Empty on a task that is not a classifier; `label_spread_note` then says
+why. The planner skill's "The spread of labels" section says how to read a
+row.
+
 **Screening: screen many, commit few.** A plan with `screen`
 set and no items is a code screening round: code forks each candidate
 (`overrides` on a parent: model, provider, thinking level, temperature,

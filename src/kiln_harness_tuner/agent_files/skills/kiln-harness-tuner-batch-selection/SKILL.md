@@ -624,6 +624,43 @@ eval it binds to has been deleted or its Spec left the active set, so there
 is nothing to experiment against. Leave it alone; the content line says
 which cause.
 
+## The spread of labels
+
+On a classifier task, your input's `label_spreads` has one row for each
+label field of the task output. Code decides that from the output schema:
+a label field is a top-level field with a closed set of values (an enum, a
+boolean) whose expected value is in the train items' references. A row is
+about the **present** baseline, on the train items only:
+
+- `classes`: for each class, how many items expect it (`expected`) and how
+  many got it (`predicted`);
+- `top_label`: the class given most often, with `top_predicted_share` and
+  `top_expected_share`;
+- `collapse_fraction`: the net share of the items of the other classes
+  that got `top_label`. 0: it takes no items of other classes. 1: every
+  item got it;
+- `collapsed`: a data flag. The fraction is at or above `collapse_limit`,
+  and `p_value` is below .05. It is a fact about the counts, not a verdict;
+- `predicted_outside`: outputs with no value of the closed set. A large
+  count is a format failure, not a collapse.
+
+A collapsed row is one failure pattern over many items, so one arm on its
+cause can move many items. Open the playbook
+`references/playbooks/classifier-collapses-to-one-class.md` of the
+knowledge skill, and read some failing items of the classes that lose
+before you choose a step. A class that is common in the data is not a
+collapse: the row then has a fraction near 0. A row that is not collapsed
+still shows which class gets too many items and which gets too few.
+
+`label_spreads` is empty on a task that is not a classifier, and
+`label_spread_note` then says why (no output schema, no closed-set field).
+The note also names a closed-set field that code left out (the train
+references hold no expected value for it, or code cannot tell which key
+holds it), and a field that code paired with a reference key by its values,
+not by its name: check that pairing before you plan on its row. For a field
+left out, count by hand when the traces suggest a collapse: the outputs from
+`get_train_results`, the expected values from `get_train_expected`.
+
 ## Smells
 
 A smell is an issue in the design of the agent: true of it whether an eval
