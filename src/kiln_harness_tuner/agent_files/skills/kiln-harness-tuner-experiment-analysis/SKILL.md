@@ -249,6 +249,24 @@ promotion pass together with the planner's `promotion_candidate` intent.
   floor — and turns a `true` that fails it into `false`, appending the
   reasons to `findings`. You can veto a passing rule; you cannot talk past
   a failing one. Say so in `findings` when you expect the rule to fire.
+- **No win and no loss on one or two items.** The floor counts the items
+  that DIFFER between the arm and its parent: `fail_to_pass +
+  pass_to_fail` on a binary row, the non-zero differences on a rating
+  (`n_differing`; `n_room` is the items the parent side has not at the
+  best value). A row on which fewer than 3 items differ shows no win
+  and no regression beyond doubt, whatever its p or its CI says: two items
+  can flip between two runs of the same config. When the primary target
+  rests on such rows, code makes the verdict **unverified**: `successful`
+  becomes false, the record ends `— UNVERIFIED` (not `— REFUTED`), and
+  code adds a `verdict: unverified: …` line with the counts. A primary
+  target with no gain and fewer than 3 items with room is unverified too:
+  it could not show a gain. The exception is the ceiling case above: an
+  arm that takes ALL the room of a row (fixes every item the parent fails,
+  breaks none) keeps its ticket to the val gate. In `findings`, say what
+  an unverified arm would need: a target eval with more items that fail,
+  or a change with a larger effect. Do not call it a dead end. Under speed
+  and cost, a quality refusal that rests on fewer than 3 differing items
+  over every row is unverified in the same way.
 - **A missed prediction is caution, never a verdict**. Every veto of a passing rule carries a `veto_reason`:
   `dominated_by_ingredient` (a merge scored below a strictly simpler config it
   contains), `measurement_holes`, `secondary_regression`, `other` — or

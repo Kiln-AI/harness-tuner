@@ -164,7 +164,7 @@ are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
 `label_spreads` are, on a classifier task, the labels that the present
 baseline gave on the train items beside the labels that the items expect,
 one row for each label field, with a `collapsed` flag
-([architecture.md](architecture.md) section 7.3). It is empty on a task that
+([architecture.md](architecture.md) section 7.4). It is empty on a task that
 is not a classifier, and `label_spread_note` says why.
 `detections` are the facts that the smell detectors in code found in the
 present baseline's harness (the `baseline_review` section below): each names a
@@ -296,7 +296,7 @@ hole in it), its own experiment memory id, and `content_budget`: the chars its
 `memory_content` can take after the lines code adds to the record. On a
 classifier task the bundle's `label_spreads` holds the classes that the
 candidate and its parent gave on train beside the classes that the items
-expect ([architecture.md](architecture.md) section 7.3).
+expect ([architecture.md](architecture.md) section 7.4).
 
 **Must return** `ExperimentResult`:
 
@@ -409,10 +409,11 @@ the appendix is authoritative.
 ## `integrity_review`
 
 **Dispatched** at the promotion gate, once per candidate whose prompt text
-differs from the baseline's.
+or input transform differs from the baseline's.
 
 **Given** `IntegrityReviewInput`: the candidate's instructions, the
-baseline's, and the evals' own criteria — judge prompts and eval config
+baseline's, the templates of the two input transforms when they differ,
+and the evals' own criteria — judge prompts and eval config
 steps, spec text, eval descriptions. Never item data: no input, output,
 trace or score.
 
@@ -439,7 +440,8 @@ promotion agent one `Integrity:` sentence.
 ## `generality_review`
 
 **Dispatched** once per `experiment` item between the build and the train
-measurement, when the built run config's prompt text, the text of its
+measurement, when the built run config's prompt text, the template of its
+input transform, the text of its
 attached skills, or its attached code tools differ from its parent's
 and the exact-match pre-check found no copy. Once more after a rebuild. And
 once per baseline at setup, by the baseline audit: then `item_id` is `baseline-audit`, the parent
@@ -451,7 +453,9 @@ the baseline's own text is reviewed as if all of it were added.
 changed or new skill file, a unified diff against the skill version it replaces
 or the whole file when it is new, at most 30,000 characters),
 `code_tool_changes` (the same for the code tools: their code and the
-description the model is shown, at most 20,000 characters), the task's own
+description the model is shown, at most 20,000 characters),
+`input_transform_changes` (what the build added to the input transform's
+template: the whole template, or a unified diff against the parent's), the task's own
 instructions, the item's hypothesis, up to 12 TRAIN inputs that code read
 from disk — the item's target items first, their ids in `target_items` — and
 `train_expected`, those items' expected outputs. Never a val or test item, a

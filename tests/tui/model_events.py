@@ -408,6 +408,7 @@ class Run:
         measurement_status: str = "stopped",
         error_class: str | None = None,
         findings: str = "",
+        unverified_reason: str | None = None,
     ) -> Run:
         item = self.plan_items[item_id]
         if rc_id is None and isinstance(item, RemeasureItem):
@@ -419,6 +420,7 @@ class Run:
                 findings=findings,
                 memory_overview="+5",
                 memory_content="",
+                unverified_reason=unverified_reason,
             )
         measurement = None
         if stop_kind is not None or status in ("capped", "not_landed"):
