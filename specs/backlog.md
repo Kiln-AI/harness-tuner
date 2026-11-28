@@ -364,24 +364,6 @@ Failure: the change fixes the items it was built for, and items that passed now 
 
 Failure: a broken tool, stale data or a quota. No harness change fixes it.
 
-### Playbook: an eval too small to show the effect
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Eval: the eval has too few items to show a difference of the expected size.
-
-### Playbook: a few items carry all the signal
-
-- Kind: playbook
-- Where: knowledge
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-Eval: every difference between arms comes from the same few items.
-
 ### Playbook: eval feedback with a score and no reason
 
 - Kind: playbook
@@ -522,15 +504,6 @@ leak risk before anything teaches it.
 
 The v2 eval-input routes, multi-turn synthetic items and world resets are not reachable. Decide
 what the tuner must read.
-
-### A decision that turns on one or two items
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-The loop does not make a decision that turns on one or two items.
 
 ### Guards before a measurement
 

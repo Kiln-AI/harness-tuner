@@ -147,7 +147,11 @@ going looking.
   cap, the spend and the items judged; report it as unfinished, not as a
   loss); `result` — the analyzer's
   `successful` + `findings` + `memory_overview`, `None` for `eval` and
-  `measure` items, which run no analyzer), `spend_usd`, `elapsed_secs`. A
+  `measure` items, which run no analyzer; `result.unverified_reason` is set
+  by code when fewer than 3 items differed between the arm and its parent
+  on the primary target: report that arm as unverified — no win and no
+  loss, untested at that size — never as refuted), `spend_usd`,
+  `elapsed_secs`. A
   completed `measure` item carries no verdict field: whether the baseline
   reproduced the issue is in the issue memory, not in `RunStatus` — say it
   measured, and read the memory if the round's story needs the answer. An

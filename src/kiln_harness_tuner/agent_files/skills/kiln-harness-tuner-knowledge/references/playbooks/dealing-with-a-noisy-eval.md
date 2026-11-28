@@ -1,7 +1,7 @@
 ---
 title: Dealing with a noisy eval
 description: A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items.
-reviewed: 2026-11-13
+reviewed: 2026-11-25
 kind: eval
 applies_to: all
 ---
@@ -59,7 +59,10 @@ difference smaller than the noise is not a result, in either direction.
   returns the same rows. A duplicate run config built only to run its
   evals again is not allowed.
 - Do not let a decision turn on one or two items. Two items can flip by
-  chance alone.
+  chance alone. Code applies this: with fewer than 3 items that differ,
+  an arm ends `— UNVERIFIED` and the val gate gives "unverified at val".
+  When the eval itself has too few items for the effect, read
+  [an eval too small to show the effect](an-eval-too-small-for-the-effect.md).
 - Do not plan many small arms on a noisy eval. Each one ends with no
   answer. Fewer, larger arms teach more.
 - Do not read a single run of the baseline as its true score. Its own

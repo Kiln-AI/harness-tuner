@@ -937,9 +937,34 @@ async def _execute_plan_item(
         failed = AgentResult(status="failed_infra", data=None, error=bundle.errors[0])
         return await _infra_outcome(ctx, item, failed, exp_mem, rc_id=rc_id)
 
+    # `successful` is the ticket into the val gate, and the code
+    # rule is its floor — the analyzer keeps its interpretation and may veto,
+    # never promote past the numbers (`successful` = analyzer AND rule). The
+    # rule reads only the measured rows, so code applies it now: its
+    # `verdict:` line is then in `code_lines` before the room is sized.
+    from kiln_harness_tuner.orchestrator import (
+        eval_weights,
+    )  # the orchestrator imports us
+
+    verdict = (
+        success_by_speed_rule(
+            bundle, ctx.coverage_floor, ctx.objective, await eval_weights(ctx)
+        )
+        if efficiency
+        else success_by_rule(item, bundle, ctx.coverage_floor)
+    )
+
     # The code-composed lines on the record the planner reads. They are
     # known now, so the analyzer is told the room they leave it.
     code_lines = [f"measurement: {measurement.line}"]
+    # Too few items differ for a win or a loss
+    # (`kiln_harness_tuner.thin_evidence`). Dropped below when the analyzer
+    # vetoes for a reason of its own: dropping a line only frees room.
+    verdict_line = (
+        f"verdict: {verdict.unverified}" if verdict.unverified is not None else None
+    )
+    if verdict_line is not None:
+        code_lines.append(verdict_line)
     if transform_line is not None:
         code_lines.append(transform_line)
     if bundle.latency is not None or bundle.cost is not None:
@@ -990,27 +1015,28 @@ async def _execute_plan_item(
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
 
-    # `successful` is the ticket into the val gate, and the code
-    # rule is its floor — the analyzer keeps its interpretation and may veto,
-    # never promote past the numbers (`successful` = analyzer AND rule).
-    from kiln_harness_tuner.orchestrator import (
-        eval_weights,
-    )  # the orchestrator imports us
-
-    verdict = (
-        success_by_speed_rule(
-            bundle, ctx.coverage_floor, ctx.objective, await eval_weights(ctx)
-        )
-        if efficiency
-        else success_by_rule(item, bundle, ctx.coverage_floor)
-    )
     ctx.log.event(
         "success_rule",
         item_id=item.id,
         analyzer_successful=res.data.successful,
         rule_ok=verdict.ok,
         reasons=verdict.reasons,
+        unverified=verdict.unverified,
     )
+    # Too few items differ for a win or a loss
+    # (`kiln_harness_tuner.thin_evidence`). Code owns this field: whatever the
+    # analyzer returned in it is replaced. The record gets `— UNVERIFIED`,
+    # not `— REFUTED`, and the reason on a `verdict:` line. An analyzer veto
+    # for a reason of its own (a regression, holes, a dominated merge) stays
+    # a refutation: only a veto with no reason, or a prediction miss, is
+    # about the size of the gain.
+    own_veto = not res.data.successful and res.data.veto_reason not in (
+        None,
+        "prediction_miss",
+    )
+    res.data.unverified_reason = None if own_veto else verdict.unverified
+    if own_veto and verdict_line is not None:
+        code_lines.remove(verdict_line)
     if res.data.successful and not verdict.ok:
         logger.warning(
             "item %s: analyzer said successful, code rule says no — %s",
@@ -1052,6 +1078,15 @@ async def _execute_plan_item(
         )
         ctx.log.event("veto_overridden", item_id=item.id, veto_reason="prediction_miss")
 
+    if (
+        res.data.unverified_reason is not None
+        and not res.data.findings.rstrip().endswith(res.data.unverified_reason)
+    ):
+        # The analyzer already said "not successful": the override above did
+        # not run, so the reason is not in the findings yet.
+        res.data.findings = (
+            res.data.findings.rstrip() + "\n\n[code rule] " + res.data.unverified_reason
+        )
     res.data.memory_content = (
         res.data.memory_content.rstrip() + "\n" + "\n".join(code_lines)
     )
