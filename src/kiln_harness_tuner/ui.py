@@ -298,6 +298,9 @@ SETUP_LINE_EVENTS = frozenset(
         "prior_screening",
         "spend_reconciled",
         "screen_candidate_dropped",
+        "idea_dropped",
+        "dropped_idea_planned",
+        "idea_lifted",
         # The detectability check and the noise check.
         "detectability",
         "detectability_row",

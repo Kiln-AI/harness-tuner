@@ -139,7 +139,10 @@ with the screening table).
 config id; `should_wrap_up`, code's judgment that this is the last wave (the time limit
 has passed, or the budget fits one more wave only) rather than the clock;
 `eval_sizes`, the count of train rows a comparison can actually pair per eval;
-`lever_attempts`, issue → technique → arms opened; `max_concurrent_agents` and
+`lever_attempts`, issue → technique → arms opened; `rejected_ideas`, each
+idea that failed on an issue over every run on the task, with its count,
+and `dropped: true` for an idea that failed three times on that issue and
+never won (code writes a `dropped_idea` record for it); `max_concurrent_agents` and
 `lever_costs`, so the plan is sized to what can run at once; `probe_results`,
 every probe answered so far this run, newest last; `prior_rejected_summary`,
 the one thing carried in context across waves; `phase` (`plan`, `replan` or
@@ -174,7 +177,11 @@ and the skill tell the planner to give each fix arm an eval that exists,
 and to plan no item that builds an eval.
 
 Everything else it reads for itself: issues, dead ends, experiment verdicts and
-open constraints, plus the baseline run config's own artifact. The issues
+open constraints, plus the baseline run config's own artifact. For each
+eval it plans against, it reads the baseline's failure cards
+(`get_failure_cards`): for each failing train item, the input, the output,
+what was expected, a matching success, and the step that lost it and the
+kind of failure when a reader left a note. The issues
 include the `smell` issues that code wrote from the baseline reviewer's
 findings; each names its smell and the run config it was found in (the
 `audited_rc_<rc>` tag), and is bound to no eval.
@@ -182,7 +189,10 @@ findings; each names its smell and the run config it was found in (the
 **Must return** `BatchPlan` — `items`, a `rejected_summary` that carries
 repeat-deferral counts forward, `open_questions`, and optionally `probe_phase`,
 `screen` (a screening round instead of a wave: no items, a list of variants
-code measures on the screening subset) or `loop_exit`. Two validators hold shapes the schema alone would not:
+code measures on the screening subset) or `loop_exit`. With any of them
+it may return `failure_notes`: the kind of failure and the step that lost
+it, for each failing baseline item whose trace it read; code puts them on
+the next planner's cards. Two validators hold shapes the schema alone would not:
 `loop_exit` and `items` are mutually exclusive, because the loop honours
 `loop_exit` by terminating *instead of* running the wave; and a probe-phase
 plan carries probes only.
@@ -304,6 +314,11 @@ its own experiment memory id, and `content_budget`: the chars its
   with exactly one owner: the skill.
 - `per_ingredient_outcomes` — required for a merge, since promotion's
   fixed-issue writes are sourced from those rows.
+- `failure_notes` — for each failing item whose trace it read on the
+  candidate: the kind of failure (`config`, `eval_data`, `judge`,
+  `environment` or `noise`), the step that lost the item, and the failure
+  pattern. Code stores them, and the planner gets them on its failure
+  cards.
 
 It reads numbers. It never re-derives them, and no arithmetic happens in its
 context.

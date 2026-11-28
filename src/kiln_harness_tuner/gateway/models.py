@@ -348,6 +348,67 @@ class TrainResults(Out):
     traces_dir: str | None = None
 
 
+class MatchingSuccess(Out):
+    """A train item of the same kind that the same run config PASSES on the
+    same eval. `match` says in what way it is of the same kind: the same
+    expected output, shared tags, or the closest input."""
+
+    item_id: str
+    match: str
+    input: str | None = None  # the first part
+    output: str | None = None  # the first part
+    trace_path: str | None = None
+
+
+class FailureCard(Out):
+    """One train item that a run config fails on an eval. Code makes the
+    input, the output, the expected output, the judge's reason and the
+    matching success. `failure_kind`, `lost_at` and `failure_pattern` come
+    from a reader's note (the analyzer or the planner): they are null while
+    no one has read the trace. Each text is its first part only: `clipped`
+    names the texts that are cut, and the trace file has all of them."""
+
+    item_id: str
+    scores: dict[str, float | None] = {}
+    failed_scores: list[str] = []
+    input: str | None = None
+    output: str | None = None
+    expected: str | None = None  # the reference, as JSON text
+    judge_reason: str | None = None
+    clipped: list[str] = []
+    # The reader's parts.
+    failure_kind: str | None = None
+    lost_at: str | None = None  # the step that lost it
+    failure_pattern: str | None = None
+    read_by: str | None = None  # the role that read the trace
+    # The run config whose trace the reader read. When it is not the run
+    # config of this card, the note is about the same item on another one.
+    read_on_run_config_id: str | None = None
+    matching_success: MatchingSuccess | None = None
+    trace_path: str | None = None
+    trace_summary: str | None = None
+
+
+class FailureCards(Out):
+    """One page of failure cards. `kinds` counts every failing train item
+    by its `failure_kind`, with `unread` for an item with no note."""
+
+    eval_id: str
+    eval_config_id: str
+    run_config_id: str
+    cards: list[FailureCard] = []
+    failed: int = 0  # failing train items, on every page
+    passed: int = 0
+    unscored: int = 0  # skipped, or no score that code can read as pass/fail
+    dropped: int = 0  # rows not provably train, never shown
+    kinds: dict[str, int] = {}
+    not_failed: list[str] = []  # asked for by id, and not failing
+    total: int = 0  # the cards that match the request, on every page
+    offset: int = 0
+    next_offset: int | None = None
+    traces_dir: str | None = None
+
+
 class Usage(Out):
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -681,6 +742,15 @@ class TrainResultsRequest(In):
     item_ids: list[str] | None = Field(default=None, max_length=500)
     # A page of rows; a page also ends at the answer cap.
     limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+
+
+class FailureCardsRequest(In):
+    eval_id: str = Id
+    run_config_id: str = Id
+    item_ids: list[str] | None = Field(default=None, max_length=200)
+    # A page of cards; a page also ends at the answer cap.
+    limit: int = Field(default=10, ge=1, le=50)
     offset: int = Field(default=0, ge=0)
 
 

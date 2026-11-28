@@ -19,8 +19,10 @@ measured on — see Eval economics), `train_detectability` and `train_noise`
 wave 1), and `gate_blocks` (this run's candidates the promotion
 gate blocked for copying eval text, each with its reasons — see Gate blocks
 below), `eval_building` (whether this run may build a new eval —
-experimental, off by default; see Hard rules) and `dropped_eval_items` (the
-items code dropped from earlier plans because eval building is off). You return a `BatchPlan` per
+experimental, off by default; see Hard rules), `dropped_eval_items` (the
+items code dropped from earlier plans because eval building is off) and
+`rejected_ideas` (each idea that failed on an issue, with its count, and
+the ideas that code dropped — see Step 1). You return a `BatchPlan` per
 the injected schema. You never execute
 experiments — the orchestrator dispatches builders/analyzers from your plan.
 
@@ -378,14 +380,39 @@ merge-eligible wins live here, and their `— PROMOTED` / `— REJECTED AT VAL`
 suffixes decide how a win may be reused: see Merge timing), project-scope
 `constraint` (incl. `OPEN:` records) and `lesson`.
 
-**Read the failing traces, not only the prompt.** Call
-`get_train_results` on the baseline for each eval you plan against. The
-answer gives each train row's scores and a `trace_path`; the trace itself
+**Start from the failure cards. Never plan from a score alone.** Call
+`get_failure_cards` on the baseline for each eval you plan against
+(`kiln-harness-tuner-gateway`, "Failure cards"). A card gives, for one
+failing train item: the input, the output, what was expected, a matching
+success (an item of the same kind that the baseline passes), and, when a
+reader left a note, the step that lost the item (`lost_at`) and the kind
+of the failure (`failure_kind`, `failure_pattern`). The page's `kinds`
+counts the failing items by kind, with `unread` for the items that no one
+has read. Use the cards this way:
+
+- Group the failing items by what the cards show: the same expected
+  output, the same kind of failure, the same step.
+- Compare a failing item with its matching success. What the two inputs
+  share is not the cause. Look for what is different.
+- A card with `failure_kind` other than `config` does not get a fix arm
+  ("Only config failures become fix arms" below).
+- A note with a `read_on_run_config_id` that is not the baseline is about
+  the same item on another run config. Check it against the baseline's
+  trace before you plan on it.
+- Put the items that an arm is built to fix in its `target_items`.
+
+**Then read the failing traces, not only the prompt.** A card is short.
+For the items you plan an arm on, and for each group of `unread` items
+that you plan on, read the trace. Each card has a `trace_path`, and
+`get_train_results` on the baseline gives each train row's scores and a
+`trace_path`; the trace itself
 is a file in the run's trace folder (`kiln-harness-tuner-gateway`, "Traces are
 files"). `Grep` the run config's folder for `TOOL_ERROR`, a tool name or a
 phrase from the expected output, with line numbers, then `Read` the
 failing trace from a few lines above the hit. Name the decision point you
-saw in the trace in your hypothesis. For a speed or cost arm, read the run
+saw in the trace in your hypothesis. For each failing item whose trace you
+read, return a note in `failure_notes` (Returning the plan): the next
+planner then gets it on the card and does not read the trace again. For a speed or cost arm, read the run
 config's `_stats.md` first (turns, tool calls and tokens per item; the
 largest tool results), then the traces it points to.
 
@@ -521,6 +548,44 @@ the skill arms that were text edits is the count. **After two failed arms
 of text on one issue, the next arm changes surface class** (a tool lever,
 or a structural skill change such as a router with `references/` files),
 or the issue is deferred with the reason.
+
+**Three failures drop an idea.** `rejected_ideas` is the lasting record of
+the ideas that failed, over every run on this task. Each entry has the
+issue (`issue_memory_id`), the `idea`, its `failures`, its `wins`, the
+failed arms (`arms`) and `dropped`. Code makes the list from the
+experiment records. Nothing in it comes from val.
+
+- **An idea** is the lever of the arm (its `technique`) plus each technique
+  document of the knowledge skill that its hypothesis names
+  (`techniques/<id>.md`): `prompt`, or `prompt + few-shot-examples`. Two
+  arms on one issue are the same idea when both parts are equal. An arm
+  that names no technique document is the plain use of its lever.
+- **A failure** is an arm that ended `— REFUTED` or `— NOT LANDED`: a
+  train measurement that says the arm did not fix its issue. A `— DEAD
+  END` does not count (most are a fault of the build, such as a
+  generality leak, or a lever that did not apply), and neither does an
+  infra failure, an abandoned arm or a capped arm. An arm that measures an existing run config again
+  (`existing_rc_id`) counts once with the arm that built it.
+- **`dropped: true`**: the idea failed three times on that issue and never
+  won on it. Code writes a `dead_end` record for it, with the tag
+  `dropped_idea` and the overview `DROPPED IDEA: <idea> on issue <id> —
+  failed <n> times (…)`. You read it with the dead ends. A later win of
+  the idea on that issue lifts the drop: the record stays, and
+  `rejected_ideas` then shows `dropped: false` with `wins` above 0, and
+  code stamps the record `— LIFTED <MM-DD>`. `rejected_ideas` is the
+  current state.
+
+Do not plan a dropped idea on its issue again. Change the lever, apply a
+technique that the failed arms did not apply (and name its file in the
+hypothesis), or defer the issue with the reason. Do not name a technique
+document only to change the key: the builder opens the file that you
+name, and builds what it says. An idea with two failures has one attempt
+left: read why the two arms failed before you spend it. Code does not
+remove an arm on a dropped idea from your plan. It logs the arm
+(`dropped_idea_planned`) in the run's log. When you have a
+reason that the record does not know (for example, the baseline changed
+the surface that the failed arms edited), plan the arm and give that
+reason in its `hypothesis` and in `rejected_summary`.
 
 Enumerate deliberately more candidates than will run (≥2× the plausible
 batch), including at least one non-obvious or untried technique class, and
@@ -857,7 +922,10 @@ Per experiment item:
   measurement to learn that it fixed nothing; the first chunk says so for a
   few drives. A `— NOT LANDED` record means the
   BUILD missed, not that the lever is disproven: plan a different build for
-  the same targets (say what changes) — never resubmit the same rc.
+  the same targets (say what changes) — never resubmit the same rc. Each
+  `— NOT LANDED` arm still counts as one failure of its idea for the
+  three-failures rule (Step 1): after two, make the third build differ in
+  more than its words.
 - **The discriminating block — on by default.** When you name
   no `target_items`, the first chunk of a fix arm's queue is its
   discriminating block: from the parent's stored train rows on the arm's
@@ -1192,6 +1260,17 @@ its cost. The run then goes straight to the report.
   stopped mattering. (A memory-write-failure disclosure — `memory` skill —
   is exempt: it rides outside this budget, once, summarized, and is never
   re-carried by later waves.)
+- **`failure_notes`** — optional. One note for each failing baseline item
+  whose trace you read this wave: `{eval_id, item_id, kind, lost_at,
+  pattern}`. A note is about the baseline's trace. `kind` is the failure class: `config`, `eval_data`, `judge`,
+  `environment` or `noise` (the analysis skill defines them). `lost_at` is
+  the step that lost the item, in one line: the message where the run went
+  wrong, and what came before it (before any tool call, with a call to a
+  named tool, after a named tool's result, at the final reply). `pattern`
+  is the id of the failure playbook that fits, or a few words. Train items
+  only. Code stores the notes, and the gateway shows them on the failure
+  cards of the next planner. Write a note only for a trace that you read:
+  a guess on a card reads as a fact to the next planner.
 - **`open_questions`** — human-gated unknowns you defaulted around:
   `{question, default_assumed, gates, reask_when}`. Check existing `OPEN:`
   constraint records first and never re-raise an answered one; when

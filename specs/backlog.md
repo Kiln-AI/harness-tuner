@@ -514,25 +514,6 @@ what the tuner must read.
 
 A limit on how much a change grows the harness, and no phrase copied from a trace or an eval.
 
-### What the planner is given for each failed item
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-The input, the output, what was expected, the step that lost it, a matching success, and a label
-for the kind of failure. Never a score alone.
-
-### A lasting record of each issue and each rejected idea
-
-- Kind: code
-- Where: tuner
-- Depends on: None
-- Source: [V1 coverage](projects/biological_bootloader/v1_coverage.md), section 7
-
-An idea is dropped after three failures.
-
 ### Graded predictions for each experiment
 
 - Kind: code

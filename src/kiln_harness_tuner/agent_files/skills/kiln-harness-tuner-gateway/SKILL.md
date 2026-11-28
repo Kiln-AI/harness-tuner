@@ -66,8 +66,8 @@ under that cap:
   OpenCode, `Read` only). Your role
   has an explicit read grant on that folder. You cannot write it; only the
   gateway does.
-- **A list comes in pages.** `get_train_results` and `get_train_expected`
-  give one page per call. When `next_offset` is not null, call again with
+- **A list comes in pages.** `get_train_results`, `get_train_expected` and
+  `get_failure_cards` give one page per call. When `next_offset` is not null, call again with
   `offset=next_offset`. A page also ends early when the next row would take
   the answer over the cap.
 - **Any other answer over the cap comes in pieces.** The answer is then
@@ -248,12 +248,72 @@ mcp__kiln_harness_tuner_gateway__list_providers(include_not_available=true)
 | `get_eval_config` | `eval_id`, `eval_config_id` | the judge: type, model, properties (its prompt or steps) |
 | `list_specs` / `get_spec` | — / `id` | specs: name, definition, priority, status, tags, eval id |
 | `get_train_results` | `eval_id`, `run_config_id`, `item_ids?`, `limit?` (≤500, default 100), `offset?` | the run config's stored results on the eval's TRAIN items, one page: per item the scores, cost, latency, `output_preview` (the first 300 characters), `skipped_reason` when the run was skipped rather than scored, `trace_path` and `trace_summary`; plus `dropped` (rows not provably train), `total`, `next_offset`, `stats_path` (the run config's `_stats.md`) and `traces_dir` |
+| `get_failure_cards` | `eval_id`, `run_config_id`, `item_ids?` (≤200), `limit?` (≤50, default 10), `offset?` | one card for each TRAIN item the run config fails on the eval, one page: see "Failure cards" below |
 
 `get_train_results` always reads split `train` and the eval's current
 (default) config — you never name a split or a config. Each call writes
 the trace file of every train row it matched (all pages, not only the one
 it returns) and rebuilds the run config's `_stats` files. A file whose
 row changed is written again; the others are left as they are.
+
+### Failure cards
+
+A score alone does not say what to change. `get_failure_cards` gives one
+card for each train item that a run config fails on an eval. Start from
+the cards when you look for what to fix. Read a trace file when a card is
+not enough.
+
+A card has these parts:
+
+| Part | Field | Who makes it |
+|---|---|---|
+| The input | `input` | code, from the stored result |
+| The output | `output` | code, from the stored result |
+| What was expected | `expected` (the item's reference, as JSON text) and `judge_reason` (what the judge wrote, when the row has it) | code |
+| A matching success | `matching_success`: `item_id`, `match`, `input`, `output`, `trace_path` | code |
+| The step that lost it | `lost_at` | a reader |
+| The kind of failure | `failure_kind`, and `failure_pattern` | a reader |
+
+It also has `item_id`, `scores`, `failed_scores` (the scores that fail),
+`trace_path` and `trace_summary`.
+
+- **Each text is its first part.** `clipped` names the texts that are cut
+  (`input`, `output`, `expected`, `judge_reason`). The trace file has the
+  whole input and output, and `get_train_expected` has the whole reference.
+- **A matching success is an item of the same kind that the same run
+  config passes on the same eval.** `match` says how code chose it, in
+  this order: `same expected output`; `shares tags: …` (tags that not
+  every item has); `closest input (word overlap …)`. It is null when the
+  run config passes no item. Compare its trace with the failing trace:
+  the first place where they differ is often the step that lost the item.
+- **The reader's parts are null until a reader writes them.** The
+  analyzer writes a note for each failing item that it read on a
+  candidate, and the planner for each failing item that it read on the
+  baseline (`failure_notes` in what they return). `read_by` names the
+  role. `read_on_run_config_id` names the run config whose trace the
+  reader read: when it is not the run config of the card, the note is
+  about the same item on another run config, so check it against this
+  trace before you use it. `failure_kind` is `config`, `eval_data`,
+  `judge`, `environment` or `noise`. A reader that read the trace of
+  another run config than the one it was asked about names it in the
+  note's `run_config_id`.
+- **Pass and fail.** An item fails when a score with a direction is under
+  half of its range, in the good direction. An `informational` score and a
+  custom score are not read. A row with no score that code can read is
+  counted in `unscored`, and has no card. Several stored rows of one item
+  are replicates: a card reads the mean of their scores, as the
+  measurement engine does, and a skipped row is not a score.
+
+The page has `cards`, `failed`, `passed`, `unscored`, `dropped`, `kinds`
+(the failing items by `failure_kind`, with `unread` for an item with no
+note), `not_failed` (items you named that do not fail), `total`, `offset`,
+`next_offset` and `traces_dir`. Like `get_train_results`, a call writes the
+trace file of every train row of the run config on the eval.
+
+```
+mcp__kiln_harness_tuner_gateway__get_failure_cards(eval_id="424242100001",
+    run_config_id="424242100003", limit=10)
+```
 
 ### Items, drives and runs
 
@@ -380,10 +440,10 @@ shows the train items only. Read results with `get_train_results` after
 |---|---|
 | preflight | `ping` |
 | describe_eval | `get_task`, `list_evals`, `get_eval`, `get_eval_config`, `list_specs`, `get_spec` |
-| batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory |
+| batch_plan | reading the task, models and providers, reading the evals, `get_train_results`, `get_train_expected`, `get_failure_cards`, the artifact reads (code tools, skills, tool definitions, RAG, documents, Kiln task tools), memory |
 | create_experiment_rc | batch_plan's, plus `list_train_items`, `get_task_run`, `run_task`, `create_run_config`, `validate_input_transform`, `rename_run_config`, `create_prompt`, the code-tool writes, `archive_code_tool`, `archive_skill` |
 | probe | reading the task, models and providers, `list_train_items`, `get_train_expected`, `run_task`, `get_task_run`, `create_run_config`, `validate_input_transform`, the code-tool writes, the artifact reads, memory (no update) |
-| analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_task_run`, the artifact reads, memory |
+| analyze_experiment_results | reading the task and the evals, `get_train_results`, `get_train_expected`, `get_failure_cards`, `get_task_run`, the artifact reads, memory |
 | promote_best | `get_task`, `list_run_configs`, `list_evals`, `get_eval`, memory reads, `get_val_summary`, `compute_statistics` |
 | report_writer | `get_task`, `list_run_configs`, `list_evals`, memory reads, `get_val_summary` |
 | eval_build | `get_task`, `list_run_configs`, reading the evals, `get_train_results`, memory, the eval-build operations, the code-tool writes |

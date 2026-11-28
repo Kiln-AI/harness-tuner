@@ -80,6 +80,7 @@ from kiln_harness_tuner.items import (
     call_with_retries,
     drop_eval_building_items,
     execute_plan_item,
+    store_failure_notes,
 )
 from kiln_harness_tuner.job_drives import run_config_tool_ids
 from kiln_harness_tuner.judge_copy import read_eval_texts
@@ -110,6 +111,7 @@ from kiln_harness_tuner.memory_schema import (
     ValRejection,
     ValRejectionKind,
     canonical_question,
+    idea_key,
 )
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_policy import (
@@ -175,6 +177,7 @@ from kiln_harness_tuner.schemas import (
     PromotionDecision,
     PromotionInput,
     RegressedIssue,
+    RejectedIdea,
     ScreenResult,
     TargetBlock,
     TrainDetectability,
@@ -1027,6 +1030,7 @@ async def _dispatch_plan(
             baseline_latency = await ensure_baseline_speed(ctx, baseline.rc_id)
             baseline_cost = ctx.baseline_cost.get(baseline.rc_id)
         lever_attempts = await _lever_attempts(ctx)
+        rejected_ideas = await _rejected_ideas(ctx, wave)
         models = await _allowed_models(ctx, baseline.rc_id)
         result = await call_with_retries(
             ctx.dispatch.batch_plan,
@@ -1036,6 +1040,7 @@ async def _dispatch_plan(
                 should_wrap_up=wrap_up,
                 eval_sizes=eval_sizes,
                 lever_attempts=lever_attempts,
+                rejected_ideas=rejected_ideas,
                 prior_rejected_summary=prior,
                 max_concurrent_agents=ctx.max_concurrent_agents,
                 lever_costs=lever_costs(ctx),
@@ -1106,6 +1111,15 @@ async def _dispatch_plan(
         tokens=result.usage.tokens,
     )
     if result.data is not None:
+        _flag_dropped_ideas(ctx, result.data, rejected_ideas, wave)
+        # The planner's notes on the baseline failures it read.
+        store_failure_notes(
+            ctx,
+            result.data.failure_notes,
+            run_config_id=baseline.rc_id,
+            by="batch_plan",
+            source=f"w{wave}-{phase}",
+        )
         # Every plan the loop runs comes from here, so the wave that follows
         # (and its `wave_start` line) carries only the items that will run.
         kept = drop_eval_building_items(ctx, result.data.items, wave)
@@ -3639,6 +3653,84 @@ def lever_costs(ctx: Ctx) -> dict[str, LeverCost]:
         for technique, samples in ctx.build_samples.items()
         if samples
     }
+
+
+async def _rejected_ideas(ctx: Ctx, wave: int) -> list[RejectedIdea]:
+    """`BatchPlanInput.rejected_ideas`, and the three-failures rule: code
+    counts the failed arms of each idea on each issue from the experiment
+    records (`MemoryWriter.rejected_ideas`), and writes the `dropped_idea`
+    record of an idea that reached the count (`sync_dropped_ideas`), with
+    one `idea_dropped` event, or stamps it lifted after a win
+    (`idea_lifted`). A planned arm on a dropped idea is logged
+    (`_flag_dropped_ideas`), not removed. Advisory like `lever_attempts`: a
+    read or a write that fails is logged and the wave goes on."""
+    try:
+        ideas = await ctx.memory.rejected_ideas()
+    except KilnError:
+        ctx.log.event("rejected_ideas_unavailable")
+        return []
+    try:
+        written, lifted = await ctx.memory.sync_dropped_ideas(ideas)
+    except KilnError as exc:
+        ctx.log.event("memory_write_failed", write="dropped_idea", error=repr(exc))
+        written, lifted = [], []
+    for idea in lifted:
+        ctx.log.event(
+            "idea_lifted",
+            wave=wave,
+            issue_memory_id=idea.issue_memory_id,
+            idea=idea.idea,
+            memory_id=idea.dropped_memory_id,
+            line=(
+                f"idea no longer dropped: {idea.idea} on issue"
+                f" {idea.issue_memory_id}, after a win"
+            ),
+        )
+    for idea in written:
+        ctx.log.event(
+            "idea_dropped",
+            wave=wave,
+            issue_memory_id=idea.issue_memory_id,
+            idea=idea.idea,
+            failures=idea.failures,
+            arms=list(idea.arms),
+            memory_id=idea.dropped_memory_id,
+            line=(
+                f"idea dropped: {idea.idea} on issue {idea.issue_memory_id},"
+                f" after {idea.failures} failed arms"
+            ),
+        )
+    return ideas
+
+
+def _flag_dropped_ideas(
+    ctx: Ctx, plan: BatchPlan, ideas: list[RejectedIdea], wave: int
+) -> None:
+    """One `dropped_idea_planned` event for each planned fix arm whose idea
+    is dropped for its issue. Code does not remove the arm: the key of an
+    idea is coarse (`memory_schema.idea_key`), so the planner keeps the last
+    word, and the wave log shows that it used it. An arm on an existing run
+    config (`existing_rc_id`) is not a new attempt and is not flagged."""
+    dropped = {(i.issue_memory_id, i.idea) for i in ideas if i.dropped}
+    if not dropped:
+        return
+    for item in plan.items:
+        work = getattr(item, "work", None)
+        if not isinstance(work, FixWork) or work.existing_rc_id:
+            continue
+        idea = idea_key(work.technique, work.hypothesis)
+        if (work.issue_memory_id, idea) in dropped:
+            ctx.log.event(
+                "dropped_idea_planned",
+                wave=wave,
+                item_id=item.id,
+                issue_memory_id=work.issue_memory_id,
+                idea=idea,
+                line=(
+                    f"{item.id}: planned on a dropped idea ({idea} on issue"
+                    f" {work.issue_memory_id})"
+                ),
+            )
 
 
 async def _lever_attempts(ctx: Ctx) -> dict[str, dict[str, int]]:

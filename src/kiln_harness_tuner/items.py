@@ -36,6 +36,7 @@ from kiln_harness_tuner.analysis import (
     success_by_rule,
     success_by_speed_rule,
 )
+from kiln_harness_tuner.failure_notes import append_notes
 from kiln_harness_tuner.generality import GeneralityCheck, check_generality
 from kiln_harness_tuner.judge_copy import JudgeCopyCheck, check_judge_copies
 from kiln_harness_tuner.latency import latency_line, sample_inputs, split_inputs
@@ -71,6 +72,7 @@ from kiln_harness_tuner.schemas import (
     EvalOnlyItem,
     EvalTarget,
     ExperimentItem,
+    FailureNote,
     FixWork,
     ItemOutcome,
     LatencyComparison,
@@ -287,6 +289,53 @@ def eval_build_issue(item: BatchItem) -> str | None:
     ):
         return item.work.issue_memory_id
     return None
+
+
+def store_failure_notes(
+    ctx: Ctx,
+    notes: list[FailureNote],
+    *,
+    run_config_id: str,
+    by: str,
+    source: str,
+    also_read: Collection[str] = (),
+) -> int:
+    """Store a reader's failure notes in the run folder
+    (`kiln_harness_tuner.failure_notes`) and log one `failure_notes` event.
+    The gateway joins them to the planner's failure cards. A note names
+    the run config whose trace was read: `run_config_id`, or its own
+    `run_config_id` when that is in `also_read` (the analyzer reads the
+    parent's traces too); any other value falls back to `run_config_id`. A
+    file that cannot be written loses the notes only: the item goes on."""
+    if not notes:
+        return 0
+    allowed = {run_config_id, *also_read}
+    notes = [
+        n
+        if n.run_config_id in allowed
+        else n.model_copy(update={"run_config_id": run_config_id})
+        for n in notes
+    ]
+    try:
+        written = append_notes(
+            ctx.run_dir, notes, run_config_id=run_config_id, by=by, source=source
+        )
+    except OSError as exc:
+        ctx.log.event("failure_notes_unavailable", source=source, error=repr(exc)[:200])
+        return 0
+    kinds: dict[str, int] = {}
+    for note in notes:
+        kinds[note.kind] = kinds.get(note.kind, 0) + 1
+    ctx.log.event(
+        "failure_notes",
+        source=source,
+        by=by,
+        run_config_id=run_config_id,
+        notes=len(notes),
+        written=written,
+        kinds=dict(sorted(kinds.items())),
+    )
+    return written
 
 
 def drop_eval_building_items(ctx: Ctx, items: list, wave: int) -> list:
@@ -1014,6 +1063,21 @@ async def _execute_plan_item(
     )
     if res.data is None:
         return await _infra_outcome(ctx, item, res, exp_mem, rc_id=rc_id)
+    store_failure_notes(
+        ctx,
+        res.data.failure_notes,
+        run_config_id=rc_id,
+        by="analyze_experiment_results",
+        source=item.id,
+        also_read=[
+            rc
+            for rc in (
+                getattr(item.work, "parent_rc_id", None),
+                baseline.rc_id,
+            )
+            if rc
+        ],
+    )
 
     ctx.log.event(
         "success_rule",

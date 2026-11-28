@@ -71,6 +71,11 @@ Layout of a record, by kind:
                            round, round no, items, screened on evals,
                            verdict, reason, quality, measured, run, date,
                            baseline rc, result (the result as one JSON line)
+    dropped idea overview  DROPPED IDEA: <idea> on issue <issue id> — failed
+                           <n> times (<arm labels>)
+                 tags      dead_end · dropped_idea
+                 content   `DroppedIdea`: issue, idea, failures, arms, rule,
+                           date
 """
 
 from __future__ import annotations
@@ -171,6 +176,10 @@ PROBE_TAG = "probe"
 # `lesson`, a dead end as a `dead_end` — so a run starts from what earlier
 # runs screened, with one tag list.
 SCREEN_TAG = "screen"
+# The record code writes when an idea is dropped for an issue
+# (`DroppedIdea`): a `dead_end` that also carries this tag, so a planner finds
+# it with the dead ends, and code finds it with one tag list.
+DROPPED_IDEA_TAG = "dropped_idea"
 
 # ---- record kinds ----
 
@@ -816,6 +825,22 @@ EXPERIMENT_TRANSITIONS: dict[ExperimentState, frozenset[ExperimentState]] = {
 STAMPABLE_STATES = frozenset(
     {ExperimentState.VERDICT, ExperimentState.REFUTED, ExperimentState.UNVERIFIED}
 )
+# The states that count as a failure of the arm's idea (the three-failures
+# rule, `MemoryWriter.rejected_ideas`): a train measurement that says the
+# arm did not fix its issue. REFUTED is the analysis; NOT LANDED is the
+# measurement engine's stop on the items the arm was built to fix. A DEAD
+# END is not counted: most are a fault of the build (a generality leak, a
+# judge copy, a missing reference) or a lever that did not apply, not a
+# measurement of the idea. UNVERIFIED is not counted: too few items differ
+# to say that the idea failed. FAILED (infra), ABANDONED and CAPPED are not
+# results, and a verdict is a win on train whatever the val gate did with
+# it later.
+IDEA_FAILURE_STATES = frozenset(
+    {
+        ExperimentState.REFUTED,
+        ExperimentState.NOT_LANDED,
+    }
+)
 # The two stamps the val gate appends AFTER the state: `— PROMOTED <MM-DD>`
 # and its twin `— REJECTED AT VAL <MM-DD>` (without it a loser's
 # overview still reads success-shaped and a memory-first planner re-promotes
@@ -1106,14 +1131,124 @@ def technique_label(technique: str) -> str:
     return head_value(technique, TECHNIQUE_MAX_CHARS)
 
 
+# ---- ideas: what the three-failures rule counts ----
+
+# An idea is dropped for an issue after this many failed arms, when no arm
+# of the idea won on that issue.
+IDEA_DROP_FAILURES = 3
+IDEA_MAX_CHARS = 200
+# A technique document of the knowledge skill, as the planner names it in a
+# hypothesis: `techniques/<id>.md`, with or without the `.md`.
+_TECHNIQUE_REF_RE = re.compile(r"techniques/([a-z0-9][a-z0-9-]*)")
+
+
+def idea_key(technique: str, hypothesis: str | None = None) -> str:
+    """The key of "the same idea" on one issue, so that code can count it.
+
+    It is the lever (the arm's `technique`, lower case, one line), plus the
+    id of each technique document of the knowledge skill that the
+    hypothesis names (`techniques/<id>.md`), sorted: `prompt`, or
+    `prompt + few-shot-examples`. Two arms on one issue are the same idea
+    when they use the same lever and name the same technique documents. An
+    arm that names no technique document is the plain use of its lever.
+
+    The key is read from what the planner already writes. It does not read
+    the meaning of a hypothesis: two different prompt changes that name no
+    technique document are one idea."""
+    lever = technique_label(technique).casefold()
+    named = sorted(set(_TECHNIQUE_REF_RE.findall((hypothesis or "").casefold())))
+    return clamp(" + ".join([lever, *named]), IDEA_MAX_CHARS)
+
+
+@dataclass(frozen=True)
+class DroppedIdea:
+    """The record of an idea that code dropped for an issue: a task-scope
+    `dead_end` with the `dropped_idea` tag. It lasts across waves and runs.
+
+        overview  DROPPED IDEA: <idea> on issue <issue id> — failed <n>
+                  times (<arm labels>)[ — LIFTED <MM-DD>]
+        content   issue / idea / failures / arms / rule / date [/ lifted]
+
+    A later win of the idea on the issue lifts the drop: code appends
+    ` — LIFTED <MM-DD>` to the overview and a `lifted:` line, and a lifted
+    record no longer keeps the idea dropped."""
+
+    issue_id: str
+    idea: str
+    failures: int
+    arms: tuple[str, ...] = ()
+    date: str = ""
+    lifted: str = ""  # the date of the win that lifted the drop
+
+    OVERVIEW_LEAD = "DROPPED IDEA: "
+    LIFTED_STAMP = " — LIFTED "
+    RULE = (
+        f"code drops an idea for an issue after {IDEA_DROP_FAILURES} failed arms"
+        " and no win. A failed arm ends REFUTED or NOT LANDED. The idea is"
+        " the lever and the technique documents the hypothesis names."
+    )
+
+    @property
+    def overview_head(self) -> str:
+        """The part of the overview that names the idea and the issue. It is
+        never cut: an idea and an id are bounded on the record."""
+        return f"{self.OVERVIEW_LEAD}{self.idea} on issue {self.issue_id} "
+
+    @property
+    def overview_tail(self) -> str:
+        """The count and the failed arms. The overview cap cuts this part."""
+        arms = f" ({', '.join(self.arms)})" if self.arms else ""
+        return f"— failed {self.failures} times{arms}"
+
+    def render(self) -> str:
+        pairs = [
+            ("issue", head_value(self.issue_id, HEAD_ID_MAX_CHARS)),
+            ("idea", head_value(self.idea, IDEA_MAX_CHARS)),
+            ("failures", str(self.failures)),
+        ]
+        if self.arms:
+            pairs.append(("arms", ", ".join(self.arms)))
+        pairs.append(("rule", self.RULE))
+        if self.date:
+            pairs.append(("date", self.date))
+        if self.lifted:
+            pairs.append(("lifted", self.lifted))
+        return render_kv(pairs)
+
+    @classmethod
+    def parse(cls, content: str | None) -> DroppedIdea | None:
+        """None when the content has no `issue:` and `idea:` lines: a record
+        that code did not write. It then drops nothing."""
+        found: dict[str, str] = {}
+        for key, value in kv_lines(content):
+            found.setdefault(key, value)
+        if not found.get("issue") or not found.get("idea"):
+            return None
+        try:
+            failures = int(found.get("failures", ""))
+        except ValueError:
+            failures = IDEA_DROP_FAILURES
+        arms = tuple(a.strip() for a in found.get("arms", "").split(",") if a.strip())
+        return cls(
+            issue_id=found["issue"],
+            idea=found["idea"],
+            failures=failures,
+            arms=arms,
+            date=found.get("date", ""),
+            lifted=found.get("lifted", ""),
+        )
+
+
 @dataclass(frozen=True)
 class FixOpening:
     """The content `open_experiment` writes for a fix arm. The verdict
     REPLACES this block with the analyzer's body, so `record_verdict`
-    carries `issue:` / `technique:` / `head_to_head_group:` forward: the
-    `lever_attempts` count reads arms per `issue` × `technique`, and the
-    head-to-head group must survive the verdict. Each value is bounded on render (see
-    `TECHNIQUE_MAX_CHARS`)."""
+    carries `issue:` / `technique:` / `idea:` / `head_to_head_group:`
+    forward: the `lever_attempts` count reads arms per `issue` × `technique`,
+    the three-failures rule reads failed arms per `issue` × `idea`
+    (`idea_key`, computed here from the technique and the hypothesis), and
+    the head-to-head group must survive the verdict. Each value is bounded
+    on render (see `TECHNIQUE_MAX_CHARS`)."""
 
     hypothesis: str
     predicted_effect: str
@@ -1136,6 +1271,7 @@ class FixOpening:
             ("eval", head_value(self.eval_id, HEAD_ID_MAX_CHARS)),
             ("issue", head_value(self.issue_id, HEAD_ID_MAX_CHARS)),
             ("technique", technique_label(self.technique)),
+            ("idea", idea_key(self.technique, self.hypothesis)),
         ]
         if self.head_to_head_group:
             pairs.append(
@@ -1195,6 +1331,7 @@ def head_to_head_line(group: str) -> str:
 CARRIED_KEYS = (
     "issue",
     "technique",
+    "idea",
     "rc",
     "reused rc",
     "change",
@@ -1290,6 +1427,9 @@ class ExperimentView:
     # Content `reference check:` — what the build names and does
     #   not attach (`kiln_harness_tuner.reference_check`), as for `generality`
     reference_check: str | None = None
+    # Content `idea:` — the key the three-failures rule counts (`idea_key`),
+    #   written when the arm opens. None on a merge and on an older record.
+    idea: str | None = None
 
     @classmethod
     def from_record(cls, record: MemoryRecord) -> ExperimentView:
@@ -1338,6 +1478,7 @@ class ExperimentView:
             generality=first.get("generality"),
             judge_copy=first.get("judge copy"),
             reference_check=first.get("reference check"),
+            idea=first.get("idea"),
             ingredients=tuple(ingredients),
             rejection_noted=rejection_noted,
             held_noted=held_noted,
@@ -1359,6 +1500,32 @@ class ExperimentView:
     @property
     def is_merge(self) -> bool:
         return bool(self.ingredients) or self.overview_technique == MERGE_TECHNIQUE
+
+    @property
+    def idea_key(self) -> str | None:
+        """The idea this arm tried on its issue, for the three-failures rule:
+        the `idea:` line, else — for a record from before that line existed —
+        the lever alone. Not the hypothesis: a verdict replaces the opening,
+        so most older records have lost it, and a key read from it would
+        split one kind of older arm over two ideas. None when the lever is
+        not known."""
+        if self.idea:
+            return self.idea
+        lever = self.lever
+        return None if lever is None else idea_key(lever)
+
+    @property
+    def failed(self) -> bool:
+        """This arm is a failure of its idea: the analysis refuted it, or
+        the measurement engine stopped it on its target items
+        (`IDEA_FAILURE_STATES`)."""
+        return self.state in IDEA_FAILURE_STATES
+
+    @property
+    def won(self) -> bool:
+        """This arm met its goals on train: it has a verdict, and the verdict
+        is not a refutation. A later val stamp does not change it."""
+        return self.state is ExperimentState.VERDICT
 
 
 # ---- open unknowns: `OPEN: ` constraints ----

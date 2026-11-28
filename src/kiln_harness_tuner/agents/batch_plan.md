@@ -11,7 +11,15 @@ Follow the procedure, the hard rules and the output schema exactly. The
 knowledge is guidance: fit it to this agent, and plan an idea that it does
 not list when the evidence points to one. Your
 input's `lever_attempts` (issue → technique → arms opened) feeds the
-text-arm rule in the skill's Step 1. Your input's `gate_blocks`
+text-arm rule in the skill's Step 1. Your input's `rejected_ideas` lists
+each idea that failed on an issue, over every run on this task, with its
+count. An idea with `dropped: true` failed three times on that issue and
+never won: do not plan it on that issue again (the skill's "Three failures
+drop an idea"). For each eval you plan against, call `get_failure_cards` on
+the baseline before you form a hypothesis: a card gives the input, the
+output, what was expected, a matching success and a reader's note for one
+failing train item. Never plan from a score alone. Return a note in
+`failure_notes` for each failing trace that you read. Your input's `gate_blocks`
 lists this run's candidates the promotion gate blocked because their prompt
 copies eval text, with the copied passage and the eval object: never build
 on, fork or merge one of those run configs unless the arm removes the phrase

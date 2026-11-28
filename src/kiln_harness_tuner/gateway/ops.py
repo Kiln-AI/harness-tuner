@@ -39,7 +39,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from kiln_harness_tuner import memory_schema, output_modes
-from kiln_harness_tuner.gateway import model_info
+from kiln_harness_tuner.failure_notes import load_notes, note_for
+from kiln_harness_tuner.gateway import failure_cards, model_info
 from kiln_harness_tuner.gateway import models as m
 from kiln_harness_tuner.gateway.errors import GatewayError
 from kiln_harness_tuner.gateway.trace_files import TraceWriter, summary_line, traces_dir
@@ -627,40 +628,22 @@ class Gateway:
         trace. A row that is not provably train is dropped before anything
         is written: no val or test record reaches a file. Rows come in pages
         (`offset`, `limit`), and a page also ends at the answer cap."""
-        eval_def = await self.call("GET", f"{self.s.base}/evals/{req.eval_id}") or {}
-        config_id = eval_def.get("current_config_id")
-        if not config_id:
-            raise GatewayError(f"eval {req.eval_id} has no current eval config")
-        response = await self.call(
-            "GET",
-            f"{self.s.base}/evals/{req.eval_id}/eval_config/{config_id}"
-            f"/run_config/{req.run_config_id}/results",
-            query_params={"split": "train"},
+        _eval_def, config_id, train_rows, dropped = await self._train_rows(
+            req.eval_id, req.run_config_id
         )
-        train = self.s.train_items(req.eval_id)
         wanted = set(req.item_ids) if req.item_ids else None
         writer = self._writer()
-        rows: list[m.TrainResultRow] = []
-        dropped = 0
-        for raw in (
-            _rows(response, "results")
-            if isinstance(response, dict)
-            else _rows(response)
-        ):
-            row = _flatten(raw)
-            item = _item_of(row)
-            if item is None or item not in train:
-                dropped += 1
-                continue
-            if wanted is not None and item not in wanted:
-                continue
-            rows.append(self._result_row(req, str(config_id), item, row, writer))
+        rows: list[m.TrainResultRow] = [
+            self._result_row(req, config_id, item, row, writer)
+            for item, row in train_rows
+            if wanted is None or item in wanted
+        ]
         stats_path = None
         if writer is not None and rows:
             stats_path = str(writer.write_stats(req.run_config_id)[1])
         page = m.TrainResults(
             eval_id=req.eval_id,
-            eval_config_id=str(config_id),
+            eval_config_id=config_id,
             run_config_id=req.run_config_id,
             dropped=dropped,
             total=len(rows),
@@ -672,6 +655,198 @@ class Gateway:
             page, rows[req.offset : req.offset + req.limit], req.offset, len(rows)
         )
         return page
+
+    async def _train_rows(
+        self, eval_id: str, run_config_id: str
+    ) -> tuple[dict[str, Any], str, list[tuple[str, dict[str, Any]]], int]:
+        """The eval's definition, its current config id, the run config's
+        stored rows on the eval's TRAIN items as `(item id, row)`, and the
+        count of rows dropped because they are not provably train. Split
+        `train` and the eval's current config, always."""
+        eval_def = await self.call("GET", f"{self.s.base}/evals/{eval_id}") or {}
+        config_id = eval_def.get("current_config_id")
+        if not config_id:
+            raise GatewayError(f"eval {eval_id} has no current eval config")
+        response = await self.call(
+            "GET",
+            f"{self.s.base}/evals/{eval_id}/eval_config/{config_id}"
+            f"/run_config/{run_config_id}/results",
+            query_params={"split": "train"},
+        )
+        train = self.s.train_items(eval_id)
+        rows: list[tuple[str, dict[str, Any]]] = []
+        dropped = 0
+        for raw in (
+            _rows(response, "results")
+            if isinstance(response, dict)
+            else _rows(response)
+        ):
+            row = _flatten(raw)
+            item = _item_of(row)
+            if item is None or item not in train:
+                dropped += 1
+                continue
+            rows.append((item, row))
+        return eval_def, str(config_id), rows, dropped
+
+    async def get_failure_cards(self, req: m.FailureCardsRequest) -> m.FailureCards:
+        """One card for each TRAIN item the run config fails on the eval
+        (`failure_cards`): the input, the output, the expected output, the
+        judge's reason, a matching success, and the reader's note when a
+        reader left one (`failure_notes`). Train rows only, as
+        `get_train_results`: the trace file of every train row is written,
+        and a card gives the path. An item asked for by id that is not a
+        train item of the eval is refused by name."""
+        train = self.s.train_items(req.eval_id)
+        if req.item_ids:
+            refused = [i for i in req.item_ids if i not in train]
+            if refused:
+                raise GatewayError(f"{NOT_TRAIN} Refused: {', '.join(refused[:10])}.")
+        eval_def, config_id, train_rows, dropped = await self._train_rows(
+            req.eval_id, req.run_config_id
+        )
+        specs = failure_cards.score_specs(eval_def)
+        docs = self._train_docs_on_disk()
+        writer = self._writer()
+        results = m.TrainResultsRequest(
+            eval_id=req.eval_id, run_config_id=req.run_config_id
+        )
+        views: dict[str, m.TrainResultRow] = {}
+        raw: dict[str, dict[str, Any]] = {}
+        scored: dict[str, failure_cards.Scored] = {}
+        failed_scores: dict[str, list[str]] = {}
+        unscored = 0
+        # One record for each item: replicate rows fold into the mean of
+        # their scores, as the measurement engine folds them
+        # (`analysis._runs_by_item`), and a skipped row is not a score.
+        for item, row in failure_cards.fold_rows(train_rows):
+            view = self._result_row(results, config_id, item, row, writer)
+            passed, failed = failure_cards.verdict(view.scores, specs)
+            if passed is None or view.skipped_reason:
+                unscored += 1
+                continue
+            views[item], raw[item], failed_scores[item] = view, row, failed
+            text = row.get("input") if isinstance(row.get("input"), str) else None
+            scored[item] = failure_cards.scored_row(item, passed, text, docs.get(item))
+        if writer is not None and train_rows:
+            writer.write_stats(req.run_config_id)
+        passes = [s for s in scored.values() if s.passed]
+        failures = sorted(i for i, s in scored.items() if not s.passed)
+        ignored = failure_cards.common_tags(scored.values()) | {
+            t
+            for s in scored.values()
+            for t in s.tags
+            if held_out_by_name(t) or t in self.s.train.heldout_tags
+        }
+        notes = load_notes(self.s.run_dir)
+        noted = {
+            i: note_for(notes, req.eval_id, i, req.run_config_id) for i in failures
+        }
+        kinds: dict[str, int] = {}
+        for i in failures:
+            kind = noted[i].kind if noted[i] is not None else failure_cards.UNREAD
+            kinds[kind] = kinds.get(kind, 0) + 1
+        if req.item_ids:
+            asked = list(dict.fromkeys(req.item_ids))
+            every = [i for i in asked if i in set(failures)]
+            not_failed = [i for i in asked if i not in set(failures)]
+        else:
+            every, not_failed = failures, []
+        cards = [
+            self._failure_card(
+                views[i],
+                raw[i],
+                failed_scores[i],
+                docs.get(i),
+                noted[i],
+                failure_cards.matching_success(scored[i], passes, ignored),
+                views,
+                raw,
+            )
+            for i in every[req.offset : req.offset + req.limit]
+        ]
+        page = m.FailureCards(
+            eval_id=req.eval_id,
+            eval_config_id=config_id,
+            run_config_id=req.run_config_id,
+            failed=len(failures),
+            passed=len(passes),
+            unscored=unscored,
+            dropped=dropped,
+            kinds=dict(sorted(kinds.items())),
+            not_failed=not_failed,
+            total=len(every),
+            offset=req.offset,
+            traces_dir=str(writer.root) if writer is not None else None,
+        )
+        page.cards, page.next_offset = _fit(page, cards, req.offset, len(every))
+        return page
+
+    @staticmethod
+    def _failure_card(
+        view: m.TrainResultRow,
+        row: dict[str, Any],
+        failed: list[str],
+        doc: dict[str, Any] | None,
+        note: Any,
+        match: tuple[failure_cards.Scored, str] | None,
+        views: dict[str, m.TrainResultRow],
+        raw: dict[str, dict[str, Any]],
+    ) -> m.FailureCard:
+        texts = {
+            "input": (
+                failure_cards.as_text(row.get("input")),
+                failure_cards.INPUT_CHARS,
+            ),
+            "output": (
+                failure_cards.as_text(row.get("output")),
+                failure_cards.OUTPUT_CHARS,
+            ),
+            "expected": (
+                failure_cards.json_text((doc or {}).get("reference")),
+                failure_cards.EXPECTED_CHARS,
+            ),
+            "judge_reason": (
+                failure_cards.as_text(row.get("intermediate_outputs")),
+                failure_cards.JUDGE_REASON_CHARS,
+            ),
+        }
+        shown: dict[str, str | None] = {}
+        clipped: list[str] = []
+        for name, (text, limit) in texts.items():
+            shown[name], cut = failure_cards.clip(text, limit)
+            if cut:
+                clipped.append(name)
+        success = None
+        if match is not None:
+            other, why = match
+            limit = failure_cards.MATCH_TEXT_CHARS
+            success = m.MatchingSuccess(
+                item_id=other.item_id,
+                match=why,
+                input=failure_cards.clip(other.input, limit)[0],
+                output=failure_cards.clip(
+                    failure_cards.as_text(raw[other.item_id].get("output")), limit
+                )[0],
+                trace_path=views[other.item_id].trace_path,
+            )
+        return m.FailureCard(
+            item_id=view.item_id,
+            scores=view.scores,
+            failed_scores=failed,
+            clipped=clipped,
+            failure_kind=note.kind if note is not None else None,
+            lost_at=note.lost_at if note is not None else None,
+            failure_pattern=note.pattern if note is not None else None,
+            read_by=(note.by or None) if note is not None else None,
+            read_on_run_config_id=(note.run_config_id or None)
+            if note is not None
+            else None,
+            matching_success=success,
+            trace_path=view.trace_path,
+            trace_summary=view.trace_summary,
+            **shown,
+        )
 
     def _result_row(
         self,
@@ -2031,6 +2206,12 @@ OPS = _ops(
         "Train items' expected outputs (the eval input's reference) and tags,"
         " one page per call.",
     ),
+    (
+        "get_failure_cards",
+        m.FailureCardsRequest,
+        "One card per TRAIN item a run config fails on an eval: input, output,"
+        " expected output, a matching success, and a reader's note.",
+    ),
     ("memory_list", m.MemoryListRequest, "List memory records in the run's scopes."),
     ("memory_get", m.MemoryIdsRequest, "Memory records by id."),
     ("memory_summary", m.MemorySummaryRequest, "Counts per scope."),
@@ -2143,6 +2324,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_EVALS,
         "get_train_results",
         "get_train_expected",
+        "get_failure_cards",
         *_ARTIFACTS,
         *_MEM_READ,
         *_MEM_WRITE,
@@ -2155,6 +2337,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         "get_task_run",
         "list_train_items",
         "get_train_expected",
+        "get_failure_cards",
         *_ARTIFACTS,
         *_MEM_READ,
         *_MEM_WRITE,
@@ -2186,6 +2369,7 @@ ROLE_OPS: dict[str, tuple[str, ...]] = {
         *_EVALS,
         "get_train_results",
         "get_train_expected",
+        "get_failure_cards",
         "get_task_run",
         *_ARTIFACTS,
         *_MEM_READ,
@@ -2251,7 +2435,13 @@ for _role, _role_ops in ROLE_OPS.items():
 # The operations that write trace files, and the roles that call them: the
 # dispatcher opens the trace folder to these roles only.
 TRACE_OPS = frozenset(
-    {"get_train_results", "get_task_run", "run_task", "get_train_expected"}
+    {
+        "get_train_results",
+        "get_task_run",
+        "run_task",
+        "get_train_expected",
+        "get_failure_cards",
+    }
 )
 TRACE_READER_ROLES = frozenset(
     role for role, ops in ROLE_OPS.items() if TRACE_OPS & set(ops)
