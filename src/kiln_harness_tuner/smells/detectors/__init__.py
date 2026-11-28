@@ -4,11 +4,17 @@ this folder and one entry in `DETECTORS`."""
 from __future__ import annotations
 
 from kiln_harness_tuner.smells.detectors import (
+    large_tool_result,
     long_prompt,
     long_skill_description,
     long_tool_description,
     many_tools,
     old_model,
+    repeated_call,
+    run_near_limit,
+    small_skill,
+    unused_skill,
+    unused_tool,
 )
 from kiln_harness_tuner.smells.model import Detector
 
@@ -18,6 +24,12 @@ DETECTORS: tuple[Detector, ...] = (
     long_skill_description.DETECTOR,
     many_tools.DETECTOR,
     old_model.DETECTOR,
+    small_skill.DETECTOR,
+    large_tool_result.DETECTOR,
+    repeated_call.DETECTOR,
+    run_near_limit.DETECTOR,
+    unused_tool.DETECTOR,
+    unused_skill.DETECTOR,
 )
 
 

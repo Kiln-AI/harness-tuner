@@ -57,16 +57,6 @@ The lever. RAG or skill, and when each wins. Documents and extraction first; ext
 not tune it. Test that RAG helps before the chunker and the search type. Reranking. Size in tokens,
 not in documents.
 
-### Detectors from the trace counts
-
-- Kind: detector
-- Where: tuner
-- Depends on: None
-- Source: functional spec 12.3; [kiln_gaps.md](projects/biological_bootloader/kiln_gaps.md), "Not a Kiln gap"
-
-A very large tool result; repeated calls and loops; a run that ends at a limit; unused tools and
-skills; a skill of a few words. The raw counts exist in `gateway/trace_files.py`.
-
 ### Budget-aware planning
 
 - Kind: code
@@ -650,6 +640,15 @@ On a long multi-turn trace that can use it, check that the prompt cache is used.
 caching is off; the account or provider does not have it; the agent edits its own history. That
 edit saves a few tokens, but it breaks the cache and can cost 10x more.
 
+### Failed drives as a detector input
+
+- Kind: detector
+- Where: tuner
+- Depends on: None
+- Source: [architecture.md](../docs/architecture.md), section 18.4
+
+A drive that Kiln stops at a limit stores no trace, so `run_near_limit` cannot see it. Give the
+detectors the train job errors of the baseline, and report a run that a limit stopped.
 ### Output modes that a model supports
 
 - Kind: gap

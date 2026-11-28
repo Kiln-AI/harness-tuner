@@ -1,11 +1,14 @@
 ---
 title: Unnecessary tools
-description: Tools that overlap - two tools used for the same kind of request - or tools never called in the traces. One tool for each job, and each tool needed.
-reviewed: 2026-11-13
+description: Tools that overlap - two tools used for the same kind of request - or tools never called in the traces. Code lists the tools that no stored train run calls.
+reviewed: 2026-11-25
 applies_to:
   - tools
 detected_by:
+  - code
   - agent
+detectors:
+  - unused_tool
 ---
 
 # Unnecessary tools
@@ -29,7 +32,11 @@ In how the agent runs:
 
 - for requests of the same kind, the agent calls one tool of a pair on
   some items and the other tool on others;
-- an attached tool that is never called in the sampled traces.
+- the code detection in your input names the attached tools that no
+  stored train run calls, and the number of train items that those runs
+  cover;
+- with no detection: an attached tool that is never called in the sampled
+  traces.
 
 ## How to confirm it
 
@@ -37,9 +44,13 @@ In how the agent runs:
   enough: two tools that look alike can each serve a different request.
 - For an overlap, name the pair, the kind of request, and the items where
   the agent calls each tool.
-- For a tool that is never called, read more train traces, of every eval,
-  before you report it. The sample is small, and a tool that one class of
-  item needs is not unnecessary.
+- For a tool that is never called, with no detection, read more train
+  traces, of every eval, before you report it. The sample is small, and a
+  tool that one class of item needs is not unnecessary.
+- A detection counts every stored train run. It is silent under the
+  reference count of train items. It gives a bound on how often the tool
+  is called, not a proof that no request needs it: check what the tool is
+  for, and read the detection's source.
 - **Not this smell:** many tools that each do a different job that the
   task needs. A count above the reference is a second smell:
   [too many tools](too-many-tools.md).

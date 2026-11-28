@@ -15,6 +15,7 @@ from conftest import make_ctx, make_plan, make_tracker
 from fake_dispatcher import ok
 from fake_kiln import make_eval, make_run
 from test_orchestrator import seed_baseline
+from trace_detector_cases import FIRING as TRACE_FIRING
 
 from kiln_harness_tuner.model_catalog import Catalog
 from kiln_harness_tuner.model_catalog.schema import CatalogModel
@@ -224,7 +225,11 @@ def test_a_detection_fact_has_no_judgement_word():
         (detection,) = BY_ID[detector_id].run(given)
         words = set(re.findall(r"[a-z]+", detection.fact.lower()))
         assert not words & JUDGEMENT_WORDS, (detector_id, detection.fact)
-    assert set(firing) == set(BY_ID), "a registered detector has no case here"
+    # The detectors that read traces, and `small_skill`, have their cases
+    # and the same check in `test_trace_detectors.py`.
+    assert set(firing) | set(TRACE_FIRING) == set(BY_ID), (
+        "a registered detector has no case"
+    )
 
 
 def test_every_registered_detector_has_a_unique_id():
@@ -247,7 +252,7 @@ def test_every_threshold_has_a_source_comment():
             assert lines[node.end_lineno].lstrip().startswith("#"), target.id
             text = getattr(thresholds, f"{target.id}_SOURCE", "")
             assert isinstance(text, str) and text.strip(), f"{target.id}_SOURCE"
-    assert len(names) == 5
+    assert len(names) == 11
 
 
 # ---- old_model: the release date against the run date ----

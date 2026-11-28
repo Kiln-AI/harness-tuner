@@ -162,7 +162,8 @@ score), the baseline's train items with room to improve and the fewest wins
 a significant result needs — and, with `--noise-check`, `train_noise`. Both
 are train-only ([architecture.md](architecture.md) sections 5.1 and 5.2).
 `detections` are the facts that the smell detectors in code found in the
-present baseline's harness (the `baseline_review` section below): each names a
+present baseline's harness, or in the counts of its stored train runs (the
+`baseline_review` section below): each names a
 smell document and states a number and the reference it was compared with,
 never a verdict. Each also carries the baseline reviewer's reading of it
 (`reviewer_holds` and `reviewer_note`), matched by smell and detector on the

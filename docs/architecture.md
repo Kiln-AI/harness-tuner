@@ -1357,7 +1357,10 @@ reads a list: it takes the last `"type": "result"` event.
          _stats.json, _stats.md        per item: turns, tool calls by tool,
                                        tool errors, tool-result sizes,
                                        tokens (per turn when the trace has
-                                       them), cost
+                                       them), cost; in the JSON also the
+                                       largest count of one same call, the
+                                       largest count of tool steps in one
+                                       turn, and the skills opened
          _stats/<eval_id>/<item_id>.json   one item's statistics
        task_runs/<task_run_id>.md      get_task_run, run_task
        _expected/<item_id>.json        a reference too large for an answer
@@ -2494,14 +2497,35 @@ agents do not read it.
 [`smells/`](../src/kiln_harness_tuner/smells/). A detector is a small pure
 function over `DetectorInputs` (the run config's properties, its prompt,
 skill and code-tool texts, the definition of each attached tool, the
-baseline's model with its release date from the model catalogue, and the
-date the run started) that returns `Detection`s. One detector belongs to
-one smell, and the smell document names it. A new detector is one file in
-`smells/detectors/` and one
-entry in `DETECTORS`. A detector that reads stored train trace stats sets
-`reads_traces`; no detector does yet, so the detectors read only the run
+baseline's model with its release date and its context window from the
+model catalogue, the date the run started, and the trace stats of the
+baseline's stored train runs) that returns `Detection`s. One detector
+belongs to one smell, and the smell document names it. A new detector is
+one file in `smells/detectors/` and one entry in `DETECTORS`.
+
+A detector reads one of two things. A harness detector reads the run
 config, its texts, its tool definitions and the catalogue snapshot
-(`ctx.model_catalog`, section 17.1), and spend nothing.
+(`ctx.model_catalog`, section 17.1); its detections have the scope
+`harness`. A trace detector sets `reads_traces` and reads
+`DetectorInputs.trace_stats`: one `gateway.trace_files.trace_stats` dict
+for each stored train run of the baseline on each active eval, with its
+eval id and its item id. Its detections have the scope `train`. The facts
+of `large_tool_result`, `repeated_call` and `run_near_limit` name the train
+item and the eval of the largest case; the facts of `unused_tool` and
+`unused_skill` name the tools or skills and the count of train items. Both kinds
+spend nothing.
+
+**Where the train runs come from.** They are the baseline's train
+measurement: the setup step measures the first baseline on train before
+wave 1 (section 2), and a promoted baseline was measured on train as a
+candidate. `run_detectors` reads those stored rows through
+`Analyzer.stored_results(…, "train")`, the read that refuses a held-out
+row. It makes no drive and no judge call, and it reads no val row. A
+promoted baseline can have part of its train rows, because the stop rules
+can end a candidate's measurement early: the detectors read what is
+stored. A baseline with no stored train run with a trace gives an empty
+list, and each trace detector is then silent. An eval whose train rows
+cannot be read gives none.
 
 | Detector | Smell | Fires when |
 |---|---|---|
@@ -2510,13 +2534,25 @@ config, its texts, its tool definitions and the catalogue snapshot
 | `long_skill_description` | `very-long-skill-description` | a skill's description is over `LONG_SKILL_DESCRIPTION_CHARS` (1,024) |
 | `many_tools` | `too-many-tools` | the run config attaches more than `MANY_TOOLS` (40) tools, skills not counted |
 | `old_model` | `old-model` | the baseline's model was released more than `OLD_MODEL_MONTHS` (8) calendar months before the run started; silent when the catalogue has no release date for it, for example a fine-tune |
+| `small_skill` | `skill-too-small-to-earn-its-place` | the body of an attached skill is under `SMALL_SKILL_BODY_CHARS` (400 characters), and the skill has no reference file and no text asset |
+| `large_tool_result` | `tool-results-flood-the-context` | one tool result in a stored train run is over `LARGE_TOOL_RESULT_CHARS` (50,000 characters); one detection for each tool |
+| `repeated_call` | `repeated-identical-calls` | one stored train run makes the same call (the same tool, the same arguments) `REPEATED_CALL_COUNT` (5) times or more, in a row or not; one detection for each tool |
+| `run_near_limit` | `runs-close-to-a-limit` | one turn of a stored train run has `NEAR_LIMIT_PERCENT` (80%) or more of Kiln's limit on tool steps (`KILN_TOOL_STEPS_PER_TURN`, 100; a step is one model call that asks for tools, so parallel calls count once); or one model call reads 80% or more of the model's context window, when the catalogue has the window and the trace has the usage of each call |
+| `unused_tool` | `unnecessary-tools` | an attached tool whose definition could be read is called in no stored train run, and those runs cover `UNUSED_MIN_RUNS` (30) train items or more; one detection that names the tools |
+| `unused_skill` | `skill-never-opened` | an attached skill is opened in no stored train run, with the same count of train items; one detection that names the skills |
+
+The last five are the trace detectors. `run_near_limit` reports the runs
+that came close to a limit, not the runs that a limit stopped: Kiln ends
+such a run with an error and stores no trace for it, so no trace count
+shows it.
 
 The thresholds are in `smells/thresholds.py`, each with its source. No
 measured optimum is known for any of them, so each is a default that can
 change. A detection states a fact with its numbers, the reference it was
 compared with and the source of that reference. It states no verdict.
 
-`run_detectors` reads the run config once and runs each detector in its own
+`run_detectors` reads the run config once, and the stored train rows once
+when a registered detector reads traces. It runs each detector in its own
 `try`. A detector that raises, or returns something that is not a
 detection, is skipped. A detection whose smell is not a smell document is
 dropped. It never raises, apart from `ProviderQuotaError`.

@@ -16,12 +16,15 @@ class ModelFacts:
     """The baseline's model. `name`: the catalogue's friendly name, or the
     model id when the catalogue does not have the model. `release_date`:
     from the catalogue, an exact or a loose match; None when it is not
-    known, for example for a fine-tune."""
+    known, for example for a fine-tune. `context_window`: the model's
+    context window in tokens, from the catalogue; None when it is not
+    known."""
 
     provider: str
     model: str
     name: str
     release_date: date | None
+    context_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -34,8 +37,11 @@ class DetectorInputs:
     each attached tool whose definition could be read, with `tool_id`,
     `name`, `description` and `parameters`. `trace_stats`: one
     `trace_files.trace_stats` dict for each stored train run of the
-    baseline, with its `eval_id` and `item_id`. It is empty unless a
-    registered detector reads traces. `model`: the baseline's model, with
+    baseline, with its `eval_id` and `item_id`. These are the drives of the
+    baseline's train measurement (the setup step for the first baseline,
+    the candidate measurement for a promoted one). It is empty unless a
+    registered detector reads traces, and when the baseline has no stored
+    train run with a trace. `model`: the baseline's model, with
     its release date from the run's model catalogue; None when the run
     config names no model. `run_date`: the date the run started; None when
     it is not known."""

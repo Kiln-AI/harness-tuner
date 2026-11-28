@@ -34,7 +34,8 @@ return instead of going looking.
 ## Your input
 
 - `baseline.rc_id`: the run config to review.
-- `detections`: facts that code found in the harness. Each names a smell
+- `detections`: facts that code found in the harness, or in the counts of
+  the baseline's stored train runs. Each names a smell
   and a detector, and states a number, the reference it was compared with,
   and the source of the reference.
 - `samples`: for each active eval, the train items whose stored baseline
@@ -65,7 +66,12 @@ return instead of going looking.
    when a smell needs more evidence. Do not judge whether an answer is
    right, and do not use a score to choose what to read.
 4. **Check each code detection.** For each entry in `detections`, look at
-   the thing it names (the prompt, the tool, the skill). Return one
+   the thing it names (the prompt, the tool, the skill). A detection with
+   `scope: train` comes from the counts of the baseline's stored train
+   runs. When it names a train item and its eval, read that trace
+   (`get_train_results` with that eval and that item). When it names tools
+   or skills that no run uses, check what each one is for, and read sample
+   traces of each eval. Return one
    `DetectionCheck`: `holds: true` when the fact is true and the smell
    document's "How to confirm it" agrees, `false` when it does not, `null`
    when reading cannot tell. Put the reason in `note`, in one sentence.

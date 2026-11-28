@@ -1726,10 +1726,13 @@ async def test_a_failed_size_read_never_costs_a_wave():
     kiln.evals["eval_2"] = make_eval("eval_2", "ec_2")
     kiln.specs.append({"id": "spec_2", "eval_id": "eval_2", "status": "active"})
     kiln.results[("eval_1", "rc_base", "train")] = [make_run("t1")]
-    kiln.results_behaviors[("eval_2", "rc_base", "train")] = ["http500"]
+    # Two reads of these rows come before the plan: the smell detectors that
+    # read traces, then the count. Each one fails, and each one degrades.
+    kiln.results_behaviors[("eval_2", "rc_base", "train")] = ["http500"] * 2
     ctx.dispatch.queue("batch_plan", ok(make_plan(loop_exit="done")))
     result = await orchestrate(ctx, "", timeout_mins=180)
     assert result == "done"
+    assert kiln.results_behaviors[("eval_2", "rc_base", "train")] == []
     (plan_input,) = ctx.dispatch.calls_to("batch_plan")
     assert plan_input.eval_sizes == {"eval_1": 1}
     assert ("eval_size_unavailable", {"eval_id": "eval_2"}) in [

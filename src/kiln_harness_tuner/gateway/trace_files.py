@@ -56,6 +56,15 @@ EXPECTED = "_expected"
 SYSTEM_ROLES = frozenset({"system", "developer"})
 ERROR_MARK = "TOOL_ERROR"
 USAGE_KEYS = ("input_tokens", "output_tokens", "cached_tokens", "cost")
+# The function name of Kiln's skill tool (`kiln_ai.tools.skill_tool`): one
+# tool for all the attached skills, called with the skill's `name`.
+SKILL_FUNCTION = "skill"
+# The tool through which a model gives a structured answer. Kiln does not
+# count it as a tool step (`litellm_adapter.py`), and a repeat of it is the
+# answer of each turn, not a loop.
+ANSWER_FUNCTION = "task_response"
+# The name `_calls` gives to a call that has no function name.
+UNKNOWN_FUNCTION = "?"
 
 
 def traces_dir(run_dir: Path) -> Path:
@@ -146,6 +155,26 @@ def _calls(message: dict[str, Any]) -> list[tuple[str, str, str]]:
     return out
 
 
+def _same_call_key(name: str, args: str) -> tuple[str, str]:
+    """One key for each distinct call: the tool name and its arguments. JSON
+    arguments are written again with sorted keys, so two calls that differ
+    only in key order or in spaces are the same call."""
+    try:
+        return name, json.dumps(json.loads(args), sort_keys=True)
+    except ValueError:
+        return name, args.strip()
+
+
+def _skill_name(args: str) -> str | None:
+    """The `name` argument of a call of the skill tool, or None."""
+    try:
+        parsed = json.loads(args)
+    except ValueError:
+        return None
+    name = parsed.get("name") if isinstance(parsed, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
 def _number(value: Any) -> float | int | None:
     return (
         value
@@ -168,13 +197,26 @@ def trace_stats(
     tool-result sizes, message sizes by role, and the per-turn usage where
     the trace carries it (Kiln puts `usage` and `latency_ms` on each
     assistant message; an older trace has neither, and then only the run's
-    usage is given)."""
+    usage is given).
+
+    Three more counts serve the smell detectors that read traces
+    (`kiln_harness_tuner.smells`). `same_call_max`: for each tool that made
+    one call two or more times, the largest count of calls with the same
+    arguments. `max_tool_steps_in_turn`: the largest count of tool steps
+    after one user message; a step is one assistant message that asks for
+    one tool call or more, as Kiln counts toward its limit: a step that
+    calls `ANSWER_FUNCTION` is not counted. `same_call_max` reads no call of
+    `ANSWER_FUNCTION` and no call with no name. `skills_opened`:
+    the calls of Kiln's skill tool, by the skill name in their arguments."""
     names: dict[str, str] = {}
     tools: dict[str, dict[str, int]] = {}
     chars: dict[str, int] = {}
     turns: list[dict[str, Any]] = []
+    same: dict[tuple[str, str], int] = {}
+    skills: dict[str, int] = {}
     assistant = user = calls = errors = 0
     final_reply = 0
+    in_turn = max_in_turn = 0
     for index, message in enumerate(messages):
         role = str(message.get("role") or "?")
         text = _text(message.get("content"))
@@ -182,11 +224,21 @@ def trace_stats(
         if role == "assistant":
             assistant += 1
             made = _calls(message)
-            for call_id, name, _args in made:
+            for call_id, name, args in made:
                 names[call_id] = name
                 entry = tools.setdefault(name, _tool_entry())
                 entry["calls"] += 1
                 calls += 1
+                if name not in (ANSWER_FUNCTION, UNKNOWN_FUNCTION):
+                    key = _same_call_key(name, args)
+                    same[key] = same.get(key, 0) + 1
+                if name == SKILL_FUNCTION and (skill := _skill_name(args)):
+                    skills[skill] = skills.get(skill, 0) + 1
+            # Kiln ends the turn at a step that calls the answer tool, and
+            # does not count that step.
+            if made and all(name != ANSWER_FUNCTION for _id, name, _args in made):
+                in_turn += 1
+            max_in_turn = max(max_in_turn, in_turn)
             if text.strip() and not made:
                 final_reply = len(text)
             usage = message.get("usage")
@@ -202,6 +254,7 @@ def trace_stats(
                 )
         elif role == "user":
             user += 1
+            in_turn = 0
         elif role == "tool":
             name = names.get(str(message.get("tool_call_id") or ""), "?")
             entry = tools.setdefault(name, _tool_entry())
@@ -212,6 +265,10 @@ def trace_stats(
                 errors += 1
     run = {k: _number((run_usage or {}).get(k)) for k in USAGE_KEYS}
     run["latency_ms"] = _number((run_usage or {}).get("total_llm_latency_ms"))
+    same_max: dict[str, int] = {}
+    for (name, _args), count in same.items():
+        if count > 1:
+            same_max[name] = max(same_max.get(name, 0), count)
     return {
         "assistant_turns": assistant,
         "user_turns": user,
@@ -219,6 +276,9 @@ def trace_stats(
         "tool_errors": errors,
         "final_reply_chars": final_reply,
         "tools": dict(sorted(tools.items())),
+        "same_call_max": dict(sorted(same_max.items())),
+        "max_tool_steps_in_turn": max_in_turn,
+        "skills_opened": dict(sorted(skills.items())),
         "chars_by_role": dict(sorted(chars.items())),
         "usage_source": "per_turn"
         if turns
