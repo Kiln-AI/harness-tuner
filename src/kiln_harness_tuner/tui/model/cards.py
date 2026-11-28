@@ -73,6 +73,8 @@ def landed_verdict(model: RunModel, item: ItemModel) -> Verdict | None:
         if item.kind in ("fix", "merge"):
             if outcome.result is not None and outcome.result.successful:
                 return words.SUCCESS_GATE if goes_to_gate(outcome) else words.SUCCESS
+            if outcome.result is not None and outcome.result.unverified_reason:
+                return words.UNVERIFIED
             return words.NO_WIN
         if item.kind == "eval":
             return words.EVAL_BUILT

@@ -72,21 +72,24 @@ def seed_active_eval(kiln) -> None:
 
 
 def seed_train(kiln, candidate_rc: str, parent_rc: str = "rc_base") -> None:
+    """The candidate fixes the parent's three train failures: enough items
+    differ for a train verdict (`thin_evidence.MIN_DIFFERING_ITEMS`)."""
     kiln.results[("eval_1", parent_rc, "train")] = [
-        make_run("t1", accuracy=0.0),
+        *(make_run(f"t{i}", accuracy=0.0) for i in (1, 3, 4)),
         make_run("t2", accuracy=1.0),
     ]
     kiln.pending[("eval_1", candidate_rc, "train")] = [
-        make_run("t1", accuracy=1.0),
-        make_run("t2", accuracy=1.0),
+        make_run(f"t{i}", accuracy=1.0) for i in (1, 2, 3, 4)
     ]
 
 
 def seed_val(kiln, *rc_ids: str) -> None:
+    """Flat on val: both sides pass v2 and fail v1, v3 and v4. Three items
+    had room, so the flat result is "no gain", not "unverified"."""
     for rc_id in rc_ids:
         score = 0.5 if rc_id == "rc_base" else 1.0
         kiln.pending[("eval_1", rc_id, "val")] = [
-            make_run("v1", accuracy=0.0),
+            *(make_run(f"v{i}", accuracy=0.0) for i in (1, 3, 4)),
             make_run("v2", accuracy=score),
         ]
 
@@ -240,9 +243,9 @@ async def test_head_to_head_two_candidates_only_the_winners_issue_closes():
         assert row.split == "val"
         assert row.compared_to == "prior_baseline"
         assert row.baseline_rc_id == "rc_base"
-        assert row.n_items == 2
+        assert row.n_items == 4
         assert row.delta == pytest.approx(0.0)
-        assert row.n_expected == 2
+        assert row.n_expected == 4
         assert row.coverage == pytest.approx(1.0)
         assert row.missing_item_ids == []
     # Winner's issue closed; the loser's ISSUE record gets no writes (train
@@ -363,8 +366,8 @@ async def test_partial_baseline_val_fill_does_not_drop_the_eval():
     [row] = promo_req.candidates[0].per_eval
     assert row.split == "val"
     assert row.n_items == 1  # v1 only — the intersection
-    assert row.n_expected == 2  # candidate side measured both val items
-    assert row.coverage == pytest.approx(0.5)
+    assert row.n_expected == 4  # candidate side measured every val item
+    assert row.coverage == pytest.approx(0.25)
     assert row.missing_item_ids == ["v2"]
     # The analyzer's eval_job_errors event reached the shared log (wiring).
     assert "eval_job_errors" in [k for k, _ in ctx.log.events]
@@ -2335,12 +2338,11 @@ async def test_val_pass_spend_reaches_accounting():
     ctx = make_ctx()
     _promotion_scenario(ctx)
     ctx.kiln.pending[("eval_1", "rc_base", "val")] = [
-        make_run("v1", cost=0.1, accuracy=0.0),
-        make_run("v2", cost=0.1, accuracy=0.5),
+        *(make_run(f"v{i}", cost=0.05, accuracy=0.0) for i in (1, 3, 4)),
+        make_run("v2", cost=0.05, accuracy=0.5),
     ]
     ctx.kiln.pending[("eval_1", "rc_cand", "val")] = [
-        make_run("v1", cost=0.2, accuracy=1.0),
-        make_run("v2", cost=0.2, accuracy=1.0),
+        make_run(f"v{i}", cost=0.1, accuracy=1.0) for i in (1, 2, 3, 4)
     ]
     ctx.dispatch.queue("promote_best", decision("rc_cand"))
     await orchestrate(ctx, "", timeout_mins=180)
@@ -2720,15 +2722,15 @@ async def test_quota_circuit_break_exits_cleanly_with_the_fallback_report():
 
 
 def _seed_val_win(kiln, cand: str = "rc_cand") -> None:
-    """Val rows where the candidate really improves: baseline 1/2 pass,
-    candidate 2/2 — `seed_val` leaves both at 1/2 (a flat delta)."""
+    """Val rows where the candidate really improves: baseline 1/4 pass,
+    candidate 4/4, three items fixed — `seed_val` leaves both at 1/4 (a
+    flat delta)."""
     kiln.pending[("eval_1", "rc_base", "val")] = [
-        make_run("v1", accuracy=0.0),
+        *(make_run(f"v{i}", accuracy=0.0) for i in (1, 3, 4)),
         make_run("v2", accuracy=1.0),
     ]
     kiln.pending[("eval_1", cand, "val")] = [
-        make_run("v1", accuracy=1.0),
-        make_run("v2", accuracy=1.0),
+        make_run(f"v{i}", accuracy=1.0) for i in (1, 2, 3, 4)
     ]
 
 
@@ -2981,13 +2983,13 @@ async def test_code_rule_rejects_when_the_target_falls_and_a_guard_rises():
     ctx = make_ctx(gate_agent="auto")
     _auto_scenario(ctx)
     kiln = ctx.kiln
-    # The target slips on val: baseline 2/2, candidate 1/2 (CI straddles zero).
+    # The target slips on val: baseline 4/4, candidate 1/4 (CI straddles
+    # zero). Three items differ, so the slip is "no gain", not "unverified".
     kiln.pending[("eval_1", "rc_base", "val")] = [
-        make_run("v1", accuracy=1.0),
-        make_run("v2", accuracy=1.0),
+        make_run(f"v{i}", accuracy=1.0) for i in (1, 2, 3, 4)
     ]
     kiln.pending[("eval_1", "rc_cand", "val")] = [
-        make_run("v1", accuracy=0.0),
+        *(make_run(f"v{i}", accuracy=0.0) for i in (1, 3, 4)),
         make_run("v2", accuracy=1.0),
     ]
     # A guard eval on a rating scale that rises a lot.
