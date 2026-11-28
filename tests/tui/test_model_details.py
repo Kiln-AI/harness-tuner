@@ -15,6 +15,7 @@ from model_events import (
     merge,
     probe,
     remeasure,
+    repeat,
     row,
     table,
     val_row,
@@ -475,3 +476,12 @@ def test_columns_line_up_in_cells_with_wide_names():
     )
     names = [line.line[0].text for line in train.lines]
     assert names == ["Eval: 正确     ", "Eval: Refusal  "]
+
+
+def test_a_repeat_shows_the_run_config_it_measures_again():
+    run = wave_one(repeat("w1-1", "rc_x", eval_id="e2"))
+    view = panel(run, "w1-1")
+    assert fields(view)["Kind"] == "Repeat"
+    assert fields(view)["Targets"] == "Eval: Refusal honesty"
+    assert "Run config" in fields(view)
+    assert sections(view)["Reason"] == ["two items carry it"]

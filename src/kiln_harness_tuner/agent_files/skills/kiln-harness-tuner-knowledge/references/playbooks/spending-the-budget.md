@@ -25,6 +25,8 @@ not the numbers:
 - `eval_sizes`: the train items that each eval can pair;
 - `train_detectability`: what each score can show on train;
 - `train_noise`: how much a repeat moves a score, when the run sampled it;
+- `train_repeats`: the `repeat` items of this run, each a run config
+  measured again on items it had stored rows for;
 - `lever_costs`: what each lever took to build in this run;
 - `should_wrap_up`: the code's judgment that this is the last wave.
 

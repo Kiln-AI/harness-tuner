@@ -1,6 +1,6 @@
 ---
 title: Dealing with a noisy eval
-description: A score moves between repeats with no change to the agent. Read the noise, predict effects larger than it, let the val gate confirm on new items, and do not let a decision turn on one or two items.
+description: A score moves between repeats with no change to the agent. Read the noise, repeat a measurement that a decision rests on, confirm at the val gate, and do not decide on one or two items.
 reviewed: 2026-11-25
 kind: eval
 applies_to: all
@@ -13,8 +13,8 @@ applies_to: all
 The same run config, measured twice on the same items, gives different
 scores. Signs:
 
-- `train_noise` in your input shows a spread between repeats that is as
-  large as the effects the arms predict;
+- `train_noise` or `train_repeats` in your input shows a spread between
+  repeats that is as large as the effects the arms predict;
 - items flip between pass and fail with no change to the agent;
 - an arm's win or loss rests on one or two items;
 - a judge gives different verdicts on the same output.
@@ -30,34 +30,48 @@ difference smaller than the noise is not a result, in either direction.
    on a sample of train items, and `noise_adjusted_wins` is the bar with
    that noise counted. When `train_noise` is absent, the noise is not
    known, and the stop rules use a flip rate of 10%. Say in `rationale`
-   which case applies.
+   which case applies. `train_repeats` adds the repeats of this run: each
+   row is a run config measured again on items it had stored rows for.
 2. Plan each arm so that its effect can show above the noise. Predict a
    larger effect and say why, or choose a target eval whose
    `train_detectability` can show the effect you predict:
    [spending the budget](spending-the-budget.md).
-3. Use the val gate as the repeat. The gate measures a candidate again,
-   on val items that the arm was not built on. A train win is a candidate
+3. When a decision rests on a small train difference, repeat it before you
+   act on it. Plan a `repeat` item on the arm and one on the baseline, on
+   the same evals and the same `max_items`: the two rows then compare the
+   same items. A difference that is smaller than the changes between two
+   runs of one config is not a result. Do this when the decision is costly
+   to get wrong (a dead end that retires a lever, or the parent of the
+   next waves), and when the val gate cannot settle it (a small val split,
+   or a decision that never goes to the gate), and when the difference
+   rests on 3 or more paired items that differ. When fewer than 3 differ,
+   a repeat cannot help: it measures noise, and it never makes an arm win
+   or lose. Plan a larger measurement, or a larger effect, instead.
+4. Use the val gate as the repeat on new items. The gate measures a
+   candidate again, on val items that the arm was not built on. A train win is a candidate
    until the gate confirms it. When the gate rejects a win with "a gain
    at val, not clear", read
    [train wins rejected at validation](dealing-with-train-wins-rejected-at-val.md).
-4. When the judge is the source (it gives different verdicts on the same
+5. When the judge is the source (it gives different verdicts on the same
    output, or verdicts that disagree with its reasoning), it is a judge
    failure. Read the fires and report them as
    [dealing with a wrong eval](dealing-with-a-wrong-eval.md) says. Plan
-   the arms against the noise with steps 1 to 3 here.
-5. When the agent is the source, and the task needs one stable answer for
+   the arms against the noise with steps 1 to 4 here.
+6. When the agent is the source, and the task needs one stable answer for
    one input: one arm on a sampling setting, with the trace-level reason:
    [thinking level ladder](../techniques/thinking-level-ladder.md).
-6. When the items that flip are the ones that carry the decision, choose
+7. When the items that flip are the ones that carry the decision, choose
    the target items from the failures that repeat. A failure that repeats
    is a better target than one that comes and goes.
 
 ## What not to do yet
 
-- Do not plan a repeat of a measured arm. A `remeasure` item fills only
-  the items that have no stored row, so on a fully measured run config it
-  returns the same rows. A duplicate run config built only to run its
-  evals again is not allowed.
+- Do not use `remeasure` as a repeat. It fills only the items that have no
+  stored row, so on a fully measured run config it returns the same rows.
+  A duplicate run config built only to run its evals again is not allowed:
+  `repeat` is the item for this.
+- Do not repeat every arm. A repeat costs about one measurement of its
+  items and builds nothing. Keep it for the decisions in step 3.
 - Do not let a decision turn on one or two items. Two items can flip by
   chance alone. Code applies this: with fewer than 3 items that differ,
   an arm ends `— UNVERIFIED` and the val gate gives "unverified at val".
@@ -72,7 +86,11 @@ difference smaller than the noise is not a result, in either direction.
 
 On a small budget, an arm that ends with no answer is a large part of the
 spend. Put the arms on the noisy eval after the arms whose effect an eval
-can show. On a large budget, the order matters less.
+can show. Use `max_items` to keep a repeat small. At a change rate near
+20%, the 95% interval is about 18 points each way on 20 items, 14 on 30
+and 12 on 40 (binomial arithmetic). On a large budget, the
+order matters less, and a repeat of the baseline early in the run shows
+the noise when `train_noise` is absent.
 
 ## Priors
 

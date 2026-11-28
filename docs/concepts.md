@@ -97,7 +97,7 @@ planner, the tripwire or a provider quota or auth error ends the run.
 one-line headline, a summary of what it considered and rejected, and any open
 questions it wants a person to answer later.
 
-**Item.** One unit of work in a wave. Five types:
+**Item.** One unit of work in a wave. Six types:
 
 | Type | What it does | Agents |
 |---|---|---|
@@ -105,6 +105,7 @@ questions it wants a person to answer later.
 | `eval_only` | commission a new eval for an issue that has none (experimental, off by default: `--experimental-eval-building`) | eval build |
 | `measure_issue_baseline` | run an existing eval against the baseline to settle whether an `UNMEASURED:` issue is real | none — code |
 | `remeasure` | complete an existing run config's measurement where coverage was lost | none — code |
+| `repeat` | measure an existing run config again on train items it has stored rows for, to see the noise | none — code |
 | `probe` | answer one yes/no question about a mechanism | code, or a short agent session |
 
 An `experiment` item carries one of two kinds of **work**, and the distinction

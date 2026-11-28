@@ -14,7 +14,8 @@ input model is `BatchPlanInput`: `guidance` (kickoff human guidance, verbatim),
 passed, or the budget has room for one more wave only),
 `eval_sizes` (per active eval, the items your experiments can actually be
 measured on — see Eval economics), `train_detectability` and `train_noise`
-(per score, what the train rows can show — see Eval economics), and
+(per score, what the train rows can show — see Eval economics),
+`train_repeats` (this run's `repeat` items — see the item below), and
 `prior_rejected_summary` (the previous wave's `rejected_summary`, `null` on
 wave 1), and `gate_blocks` (this run's candidates the promotion
 gate blocked for copying eval text, each with its reasons — see Gate blocks
@@ -94,7 +95,7 @@ going looking.
   building is experimental and off by default. While it is off, plan no
   `eval_only` item and no fix with `needs_eval: true`: give each fix arm
   `needs_eval: false` and the `eval_id` of an eval that exists. Merge,
-  probe, measure and remeasure items are not affected.
+  probe, measure, remeasure and repeat items are not affected.
   Code drops an item that builds an eval before the wave runs. An issue
   that no eval measures is not a candidate while eval building is off: say
   so in `rejected_summary`, and the report tells the owner to create its
@@ -731,7 +732,10 @@ the one issue that matters can be worth an arm — but say you saw the fact in
 train items, how often the same config scores differently when re-driven,
 and when re-judged; `noise_adjusted_wins` is the bar with that noise
 counted. Where it is well above `floor`, a win on that score needs a larger
-effect than the floor suggests. Both inputs are train-only.
+effect than the floor suggests. `train_repeats` gives each `repeat` item of
+this run (below) as rows: the same run config measured again, and how many
+items changed. Both kinds of noise row are train-only. Neither changes the
+other: a repeat never changes `train_noise` or the stop rules' flip rate.
 
 **Cap the prediction at the headroom**. A binary
 score cannot gain more than the baseline's failures: read the baseline's
@@ -763,8 +767,8 @@ more headroom can be impossible by construction on a near-ceiling baseline.
   measure in parallel; a wave with fewer arms than slots leaves the rest
   idle for the whole wave, and a wave is the loop's slowest unit. When you plan
   fewer arms than slots, either add a cheap arm on a non-contending surface — a skill attach, an
-  `existing_rc_id` resubmission, a `measure_issue_baseline`, a `remeasure`
-  — or name in `rejected_summary` the contention that forbids it. Price it
+  `existing_rc_id` resubmission, a `measure_issue_baseline`, a `remeasure`,
+  a `repeat` that a decision needs — or name in `rejected_summary` the contention that forbids it. Price it
   with `lever_costs` (this run's measured build tokens and time per
   technique, empty on wave 1; tokens, because the agents run on the agent
   CLI's own account and are not in the budget). Before any is measured, use the ORDER, which
@@ -974,7 +978,7 @@ Per experiment item:
   of one rejected rc is a concentration bet you have to argue for, not a
   default.)
 
-The two non-experiment item types are flatter — no build, no `evaluation_
+The non-experiment item types are flatter — no build, no `evaluation_
 target`, no promotion:
 
 - **`eval_only`** (`issue_memory_id`, `reason`) — commissions a **new** eval
@@ -1004,7 +1008,37 @@ target`, no promotion:
   refused a candidate on coverage (`gate_candidate_ineligible` /
   `promotion_blocked` events). Never rebuild a duplicate rc just to re-run
   its evals — that forks provenance and doubles build cost. `split` is
-  pinned to train.
+  pinned to train. On a run config whose rows are complete it drives
+  nothing and returns the same rows: it is not a repeat.
+- **`repeat`** (`rc_id`, `eval_ids`, optional `max_items`, `reason`) —
+  measures an **existing** run config **again** on train items it already
+  has stored rows for, in pure code. Code makes a clone (`REPEAT …`), so
+  each item is driven and judged again, and compares each item with its
+  stored row. `max_items` takes the first N items by a hash of the item id,
+  so an arm and the baseline with the same stored items get the same
+  sample (rows with the same `items_key` compared the same items); without
+  it, every stored item. The result reaches your next planning call in
+  `train_repeats`: per score, `changed` of `items`, `worsened` and
+  `improved`, and each measurement's score (`stored_score`, `repeat_score`:
+  the pass rate, or the mean for a rating). It is evidence about noise, never an arm: no experiment
+  record, no promotion, and the comparisons still use the first
+  measurement. Plan it when a decision rests on a small train difference
+  (3 or more paired items differ: on fewer, a repeat cannot help) and a
+  wrong call is costly (step 3 of the knowledge skill's
+  `references/playbooks/dealing-with-a-noisy-eval.md`): the arm and the
+  baseline, same evals, same `max_items`. Its
+  cost is about one measurement of its items (drives plus judgments) and
+  no build. Code estimates it from the run config's stored rows before any
+  spend; an estimate above the hard maximum for one candidate
+  (`measurement_prices.hard_max_usd`, lower when arms measured in the same
+  wave hold much of the budget) ends it CAPPED with nothing spent, and its
+  line names the `max_items` that fits.
+  At most 4 repeats in a plan, one per (run config, eval). Not in a probe
+  phase. Code refuses a repeat of a run config with no stored train row
+  (plan a `remeasure`), outside the model policy or on a model in
+  `flagged_models`, or made by code (a `REPEAT …`/`NOISE …` clone or a
+  `PROBE …` fork): those are never a parent, an `existing_rc_id`, a probe's
+  `parent_rc_id` or a screening candidate's parent or `rc_id` either.
 - **`probe`** (`question`, `method`, optional `parent_rc_id`, `max_drives`
   ≤ 6 default 3, optional `for_idea`, `reason`, optional `check`)
   — one yes-or-no question about a MECHANISM. No judge, no eval

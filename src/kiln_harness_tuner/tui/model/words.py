@@ -229,6 +229,7 @@ KIND_WORDS = {
     "eval": "eval build",
     "measure": "measure",
     "remeasure": "re-measure",
+    "repeat": "repeat",
 }
 # What a card's title says after the item id, per kind (functional spec
 # 7.6): a fix names its target eval.
@@ -289,6 +290,11 @@ def remeasure_text(rc: str) -> str:
     return f"Complete the measurement of {rc}"
 
 
+def repeat_text(rc: str, max_items: object = None) -> str:
+    size = f"{max_items} train items" if max_items else "its stored train items"
+    return f"Measure {rc} again on {size}"
+
+
 def val_progress(done: int, total: int) -> str:
     return f"{done} of {total} val items"
 
@@ -332,6 +338,7 @@ DETAIL_KINDS = {
     "eval": "New eval",
     "measure": "Measure",
     "remeasure": "Re-measure",
+    "repeat": "Repeat",
 }
 WILDCARD = "wildcard"
 CODE_PROBE = "answered by code"

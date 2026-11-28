@@ -84,6 +84,8 @@ from kiln_harness_tuner.schemas import (
     RcBuildInput,
     RcBuildResult,
     RemeasureItem,
+    RepeatItem,
+    RepeatResult,
     ResidualMiss,
     Usage,
     dump_or_none,
@@ -213,6 +215,7 @@ def _outcome(
     result=None,
     infra_error: ErrorInfo | None = None,
     probe: ProbeResult | None = None,
+    repeat: RepeatResult | None = None,
     speed: LatencyComparison | None = None,
     speed_verdict: str | None = None,
 ) -> ItemOutcome:
@@ -224,6 +227,7 @@ def _outcome(
         result=result,
         infra_error=infra_error,
         probe=probe,
+        repeat=repeat,
         speed=speed,
         speed_verdict=speed_verdict,
     )
@@ -542,6 +546,65 @@ async def _remeasure(ctx: Ctx, item: RemeasureItem) -> ItemOutcome:
     return _outcome(item, "completed", rc_id=item.rc_id)
 
 
+async def _repeat(
+    ctx: Ctx, item: RepeatItem, baseline: BaselineRef, wave: int
+) -> ItemOutcome:
+    """Measure an EXISTING rc again on train items it has stored rows for
+    (`kiln_harness_tuner.repeats`) — **pure code, no agent dispatch**. The
+    measurement runs on a clone, so each sampled item is driven and judged
+    again. `completed` with result=None: evidence about noise, never an
+    arm, never a promotion candidate. An estimate that does not fit the
+    budget ends the item `capped`, with nothing spent. An item that code
+    refuses (the rc is unknown, is itself a clone, is outside the model
+    policy, or has no stored train row) or whose jobs store nothing ends
+    `failed_infra` with the reason."""
+    # Imported here: `repeats` reads `detectability`, which reads `setup`,
+    # which reads this module.
+    from kiln_harness_tuner.repeats import repeat_line, run_repeat
+
+    _set_state(ctx, item.id, "measuring")
+    result = await run_repeat(ctx, item, baseline.rc_id, wave)
+    if result.skipped is not None and result.over_budget:
+        status = "capped"
+    elif result.skipped is not None or not result.rows:
+        status = "failed_infra"
+    else:
+        status = "completed"
+    detail = result.skipped or "; ".join(repeat_line(row) for row in result.rows)
+    if status == "failed_infra" and result.skipped is None:
+        detail = "; ".join(result.notes) or "the repeat stored no row"
+    ctx.log.event("item_detail", item_id=item.id, detail=detail[:600])
+    return _outcome(
+        item,
+        status,
+        rc_id=item.rc_id,
+        repeat=result,
+        infra_error=(
+            ErrorInfo(error_class="provider_error", detail=f"repeat: {detail}"[:600])
+            if status == "failed_infra"
+            else None
+        ),
+    )
+
+
+async def _clone_refusal(ctx: Ctx, item: ExperimentItem) -> str | None:
+    """Why an experiment may not run, when it names a clone or a fork that
+    code made to measure or to probe (`repeats.clone_refusal`) as its
+    parent or as the run config to measure again. None otherwise."""
+    from kiln_harness_tuner.repeats import clone_refusal
+
+    work = item.work
+    named = [
+        getattr(work, "parent_rc_id", None),
+        getattr(work, "existing_rc_id", None),
+    ]
+    for rc_id in dict.fromkeys(r for r in named if r):
+        refusal = await clone_refusal(ctx, rc_id)
+        if refusal is not None:
+            return refusal
+    return None
+
+
 async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcome:
     """A viability probe: one `claude -p` session answers one
     yes/no question about a mechanism by forking an ephemeral run config and
@@ -553,7 +616,18 @@ async def _probe(ctx: Ctx, item: ProbeItem, baseline: BaselineRef) -> ItemOutcom
     item `completed` with answer `unclear` and the agent's reason as the
     evidence — an unanswered probe is information the planner needs, not an
     infra retry. Only a dispatcher failure is `failed_infra`."""
+    from kiln_harness_tuner.repeats import clone_refusal
+
     _set_state(ctx, item.id, "probing")
+    if (
+        item.parent_rc_id
+        and (made := await clone_refusal(ctx, item.parent_rc_id)) is not None
+    ):
+        # Answered like any probe that cannot run: `unclear`, with the reason.
+        result = ProbeResult(answer="unclear", evidence=made)
+        ctx.log.event("item_probe", item_id=item.id, probe=result.model_dump())
+        ctx.log.event("item_detail", item_id=item.id, detail=f"probe → UNCLEAR: {made}")
+        return _outcome(item, "completed", probe=result)
     await snapshot_memory(ctx, f"{item.id}-probe-before")
     if item.check is not None:
         # A CODE probe: no agent — fork, drive,
@@ -740,6 +814,9 @@ async def _execute_plan_item(
     if isinstance(item, RemeasureItem):
         return await _remeasure(ctx, item)
 
+    if isinstance(item, RepeatItem):
+        return await _repeat(ctx, item, baseline, wave)
+
     if isinstance(item, ProbeItem):
         return await _probe(ctx, item, baseline)
 
@@ -755,6 +832,16 @@ async def _execute_plan_item(
             return refused
         # A successful eval_only item ends "completed" with result=None.
         return _outcome(item, "completed")
+
+    # Before any session or spend, and before the experiment record opens:
+    # a clone that code made to measure is never built on.
+    if (refusal := await _clone_refusal(ctx, item)) is not None:
+        ctx.log.event("item_detail", item_id=item.id, detail=refusal)
+        return _outcome(
+            item,
+            "failed_infra",
+            infra_error=ErrorInfo(error_class="provider_error", detail=refusal),
+        )
 
     if isinstance(item.work, FixWork) and item.work.needs_eval:
         rep = await _run_eval_build(ctx, item.id, item.work.issue_memory_id, baseline)
@@ -986,6 +1073,8 @@ async def _execute_plan_item(
     content_budget = max(room, MIN_ANALYZER_ROOM)
 
     _set_state(ctx, item.id, "analyzing")
+    from kiln_harness_tuner.repeats import rows_for as repeat_rows_for
+
     await snapshot_memory(ctx, f"{item.id}-analysis-before")
     res = await call_with_retries(
         ctx.dispatch.analyze_experiment_results,
@@ -996,6 +1085,11 @@ async def _execute_plan_item(
             experiment_memory_id=exp_mem,
             speed_rule=speed_rule_text(ctx.objective) if efficiency else None,
             reference_findings=list(ctx.reference_findings.get(item.id, [])),
+            train_repeats=repeat_rows_for(
+                list(ctx.train_repeats),
+                {rc_id, parent_rc_id, baseline.rc_id},
+                {row.eval_id for row in bundle.per_eval},
+            ),
             content_budget=content_budget,
         ),
         backoffs=ITEM_DISPATCH_BACKOFFS,

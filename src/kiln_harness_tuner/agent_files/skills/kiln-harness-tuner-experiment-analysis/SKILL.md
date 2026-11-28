@@ -101,6 +101,22 @@ that name. When they fail on the missing skill or tool, say so in
 `next:` line can ask for the same lever built again with the names and the
 attachments in agreement.
 
+**Repeats.** `train_repeats` in your input is set when the planner had
+this run measure the arm's run config, its parent or the baseline again on
+the same evals (a `repeat` item). Each row is one run config measured a
+second time on items it already had stored rows for: `changed` of `items`
+changed, `worsened` and `improved` of those, and each measurement's score
+(`stored_score`, `repeat_score`: the pass rate, or the mean for a rating).
+It is evidence about noise, beside the
+table, never a row of it: `delta`, `p_value` and the CI still compare the
+first measurement of each side. Use it to grade caution. When the parent
+or the baseline changed on about as many items as the arm's net wins, the
+gain is within the noise: say so in `findings` with both numbers. When the
+arm's own repeat lost the gain (`repeat_score` back near the parent's), say
+that too. Two rows compare the same items only when their `items_key` is
+equal. Never write a repeat's numbers as the arm's result, and never pass
+or fail `successful` on a repeat alone.
+
 **Spend: `bundle cost`, and nothing else.** `bundle.spend_total_usd` is the
 ONE spend figure an EXP record reports, and it is **always labeled `bundle
 cost`** — never "spend", "cost", "eval cost" or a bare dollar figure, so

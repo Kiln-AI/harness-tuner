@@ -97,6 +97,12 @@ going looking.
   are a split size and an estimate, never a val result, and they are
   val-grade. If `detectability.overridden` is true, say in the Setup section
   that the check refused and the run went on under `--allow-underpowered`.
+- `repeats`: the `repeat` items the planner asked for — a run config
+  measured again on train items it had stored rows for, and how many items
+  changed. Code appends a "Repeat measurements (code-computed)" table
+  after your markdown. Point at it; never restate its numbers. A repeat is
+  evidence about noise: never describe one as an experiment, a win or a
+  loss.
 - `model_preflight`: the start-up model preflight — each
   model checked (`checks[]`: provider, model, `baseline`, `outcome`,
   `reason`, `attempts`, `context_window`), the baseline's estimated prompt

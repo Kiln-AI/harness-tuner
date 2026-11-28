@@ -32,6 +32,7 @@ from kiln_harness_tuner.schemas import (
     ProbeItem,
     PromotionDecision,
     RemeasureItem,
+    RepeatItem,
     TrainDetectability,
     WinRef,
 )
@@ -136,6 +137,17 @@ def measure(item_id: str, eval_id: str = "e2") -> MeasureIssueBaselineItem:
 def remeasure(item_id: str, rc_id: str, eval_id: str = "e1") -> RemeasureItem:
     return RemeasureItem(
         id=item_id, type="remeasure", rc_id=rc_id, eval_ids=[eval_id], reason="holes"
+    )
+
+
+def repeat(item_id: str, rc_id: str, eval_id: str = "e1", max_items=None) -> RepeatItem:
+    return RepeatItem(
+        id=item_id,
+        type="repeat",
+        rc_id=rc_id,
+        eval_ids=[eval_id],
+        max_items=max_items,
+        reason="two items carry it",
     )
 
 
@@ -411,8 +423,9 @@ class Run:
         unverified_reason: str | None = None,
     ) -> Run:
         item = self.plan_items[item_id]
-        if rc_id is None and isinstance(item, RemeasureItem):
-            rc_id = item.rc_id  # as the real emitter does (`items._remeasure`)
+        if rc_id is None and isinstance(item, (RemeasureItem, RepeatItem)):
+            # As the real emitters do (`items._remeasure`, `items._repeat`).
+            rc_id = item.rc_id
         result = None
         if successful is not None:
             result = ExperimentResult(

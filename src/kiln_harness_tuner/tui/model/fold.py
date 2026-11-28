@@ -530,9 +530,9 @@ class RunModel:
         self.names.see(rc)
         if item is not None:
             item.rc_id = rc
-            # A re-measure completes an rc another item built: it never
-            # names the rc.
-            if item.kind != "remeasure":
+            # A re-measure completes an rc another item built, and a repeat
+            # measures one again: neither names the rc.
+            if item.kind not in ("remeasure", "repeat"):
                 self.rc_items[rc] = item.item_id
 
     def _add_concern(self, eval_id: str, score_key: str, row: Any) -> None:

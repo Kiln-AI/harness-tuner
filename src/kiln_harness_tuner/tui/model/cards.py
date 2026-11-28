@@ -196,6 +196,14 @@ def about(model: RunModel, item: ItemModel) -> tuple[str, Line]:
             words.card_kind("measure", eval_name(model, measure.get("eval_id"))),
             (Span(words.measure_text(issue)),),
         )
+    if item.kind == "repeat":
+        repeat = details.get("repeat") or {}
+        eval_ids = repeat.get("eval_ids") or [None]
+        rc = model.rc_label(str(repeat.get("rc_id") or ""))
+        return (
+            words.card_kind("repeat", eval_name(model, eval_ids[0])),
+            (Span(words.repeat_text(rc, repeat.get("max_items"))),),
+        )
     remeasure = details.get("remeasure") or {}
     eval_ids = remeasure.get("eval_ids") or [None]
     rc = model.rc_label(str(remeasure.get("rc_id") or ""))
@@ -210,7 +218,7 @@ def _stages(item: ItemModel, verdict_: Verdict | None) -> tuple[str, ...]:
         return words.PROBE_STAGES
     if item.kind == "eval":
         return ("build",)
-    if item.kind in ("measure", "remeasure"):
+    if item.kind in ("measure", "remeasure", "repeat"):
         return ("measure",)
     if item.gate is not None or verdict_ is words.SUCCESS_GATE:
         return (*words.FIX_STAGES, words.GATE_STAGE)
@@ -283,7 +291,7 @@ def line4(
             else (item.details.get("probe") or {}).get("max_drives", 0)
         )
         return NoteLine(words.drives(int(count or 0)))
-    if item.kind in ("measure", "remeasure"):
+    if item.kind in ("measure", "remeasure", "repeat"):
         if item.landed:
             return None
         return NoteLine(f"{words.MEASURING} · {in_state}")

@@ -243,6 +243,18 @@ budget skips the check with the reason. What it spent is booked as source
 `noise_check` in the API keys lane, and it counts against the budget like every
 other line.
 
+## Repeat measurements
+
+A `repeat` item (planned by the planner, train items only) is paid. It
+drives each sampled item once on a clone of the run config and judges it
+once per eval: about (distinct sampled items × one drive) + (items × one
+judgment × evals). There is no build and no agent session. Before any
+spend, one line prints that estimate, priced from the run config's own
+stored rows. An estimate above the most one candidate may cost (the hard
+maximum of `budget.py`) ends the item `capped` with nothing spent. What it
+spent is booked as source `repeat` in the API keys lane, and it counts
+against the budget.
+
 ## How spend is booked
 
 Each stored record (an eval run: its task drive plus its judge call) is

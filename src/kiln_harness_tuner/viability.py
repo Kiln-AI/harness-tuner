@@ -268,7 +268,13 @@ async def _make_candidate_rc(
         rc_props,
         thinking_levels,
     )
+    from kiln_harness_tuner.repeats import clone_refusal
 
+    # A clone or a fork that code made to measure or to probe is never a
+    # parent or a candidate (`repeats.clone_refusal`).
+    for named in dict.fromkeys(r for r in (candidate.rc_id, parent_rc_id) if r):
+        if (made := await clone_refusal(ctx, named)) is not None:
+            return None, made, False
     if candidate.rc_id:
         if getattr(ctx, "flagged_models", None):
             try:

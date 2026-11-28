@@ -25,6 +25,7 @@ from kiln_harness_tuner.schemas import (
     EvalOnlyItem,
     ItemOutcome,
     MeasureIssueBaselineItem,
+    RepeatResult,
     RunStatus,
     spend_lane_labels,
 )
@@ -83,6 +84,18 @@ def _clip(text: str, limit: int) -> str:
     return text[: limit - 1] + "…"
 
 
+def repeat_cell(repeat: RepeatResult) -> str:
+    """A repeat item's finding: the items that changed between the stored
+    rows and the repeat, over its scores, or why it did not run."""
+    if repeat.skipped is not None:
+        return f"repeat did not run: {repeat.skipped}"
+    changed = sum(row.changed for row in repeat.rows)
+    items = sum(row.items for row in repeat.rows)
+    worse = sum(row.worsened for row in repeat.rows)
+    better = changed - worse
+    return f"repeat: {changed} of {items} changed ({worse} worse, {better} better)"
+
+
 def outcome_cell(outcome: ItemOutcome) -> str:
     """The finding that replaces the running status: numbers from the
     analyzer's front-loaded memory_overview tail, or the terminal state.
@@ -93,6 +106,9 @@ def outcome_cell(outcome: ItemOutcome) -> str:
     regression opening with `pass 3/34` would render ✓). The numbers in the
     cell already say which way it went, and a mark that can lie is worse
     than no mark."""
+    if outcome.repeat is not None and outcome.status != "failed_infra":
+        # A repeat item: how many items changed, or why it did not run.
+        return _clip(repeat_cell(outcome.repeat), _FINDING_WIDTH)
     if outcome.status == "completed":
         if outcome.probe is not None:
             # A probe item: the answer is the whole finding.
@@ -306,6 +322,10 @@ SETUP_LINE_EVENTS = frozenset(
         "noise_check",
         "noise_row",
         "noise_warning",
+        # A repeat item: its estimate and its one-line result. Its rows
+        # are in the item's `item_detail`.
+        "repeat_estimate",
+        "repeat",
         # A candidate the gate blocked for copying eval text,
         # with the reason, and the baseline audit's eval-text half (a line
         # only when it found a copy).
